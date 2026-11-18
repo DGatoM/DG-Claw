@@ -125,7 +125,7 @@ export class Sessao extends EventEmitter {
   agora: () => number = () => Date.now();
   /** Quando o último Esc foi escrito no PTY (por /interromper ou pela permissão negada); 0 = nunca. */
   ultimoEscEm = 0;
-  /** Horário real e processo do PTY do último Esc escrito (de qualquer origem): só com ele o transcript prova uma interrupção. */
+  /** O Esc pendente do turno (o PRIMEIRO, de qualquer origem; os seguintes não sobrescrevem): só com ele o transcript prova uma interrupção. Cai quando o turno termina ou outro começa. */
   ultimoEscReal: { em: number; proc: unknown } | null = null;
   /**
    * A pergunta (processo + tool_use_id) cuja resposta já começou a ser digitada. Fica depois da trava cair:
@@ -540,7 +540,7 @@ export class Sessao extends EventEmitter {
     // Todo Esc sozinho, venha de onde vier (Parar, negar permissão, cancelar pergunta), entra na trava de 3 s.
     if (texto === ESC) {
       this.ultimoEscEm = this.agora();
-      this.ultimoEscReal = { em: Date.now(), proc: this.proc };
+      if (!this.ultimoEscReal || this.ultimoEscReal.proc !== this.proc) this.ultimoEscReal = { em: Date.now(), proc: this.proc };
     }
     this.proc.write(texto);
   }
@@ -732,6 +732,8 @@ export class Sessao extends EventEmitter {
     // O motivo só vale enquanto o status que o pediu vale: trocou de status sem dizer o motivo, ele cai.
     if (campos.status && campos.status !== this.estado.status && !("motivo" in campos)) campos = { ...campos, motivo: null };
     if (campos.status && campos.status !== this.estado.status && !("pendenteId" in campos)) campos = { ...campos, pendenteId: null };
+    // O Esc pendente é do turno: acaba quando ele termina (idle) e quando outro começa (working vindo de outro estado).
+    if (campos.status === "idle" || (campos.status === "working" && this.estado.status !== "working")) this.ultimoEscReal = null;
     Object.assign(this.estado, campos, { updatedAt: Date.now() });
     if ("sessionId" in campos || "previousSessionId" in campos || "status" in campos) {
       gravarEstado(

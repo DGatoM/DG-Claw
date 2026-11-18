@@ -196,6 +196,35 @@ test("Stop perdido: o marcador literal sem Esc, ou com Esc de outro processo, n�
   await dormir(2_000);
   assert.equal(s.estado.status, "working", "Esc de um processo anterior");
 });
+test("Stop perdido: dois Parar separados por 4 s, com o marcador do primeiro no transcript, vira idle e entrega a fila", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  const rel = { t: 1_000_000 };
+  s.agora = () => rel.t;
+  assert.equal(s.interromper().ok, true);
+  const primeiro = s.ultimoEscReal;
+  rel.t += 4_000;
+  assert.equal(s.interromper().ok, true);
+  assert.equal(s.ultimoEscReal, primeiro, "o segundo Esc não sobrescreve o pendente");
+  transcript([[INTERROMPIDO("[Request interrupted by user]"), 200]]);
+  const antes = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length;
+  s.enfileirarQuandoOcioso("mensagem presa na fila");
+  await esperarAte(() => s.estado.status === "idle", 5_000, "o fim de turno por interrupção marcar idle");
+  assert.equal(s.ultimoEscReal, null, "o turno terminou: o Esc pendente cai");
+  await esperarAte(() => lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length > antes, 12_000, "a fila soltar o texto no CLI");
+});
+test("Stop perdido: Esc de um turno já encerrado + marcador literal num turno novo não encerram o turno", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  s.escrever("\u001b");
+  assert.ok(s.ultimoEscReal);
+  s.mudar({ status: "idle", statusReason: "teste: turno acabou" });
+  assert.equal(s.ultimoEscReal, null);
+  hook("UserPromptSubmit");
+  transcript([[INTERROMPIDO("[Request interrupted by user]"), 200]]);
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+});
 test("Stop perdido: linhas 'null', número e lixo no fim do transcript não derrubam a leitura", async () => {
   const { s, hook, transcript, arquivo } = await novaComRedeCurta(600);
   hook("UserPromptSubmit");

@@ -446,7 +446,8 @@ if (atividadeEl) {
         const espere = e.dados && typeof e.dados.espere_s === 'number' ? e.dados.espere_s : null;
         if (e.status === 429 && espere !== null) esperaMs = Math.ceil(espere * 1000) + 100;
         // Sem status HTTP (rede, corte, prazo) ou 504 INCERTO: o Esc pode ter chegado; não diga que falhou.
-        if (!e.status || (e.status === 504 && e.codigo === 'INCERTO')) mostraErro('Não sei se o pedido de parar chegou a ' + AGENTE.nome + '. Olhe a conversa antes de apertar de novo.');
+        const reconhecido = ['MUITO_RAPIDO', 'NO_PTY', 'NAO_TRABALHANDO', 'ESPERANDO_DECISAO', 'RESPOSTA_EM_ANDAMENTO', 'SO_O_DONO', 'RUNNER_FORA', 'RUNNER_ANTIGO', 'AGENTE_DE_OUTRO_RUNNER', 'RECUSADO'].includes(e.codigo);
+        if (!e.status || (e.status === 504 && e.codigo === 'INCERTO') || (e.status >= 500 && !reconhecido)) mostraErro('Não sei se o pedido de parar chegou a ' + AGENTE.nome + '. Olhe a conversa antes de apertar de novo.');
         else mostraErro('Não consegui parar ' + AGENTE.nome + ': ' + e.message);
       } finally {
         // A trava de 3 s conta desde o clique; a espera do 429 conta desde a resposta.

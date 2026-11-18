@@ -279,6 +279,11 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           }
           const enviar = (corpo as { submit?: boolean }).submit !== false;
           const quandoOcioso = (corpo as { injectWhenIdle?: boolean }).injectWhenIdle === true;
+          // Um Esc sozinho só vale como entrada imediata: enfileirado, sairia num momento que ninguém escolheu.
+          if (texto === ESC && quandoOcioso) {
+            json(res, { success: false, error: "Um Esc sozinho não entra na fila de ocioso.", howToFix: "mandar o Esc como entrada imediata (sem injectWhenIdle)", code: "ESC_NAO_ENFILEIRA" }, 400);
+            return;
+          }
 
           // Qualquer entrada no meio da resposta de uma pergunta intercalaria com as teclas dela (e Enter de turno
           // escolheria opção). Vale para tecla crua, turno e fila de ocioso.

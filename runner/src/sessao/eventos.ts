@@ -76,6 +76,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       }
       break;
     case "UserPromptSubmit":
+      s.ultimoEscReal = null;
       cancelarStopPendente(s);
       // Atividade nova: o aviso da trava (se sobrou de um Stop que se perdeu) não pode engolir o Stop que vem.
       s.stopBloqueadoAte = 0;

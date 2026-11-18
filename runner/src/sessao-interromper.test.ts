@@ -321,3 +321,29 @@ test("rota POST /pergunta: o 429 da trava do Esc preserva espereS na resposta", 
     servidor.close();
   }
 });
+
+test("rota POST /input: Esc sozinho com injectWhenIdle => 400 ESC_NAO_ENFILEIRA, sem enfileirar", async () => {
+  const porta = await portaLivre();
+  const descritor = lerDescritor();
+  const gerente = new GerenteDeSessoes(descritor, porta);
+  const servidor: http.Server = criarServidor(gerente);
+  await new Promise<void>((ok) => servidor.listen(porta, "127.0.0.1", ok));
+  try {
+    const { escritas } = falso(gerente.principal);
+    const r = await fetch(`http://127.0.0.1:${porta}/api/agents/${descritor.id}/input`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "\u001b", injectWhenIdle: true }),
+    });
+    const corpo = (await r.json()) as any;
+    assert.equal(r.status, 400);
+    assert.equal(corpo.code, "ESC_NAO_ENFILEIRA");
+    assert.equal(gerente.principal.tamanhoDaFila(), 0);
+    assert.deepEqual(escritas, []);
+  } finally {
+    (gerente.principal as unknown as { proc: unknown }).proc = null;
+    gerente.pararTodas("fim dos testes");
+    servidor.closeAllConnections?.();
+    servidor.close();
+  }
+});
