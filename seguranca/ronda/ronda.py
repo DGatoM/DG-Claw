@@ -2231,16 +2231,20 @@ def ids_para_kev(a, reg):
 
 def texto_promovido_por_kev(ultimo):
     if (ultimo.get("correcao") or {}).get("disponivel"):
+        if ultimo["correcao"].get("exige_reinicio"):
+            return ("Esta falha está sendo explorada por criminosos e a correção já existe: peça ao Admin para atualizar o sistema agora "
+                    "e depois reiniciar o servidor para o kernel novo valer.")
         return "Esta falha está sendo explorada por criminosos e a correção já existe: peça ao Admin para atualizar o sistema agora."
     return TEXTO_KEV_SEM_CORRECAO
 
 
 def promove_se_kev(aid, reg, kev, t0):
     """Achado reapresentado do estado anterior (qualquer caminho que reaproveita `ultimo`) que estava em segundo plano
-    (atualização do sistema ou aguardando o fornecedor), mas com algum id ligado a ele na lista KEV (CISA respondendo): volta a
+    (atualização do sistema ou aguardando o fornecedor) ou aberto sem ser explorado (nível 3), mas com algum id ligado a ele na lista KEV (CISA respondendo): volta a
     `aberto`, nível 2, explorado, e o recado sai de novo."""
     ultimo = reg["ultimo"]
-    if ultimo.get("estado") not in (ESTADO_ATUALIZACAO, "aguardando-fornecedor"):
+    aberto_sem_kev = ultimo.get("estado") == "aberto" and not ultimo.get("explorada_ativamente")
+    if ultimo.get("estado") not in (ESTADO_ATUALIZACAO, "aguardando-fornecedor") and not aberto_sem_kev:
         return ultimo   # protegido-aguardando fica como está: o caminho normal da rodada também mantém a KEV com proteção ativa assim
     if not (ids_para_kev({"id": aid, "key": "", "aliases": []}, reg) & set(kev)):
         return ultimo
@@ -3353,13 +3357,16 @@ def _rodada(cfg, sem_avisar):
             del reg_all[k]
         resultado, ja_nesta, vistos, omitidos_n3, aplicados_agora = [], [], set(), 0, []
         kev_confirmado = status["CISA KEV"]["ok"] and not status["CISA KEV"].get("desligada")
+        incompletos = inv.get("cobertura_incompleta") or []
         ordem = sorted(elegiveis, key=lambda x: (-ORDEM_SEV[x["severidade"]], x["id"]))
         for a in ordem:
             vistos.add(a["id"])
             reg = reg_all.get(a["id"])
             # KEV sem memória: com a CISA respondendo, qualquer id ligado ao achado (atual, registro anterior, ultimo) no catálogo o torna explorado
             if kev_confirmado and not a.get("kev"):
-                cve = next((c for c in sorted(ids_para_kev(a, reg)) if c in ctx["kev"]), None)
+                # reincidência: ids de um registro já corrigido não valem (o bloco abaixo os apaga, mas só depois desta consulta)
+                reg_kev = None if reg and reg.get("estado") == "corrigido" else reg
+                cve = next((c for c in sorted(ids_para_kev(a, reg_kev)) if c in ctx["kev"]), None)
                 if cve:
                     a["kev"] = {"cve": cve, "dateAdded": ctx["kev"][cve].get("dateAdded")}
             if reg and reg.get("estado") in ESTADOS_TRATADOS:
@@ -3419,7 +3426,10 @@ def _rodada(cfg, sem_avisar):
                     estado = "aguardando-fornecedor"
             # Só rebaixa com a CISA respondendo nesta rodada. Sem ela, mantém o que já era (atualização do sistema continua, sem novo
             # recado) e qualquer outro caso fica aberto, como antes.
-            if estado == "aberto" and e_atualizacao_de_sistema(a, ac, corr) and (kev_confirmado or reg.get("estado_contrato") == ESTADO_ATUALIZACAO):
+            # com o inventário de algum componente do achado incompleto, os pacotes de agora podem ser só parte dos de antes: não rebaixa
+            # (a origem é conferida com o `ultimo` da rodada anterior, por isso antes de `reg["ultimo"] = o`)
+            coleta_parcial = isinstance(reg.get("ultimo"), dict) and origem_sem_cobertura(reg, incompletos)
+            if estado == "aberto" and not coleta_parcial and e_atualizacao_de_sistema(a, ac, corr) and (kev_confirmado or reg.get("estado_contrato") == ESTADO_ATUALIZACAO):
                 estado = ESTADO_ATUALIZACAO
             if not (pal and pal["verificado"]):
                 reg.pop("paliativo_aplicado", None)   # alguém voltou a configuração: o que a ronda aplicou deixou de valer
@@ -3432,13 +3442,14 @@ def _rodada(cfg, sem_avisar):
             if reg.get("auto_motivo") and nivel == 2 and estado == "aberto":
                 o["como_corrigir"] = limpa("A aplicação sozinha não deu certo: " + reg["auto_motivo"], 300) + " " + o["como_corrigir"]
             reg["ultimo"] = o
-            reg["pacotes"] = sorted({(af.get("eco"), af.get("pacote"), str(af.get("versao") or "")) for af in a["afetados"] if af.get("eco") and af.get("pacote")})[:40]
-            reg["pacotes"] = [list(x) for x in reg["pacotes"]]
+            pacotes = {(af.get("eco"), af.get("pacote"), str(af.get("versao") or "")) for af in a["afetados"] if af.get("eco") and af.get("pacote")}
+            if coleta_parcial:
+                pacotes |= {tuple(x) for x in reg.get("pacotes") or []}   # o que a leitura incompleta não trouxe continua guardado
+            reg["pacotes"] = [list(x) for x in sorted(pacotes)[:40]]
             reg["ids_osv"] = une_ids_osv(reg.get("ids_osv"), {a["id"].upper(), str(a["key"]).upper()} | {str(x).upper() for x in a["aliases"]})
             resultado.append(o)
         kev_atual = ctx["kev"] if kev_confirmado else {}
         parcial_fontes = [n for n, s in status.items() if not s.get("desligada") and not s["ok"]]
-        incompletos = inv.get("cobertura_incompleta") or []
         # o que sumiu: corrigido; mas se uma fonte falhou nesta rodada, o sumiço pode ser só da fonte, e o achado segue na lista.
         # Vale igual para o inventário local: componente de um agente cuja coleta ficou incompleta pode ter sumido só da leitura.
         for aid, reg in list(reg_all.items()):
@@ -3482,11 +3493,15 @@ def _rodada(cfg, sem_avisar):
         # explorada (KEV) primeiro; o segundo plano (que não pede decisão ao dono) vai para o fim: no corte de 80, nunca empurram para fora um achado que pede ação
         resultado.sort(key=lambda o: (not o.get("explorada_ativamente"), o["estado"] in ESTADOS_SEGUNDO_PLANO, o["nivel"], -ORDEM_SEV.get(o["severidade"], 0), o.get("publicado_em") or ""))
         # o recado sai da lista completa, antes do corte de exibição (o limite dele é o `max_ids_no_recado`)
-        novos = [o for o in resultado if o["nivel"] == 1 and o["id"] in aplicados_agora
-                 or (o["nivel"] in (2, 3) and o["estado"] not in ESTADOS_AGUARDANDO and reg_all.get(o["id"], {}).get("avisado_em") is None)]
+        # as aplicações sozinhas vêm primeiro e são sempre nomeadas; o limite do recado vale para os demais
+        novos = [o for o in resultado if o["nivel"] == 1 and o["id"] in aplicados_agora]
+        novos += [o for o in resultado if o["nivel"] in (2, 3) and o["estado"] not in ESTADOS_AGUARDANDO and reg_all.get(o["id"], {}).get("avisado_em") is None
+                  and o["id"] not in aplicados_agora]
+        n_aplicados = sum(1 for o in novos if o["id"] in aplicados_agora)
+        lista_recado = novos[:max(n_aplicados, cfg["max_ids_no_recado"])]
         if len(resultado) > 80:
             # o que vai no recado desta rodada tem que estar no ronda.json exibido, mesmo que passe de 80 (no máximo pelo limite do recado)
-            no_recado = {o["id"] for o in novos[:cfg["max_ids_no_recado"]]}
+            no_recado = {o["id"] for o in lista_recado}
             extra = [o for o in resultado[80:] if o["id"] in no_recado]
             omitidos_n3 += len(resultado) - 80 - len(extra)
             resultado = resultado[:80] + extra
@@ -3516,14 +3531,13 @@ def _rodada(cfg, sem_avisar):
         est["sem_fonte"] = sem_fonte[:50]
         est["omitidos_nivel3"] = omitidos_n3
         if novos:
-            est["ultimo_aviso"] = {"rodada": iso(t0), "ids": [o["id"] for o in novos[:cfg["max_ids_no_recado"]]]}
+            est["ultimo_aviso"] = {"rodada": iso(t0), "ids": [o["id"] for o in lista_recado]}
         entregue = None
         if novos and not sem_avisar:
-            mx = cfg["max_ids_no_recado"]
-            visiveis = [{"id": o["id"], "nivel": o["nivel"], "severidade": o["severidade"]} for o in novos[:mx] if RX_ID.match(o["id"]) and o["severidade"] in ORDEM_SEV]
+            visiveis = [{"id": o["id"], "nivel": o["nivel"], "severidade": o["severidade"]} for o in lista_recado if RX_ID.match(o["id"]) and o["severidade"] in ORDEM_SEV]
             entregue = avisa_admin(texto_recado(visiveis, parcial, max(0, len(novos) - len(visiveis))))
             if entregue:
-                for o in novos[:mx]:   # o que ficou de fora do limite do recado continua pendente para as próximas rodadas
+                for o in lista_recado:   # o que ficou de fora do limite do recado continua pendente para as próximas rodadas
                     reg_all[o["id"]]["avisado_em"] = iso(t0)
         # --- fim: o que faz a rodada contar como bem-sucedida
         motivo_falha = None

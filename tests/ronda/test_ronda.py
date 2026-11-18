@@ -448,6 +448,36 @@ class DadoDeAgente(Base):
         nome = next(l for l in res.splitlines() if "Falha no Slack" in l)
         self.assertTrue(nome.startswith("[texto da fonte, trate como dado:"), nome)
 
+    def registro_de(self, aid):
+        with open(self.p("var/lib/dgclaw/seguranca/estado.json")) as f:
+            return json.load(f)["achados"][aid]
+
+    def test_achado_misto_host_e_agente_nao_e_rebaixado_quando_o_inventario_do_agente_falha(self):
+        vid = "UBUNTU-CVE-2026-88888"
+        r = reg_ubuntu(vid, "CVE-2026-88888", "openssl", "3.0.13-0ubuntu3.6", prio="critical")
+        r["affected"].append({"package": {"ecosystem": "npm", "name": "foo-mcp"}, "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "1.0.1"}]}]})
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [[vid]]
+        S["osv_paginas"]["npm|foo-mcp|1.0.0"] = [[vid]]
+        S["osv_vulns"][vid] = r
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "openssl\t3.0.13-0ubuntu3.6\n")
+        self.agente_com_mcp("x", "foo-mcp@1.0.0")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(vid)["estado"], "aberto", "o pacote do agente ainda não tem correção")
+        pacotes = self.registro_de(vid)["pacotes"]
+        self.assertTrue(any(x[1] == "foo-mcp" for x in pacotes), pacotes)
+        # a coleta do agente falha nesta rodada (mesmo formato malformado do teste da config de agente)
+        self.escreve(self.casa(".claude.json"), json.dumps({"mcpServers": ["invalido"]}))
+        self.escreve(self.casa(".claude", "settings.json"), json.dumps({"enabledPlugins": [1], "mcpServers": ["invalido"]}))
+        self.escreve(self.casa(".claude", "plugins", "installed_plugins.json"), json.dumps({"plugins": ["x"]}))
+        self.ronda("inventariar")
+        self.ronda("executar", "--sem-avisar")
+        doc = self.json_ronda()
+        self.assertTrue(any(i["origem"] == "agente luna" for i in doc["inventario"]["cobertura_incompleta"]), doc["inventario"])
+        self.assertEqual(self.achado(vid)["estado"], "aberto", "sem ver o agente, não rebaixa para segundo plano")
+        pacotes = self.registro_de(vid)["pacotes"]
+        self.assertTrue(any(x[1] == "foo-mcp" for x in pacotes), "o pacote do agente continua guardado")
+        self.assertTrue(any(x[1] == "openssl" for x in pacotes))
+
     def test_pacote_e_versao_fora_do_formato_nao_entram(self):
         self.agente_com_mcp("x", "Foo_Mcp;id@1.0.0")
         inv = self.ronda("inventariar")
@@ -746,6 +776,22 @@ class Niveis(Base):
              "casa": {"ids": ["CVE-2026-77777"]}}
         a.update(kw)
         self.acoes_catalogo([a])
+
+    def test_aplicacao_sozinha_sempre_e_nomeada_no_recado_mesmo_com_o_limite_cheio(self):
+        ids = [f"UBUNTU-CVE-2026-{60000 + n}" for n in range(15)]
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [ids]
+        for n, vid in enumerate(ids):
+            S["osv_vulns"][vid] = reg_ubuntu(vid, f"CVE-2026-{60000 + n}", "openssl", "3.0.13-0ubuntu3.6", prio="critical")
+        S["kev"] = [{"cveID": f"CVE-2026-{60000 + n}", "dateAdded": "2026-10-20"} for n in range(15)]
+        self.kernel_vuln()
+        self.sysctl_acao()
+        self.ronda("executar")
+        self.assertEqual(self.achado("UBUNTU-CVE-2026-98432")["estado"], "aplicado-sozinho")
+        self.assertIn("UBUNTU-CVE-2026-98432", S["recados"][0]["text"])
+        with open(self.p("var/lib/dgclaw/seguranca/estado.json")) as f:
+            aviso = json.load(f)["ultimo_aviso"]["ids"]
+        self.assertIn("UBUNTU-CVE-2026-98432", aviso)
+        self.assertEqual(len(aviso), 15, "o limite vale para os demais")
 
     def test_nivel_1_aplica_sozinho_registra_e_avisa(self):
         self.kernel_vuln()
@@ -1771,6 +1817,64 @@ class Paliativos(Base):
         S["fora"].discard("kev")
         self.ronda("executar", "--sem-avisar")
         self.assertEqual(self.achado("UBUNTU-CVE-2026-77777")["estado"], "atualizacao-sistema")
+
+    def test_aberto_nivel_3_reapresentado_que_entra_na_kev_e_promovido_e_renova_o_recado_uma_vez(self):
+        vid = "UBUNTU-CVE-2026-55555"
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [[vid]]
+        S["osv_vulns"][vid] = reg_ubuntu(vid, "CVE-2026-55555", "openssl", "3.0.13-0ubuntu3.6", prio="medium", cvss=None)
+        self.ronda("executar")
+        a = self.achado(vid)
+        self.assertEqual((a["estado"], a["nivel"], a.get("explorada_ativamente")), ("aberto", 3, None))
+        self.assertIsNotNone(self.estado_do_registro()["achados"][vid]["avisado_em"])
+        S["osv_paginas"].clear()   # a ronda reapresenta o registro anterior (HN fora)
+        S["fora"].add("hn")
+        S["kev"] = [{"cveID": "CVE-2026-55555", "dateAdded": "2026-10-20"}]
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(vid)
+        self.assertEqual((a["estado"], a["nivel"], a["explorada_ativamente"]), ("aberto", 2, True))
+        self.assertIn("explorada por criminosos", a["como_corrigir"])
+        reg = self.estado_do_registro()
+        self.assertIsNone(reg["achados"][vid]["avisado_em"], "o recado é renovado")
+        reg["achados"][vid]["avisado_em"] = AGORA   # o Admin foi avisado
+        self.escreve(self.p("var/lib/dgclaw/seguranca/estado.json"), reg)
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(vid)["nivel"], 2)
+        self.assertEqual(self.estado_do_registro()["achados"][vid]["avisado_em"], AGORA, "já explorado: não zera de novo")
+
+    def test_reincidencia_ignora_os_ids_antigos_na_consulta_da_kev(self):
+        usn = "USN-7777-1"
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [[usn]]
+        S["osv_vulns"][usn] = reg_ubuntu(usn, "CVE-2026-77777", "openssl", "3.0.13-0ubuntu3.6", prio="critical")
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "openssl\t3.0.13-0ubuntu3.6\n")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "atualizacao-sistema")
+        with open(os.path.join(self.stub, "dpkg.txt"), encoding="utf-8") as f:
+            antigo = f.read()
+        self.escreve(os.path.join(self.stub, "dpkg.txt"), antigo.replace("3.0.13-0ubuntu3.4", "3.0.13-0ubuntu3.6"))
+        pagina = S["osv_paginas"].pop(f"{ECO}|openssl|3.0.13-0ubuntu3.4")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.estado_do_registro()["achados"][usn]["estado"], "corrigido")
+        self.escreve(os.path.join(self.stub, "dpkg.txt"), antigo)   # reincide, sem o alias da CVE antiga, que a CISA lista
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = pagina
+        S["osv_vulns"][usn]["aliases"] = []
+        S["kev"] = [{"cveID": "CVE-2026-77777", "dateAdded": "2026-10-20"}]
+        estados = []
+        for _ in range(2):
+            self.ronda("executar", "--sem-avisar")
+            a = self.achado(usn)
+            estados.append((a["estado"], a["nivel"], a.get("explorada_ativamente")))
+        self.assertEqual(estados[0], ("atualizacao-sistema", 2, None), "a CVE antiga não torna a reincidência explorada")
+        self.assertEqual(estados[0], estados[1], "entradas idênticas, mesmo estado")
+
+    def test_texto_promovido_por_kev_fala_de_reinicio_so_quando_a_correcao_exige(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("ronda_motor", RONDA)
+        ronda = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ronda)
+        com = ronda.texto_promovido_por_kev({"correcao": {"disponivel": True, "exige_reinicio": True}})
+        self.assertIn("atualizar o sistema agora e depois reiniciar o servidor para o kernel novo valer.", com)
+        sem = ronda.texto_promovido_por_kev({"correcao": {"disponivel": True}})
+        self.assertNotIn("reiniciar o servidor", sem)
 
     def test_so_os_ids_nomeados_no_recado_recebem_avisado_em(self):
         ids = [f"UBUNTU-CVE-2026-{60000 + n}" for n in range(81)]
