@@ -896,13 +896,10 @@ function criarServidor(opcoes) {
         // O corpo não é usado: o runner recebe um Esc fixo. Só se lê (com limite pequeno) para validar o JSON e drenar.
         try { await H.lerJson(req, 1024); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
         const quem = sessao.papel === 'colaborador' ? `colaborador:${sessao.colaborador_id} (${sessao.usuario})` : 'dono';
+        // Só o dono para o agente: a autoria por turno não enxerga o que veio por Telegram ou canal.
         if (sessao.papel === 'colaborador') {
-          // O colaborador só para o trabalho que ele mesmo pediu (turno em curso, sem mistura com outra pessoa).
-          const t = turnos.get(agente.slug);
-          if (!t || t.misto || t.autor.colaborador_id !== sessao.colaborador_id) {
-            log('aviso', `Parar ${agente.slug}: ${quem} barrado, o turno em curso não é dele.`);
-            return H.erroJson(res, 403, 'Esse trabalho foi pedido pelo dono do DG Claw; só ele pode parar.', { codigo: 'NAO_E_SEU_TURNO' });
-          }
+          log('aviso', `Parar ${agente.slug}: ${quem} barrado, só o dono pode parar.`);
+          return H.erroJson(res, 403, 'Só o dono do DG Claw pode parar o agente.', { codigo: 'SO_O_DONO' });
         }
         if (!sessaoAindaVale(req, sessao)) return recusaSessaoVelha(res, sessao);
         const r = await conversa.parar(agente, quem);

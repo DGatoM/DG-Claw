@@ -78,7 +78,8 @@ function criarRunnerFalso(opcoes) {
       if (o.derrubaInterromper) { rec.interrupcoes += 1; req.socket.destroy(); return undefined; }
       if (o.falhaInterromper) return json(o.falhaInterromper.status, o.falhaInterromper.corpo);
       rec.interrupcoes += 1;
-      return json(200, { success: true, data: { enviado: true, enviadoEm: '2026-11-18T12:00:00.000Z', statusAntes: o.status, provedor: 'claude' } });
+      if (o.grandeInterromper) return json(200, { success: true, data: { enviado: true, statusAntes: o.status, enchimento: 'x'.repeat(40 * 1024) } });
+      return json(200, { success: true, data: { enviado: true, enviadoEm: '2020-01-01T00:00:00.000Z', statusAntes: o.statusAntesInterromper !== undefined ? o.statusAntesInterromper : o.status, provedor: 'claude' } });
     }
     if (rota === '/api/provedor' && req.method === 'GET') {
       rec.provedorPedidos += 1;

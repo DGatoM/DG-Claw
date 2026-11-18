@@ -179,7 +179,7 @@ dizer e o que conferir:
 
 ### Botão Parar na conversa
 
-O dono (e o colaborador, só no trabalho que ele mesmo pediu) pode apertar **Parar** na faixa "trabalhando" da conversa:
+Só o dono (o colaborador recebe 403) pode apertar **Parar** na faixa "trabalhando" da conversa:
 é um Esc na sessão do agente, sem reiniciar nem perder a conversa. Pela API é `POST /api/v1/agents/<slug>/parar`,
 com trava de 3 s por sessão (dois Esc colados abrem o menu de voltar). Guia em `/opt/dgclaw/app/web/docs/PARAR.md`
 (também em `GET /api/v1/parar/docs.md`). Se o dono disser que o agente não obedece ao Parar, confira se o agente foi

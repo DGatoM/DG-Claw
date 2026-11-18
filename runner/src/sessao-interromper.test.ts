@@ -88,17 +88,68 @@ test("segundo pedido em menos de 3 s: 429 MUITO_RAPIDO com espereS e nada escrit
   assert.equal(escritas.length, 2);
 });
 
-test("negar permissão e interromper em menos de 3 s: 429 (o Esc da permissão também conta)", async () => {
+test("negar permissão e depois Parar em menos de 3 s: 429 (o Esc da permissão também conta)", async () => {
   const s = await nova();
   const { escritas, rel } = falso(s);
   s.estado.status = "waiting_input";
   assert.equal(s.responderPermissao("negar").ok, true);
+  assert.deepEqual(escritas, ["\u001b"]);
+  s.estado.status = "working";
+  rel.t += 500;
+  const r = s.interromper();
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.code, "MUITO_RAPIDO");
+  assert.equal(escritas.length, 1);
+});
+
+test("Parar e depois negar permissão em menos de 3 s: 429 com espereS e nada escrito; passados 3 s, nega", async () => {
+  const s = await nova();
+  const { escritas, rel } = falso(s);
+  s.estado.status = "working";
+  assert.equal(s.interromper().ok, true);
+  s.estado.status = "waiting_input";
+  rel.t += 1000;
+  const r = s.responderPermissao("negar");
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.equal(r.status, 429);
+    assert.equal(r.code, "MUITO_RAPIDO");
+    assert.ok((r.espereS ?? 0) > 0);
+  }
+  assert.equal(escritas.length, 1);
+  rel.t += 3000;
+  assert.equal(s.responderPermissao("negar").ok, true);
+  assert.equal(escritas.length, 2);
+});
+
+test("cancelar pergunta (Esc) e depois Parar em menos de 3 s: 429", async () => {
+  const s = await nova();
+  const { escritas, rel } = falso(s);
+  s.estado.status = "working";
+  (s as unknown as { escreverSemContar(t: string): void }).escreverSemContar("\u001b");
   assert.deepEqual(escritas, ["\u001b"]);
   rel.t += 500;
   const r = s.interromper();
   assert.equal(r.ok, false);
   if (!r.ok) assert.equal(r.code, "MUITO_RAPIDO");
   assert.equal(escritas.length, 1);
+});
+
+test("esperando permissão ou pergunta: 409 ESPERANDO_DECISAO e nada escrito", async () => {
+  const s = await nova();
+  const { escritas } = falso(s);
+  for (const motivo of [null, "pergunta"] as const) {
+    s.estado.status = "waiting_input";
+    s.estado.motivo = motivo as never;
+    const r = s.interromper();
+    assert.equal(r.ok, false);
+    if (!r.ok) {
+      assert.equal(r.status, 409);
+      assert.equal(r.code, "ESPERANDO_DECISAO");
+      assert.match(r.comoResolver, /cartão da permissão ou da pergunta/);
+    }
+  }
+  assert.deepEqual(escritas, []);
 });
 
 test("respondendo pergunta: 409 RESPOSTA_EM_ANDAMENTO e nada escrito", async () => {

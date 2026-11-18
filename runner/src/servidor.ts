@@ -394,7 +394,7 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           }
           const r = sessao.responderPermissao(decisao, idDaTela ?? null);
           if (!r.ok) {
-            json(res, { success: false, error: r.erro, howToFix: r.comoResolver, code: r.code }, r.status);
+            json(res, { success: false, error: r.erro, howToFix: r.comoResolver, code: r.code, ...(r.espereS !== undefined ? { espereS: r.espereS } : {}) }, r.status);
             return;
           }
           json(res, { success: true, data: { decisao } });

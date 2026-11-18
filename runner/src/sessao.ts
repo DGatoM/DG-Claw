@@ -535,6 +535,8 @@ export class Sessao extends EventEmitter {
       return;
     }
     this.marcarAtividade();
+    // Todo Esc sozinho, venha de onde vier (Parar, negar permissão, cancelar pergunta), entra na trava de 3 s.
+    if (texto === ESC) this.ultimoEscEm = this.agora();
     this.proc.write(texto);
   }
 
@@ -549,7 +551,7 @@ export class Sessao extends EventEmitter {
   responderPermissao(
     decisao: "aprovar" | "negar",
     toolUseId?: string | null,
-  ): { ok: true } | { ok: false; status: number; erro: string; comoResolver: string; code: string } {
+  ): { ok: true } | { ok: false; status: number; erro: string; comoResolver: string; code: string; espereS?: number } {
     if (this.motor.provedor !== "claude") {
       return { ok: false, status: 501, code: "PERMISSAO_SO_CLAUDE", erro: `O provedor ${this.motor.provedor} não expõe o pedido de permissão ao runner.`, comoResolver: "responder pelo terminal do agente" };
     }
@@ -570,9 +572,27 @@ export class Sessao extends EventEmitter {
       return { ok: false, status: 409, code: "NO_PTY", erro: `O agente ${this.slug} não tem terminal vivo agora.`, comoResolver: "chamar POST /api/agents/:id/resume antes" };
     }
     log.info(this.a("entrada"), `permissão ${decisao === "aprovar" ? "aprovada" : "negada"} por API`);
+    if (decisao === "negar") {
+      const trava = this.travaDoEsc();
+      if (trava) return trava;
+    }
     this.escrever(decisao === "aprovar" ? "1" : ESC);
-    if (decisao === "negar") this.ultimoEscEm = this.agora();
     return { ok: true };
+  }
+
+  /** null se pode escrever um Esc agora; senão o 429 MUITO_RAPIDO (dois Esc em menos de ~1 s abrem o menu de voltar). */
+  private travaDoEsc(): { ok: false; status: number; erro: string; comoResolver: string; code: string; espereS: number } | null {
+    const falta = this.ultimoEscEm + TRAVA_ESC_MS - this.agora();
+    if (!(this.ultimoEscEm > 0 && falta > 0)) return null;
+    const espereS = Math.round(falta / 100) / 10 || 0.1;
+    return {
+      ok: false,
+      status: 429,
+      code: "MUITO_RAPIDO",
+      espereS,
+      erro: `O Esc anterior foi há menos de ${TRAVA_ESC_MS / 1000} s. Dois Esc seguidos abrem o menu de voltar do terminal e travam a sessão.`,
+      comoResolver: `esperar ${espereS} s e tentar de novo`,
+    };
   }
 
   /**
@@ -589,21 +609,14 @@ export class Sessao extends EventEmitter {
     if (this.respondendoPergunta) {
       return { ok: false, status: 409, code: "RESPOSTA_EM_ANDAMENTO", erro: `O agente ${this.slug} está recebendo a resposta de uma pergunta de escolha.`, comoResolver: "esperar alguns segundos e tentar de novo" };
     }
-    const falta = this.ultimoEscEm + TRAVA_ESC_MS - this.agora();
-    if (this.ultimoEscEm > 0 && falta > 0) {
-      const espereS = Math.round(falta / 100) / 10 || 0.1;
-      return {
-        ok: false,
-        status: 429,
-        code: "MUITO_RAPIDO",
-        espereS,
-        erro: `O Esc anterior foi há menos de ${TRAVA_ESC_MS / 1000} s. Dois Esc seguidos abrem o menu de voltar do terminal e travam a sessão.`,
-        comoResolver: `esperar ${espereS} s e apertar Parar de novo`,
-      };
+    // Esperando permissão ou pergunta: o Esc cairia no cartão (negaria). Conferência síncrona, logo antes de escrever.
+    if (this.estado.status === "waiting_input") {
+      return { ok: false, status: 409, code: "ESPERANDO_DECISAO", erro: `O agente ${this.slug} está esperando uma decisão sua (permissão ou pergunta de escolha).`, comoResolver: "responda no cartão da permissão ou da pergunta" };
     }
+    const trava = this.travaDoEsc();
+    if (trava) return trava;
     const statusAntes = this.estado.status;
     this.escrever(ESC);
-    this.ultimoEscEm = this.agora();
     log.info(this.a("entrada"), `Esc enviado por API (parar): status antes=${statusAntes}, provedor=${this.motor.provedor}`);
     return { ok: true, enviadoEm: new Date(this.ultimoEscEm).toISOString(), statusAntes, provedor: this.motor.provedor };
   }

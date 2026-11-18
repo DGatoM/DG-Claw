@@ -216,7 +216,7 @@ const AQUI = location.pathname + location.search;
 const EH_ADMIN = AGENTE.tipo === 'admin';
 /* Colaborador: só este agente. Tira da tela o que é do dono (o servidor também barra; aqui é para não sobrar botão que não leva a lugar nenhum). */
 const COLAB = !!(window.DGPapel && window.DGPapel.colaborador);
-if (COLAB) for (const id of ['btnMesa', 'btnLembretes', 'btnNaoLida', 'trocaBaixo']) { const e = $(id); if (e) e.remove(); }
+if (COLAB) for (const id of ['btnMesa', 'btnLembretes', 'btnNaoLida', 'trocaBaixo', 'btnPararAgente']) { const e = $(id); if (e) e.remove(); }
 /* A Mesa e os Lembretes levam o agente junto (?a=), para o menu deles ser o deste agente. */
 (function () {
   // localStorage para a casca das outras telas; o cookie é o que o servidor lê na rota "/" (abre o último agente usado)
@@ -4952,7 +4952,7 @@ function passosTutorial() {
     oque: 'Uma faixa que aparece sozinha quando o agente está trabalhando. O que você vê agora é só um exemplo.',
     como: 'Ela mostra o que ele está fazendo naquele momento. Fica amarela se ele estiver esperando uma autorização sua, e cinza se a conexão com ele cair ("sem sinal").',
     porque: 'Alguns pedidos demoram. Com a faixa você sabe que o agente não travou, e sabe quando precisa agir.' });
-  passos.push({ alvo: '#btnPararAgente', titulo: 'O botão Parar',
+  if (!COLAB) passos.push({ alvo: '#btnPararAgente', titulo: 'O botão Parar',
     antes: () => {
       demoAtividade = true;
       const el = $('atividade');
@@ -4965,7 +4965,7 @@ function passosTutorial() {
     },
     depois: () => { demoAtividade = false; pintaAtividade(); },
     oque: 'Um botão que aparece na faixa de atividade enquanto o agente está trabalhando.',
-    como: 'Ao tocar, ele manda um Esc para a sessão do agente, igual ao teclado do terminal. O que está em primeiro plano é interrompido e o que foi para segundo plano continua. Espere 3 segundos entre um toque e outro.',
+    como: 'Ao tocar, ele manda um Esc para a sessão do agente, igual ao teclado do terminal. O que está em primeiro plano costuma parar na hora e um comando que foi para segundo plano pode continuar. Espere 3 segundos entre um toque e outro.',
     porque: 'Para cortar um trabalho que foi pelo caminho errado sem reiniciar o agente e sem perder a conversa.' });
   passos.push({ alvo: '#btnMenu', antes: fechaM, titulo: 'O botão do menu',
     oque: 'No celular, o botão de menu (as três linhas) abre o menu do agente. No computador ele não aparece, porque o menu já fica fixo à esquerda.',
