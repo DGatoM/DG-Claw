@@ -7,6 +7,20 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Barra superior da conversa: agentes com rolagem lateral e botões compactos.** Conforme a barra de cima ganhava
+botões com nome escrito, ela estourava e empurrava os agentes para fora da tela, sem como clicar neles. Agora os botões
+da barra mostram só o ícone, e o nome de cada um aparece ao passar o mouse (e é lido pelo leitor de tela). As bolinhas
+com número continuam no canto de cada botão. "Ler em voz alta" e "Conversa contínua" ficaram juntos num botão só, o
+**Voz**, que abre um quadro pequeno com os dois controles, cada um dizendo por escrito se está ligado ou desligado; o
+botão fica destacado quando um deles está ligado. A fileira de agentes do celular ganhou uma sombra na borda quando há
+mais agentes para o lado, continua rolando com o dedo, aceita a roda do mouse e mantém o agente atual à vista.
+
+### Como atualizar (barra superior)
+
+O `dgclaw atualizar` padrão já traz a barra nova. Depois de atualizar, recarregue a página da conversa (no app
+instalado no celular, feche e abra de novo) para o navegador pegar os arquivos novos. Não há chave nova nem nada para
+ajustar.
+
 **Correção: render de vídeo não esgota os processos do agente.** Um agente chegou a ficar mais de 30 minutos parado num
 render de vídeo porque o container tem um limite de processos (as threads contam), e o Chrome da Tela, o Claude Code e
 os Chromium novos que as tentativas de render abriam chegaram ao teto ("Resource temporarily unavailable" e "Target

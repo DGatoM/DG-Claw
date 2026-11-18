@@ -509,7 +509,7 @@
       btn.setAttribute('aria-label', btn.title);
       btn.setAttribute('aria-pressed', 'false');
       btn.innerHTML = '<svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-eye"/></svg> <span class="lbl">mostrando</span>';
-      if (tools) tools.insertBefore(btn, doc.getElementById('btnLer') || (doc.getElementById('btnLembretes') || {}).nextSibling || tools.firstChild); else (doc.getElementById('cabecalho') || corpo).appendChild(btn);
+      if (tools) tools.insertBefore(btn, doc.getElementById('btnVoz') || (doc.getElementById('btnLembretes') || {}).nextSibling || tools.firstChild); else (doc.getElementById('cabecalho') || corpo).appendChild(btn);
       btn.addEventListener('click', () => liga(!ligado));
       criaAviso();
       wrap.addEventListener('click', aoClicar, true);
