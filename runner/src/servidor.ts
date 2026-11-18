@@ -279,9 +279,9 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           }
           const enviar = (corpo as { submit?: boolean }).submit !== false;
           const quandoOcioso = (corpo as { injectWhenIdle?: boolean }).injectWhenIdle === true;
-          // Um Esc sozinho só vale como entrada imediata: enfileirado, sairia num momento que ninguém escolheu.
-          if (texto === ESC && quandoOcioso) {
-            json(res, { success: false, error: "Um Esc sozinho não entra na fila de ocioso.", howToFix: "mandar o Esc como entrada imediata (sem injectWhenIdle)", code: "ESC_NAO_ENFILEIRA" }, 400);
+          // Um Esc sozinho só vale como tecla imediata (submit false, sem fila): antes de acordar paralela, enfileirar ou checar login.
+          if (texto === ESC && (enviar || quandoOcioso)) {
+            json(res, { success: false, error: "Um Esc sozinho só vale como tecla imediata.", howToFix: "mandar o Esc com submit:false e sem injectWhenIdle", code: "ESC_SO_IMEDIATO" }, 400);
             return;
           }
 

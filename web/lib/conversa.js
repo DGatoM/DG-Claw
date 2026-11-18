@@ -795,6 +795,9 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       const CONHECIDOS = ['NO_PTY', 'ESPERANDO_DECISAO', 'NAO_TRABALHANDO', 'MUITO_RAPIDO', 'RESPOSTA_EM_ANDAMENTO'];
       const code = typeof c.code === 'string' && CONHECIDOS.includes(c.code) ? c.code : null;
       const codeLog = code || 'código desconhecido';
+      // Só vale como recusa antes da escrita um corpo success:false com code conhecido; qualquer outra coisa (5xx, HTML de
+      // proxy, code estranho) deixa em aberto se o Esc foi escrito.
+      if (c.success !== false || !code) return incerto(`HTTP ${r.status}, ${codeLog}`);
       log('aviso', `Parar ${agente.slug} (por ${quem}) recusado pelo runner (HTTP ${r.status}, ${codeLog}).`);
       if (r.status === 409 && code === 'NO_PTY') {
         return erro(409, `${agente.nome} não tem sessão aberta agora, então não há o que parar.`, { codigo: 'NO_PTY' });

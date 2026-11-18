@@ -322,7 +322,7 @@ test("rota POST /pergunta: o 429 da trava do Esc preserva espereS na resposta", 
   }
 });
 
-test("rota POST /input: Esc sozinho com injectWhenIdle => 400 ESC_NAO_ENFILEIRA, sem enfileirar", async () => {
+test("rota POST /input: Esc sozinho com injectWhenIdle ou submit padrão => 400 ESC_SO_IMEDIATO, sem enfileirar", async () => {
   const porta = await portaLivre();
   const descritor = lerDescritor();
   const gerente = new GerenteDeSessoes(descritor, porta);
@@ -337,7 +337,7 @@ test("rota POST /input: Esc sozinho com injectWhenIdle => 400 ESC_NAO_ENFILEIRA,
     });
     const corpo = (await r.json()) as any;
     assert.equal(r.status, 400);
-    assert.equal(corpo.code, "ESC_NAO_ENFILEIRA");
+    assert.equal(corpo.code, "ESC_SO_IMEDIATO");
     assert.equal(gerente.principal.tamanhoDaFila(), 0);
     assert.deepEqual(escritas, []);
   } finally {

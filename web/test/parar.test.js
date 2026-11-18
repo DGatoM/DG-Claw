@@ -115,7 +115,7 @@ test('parar: sem terminal (NO_PTY) => 409; outro 409 => 409 com o motivo; erro d
     assert.match(r.json.erro, /resposta de uma pergunta/);
   } finally { await s.fechar(); }
   s = await cenario({ falhaInterromper: { status: 500, corpo: { success: false, error: 'quebrou' } } });
-  try { assert.equal((await para(s)).status, 502); } finally { await s.fechar(); }
+  try { assert.equal((await para(s)).status, 504, '5xx sem code conhecido deixa a entrega incerta'); } finally { await s.fechar(); }
 });
 
 test('parar: runner antigo (sem a rota) => 501 mandando atualizar pelo Admin', async () => {
@@ -217,9 +217,9 @@ test('parar: log sem quebra de linha nem controle; statusAntes desconhecido vira
   s = await cenario({ falhaInterromper: { status: 502, corpo: { success: false, error: 'ruim\n[erro] linha forjada\u0007' } } });
   try {
     const r = await para(s);
-    assert.equal(r.status, 502);
+    assert.equal(r.status, 504);
     for (const l of s.t.log.linhas) assert.doesNotMatch(l, /^\[erro\] linha forjada/);
-    const linha = s.t.log.linhas.find((l) => l.includes('Parar ana') && l.includes('recusado pelo runner'));
+    const linha = s.t.log.linhas.find((l) => l.includes('Parar ana') && l.includes('não sei se'));
     assert.ok(linha, s.t.log.texto());
     assert.doesNotMatch(linha, /[\n\r\u0007]/);
   } finally { await s.fechar(); }
@@ -237,7 +237,7 @@ test('parar: texto livre do runner (com credencial) não aparece no log nem na r
   const s = await cenario({ falhaInterromper: { status: 500, corpo: { success: false, error: 'Authorization: Bearer xyz-segredo', howToFix: 'use a chave xyz-segredo', code: 'bobagem com espaço' } } });
   try {
     const r = await para(s);
-    assert.equal(r.status, 502);
+    assert.equal(r.status, 504);
     assert.doesNotMatch(r.texto, /xyz-segredo|Bearer/);
     assert.doesNotMatch(s.t.log.texto(), /xyz-segredo|Bearer/);
     assert.match(s.t.log.texto(), /código desconhecido/);
@@ -271,7 +271,7 @@ test('parar: code fora da lista fechada vira "código desconhecido" e não é re
   const s = await cenario({ falhaInterromper: { status: 500, corpo: { success: false, code: 'SEGREDO_INTERNO' } } });
   try {
     const r = await para(s);
-    assert.equal(r.status, 502);
+    assert.equal(r.status, 504);
     assert.doesNotMatch(r.texto, /SEGREDO_INTERNO/);
     assert.doesNotMatch(s.t.log.texto(), /SEGREDO_INTERNO/);
     assert.match(s.t.log.texto(), /código desconhecido/);

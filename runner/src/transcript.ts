@@ -184,7 +184,7 @@ export function turnoEncerradoNoTranscript(
     if (!Number.isFinite(quando)) return { encerrado: false, motivo: `${rotulo} sem timestamp válido` };
     if (quando <= desdeMs) return { encerrado: false, motivo: `${rotulo} é anterior ao começo do turno atual` };
     // A frase de interrupção sozinha não prova nada (o usuário pode digitá-la): só vale com um Esc nosso, deste terminal, logo antes.
-    if (!fimNormal && (escEm === null || quando < escEm - 2000)) {
+    if (!fimNormal && (escEm === null || quando <= escEm)) {
       return { encerrado: false, motivo: "a mensagem de interrupção não tem um Esc deste terminal antes dela" };
     }
     return { encerrado: true, motivo: fimNormal ? `última linha é ${rotulo}` : "última linha é a interrupção do usuário" };

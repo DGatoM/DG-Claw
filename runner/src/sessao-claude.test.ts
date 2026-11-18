@@ -225,6 +225,14 @@ test("Stop perdido: Esc de um turno já encerrado + marcador literal num turno n
   await dormir(2_000);
   assert.equal(s.estado.status, "working");
 });
+test("Stop perdido: marcador que já era a última linha antes do Esc (horário anterior ao clique) não encerra o turno", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  transcript([[INTERROMPIDO("[Request interrupted by user]"), -1_000]]);
+  s.escrever("\u001b");
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+});
 test("Stop perdido: linhas 'null', número e lixo no fim do transcript não derrubam a leitura", async () => {
   const { s, hook, transcript, arquivo } = await novaComRedeCurta(600);
   hook("UserPromptSubmit");
