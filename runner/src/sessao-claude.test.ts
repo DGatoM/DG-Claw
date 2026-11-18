@@ -1137,6 +1137,25 @@ test("o settings do Claude registra os hooks SubagentStart e SubagentStop do run
   assert.match(settings.hooks.SubagentStart[0].hooks[0].command, /--event SubagentStart/);
 });
 
+test("subagente: com a pergunta da principal aberta, ferramenta de subagente não a fecha", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  hook("PreToolUse", { toolName: "AskUserQuestion", toolUseId: "tu-q" });
+  hook("PreToolUse", { toolName: "Read", toolUseId: "tu-read", ...SUB });
+  assert.equal(s.estado.status, "waiting_input");
+  assert.equal(s.estado.motivo, "pergunta");
+  assert.equal(s.estado.pendenteId, "tu-q");
+});
+
+test("subagente: evento dele com outro session_id não troca a sessão viva", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  const viva = s.estado.sessionId;
+  hook("SubagentStop", { sessionId: "sessao-antiga-de-antes-do-resume", ...SUB });
+  hook("PreToolUse", { toolName: "Bash", sessionId: "sessao-antiga-de-antes-do-resume", ...SUB });
+  assert.equal(s.estado.sessionId, viva);
+});
+
 test("subagente: a pergunta ao dono (AskUserQuestion) continua valendo", async () => {
   const { s, hook } = await novaComRedeCurta(60_000);
   hook("UserPromptSubmit");

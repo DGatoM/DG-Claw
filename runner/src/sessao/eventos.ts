@@ -49,7 +49,9 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
   // CLI. É assim que o runner descobre quando o agente trocou de sessão por
   // dentro (um `/resume` digitado no TUI), caso em que o id que guardamos
   // ficaria apontando para uma conversa que ninguém mais escreve.
-  if (payload.sessionId && payload.sessionId !== s.estado.sessionId) {
+  // Evento de subagente nunca troca a sessão viva: o session_id dele é o da principal, e um atrasado (de antes de um
+  // /resume) restauraria a conversa antiga.
+  if (payload.sessionId && payload.sessionId !== s.estado.sessionId && !payload.subagentId) {
     log.info(s.a("hook"), `a sessão viva mudou por dentro: ${s.estado.sessionId} -> ${payload.sessionId}`);
     s.mudar({
       sessionId: payload.sessionId,
@@ -71,7 +73,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
   if (payload.subagentId && eventoDeFerramenta) registrarSubagente(s, payload.subagentId);
   if (
     payload.subagentId &&
-    s.estado.status !== "waiting_input" &&
+    !(s.estado.status === "waiting_input" && s.estado.motivo === "permissao") &&
     (payload.event === "PreToolUse" || payload.event === "PostToolUse") &&
     payload.toolName !== "AskUserQuestion"
   ) {

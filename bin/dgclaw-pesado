@@ -107,7 +107,10 @@ echo 800 > /proc/self/oom_score_adj 2>/dev/null || true
 # O "--" do nice garante que um comando começado com "-" não vire opção dele; o timeout para de ler opções na
 # duração, então o que vem depois dela é sempre o comando, literal.
 prefixo=(nice -n 10 --)
-if [ -n "$tempo" ]; then prefixo+=(timeout -k 10 "$tempo"); fi
+# Com --timeout o scope também ganha prazo próprio (RuntimeMaxSec): se este invólucro morrer por SIGKILL, sem
+# trap, o systemd ainda encerra o que sobrou dele.
+teto_scope=()
+if [ -n "$tempo" ]; then prefixo+=(timeout -k 10 "$tempo"); teto_scope=(-p "RuntimeMaxSec=$((10#$tempo + 30))"); fi
 inicio=$SECONDS
 
 pid=""
@@ -118,17 +121,13 @@ cancelado=""
 # Recolhe o que sobrou do comando. Idempotente: roda no fim normal e no trap.
 recolher() {
   if [ -n "$unidade" ]; then
+    # Só pelo nome da unidade, nunca por pid (um pid já recolhido pode ser de outro processo).
     systemctl --user stop -- "$unidade.scope" >/dev/null 2>&1 || true
-    # Cobre a janela em que o scope ainda não existia quando o sinal chegou. Só antes do wait terminar:
-    # depois dele o pid já foi liberado e pode ser de outro processo.
-    if [ -z "$esperado" ] && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-      kill -TERM "$pid" 2>/dev/null || true
-      sleep 0.5
-      kill -KILL "$pid" 2>/dev/null || true
+    # Cancelamento antes do fim: o scope pode ainda estar nascendo na primeira parada. Para de novo depois.
+    if [ -z "$esperado" ]; then
+      sleep 1
+      systemctl --user stop -- "$unidade.scope" >/dev/null 2>&1 || true
     fi
-    # Cancelamento antes do fim: o lançador pode ter criado o scope e um auxiliar depois da primeira parada
-    # (inclusive já tendo saído). Para de novo pelo nome da unidade.
-    if [ -z "$esperado" ]; then systemctl --user stop -- "$unidade.scope" >/dev/null 2>&1 || true; fi
   elif [ -n "$pid" ]; then
     # Também o próprio pid enquanto o wait não terminou: cobre a janela em que o grupo ainda não existe.
     if [ -z "$esperado" ]; then kill -TERM "$pid" 2>/dev/null || true; fi
@@ -163,7 +162,7 @@ if [ -S "$XDG_RUNTIME_DIR/systemd/private" ] && command -v systemd-run >/dev/nul
   # Em segundo plano para poder recolher o scope inteiro depois. Sem controle de jobs o "&" joga o stdin
   # para /dev/null, por isso o 0<&0 explícito.
   systemd-run --user --scope --quiet --collect --unit="$unidade" --description=dgclaw-pesado \
-    -p MemoryMax="$mem" -p MemorySwapMax=0 \
+    -p MemoryMax="$mem" -p MemorySwapMax=0 "${teto_scope[@]}" \
     -- "${prefixo[@]}" "$@" 0<&0 &
   pid=$!
 else
