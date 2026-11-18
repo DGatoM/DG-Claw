@@ -32,12 +32,13 @@ test('btnLer e btnContinua ficam dentro de #menuVoz, e fora de #tools', () => {
   const menu = trecho('menuVoz').corpo;
   assert.ok(menu.includes('id="btnLer"') && menu.includes('id="btnContinua"'));
   const tools = html.slice(html.indexOf('id="tools"'), html.indexOf('id="menuVoz"'));
+  assert.ok(html.indexOf('id="menuVoz"') > html.indexOf('</header>'), '#menuVoz fica fora do header');
   assert.ok(!tools.includes('id="btnLer"') && !tools.includes('id="btnContinua"'));
 });
 
 test('todo botão e link de #tools tem aria-label', () => {
   const ini = html.indexOf('id="tools"');
-  const bloco = html.slice(ini, html.lastIndexOf('<!-- Fica fora', html.indexOf('id="menuVoz"')));
+  const bloco = html.slice(ini, html.indexOf('</header>'));
   const tags = bloco.match(/<(button|a)\b[^>]*>/g) || [];
   assert.ok(tags.length >= 5);
   for (const t of tags) {
@@ -55,4 +56,9 @@ test('o JS não deixa btnVoz fora de sincronia e trata Esc', () => {
   assert.match(js, /function pintaVoz\(/);
   assert.match(js, /ev\.key === 'Escape' && !menuVoz\.hidden/);
   assert.match(js, /addEventListener\('wheel'[\s\S]*passive: false/);
+});
+
+test('clique fora usa composedPath e o sigilo.js vai versionado', () => {
+  assert.match(js, /ev\.composedPath\(\)/);
+  assert.ok(html.includes('/sigilo.js?v='));
 });

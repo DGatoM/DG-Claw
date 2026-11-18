@@ -78,17 +78,18 @@ if (navigator.standalone === true ||
               data-tour="voz"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-volume"/></svg> <span class="lbl">Voz</span></button>
       <button id="btnParar" class="btn" type="button" style="display:none">parar</button>
     </div>
-    <!-- Fica fora de #tools: a faixa rola e cortaria o popover -->
-    <div id="menuVoz" class="menu-voz" role="group" aria-label="Voz" hidden>
-      <button id="btnLer" class="btn" type="button" aria-pressed="false" aria-label="Leitura em voz alta: desligada" title="Ler as respostas em voz alta"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-volume"/></svg> <span class="lbl">Ler respostas em voz alta: desligado</span></button>
-      <button id="btnContinua" class="btn" type="button" aria-pressed="false"
-              aria-label="Conversa contínua: desligada"
-              title="Conversa contínua: ao terminar de tocar a resposta, grava de novo"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-repeat"/></svg> <span class="lbl">Conversa contínua: desligada</span></button>
-    </div>
     <i class="ferr-sombra esq" id="ferrEsq" aria-hidden="true"></i>
     <i class="ferr-sombra dir" id="ferrDir" aria-hidden="true"></i>
   </div>
 </header>
+
+  <!-- Fica fora do header e de #tools: a faixa rola e cortaria o popover, e o z-index do header ficaria abaixo da faixa de foco -->
+  <div id="menuVoz" class="menu-voz" role="group" aria-label="Voz" hidden>
+    <button id="btnLer" class="btn" type="button" aria-pressed="false" aria-label="Leitura em voz alta: desligada" title="Ler as respostas em voz alta"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-volume"/></svg> <span class="lbl">Ler respostas em voz alta: desligado</span></button>
+    <button id="btnContinua" class="btn" type="button" aria-pressed="false"
+            aria-label="Conversa contínua: desligada"
+            title="Conversa contínua: ao terminar de tocar a resposta, grava de novo"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-repeat"/></svg> <span class="lbl">Conversa contínua: desligada</span></button>
+  </div>
 
 <!-- O menu vem da marcação da casca (casca.js, MARCACAO_MENU): uma fonte só para todas as telas -->
 <div id="menuPonto"></div>
@@ -197,7 +198,7 @@ if (navigator.standalone === true ||
 <script src="/onboarding.js"></script>
 <script src="/campo-cofre.js"></script>
 <script src="/barra.js"></script>
-<script src="/sigilo.js"></script>
+<script src="/sigilo.js?v=2"></script>
 <script src="/lembretes-faixa.js"></script>
 <script src="/atualizacao-faixa.js"></script>
 <script src="/ronda-comum.js"></script>

@@ -4827,7 +4827,9 @@ if (btnVoz && menuVoz) {
     if (ev.key === 'Escape' && !menuVoz.hidden) { ev.stopPropagation(); abreMenuVoz(false, true); }
   });
   document.addEventListener('click', ev => {
-    if (!menuVoz.hidden && !menuVoz.contains(ev.target) && !btnVoz.contains(ev.target)) abreMenuVoz(false);
+    // composedPath: pintaLer/pintaContinua trocam o innerHTML e o span tocado já saiu do DOM
+    const caminho = ev.composedPath();
+    if (!menuVoz.hidden && !caminho.includes(menuVoz) && !caminho.includes(btnVoz)) abreMenuVoz(false);
   });
   window.addEventListener('resize', () => { if (!menuVoz.hidden) posicionaMenuVoz(); });
 }
