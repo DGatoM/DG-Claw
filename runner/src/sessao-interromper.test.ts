@@ -240,6 +240,37 @@ test("cancelar pergunta: um Esc só vale sozinho; [Esc, outra tecla] dá 400 TEC
   assert.equal(s.perguntaTentada, null);
 });
 
+test("compactando (PreCompact): 409 COMPACTANDO e nada escrito", async () => {
+  const s = await nova();
+  const { escritas } = falso(s);
+  s.estado.statusReason = "hook:PreCompact";
+  const r = s.interromper();
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.equal(r.status, 409);
+    assert.equal(r.code, "COMPACTANDO");
+  }
+  assert.deepEqual(escritas, []);
+});
+
+test("cancelar pergunta: item que CONTÉM Esc (\"\\u001b1\", \"a\\u001b\") dá 400 TECLAS_INVALIDAS sem escrever nem marcar a pergunta", async () => {
+  const s = await nova();
+  const { escritas } = falso(s);
+  s.estado.status = "waiting_input";
+  s.estado.motivo = "pergunta";
+  s.estado.pendenteId = "tu1";
+  for (const teclas of [["\u001b1"], ["a\u001b"]]) {
+    const r = await s.responderPergunta("tu1", teclas);
+    assert.equal(r.ok, false);
+    if (!r.ok) {
+      assert.equal(r.status, 400);
+      assert.equal(r.code, "TECLAS_INVALIDAS");
+    }
+  }
+  assert.deepEqual(escritas, []);
+  assert.equal(s.perguntaTentada, null);
+});
+
 test("respondendo pergunta: 409 RESPOSTA_EM_ANDAMENTO e nada escrito", async () => {
   const s = await nova();
   const { escritas } = falso(s);

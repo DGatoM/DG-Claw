@@ -622,6 +622,10 @@ export class Sessao extends EventEmitter {
     if (this.estado.status !== "working") {
       return { ok: false, status: 409, code: "NAO_TRABALHANDO", erro: `O agente ${this.slug} não está trabalhando agora (status=${this.estado.status}); nada foi enviado.`, comoResolver: "esperar o agente começar um trabalho e apertar Parar de novo" };
     }
+    // Compactando (o PreCompact pôs working): um Esc cortaria a compactação.
+    if (this.estado.statusReason === "hook:PreCompact") {
+      return { ok: false, status: 409, code: "COMPACTANDO", erro: `O agente ${this.slug} está compactando a conversa; nada foi enviado.`, comoResolver: "esperar a compactação terminar e apertar Parar de novo" };
+    }
     const trava = this.travaDoEsc();
     if (trava) return trava;
     const statusAntes = this.estado.status;
@@ -653,12 +657,13 @@ export class Sessao extends EventEmitter {
     if (this.perguntaTentada && this.perguntaTentada.proc === proc && this.perguntaTentada.toolUseId === toolUseId) {
       return { ok: false, status: 409, code: "PERGUNTA_JA_RESPONDIDA", erro: "A resposta desta pergunta já foi enviada (por esta ou outra aba). Atualize a conversa; se o terminal ficou no meio, termine pela aba Sessões.", comoResolver: "atualizar a conversa; se o terminal ficou no meio, terminar pela aba Sessões" };
     }
-    // Cancelar a pergunta é um Esc sozinho: a lista é exatamente [ESC] ou não tem ESC. A trava vale ANTES de escrever
-    // qualquer tecla e de marcar a pergunta como tentada.
-    if (teclas.includes(ESC)) {
-      if (teclas.length !== 1) {
-        return { ok: false, status: 400, code: "TECLAS_INVALIDAS", erro: "Um Esc só vale sozinho: a lista de teclas precisa ser exatamente [Esc] ou não ter nenhum Esc. Nada foi digitado.", comoResolver: "mandar o Esc numa resposta própria, sem outras teclas" };
-      }
+    // Cancelar a pergunta é um Esc sozinho: a lista é exatamente [ESC], ou nenhum item contém ESC. A trava vale ANTES de
+    // escrever qualquer tecla e de marcar a pergunta como tentada.
+    const soEsc = teclas.length === 1 && teclas[0] === ESC;
+    if (!soEsc && teclas.some((t) => t.includes(ESC))) {
+      return { ok: false, status: 400, code: "TECLAS_INVALIDAS", erro: "Um Esc só vale sozinho: a lista de teclas precisa ser exatamente [Esc] ou nenhum item pode conter Esc. Nada foi digitado.", comoResolver: "mandar o Esc numa resposta própria, sem outras teclas" };
+    }
+    if (soEsc) {
       const trava = this.travaDoEsc();
       if (trava) return trava;
     }

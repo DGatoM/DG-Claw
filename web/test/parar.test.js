@@ -282,7 +282,7 @@ test('parar: a tela diz "não sei se chegou" em erro de rede/corte e em 504 INCE
   const fs = require('node:fs');
   const path = require('node:path');
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'conversa.js'), 'utf8');
-  assert.match(js, /if \(!e\.status \|\| \(e\.status === 504 && e\.codigo === 'INCERTO'\) \|\| \(e\.status >= 500 && !reconhecido\)\) mostraErro\('Não sei se o pedido de parar chegou a '/);
+  assert.match(js, /if \(!e\.status \|\| \(e\.status === 504 && e\.codigo === 'INCERTO'\) \|\| \(e\.status >= 500 && !reconhecido\)\) mostraSempre\(fErro, 'Não sei se o pedido de parar chegou a '/);
 });
 
 test('parar: 404 sem corpo e 500 com code NO_PTY não são diagnóstico: 504 INCERTO', async () => {
@@ -297,5 +297,25 @@ test('parar: 404 sem corpo e 500 com code NO_PTY não são diagnóstico: 504 INC
     const r = await para(s);
     assert.equal(r.status, 504, r.texto);
     assert.equal(r.json.codigo, 'INCERTO');
+  } finally { await s.fechar(); }
+});
+
+test('parar: runner compactando (409 COMPACTANDO) => 409 claro; a tela mostra o resultado sem o histórico de avisos dispensados', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'conversa.js'), 'utf8');
+  const i = js.indexOf("atvPararEl.addEventListener('click'");
+  const trecho = js.slice(i, js.indexOf('/* "há 3 min" anda sozinho', i));
+  assert.match(trecho, /mostraSempre\(fAviso, d\.mensagem/);
+  assert.doesNotMatch(trecho, /mostraAviso\(|mostraErro\(/, 'o resultado do Parar não pode passar pelo aviso que lembra os dispensados');
+});
+
+test('parar: 409 COMPACTANDO do runner vira 409 com texto claro', async () => {
+  const s = await cenario({ falhaInterromper: { status: 409, corpo: { success: false, error: 'x', code: 'COMPACTANDO' } } });
+  try {
+    const r = await para(s);
+    assert.equal(r.status, 409);
+    assert.equal(r.json.codigo, 'COMPACTANDO');
+    assert.match(r.json.erro, /compactando a conversa/);
   } finally { await s.fechar(); }
 });

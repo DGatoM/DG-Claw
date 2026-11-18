@@ -794,7 +794,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     }
     if (!r.ok) {
       // Nada de texto livre do runner (error, howToFix) no log nem na resposta: só o status HTTP e um `code` de lista fechada.
-      const CONHECIDOS = ['NO_PTY', 'ESPERANDO_DECISAO', 'NAO_TRABALHANDO', 'MUITO_RAPIDO', 'RESPOSTA_EM_ANDAMENTO'];
+      const CONHECIDOS = ['NO_PTY', 'ESPERANDO_DECISAO', 'NAO_TRABALHANDO', 'COMPACTANDO', 'MUITO_RAPIDO', 'RESPOSTA_EM_ANDAMENTO'];
       const code = typeof c.code === 'string' && CONHECIDOS.includes(c.code) ? c.code : null;
       const codeLog = code || 'código desconhecido';
       // Só vale como recusa antes da escrita um corpo success:false com code conhecido; qualquer outra coisa (5xx, HTML de
@@ -809,6 +809,9 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       }
       if (r.status === 409 && code === 'ESPERANDO_DECISAO') {
         return erro(409, `${agente.nome} está esperando uma decisão sua. Responda no cartão da permissão ou da pergunta; o Parar não vale nesse momento.`, { codigo: 'ESPERANDO_DECISAO' });
+      }
+      if (r.status === 409 && code === 'COMPACTANDO') {
+        return erro(409, `${agente.nome} está compactando a conversa. Espere terminar e aperte Parar de novo.`, { codigo: 'COMPACTANDO' });
       }
       if (r.status === 409 && code === 'RESPOSTA_EM_ANDAMENTO') {
         return erro(409, `${agente.nome} está recebendo a resposta de uma pergunta. Espere alguns segundos e tente de novo.`, { codigo: 'RESPOSTA_EM_ANDAMENTO' });

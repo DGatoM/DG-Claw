@@ -440,15 +440,15 @@ if (atividadeEl) {
       let esperaMs = 3000;
       try {
         const d = await api(API + '/parar', { method: 'POST', body: {}, timeoutMs: 15000 });
-        if (d && d.ok === true) mostraAviso(d.mensagem || ('Mandei um Esc para ' + AGENTE.nome + '.'));
-        else mostraErro('A resposta do Parar de ' + AGENTE.nome + ' veio incompleta. Olhe a conversa antes de apertar de novo: dois Esc seguidos podem travar a sessão.');
+        if (d && d.ok === true) mostraSempre(fAviso, d.mensagem || ('Mandei um Esc para ' + AGENTE.nome + '.'));
+        else mostraSempre(fErro, 'A resposta do Parar de ' + AGENTE.nome + ' veio incompleta. Olhe a conversa antes de apertar de novo: dois Esc seguidos podem travar a sessão.');
       } catch (e) {
         const espere = e.dados && typeof e.dados.espere_s === 'number' ? e.dados.espere_s : null;
         if (e.status === 429 && espere !== null) esperaMs = Math.ceil(espere * 1000) + 100;
         // Sem status HTTP (rede, corte, prazo) ou 504 INCERTO: o Esc pode ter chegado; não diga que falhou.
-        const reconhecido = ['MUITO_RAPIDO', 'NO_PTY', 'NAO_TRABALHANDO', 'ESPERANDO_DECISAO', 'RESPOSTA_EM_ANDAMENTO', 'SO_O_DONO', 'RUNNER_FORA', 'RUNNER_ANTIGO', 'AGENTE_DE_OUTRO_RUNNER', 'RECUSADO'].includes(e.codigo);
-        if (!e.status || (e.status === 504 && e.codigo === 'INCERTO') || (e.status >= 500 && !reconhecido)) mostraErro('Não sei se o pedido de parar chegou a ' + AGENTE.nome + '. Olhe a conversa antes de apertar de novo.');
-        else mostraErro('Não consegui parar ' + AGENTE.nome + ': ' + e.message);
+        const reconhecido = ['MUITO_RAPIDO', 'NO_PTY', 'NAO_TRABALHANDO', 'COMPACTANDO', 'ESPERANDO_DECISAO', 'RESPOSTA_EM_ANDAMENTO', 'SO_O_DONO', 'RUNNER_FORA', 'RUNNER_ANTIGO', 'AGENTE_DE_OUTRO_RUNNER', 'RECUSADO'].includes(e.codigo);
+        if (!e.status || (e.status === 504 && e.codigo === 'INCERTO') || (e.status >= 500 && !reconhecido)) mostraSempre(fErro, 'Não sei se o pedido de parar chegou a ' + AGENTE.nome + '. Olhe a conversa antes de apertar de novo.');
+        else mostraSempre(fErro, 'Não consegui parar ' + AGENTE.nome + ': ' + e.message);
       } finally {
         // A trava de 3 s conta desde o clique; a espera do 429 conta desde a resposta.
         const atraso = esperaMs === 3000 ? Math.max(0, 3000 - (Date.now() - inicio)) : esperaMs;
@@ -1274,6 +1274,8 @@ function fechaFaixaAviso() {
   }
   faixa(fAviso, '');
 }
+/* Resultado de uma ação do dono (ex.: Parar): sempre aparece, sem passar pelo histórico de avisos dispensados. */
+const mostraSempre = (el, t) => faixa(el, t);
 const mostraAviso = t => {
   if (t && PURO.avisoDescansando(avisosFechados(), t, Date.now())) return;
   faixa(fAviso, t);
