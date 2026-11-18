@@ -23,7 +23,7 @@ export function criarAnotadorIntegracao({ registrar, env, opcoes = {} }) {
 
   function anotar(resultado, origem) {
     const ultimo = fila[fila.length - 1];
-    if (ultimo && ultimo.resultado === 'ok' && resultado === 'ok' && ultimo.origem === origem) return comPrazo(ultimo.promessa);
+    if (ultimo && ultimo.resultado === 'ok' && resultado === 'ok' && ultimo.origem === origem) return comPrazo(ultimo.promessa, resultado);
     if (fila.length >= MAX_FILA) {
       if (!avisouCheia) { avisouCheia = true; registrar(`a fila de registros do mapa de integracoes passou de ${MAX_FILA}; "${resultado}" do WhatsApp nao foi anotado`); }
       return Promise.resolve();
@@ -32,13 +32,16 @@ export function criarAnotadorIntegracao({ registrar, env, opcoes = {} }) {
     item.promessa = new Promise((resolve) => { item.resolve = resolve; });
     fila.push(item);
     proximo();
-    return comPrazo(item.promessa);
+    return comPrazo(item.promessa, resultado);
   }
 
   // Quem espera (o logout) nunca espera mais que o prazo, mesmo com registros na frente da fila.
-  function comPrazo(promessa) {
+  function comPrazo(promessa, rotulo) {
     return new Promise((resolve) => {
-      const t = setTimeout(resolve, PRAZO_MS);
+      const t = setTimeout(() => {
+        registrar(`o registro de "${rotulo}" do WhatsApp no mapa de integracoes passou de ${PRAZO_MS / 1000} s; a ponte encerra sem esperar mais`);
+        resolve();
+      }, PRAZO_MS);
       if (typeof t.unref === 'function') t.unref();
       promessa.then(() => { clearTimeout(t); resolve(); });
     });
@@ -59,8 +62,9 @@ export function criarAnotadorIntegracao({ registrar, env, opcoes = {} }) {
 
   function executar(resultado, origem) {
     return new Promise((resolve) => {
-      let timer = null;
-      const fim = () => { if (timer) clearTimeout(timer); resolve(); };
+      // So termina quando o processo filho termina (o execFile ja tem timeout de 10 s): o proximo registro nunca
+      // comeca com o anterior ainda rodando. O prazo de 3 s e de quem espera (comPrazo), nao da fila.
+      const fim = () => resolve();
       try {
         if (typeof opcoes.registrarIntegracao === 'function') {
           Promise.resolve(opcoes.registrarIntegracao(resultado, origem)).then(fim, fim);
@@ -81,11 +85,6 @@ export function criarAnotadorIntegracao({ registrar, env, opcoes = {} }) {
         });
         filho.on('error', () => { /* tratado no callback acima */ });
         if (typeof filho.unref === 'function') filho.unref();
-        timer = setTimeout(() => {
-          registrar(`o registro de "${resultado}" do WhatsApp no mapa de integracoes passou de ${PRAZO_MS / 1000} s; a ponte encerra sem esperar mais`);
-          resolve();
-        }, PRAZO_MS);
-        if (typeof timer.unref === 'function') timer.unref();
       } catch (e) {
         registrar(`nao consegui anotar "${resultado}" do WhatsApp no mapa de integracoes (${motivoErro(e)}); a ponte segue normalmente`);
         fim();

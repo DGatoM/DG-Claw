@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 
 const AQUI = path.dirname(new URL(import.meta.url).pathname);
@@ -26,10 +27,11 @@ mk(skillsDir, 'publicar', '---\nname: publicar\ndescription: Publica no Instagra
 mk(skillsCodex, 'postar-codex', '---\nname: postar-codex\ndescription: Posta pelo Codex\nintegracoes: instagram\n---\n');
 
 const PORTA = 19100 + Math.floor(Math.random() * 100);
-const SENHA = 'senha-de-teste-bem-longa-123';
+const SENHA = crypto.randomBytes(18).toString('hex');   // nova a cada execução
 const cfg = path.join(RAIZ, 'config.json');
 fs.writeFileSync(cfg, JSON.stringify({ agentName: 'Agente Teste', agentSlug: 'agente-teste', agentDir: agente }));
-const env = { ...process.env, HOME: RAIZ, DGCLAW_PANEL_PORT: String(PORTA), DGCLAW_PANEL_HOST: '127.0.0.1',
+// O filho recebe só o necessário, não o ambiente herdado de quem roda o teste.
+const env = { PATH: process.env.PATH, ...(process.env.NODE_PATH ? { NODE_PATH: process.env.NODE_PATH } : {}), HOME: RAIZ, DGCLAW_PANEL_PORT: String(PORTA), DGCLAW_PANEL_HOST: '127.0.0.1',
   DGCLAW_PANEL_PASSWORD: SENHA, DGCLAW_SAUDE_CHECAR_LOGIN: 'off', DGCLAW_PANEL_CONFIG: cfg,
   // Sem herdar do ambiente de quem roda o teste: a casa do agente e as skills extras apontam para a pasta temporária.
   DGCLAW_INTEGRACOES_DIR: pasta, DGCLAW_PANEL_SKILLS_DIR: '' };
@@ -146,6 +148,30 @@ try {
   p = await post('instagram/desligar');
   ok(p.status === 409 && fs.readFileSync(path.join(pasta, 'preferencias.json'), 'utf8') === '{quebrado', 'preferencias.json inválido: o POST recusa com 409 e não sobrescreve');
   fs.rmSync(path.join(pasta, 'preferencias.json'));
+  // item 6: o trecho do conteúdo inválido não aparece na resposta
+  gravaEstado('{"segredo-do-agente": QUEBRADO');
+  r = await get();
+  ok(r.j.medido === false && /JSON quebrado/.test(r.j.motivo) && !/segredo-do-agente|QUEBRADO|position|Unexpected/.test(JSON.stringify(r.j)), 'estado.json inválido: motivo fixo, sem trecho do conteúdo');
+  gravaEstado({ versao: 1, geradoEm: iso(0), integracoes: [item('instagram', 'vermelho', 'credencial_recusada', { ultimaFalha: iso(60000), ultimaFalhaResultado: 'credencial_recusada' })] });
+  // item 10: id desconhecido no desligar
+  p = await post('nao-existe-no-mapa-x/desligar');
+  ok(p.status === 404 && /não está no mapa/.test(JSON.stringify(await p.json())), 'desligar id desconhecido: 404 com motivo');
+  ok(!fs.existsSync(path.join(pasta, 'preferencias.json')), 'id desconhecido não gravou nada');
+  // ligar aceita id que sumiu do mapa (recuperação)
+  fs.writeFileSync(path.join(pasta, 'preferencias.json'), '{"desligadas":["sumiu-do-mapa"]}');
+  p = await post('sumiu-do-mapa/ligar');
+  ok(p.status === 200 && fs.readFileSync(path.join(pasta, 'preferencias.json'), 'utf8').includes('"desligadas": []'), 'ligar remove da lista mesmo id que sumiu do mapa');
+  // lista que passaria do limite de leitura: 413
+  {
+    const ids = []; let n = 0;
+    const tam = () => Buffer.byteLength(JSON.stringify({ desligadas: ids }, null, 1) + '\n');
+    while (tam() < 65536 - 12) ids.push(`z${String(n++).padStart(5, '0')}`);
+    fs.writeFileSync(path.join(pasta, 'preferencias.json'), JSON.stringify({ desligadas: ids }, null, 1) + '\n');
+    p = await post('instagram/desligar');
+    ok(p.status === 413 && /passaria de/.test(JSON.stringify(await p.json())), 'lista acima de 64 KiB: 413 com motivo');
+    ok(JSON.parse(fs.readFileSync(path.join(pasta, 'preferencias.json'), 'utf8')).desligadas.length === ids.length, 'arquivo anterior intacto após o 413');
+    fs.rmSync(path.join(pasta, 'preferencias.json'));
+  }
   p = await post('Id%20Ruim/desligar');
   ok(p.status === 400 && /howToFix|Use de 1/.test(JSON.stringify(await p.json())), 'id fora do formato no POST: 400 com orientação');
   const cross = await fetch(`${URL_}/api/integracoes/instagram/desligar`, { method: 'POST', headers: { cookie, 'sec-fetch-site': 'cross-site' } });

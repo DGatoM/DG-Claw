@@ -47,3 +47,17 @@ test('quem espera (logout) não passa do prazo mesmo com a fila parada', async (
   const dt = Date.now() - t0;
   assert.ok(dt >= 2900 && dt < 4500, `esperou ${dt} ms`);
 });
+
+test('primeiro registro lento: o segundo só começa depois que o primeiro termina, mesmo passado o prazo de 3 s', async () => {
+  const a = anotadorFalso();
+  a.anotar('erro', 'uso');   // lento: ninguém solta ainda
+  const vivo = setTimeout(() => {}, 10000);
+  const espera = a.anotar('desconectado', 'canal');
+  await espera;               // o prazo de 3 s vence para quem espera
+  clearTimeout(vivo);
+  assert.deepEqual(a.chamadas, ['erro/uso'], 'o segundo não começou com o primeiro ainda rodando');
+  assert.equal(a.max(), 1);
+  await a.solta(); await a.solta();
+  assert.deepEqual(a.chamadas, ['erro/uso', 'desconectado/canal']);
+  assert.equal(a.max(), 1);
+});

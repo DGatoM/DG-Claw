@@ -97,7 +97,7 @@ def _eventos_validos(linhas):
             continue
         try:
             e = json.loads(linha)
-            if (isinstance(e, dict) and ID_RE.match(str(e.get("id", ""))) and e.get("resultado") in RESULTADOS
+            if (isinstance(e, dict) and isinstance(e.get("id"), str) and ID_RE.fullmatch(e["id"]) and e.get("resultado") in RESULTADOS
                     and e.get("origem") in ORIGENS):
                 _parse(e["em"])
                 saida.append({"em": e["em"], "id": e["id"], "resultado": e["resultado"], "origem": e["origem"]})
@@ -178,9 +178,16 @@ def _troca_atomica(caminho, conteudo):
         raise
 
 
+def _recusar_root():
+    if os.geteuid() == 0:
+        raise ErroGravacao("O registro de integracoes e do usuario do agente e nao pode rodar como root: como root ele "
+                           "gravaria numa pasta que o agente controla. Rode o comando como o usuario do agente "
+                           "(dentro do container do agente) e nao como root.")
+
+
 def registrar(iid, resultado, origem="uso", agora=None):
     """Anota um resultado. Devolve "gravado" ou "aparado". Levanta ErroUso ou ErroGravacao."""
-    if not isinstance(iid, str) or not ID_RE.match(iid):
+    if not isinstance(iid, str) or not ID_RE.fullmatch(iid):
         raise ErroUso(f"O id da integracao {iid!r} nao serve. Use de 1 a 32 caracteres: letras minusculas, "
                       "numeros e hifen, comecando por letra ou numero (exemplo: instagram, nota-fiscal).")
     if resultado not in RESULTADOS:
@@ -188,10 +195,7 @@ def registrar(iid, resultado, origem="uso", agora=None):
     if origem not in ORIGENS:
         raise ErroUso(f"A origem {origem!r} nao existe. Use uma destas: {', '.join(ORIGENS)}.")
     agora = (agora or _agora()).astimezone(datetime.timezone.utc).replace(microsecond=0)
-    if os.geteuid() == 0:
-        raise ErroGravacao("O registro de integracoes e do usuario do agente e nao pode rodar como root: como root ele "
-                           "gravaria numa pasta que o agente controla. Rode o comando como o usuario do agente "
-                           "(dentro do container do agente) e nao como root.")
+    _recusar_root()
     d = pasta()
     try:
         # Modo so na criacao: pasta que ja existe nao tem o modo mexido.
@@ -277,9 +281,10 @@ def _registrar_travado(d, iid, resultado, origem, agora):
     if resultado_gravacao == "gravado":
         eventos.append({"em": _fmt(agora), "id": iid, "resultado": resultado, "origem": origem})
     eventos = eventos[-MAX_LINHAS:]
-    _troca_atomica(arq_eventos, "".join(json.dumps(e, ensure_ascii=False, separators=(",", ":")) + "\n" for e in eventos))
     estado = {"versao": 1, "geradoEm": _fmt(agora), "integracoes": calcular_estado(eventos, agora)}
+    # Estado primeiro: o vigia le o estado, e se a segunda troca falhar ele ja mostra o evento (a direcao segura).
     _troca_atomica(os.path.join(d, "estado.json"), json.dumps(estado, ensure_ascii=False, indent=1) + "\n")
+    _troca_atomica(arq_eventos, "".join(json.dumps(e, ensure_ascii=False, separators=(",", ":")) + "\n" for e in eventos))
     return resultado_gravacao
 
 
@@ -292,6 +297,72 @@ def registrar_silencioso(iid, resultado, origem="uso"):
     except Exception as e:  # noqa: BLE001 - registrar e auxiliar e nao pode derrubar o programa que o chamou
         print(f"[integracoes] AVISO: erro inesperado ao registrar {iid} {resultado} ({type(e).__name__}: {e}). "
               "O programa seguiu normalmente.", file=sys.stderr)
+
+
+MAX_BYTES_ESTADO = 256 * 1024
+CAMPOS_TEMPO = ("ultimoEvento", "ultimoOk", "ultimaTentativaReal", "ultimaFalha")
+ESTADOS = ("verde", "amarelo", "vermelho", "sem_uso_recente")
+
+
+def _tempo_ou_nulo(v):
+    if v is None:
+        return True
+    try:
+        _parse(v)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def _estado_validado(j):
+    """Confere o esquema do estado.json e devolve so os campos conhecidos. Levanta ValueError se nao servir."""
+    if not isinstance(j, dict) or j.get("versao") != 1 or not isinstance(j.get("integracoes"), list):
+        raise ValueError("nao tem o formato esperado (versao 1 com a lista de integracoes)")
+    if len(j["integracoes"]) > MAX_IDS:
+        raise ValueError(f"lista mais de {MAX_IDS} integracoes")
+    if not _tempo_ou_nulo(j.get("geradoEm")):
+        raise ValueError("geradoEm invalido")
+    itens, vistos = [], set()
+    for it in j["integracoes"]:
+        if (not isinstance(it, dict) or not isinstance(it.get("id"), str) or not ID_RE.fullmatch(it["id"]) or it["id"] in vistos
+                or it.get("estado") not in ESTADOS or it.get("ultimoResultado") not in RESULTADOS
+                or not isinstance(it.get("ultimoEvento"), str)
+                or any(not _tempo_ou_nulo(it.get(c)) for c in CAMPOS_TEMPO)
+                or not (it.get("ultimaFalhaResultado") is None or it.get("ultimaFalhaResultado") in RESULTADOS)):
+            raise ValueError("uma integracao esta fora do formato (id, estado, resultado ou data invalidos)")
+        vistos.add(it["id"])
+        itens.append({"id": it["id"], "estado": it["estado"], "ultimoEvento": it["ultimoEvento"],
+                      "ultimoResultado": it["ultimoResultado"], "ultimoOk": it.get("ultimoOk"),
+                      "ultimaTentativaReal": it.get("ultimaTentativaReal"), "ultimaFalha": it.get("ultimaFalha"),
+                      "ultimaFalhaResultado": it.get("ultimaFalhaResultado")})
+    return {"versao": 1, "geradoEm": j.get("geradoEm"), "integracoes": itens}
+
+
+def _ler_estado(arq):
+    """Le o estado.json sem seguir link simbolico, so se for arquivo comum e ate MAX_BYTES_ESTADO. None se ausente."""
+    try:
+        fd = os.open(arq, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ErroGravacao(f"{arq} nao e um arquivo comum, entao nao o li. Peca ao dono para conferir essa pasta.")
+        pedacos, restante = [], MAX_BYTES_ESTADO + 1
+        while restante > 0:
+            b = os.read(fd, restante)
+            if not b:
+                break
+            pedacos.append(b)
+            restante -= len(b)
+        bruto = b"".join(pedacos)
+    finally:
+        os.close(fd)
+    if len(bruto) > MAX_BYTES_ESTADO:
+        raise ErroGravacao(f"{arq} passa de {MAX_BYTES_ESTADO} bytes, entao nao o li.")
+    try:
+        return _estado_validado(json.loads(bruto.decode("utf-8")))
+    except (ValueError, UnicodeDecodeError) as e:
+        raise ErroGravacao(f"{arq} esta fora do formato esperado ({e}). Nada foi mostrado.") from None
 
 
 def _uso():
@@ -308,13 +379,15 @@ def main(argv):
     if cmd == "estado" and not resto:
         arq = os.path.join(pasta(), "estado.json")
         try:
-            with open(arq, "r", encoding="utf-8") as f:
-                sys.stdout.write(f.read())
-        except FileNotFoundError:
-            print(json.dumps({"versao": 1, "geradoEm": None, "integracoes": []}))
+            _recusar_root()
+            estado = _ler_estado(arq)
+        except ErroGravacao as e:
+            print(f"Erro: {e}", file=sys.stderr)
+            return 1
         except OSError as e:
             print(f"Nao consegui ler {arq}: {e.strerror or e}. Confira a permissao da pasta.", file=sys.stderr)
             return 1
+        print(json.dumps(estado if estado is not None else {"versao": 1, "geradoEm": None, "integracoes": []}, ensure_ascii=False))
         return 0
     if cmd == "registrar":
         origem = "uso"

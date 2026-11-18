@@ -103,11 +103,12 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
 
   let incidentes = [];        // abertos, de agentes ainda no registro
   let silenciadas = [];       // [{ agente, integracao }]
-  let automatico = { ligado: false, alteradoEm: null, envios: [] };
+  let automatico = { ligado: false, alteradoEm: null, envios: [], suspenso: false };
   let naFaixaIds = new Set(); // ids dos incidentes que a última reavaliação deixou à vista
   let naoMedidos = [];
   let timer = null;
-  let suspenso = false;       // incidentes.json existia mas estava ilegível: sem pedido automático até o dono mexer no interruptor
+  // A suspensão (incidentes.json ilegível) vive em automatico.json (campo `suspenso`), não só na memória: assim ela
+  // sobrevive a um reinício, mesmo depois que o incidentes.json ruim for regravado. Só o dono, no interruptor, a limpa.
 
   // ── disco ──────────────────────────────────────────────────────────────────
   // `existiaIlegivel.valor` fica true quando o arquivo EXISTE mas não deu para ler ou interpretar (e `bruto` guarda o texto, se leu).
@@ -140,11 +141,23 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
     } else {
       log('erro', `Integrações: ${arqIncidentes} existe mas não pôde ser lido, então não há cópia para guardar. Confira as permissões antes de mexer nas integrações.`);
     }
-    suspenso = true;
+    automatico.suspenso = true;
+    // Grava a suspensão ANTES de qualquer regravação do incidentes.json.
+    // Se nem a suspensão foi gravada, o incidentes.json não é regravado: assim um reinício não perde a marca.
+    if (!tentaGravar(gravaAutomatico, 'a suspensão em automatico.json')) incidentesTravados = true;
     log('erro', `Integrações: o pedido automático ao Admin está suspenso porque ${arqIncidentes} está ilegível (a lista de incidentes e de silenciadas pode ter se perdido). Confira o arquivo (a cópia está em ${copia}) e ligue ou desligue "Chamar o Admin sozinho" na tela Segurança para retomar.`);
   }
 
   function carregar() {
+    const a = lerJsonOuVazio(arqAutomatico);
+    if (a && typeof a === 'object') {
+      automatico = {
+        ligado: a.ligado === true,
+        alteradoEm: typeof a.alteradoEm === 'string' ? a.alteradoEm : null,
+        envios: Array.isArray(a.envios) ? a.envios.filter((e) => e && typeof e.em === 'string' && Number.isFinite(Date.parse(e.em))) : [],
+        suspenso: a.suspenso === true,
+      };
+    }
     const ruim = { valor: false, bruto: null };
     const i = lerJsonOuVazio(arqIncidentes, ruim);
     if (ruim.valor) protegeIncidentesRuim(ruim);
@@ -156,21 +169,17 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
       log('erro', `Integrações: ${arqIncidentes} não tem o formato esperado; começo vazio.`);
       protegeIncidentesRuim({ bruto: JSON.stringify(i) });
     }
-    const a = lerJsonOuVazio(arqAutomatico);
-    if (a && typeof a === 'object') {
-      automatico = {
-        ligado: a.ligado === true,
-        alteradoEm: typeof a.alteradoEm === 'string' ? a.alteradoEm : null,
-        envios: Array.isArray(a.envios) ? a.envios.filter((e) => e && typeof e.em === 'string' && Number.isFinite(Date.parse(e.em))) : [],
-      };
-    }
   }
 
   function grava(arq, obj) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     gravaArquivoSeguro(arq, `${JSON.stringify(obj, null, 1)}\n`, { raiz: dataDir, modo: 0o600 });
   }
-  const gravaIncidentes = () => grava(arqIncidentes, { versao: 1, incidentes, silenciadas });
+  let incidentesTravados = false;
+  const gravaIncidentes = () => {
+    if (incidentesTravados) throw new Error('a suspensão do automático não foi gravada, então o incidentes.json ilegível fica como está até o dono mexer no interruptor');
+    grava(arqIncidentes, { versao: 1, incidentes, silenciadas });
+  };
   const gravaAutomatico = () => grava(arqAutomatico, automatico);
   function tentaGravar(fn, o_que) {
     try { fn(); return true; } catch (e) {
@@ -195,7 +204,7 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
   function pedidoAutomatico(inc, agoraMs) {
     if (!automatico.ligado || inc.pedidoAutomaticoEm) return null;
     const rotulo = `${inc.agente}/${inc.integracao}`;
-    if (suspenso) { log('erro', `Integrações: não enviei o pedido automático ao Admin para ${rotulo} porque o incidentes.json estava ilegível ao iniciar. Confira ${arqIncidentes}.corrompido e mexa no interruptor "Chamar o Admin sozinho" para retomar.`); return null; }
+    if (automatico.suspenso) { log('erro', `Integrações: não enviei o pedido automático ao Admin para ${rotulo} porque o incidentes.json estava ilegível ao iniciar. Confira ${arqIncidentes}.corrompido e mexa no interruptor "Chamar o Admin sozinho" para retomar.`); return null; }
     const motivo = barradoPorLimite(inc, agoraMs);
     if (motivo) { log('info', `Integrações: não enviei o pedido automático ao Admin para ${rotulo}: ${motivo}.`); return null; }
     const admin = (registro.estado().agentes || []).find((a) => a.tipo === 'admin');
@@ -355,16 +364,17 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
 
   /** Ligar só vale depois de gravar. Desligar vale na hora (para de enviar) mesmo se a gravação falhar. */
   function definirAutomatico(ligado, agoraMs) {
-    const copia = { ...automatico, ligado, alteradoEm: new Date(agoraMs).toISOString() };
+    const copia = { ...automatico, ligado, alteradoEm: new Date(agoraMs).toISOString(), suspenso: false };
     if (ligado) {
       if (!tentaGravar(() => grava(arqAutomatico, copia), 'automatico.json')) return { gravou: false };
       automatico = copia;
-      suspenso = false;
+      incidentesTravados = false;
       return { gravou: true };
     }
     automatico = copia;
-    suspenso = false;
-    return { gravou: tentaGravar(gravaAutomatico, 'automatico.json') };
+    const gravou = tentaGravar(gravaAutomatico, 'automatico.json');
+    if (gravou) incidentesTravados = false;
+    return { gravou };
   }
 
   // ── rotas ──────────────────────────────────────────────────────────────────

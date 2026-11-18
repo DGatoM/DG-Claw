@@ -62,6 +62,16 @@ class TestEntradas(Base):
                 I.registrar(ruim, "ok", agora=T0)
         self.assertFalse(os.path.exists(self.dir))
 
+    def test_id_com_quebra_de_linha_final_e_recusado(self):
+        with self.assertRaises(I.ErroUso):
+            I.registrar("instagram\n", "ok", agora=T0)
+        self.assertFalse(os.path.exists(self.dir))
+
+    def test_releitura_ignora_id_com_quebra_de_linha_e_id_que_nao_e_texto(self):
+        bom = ev(0, "groq", "ok")
+        linhas = [json.dumps({**bom, "id": "instagram\n"}), json.dumps({**bom, "id": 5}), json.dumps({**bom, "id": ["groq"]}), json.dumps(bom)]
+        self.assertEqual(I._eventos_validos(linhas), [bom])
+
     def test_ids_validos(self):
         for bom in ["a", "0", "nota-fiscal", "a" * 32]:
             I.registrar(bom, "erro", agora=T0)
@@ -124,6 +134,18 @@ class TestGravacao(Base):
         for nome in ("eventos.jsonl", "estado.json"):
             self.assertEqual(os.stat(os.path.join(self.dir, nome)).st_mode & 0o777, 0o644, nome)
         self.assertEqual(sorted(os.listdir(self.dir)), [".trava", "estado.json", "eventos.jsonl"])
+
+    def test_falha_na_troca_do_historico_deixa_o_estado_com_o_evento(self):
+        original = I._troca_atomica
+        def falha_no_historico(caminho, conteudo):
+            if caminho.endswith("eventos.jsonl"):
+                raise OSError(28, "No space left on device")
+            return original(caminho, conteudo)
+        with mock.patch.object(I, "_troca_atomica", side_effect=falha_no_historico):
+            with self.assertRaises(I.ErroGravacao):
+                I.registrar("groq", "erro", agora=T0)
+        self.assertEqual(self.estado_de("groq")["ultimoResultado"], "erro")
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "eventos.jsonl")))
 
     def test_gravacao_atomica_nao_deixa_temporario(self):
         for i in range(5):
@@ -354,8 +376,8 @@ class TestCli(Base):
     def test_registrar_e_estado(self):
         r0 = self.rodar_sem_root("registrar", "instagram", "ok")
         self.assertEqual(r0.returncode, 0, r0.stderr)
-        r = self.rodar("estado")
-        self.assertEqual(r.returncode, 0)
+        r = self.rodar_sem_root("estado")
+        self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout)["integracoes"][0]["id"], "instagram")
 
     def test_uso_errado_sai_2_em_portugues(self):
@@ -366,7 +388,68 @@ class TestCli(Base):
             self.assertTrue(r.stderr.strip(), args)
 
     def test_estado_sem_arquivo(self):
-        self.assertEqual(json.loads(self.rodar("estado").stdout)["integracoes"], [])
+        self.assertEqual(json.loads(self.rodar_sem_root("estado").stdout)["integracoes"], [])
+
+    def test_estado_como_root_sai_1_com_a_mesma_mensagem(self):
+        if not ERA_ROOT:
+            self.skipTest("so faz sentido rodando como root")
+        r = self.rodar("estado")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("nao pode rodar como root", r.stderr)
+        self.assertEqual(r.stdout, "")
+
+    def _estado_bom(self):
+        return {"versao": 1, "geradoEm": I._fmt(T0), "integracoes": [{
+            "id": "groq", "estado": "verde", "ultimoEvento": I._fmt(T0), "ultimoResultado": "ok", "ultimoOk": I._fmt(T0),
+            "ultimaTentativaReal": I._fmt(T0), "ultimaFalha": None, "ultimaFalhaResultado": None}]}
+
+    def test_estado_imprime_so_campos_validados(self):
+        os.makedirs(self.dir)
+        e = self._estado_bom()
+        e["integracoes"][0]["extra"] = "SEGREDO-DO-AGENTE"
+        e["lixo"] = "SEGREDO-DO-AGENTE"
+        with open(os.path.join(self.dir, "estado.json"), "w") as f:
+            json.dump(e, f)
+        os.chmod(self.dir, 0o755)
+        os.chmod(os.path.join(self.dir, "estado.json"), 0o644)
+        r = self.rodar_sem_root("estado")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("SEGREDO", r.stdout)
+        self.assertEqual(json.loads(r.stdout)["integracoes"][0]["id"], "groq")
+
+    def test_estado_invalido_grande_link_e_fifo_sao_recusados(self):
+        os.makedirs(self.dir)
+        os.chmod(self.dir, 0o755)
+        arq = os.path.join(self.dir, "estado.json")
+        ruins = {
+            "json": "{SEGREDO quebrado",
+            "formato": json.dumps({"versao": 2, "integracoes": []}),
+            "id": json.dumps({**self._estado_bom(), "integracoes": [{**self._estado_bom()["integracoes"][0], "id": "groq\n"}]}),
+            "grande": json.dumps({**self._estado_bom(), "lixo": "x" * (I.MAX_BYTES_ESTADO + 10)}),
+        }
+        for nome, texto in ruins.items():
+            with self.subTest(nome):
+                with open(arq, "w") as f:
+                    f.write(texto)
+                os.chmod(arq, 0o644)
+                r = self.rodar_sem_root("estado")
+                self.assertEqual(r.returncode, 1, r.stdout)
+                self.assertEqual(r.stdout, "")
+                self.assertNotIn("SEGREDO", r.stderr)
+                os.unlink(arq)
+        with self.subTest("link"):
+            alvo = os.path.join(self.tmp.name, "alvo.json")
+            with open(alvo, "w") as f:
+                json.dump(self._estado_bom(), f)
+            os.chmod(alvo, 0o644)
+            os.symlink(alvo, arq)
+            self.assertEqual(self.rodar_sem_root("estado").returncode, 1)
+            os.unlink(arq)
+        with self.subTest("fifo"):
+            os.mkfifo(arq)
+            r = self.rodar_sem_root("estado")
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("arquivo comum", r.stderr)
 
 
 if __name__ == "__main__":

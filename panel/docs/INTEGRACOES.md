@@ -74,7 +74,10 @@ Grava ou tira o `id` de `preferencias.json`. Resposta:
 { "ok": true, "id": "instagram", "desligada": true }
 ```
 
-Id fora do formato: HTTP 400 com `error` e `howToFix`.
+Id fora do formato: HTTP 400 com `error` e `howToFix`. `desligar` de um id que o mapa não conhece:
+HTTP 404. Lista que passaria de 64 KiB: HTTP 413, e o arquivo anterior fica intacto. `ligar` aceita
+qualquer id que esteja na lista, mesmo que ele tenha sumido do mapa. `preferencias.json` ilegível:
+HTTP 409, sem sobrescrever.
 
 ## A tela (aba Integrações)
 

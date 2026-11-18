@@ -132,10 +132,28 @@ function lerDesligadas(dir) {
       return null;
     }
     return j.desligadas.filter((x) => typeof x === 'string' && ID_RE.test(x));
-  } catch (e) {
-    console.warn(`[painel] ignorei ${arq}: o JSON está quebrado (${e.message}).`);
+  } catch (_) {
+    console.warn(`[painel] ignorei ${arq}: o JSON está quebrado.`);
     return null;
   }
+}
+
+const serializarDesligadas = (lista) => JSON.stringify({ desligadas: lista }, null, 1) + '\n';
+
+/** Ids que o mapa conhece agora: catálogo, itens do estado.json (se válido) e os declarados pelas skills. */
+function idsConhecidos(CONFIG, serverDir, dir) {
+  const ids = new Set(Object.keys(lerCatalogo(serverDir)).filter((id) => ID_RE.test(id)));
+  const lido = lerArquivoPequeno(path.join(dir, 'estado.json'));
+  if (lido.texto !== undefined) {
+    try {
+      const v = validarEstado(JSON.parse(lido.texto));
+      for (const it of v.itens || []) ids.add(it.id);
+    } catch (_) { /* estado ilegível: só os outros ids contam */ }
+  }
+  try {
+    for (const sk of skillsLib.listar(CONFIG.agentDir, process.env.DGCLAW_PANEL_SKILLS_DIR).skills) for (const id of sk.integracoes || []) ids.add(id);
+  } catch (_) { /* sem skills legíveis: só os outros ids contam */ }
+  return ids;
 }
 
 function gravarDesligadas(dir, lista) {
@@ -149,7 +167,7 @@ function gravarDesligadas(dir, lista) {
   let fd = null;
   try {
     fd = fs.openSync(tmp, flags, 0o600);
-    fs.writeSync(fd, JSON.stringify({ desligadas: lista }, null, 1) + '\n');
+    fs.writeSync(fd, serializarDesligadas(lista));
     fs.closeSync(fd);
     fd = null;
     fs.renameSync(tmp, arq);
@@ -168,8 +186,10 @@ function montar(CONFIG, serverDir, agora = new Date()) {
   if (lido.ausente) return { ...base, integracoes: [], medido: true };
   if (lido.erro) return { ...base, integracoes: [], medido: false, motivo: `Não foi possível medir as integrações: ${lido.erro}.` };
   let j;
-  try { j = JSON.parse(lido.texto); } catch (e) {
-    return { ...base, integracoes: [], medido: false, motivo: `Não foi possível medir as integrações: o estado.json está com o JSON quebrado (${e.message}).` };
+  try { j = JSON.parse(lido.texto); } catch (_) {
+    // Mensagem fixa: o texto do JSON.parse pode ecoar um trecho do arquivo, que o agente escreve.
+    console.warn(`[painel] ignorei ${path.join(dir, 'estado.json')}: o JSON está quebrado.`);
+    return { ...base, integracoes: [], medido: false, motivo: 'Não foi possível medir as integrações: o estado.json está com o JSON quebrado.' };
   }
   const v = validarEstado(j);
   if (v.erro) return { ...base, integracoes: [], medido: false, motivo: `Não foi possível medir as integrações: ${v.erro}.` };
@@ -236,7 +256,17 @@ function registrar(router, { CONFIG, serverDir }) {
           return res.status(409).json({ error: `Não gravei a preferência da integração ${id}: o arquivo preferencias.json em ${dir} existe, mas está ilegível ou fora do formato, e gravar agora apagaria o que ele guarda.`, howToFix: 'Peça ao Admin para conferir o arquivo preferencias.json dessa pasta (ou apague-o se não precisar do que ele guarda) e tente de novo.' });
         }
         const set = new Set(atual);
-        if (desligar) set.add(id); else set.delete(id);
+        if (desligar) {
+          // Desligar só vale para o que o mapa conhece. Ligar (tirar da lista) vale para qualquer id da lista: é o caminho de recuperação.
+          if (!idsConhecidos(CONFIG, serverDir, dir).has(id)) {
+            return res.status(404).json({ error: `A integração ${id} não está no mapa deste agente, então não a desliguei.`, howToFix: 'Confira o id na lista de integrações (GET /api/integracoes) e tente de novo.' });
+          }
+          set.add(id);
+          const tamanho = Buffer.byteLength(serializarDesligadas([...set].sort()));
+          if (tamanho > MAX_BYTES) {
+            return res.status(413).json({ error: `Não desliguei ${id}: a lista de integrações desligadas passaria de ${MAX_BYTES} bytes (ficaria com ${tamanho}), e o painel não leria mais o arquivo.`, howToFix: 'Religue integrações que não precisam ficar desligadas, ou peça ao Admin para limpar o preferencias.json.' });
+          }
+        } else set.delete(id);
         gravarDesligadas(dir, [...set].sort());
         res.json({ ok: true, id, desligada: desligar });
       } catch (e) {

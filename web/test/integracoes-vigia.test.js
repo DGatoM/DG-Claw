@@ -485,6 +485,47 @@ test('incidentes.json existe mas está ruim: guarda cópia, suspende o automáti
   } finally { t.limpa(); }
 });
 
+test('se nem a suspensão pôde ser gravada, o incidentes.json ruim não é regravado até o dono mexer no interruptor', async () => {
+  const t = montar({ dados: { luna: { itens: [item()] } } });
+  try {
+    const dir = path.join(t.dataDir, 'integracoes');
+    fs.mkdirSync(path.join(dir, 'automatico.json'), { recursive: true });   // pasta no lugar do arquivo: a gravação falha
+    fs.writeFileSync(path.join(dir, 'incidentes.json'), '{quebrado');
+    const v = t.criar();
+    await v.reavaliar(T0);
+    assert.equal(t.runner.chamadas.length, 0);
+    assert.equal(fs.readFileSync(path.join(dir, 'incidentes.json'), 'utf8'), '{quebrado', 'o arquivo ruim continua como estava');
+    assert.ok(t.logs.some((l) => /suspensão do automático não foi gravada/.test(l)));
+  } finally { t.limpa(); }
+});
+
+test('suspensão por incidentes.json ruim sobrevive a um segundo início, mesmo com o arquivo já regravado', async () => {
+  const t = montar({ dados: { luna: { itens: [item()] } } });
+  try {
+    const dir = path.join(t.dataDir, 'integracoes');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'incidentes.json'), '{quebrado');
+    fs.writeFileSync(path.join(dir, 'automatico.json'), JSON.stringify({ ligado: true, alteradoEm: iso(T0), envios: [] }));
+    const v1 = t.criar();
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'automatico.json'), 'utf8')).suspenso, true, 'a suspensão já está no disco antes de regravar o incidentes.json');
+    await v1.reavaliar(T0);   // regrava o incidentes.json, agora válido
+    assert.doesNotThrow(() => JSON.parse(fs.readFileSync(path.join(dir, 'incidentes.json'), 'utf8')));
+    assert.equal(t.runner.chamadas.length, 0);
+    // segundo início, no mesmo dataDir, com incidente novo
+    const v2 = t.criar();
+    t.dados.luna.itens = [item({ id: 'groq' })];
+    await v2.reavaliar(T0 + 60000);
+    assert.equal(t.runner.chamadas.length, 0, 'continua suspenso: o arquivo bom não limpa a suspensão');
+    // só o dono, no interruptor, limpa
+    const r = await chamar(v2, 'POST', '/api/v1/integracoes/automatico', { papel: 'dono' }, { ligado: true, entendoORisco: true });
+    assert.equal(r.status, 200);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'automatico.json'), 'utf8')).suspenso, false);
+    t.dados.luna.itens = [item({ id: 'openai' })];
+    await v2.reavaliar(T0 + 120000);
+    assert.equal(t.runner.chamadas.length, 1);
+  } finally { t.limpa(); }
+});
+
 test('instância: slug reaproveitado com instância nova não herda incidente nem silêncio; registro antigo adota a atual', async () => {
   const inst = { luna: 'i:um' };
   const t = montar({ dados: { luna: { itens: [item()] } }, extra: { instancia: (a) => inst[a.slug] || null } });

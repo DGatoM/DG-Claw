@@ -30,7 +30,7 @@ function casa(opcoes) {
     const vai = (p) => { fs.lchownSync(p, UID_AGENTE, UID_AGENTE); if (fs.lstatSync(p).isDirectory()) for (const f of fs.readdirSync(p)) vai(path.join(p, f)); };
     vai(home);
   };
-  fs.chmodSync(raiz, 0o755);
+  fs.chmodSync(raiz, 0o700); // a raiz fica de root e fechada; só home (entregue abaixo) vai ao outro UID
   entrega();
   return { raiz, home, pasta, entrega, agente: { slug: 'luna', tipo: 'agente', home_host: home } };
 }

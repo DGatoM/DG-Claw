@@ -113,16 +113,38 @@ def publish_image(account, image_url, caption, token, wait=2):
 
     # Passo 2: publicar o container. Pequena espera pro IG processar a imagem.
     time.sleep(wait)
-    r2 = requests.post(
-        f"{GRAPH}/{account}/media_publish",
-        data={"creation_id": creation_id, "access_token": token},
-        timeout=60,
-    )
+    try:
+        r2 = requests.post(
+            f"{GRAPH}/{account}/media_publish",
+            data={"creation_id": creation_id, "access_token": token},
+            timeout=60,
+        )
+    except requests.RequestException as e:
+        # Depois do media_publish o Instagram pode ter publicado: nunca vira falha definitiva nem repete a publicacao.
+        registrar_silencioso("instagram", "incerto")
+        print(f"RESULTADO INCERTO: a chamada de publicar falhou no meio ({type(e).__name__}); o Instagram pode ter "
+              "publicado o post. Confira na conta antes de tentar de novo.", file=sys.stderr)
+        sys.exit(4)
+    if r2.status_code >= 500:
+        # 5xx depois do media_publish tambem nao prova que nao publicou: fica incerto no mapa.
+        registrar_silencioso("instagram", "incerto")
+        print(_graph_error(r2), file=sys.stderr)
+        sys.exit(1)
     if r2.status_code != 200:
         _registrar_falha(r2)
         print(_graph_error(r2), file=sys.stderr)
         sys.exit(1)
-    media_id = r2.json().get("id")
+    try:
+        corpo2 = r2.json()
+        media_id = corpo2.get("id") if isinstance(corpo2, dict) else None
+    except ValueError:
+        media_id = None
+    # `ok` so com um id de publicacao valido (texto so de digitos); sem isso nao ha prova de que publicou.
+    if not (isinstance(media_id, str) and media_id.isascii() and media_id.isdigit()):
+        registrar_silencioso("instagram", "incerto")
+        print("RESULTADO INCERTO: o Instagram respondeu 200 sem um id de publicacao valido; o post pode ter sido "
+              "publicado. Confira na conta antes de tentar de novo.", file=sys.stderr)
+        sys.exit(4)
     registrar_silencioso("instagram", "ok")
     out = {"ok": True, "creationId": creation_id, "mediaId": media_id}
 
