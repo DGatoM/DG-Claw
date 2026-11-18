@@ -3,7 +3,7 @@ import { log } from "../logger.js";
 import { mascarar } from "../mascara.js";
 import { RX_LOGIN_EXPIRADO } from "../transcript.js";
 import { spawn } from "./ciclo.js";
-import { STOP_CONFIRM_MS } from "./constantes.js";
+import { STOP_CONFIRM_MS, SUBAGENTE_SEM_SINAL_MAX_MS, SUBAGENTES_RASTREADOS_MAX } from "./constantes.js";
 import { talvezSoltarFila } from "./fila.js";
 import { conferirLoginExpiradoNoTranscript, marcarLoginExpirado } from "./login.js";
 import { nonceConfere } from "./telas.js";
@@ -40,6 +40,11 @@ export function receberHook(s: Sessao, payload: PayloadDeHook): { ok: boolean; m
 
 /** O efeito de um evento de status já autenticado (vindo do hook ou do rollout do Codex). */
 export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolean; motivo?: string } {
+  // O id do subagente vem do JSON do hook: só vale se for texto curto e simples; senão é tratado como ausente.
+  if (payload.subagentId != null && !(typeof payload.subagentId === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(payload.subagentId))) {
+    log.debug(s.a("hook"), `subagentId ignorado (fora do formato esperado) no evento ${payload.event ?? "?"}`);
+    payload = { ...payload, subagentId: null };
+  }
   // O session_id do evento é a fonte mais confiável que existe: vem do próprio
   // CLI. É assim que o runner descobre quando o agente trocou de sessão por
   // dentro (um `/resume` digitado no TUI), caso em que o id que guardamos
@@ -63,7 +68,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
   // permissão (o de segundo plano não abre diálogo), e o caminho normal o devolve a working, como antes.
   const eventoDeFerramenta = payload.event === "PreToolUse" || payload.event === "PostToolUse";
   // Em qualquer status (inclusive waiting_input): o subagente está vivo e a suspensão não pode matá-lo.
-  if (payload.subagentId && eventoDeFerramenta) s.subagentesAtivos.set(payload.subagentId, Date.now());
+  if (payload.subagentId && eventoDeFerramenta) registrarSubagente(s, payload.subagentId);
   if (
     payload.subagentId &&
     s.estado.status !== "waiting_input" &&
@@ -84,7 +89,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
   // Começo e fim de um subagente: só mexem no rastreio. O estado da principal é decidido pelo Stop dela, em qualquer status.
   if (payload.event === "SubagentStart" || payload.event === "SubagentStop") {
     if (payload.subagentId) {
-      if (payload.event === "SubagentStart") s.subagentesAtivos.set(payload.subagentId, Date.now());
+      if (payload.event === "SubagentStart") registrarSubagente(s, payload.subagentId);
       else s.subagentesAtivos.delete(payload.subagentId);
     }
     s.marcarAtividade();
@@ -248,6 +253,24 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       log.debug(s.a("hook"), `evento sem tratamento: ${payload.event}`);
   }
   return { ok: true };
+}
+
+/** Grava o sinal de vida de um subagente. Limpa as entradas sem sinal há mais de 2 h e respeita o teto de entradas
+ *  (com o mapa cheio, sai a de sinal mais antigo), para a sessão principal também não acumular. */
+export function registrarSubagente(s: Sessao, id: string): void {
+  const agora = Date.now();
+  for (const [outro, sinal] of s.subagentesAtivos) {
+    if (agora - sinal > SUBAGENTE_SEM_SINAL_MAX_MS) s.subagentesAtivos.delete(outro);
+  }
+  if (!s.subagentesAtivos.has(id) && s.subagentesAtivos.size >= SUBAGENTES_RASTREADOS_MAX) {
+    let maisAntigo: string | null = null;
+    let menor = Infinity;
+    for (const [outro, sinal] of s.subagentesAtivos) {
+      if (sinal < menor) { menor = sinal; maisAntigo = outro; }
+    }
+    if (maisAntigo !== null) s.subagentesAtivos.delete(maisAntigo);
+  }
+  s.subagentesAtivos.set(id, agora);
 }
 
 export function agendarStop(s: Sessao): void {

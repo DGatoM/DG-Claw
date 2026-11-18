@@ -1115,6 +1115,21 @@ test("SubagentStart sozinho já segura a suspensão; subagente sem sinal há mai
   assert.equal(s.subagentesAtivos.size, 0, "a entrada velha é apagada");
 });
 
+test("subagente: id fora do formato não entra e o 65º id derruba o de sinal mais antigo", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("SubagentStart", { subagentId: "ruim/../id" });
+  hook("PreToolUse", { toolName: "Bash", subagentId: "com espaço" });
+  assert.equal(s.subagentesAtivos.size, 0, "id inválido não entra");
+  for (let i = 0; i < 64; i++) s.subagentesAtivos.set(`sub-${i}`, Date.now() - 1_000 + i);
+  hook("SubagentStart", { subagentId: "sub-novo" });
+  assert.equal(s.subagentesAtivos.size, 64);
+  assert.ok(!s.subagentesAtivos.has("sub-0"), "saiu o de sinal mais antigo");
+  assert.ok(s.subagentesAtivos.has("sub-novo"));
+  s.subagentesAtivos.set("velho", Date.now() - 3 * 3_600_000);
+  hook("SubagentStart", { subagentId: "sub-outro" });
+  assert.ok(!s.subagentesAtivos.has("velho"), "a entrada de mais de 2 h é apagada na inserção");
+});
+
 test("o settings do Claude registra os hooks SubagentStart e SubagentStop do runner", async () => {
   const { s } = await novaComRedeCurta(60_000);
   const settings = JSON.parse(fs.readFileSync(path.join(amb.estado, s.id, "runner-hooks", `${s.id}.settings.json`), "utf8"));

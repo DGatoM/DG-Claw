@@ -79,8 +79,8 @@ if [ -n "${DGCLAW_PESADO:-}" ]; then exec -- "$@"; fi
 export DGCLAW_PESADO=1
 # Prefixo da unidade do scope: quem chama (o runner) o define para poder parar só os seus scopes.
 prefixo_unidade="${DGCLAW_PESADO_PREFIXO:-dgclaw-pesado}"
-if ! [[ "$prefixo_unidade" =~ ^[a-z0-9-]{1,40}$ ]]; then
-  echo "dgclaw-pesado: DGCLAW_PESADO_PREFIXO inválido: '$prefixo_unidade' (use de 1 a 40 letras minúsculas, números ou hífen)" >&2
+if ! [[ "$prefixo_unidade" =~ ^[a-z][a-z0-9-]{0,39}$ ]]; then
+  echo "dgclaw-pesado: DGCLAW_PESADO_PREFIXO inválido: '$prefixo_unidade' (começa por letra minúscula, até 40 caracteres entre letras minúsculas, números e hífen)" >&2
   exit 2
 fi
 
@@ -118,7 +118,7 @@ cancelado=""
 # Recolhe o que sobrou do comando. Idempotente: roda no fim normal e no trap.
 recolher() {
   if [ -n "$unidade" ]; then
-    systemctl --user stop "$unidade.scope" >/dev/null 2>&1 || true
+    systemctl --user stop -- "$unidade.scope" >/dev/null 2>&1 || true
     # Cobre a janela em que o scope ainda não existia quando o sinal chegou. Só antes do wait terminar:
     # depois dele o pid já foi liberado e pode ser de outro processo.
     if [ -z "$esperado" ] && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
@@ -128,7 +128,7 @@ recolher() {
     fi
     # Cancelamento antes do fim: o lançador pode ter criado o scope e um auxiliar depois da primeira parada
     # (inclusive já tendo saído). Para de novo pelo nome da unidade.
-    if [ -z "$esperado" ]; then systemctl --user stop "$unidade.scope" >/dev/null 2>&1 || true; fi
+    if [ -z "$esperado" ]; then systemctl --user stop -- "$unidade.scope" >/dev/null 2>&1 || true; fi
   elif [ -n "$pid" ]; then
     # Também o próprio pid enquanto o wait não terminou: cobre a janela em que o grupo ainda não existe.
     if [ -z "$esperado" ]; then kill -TERM "$pid" 2>/dev/null || true; fi

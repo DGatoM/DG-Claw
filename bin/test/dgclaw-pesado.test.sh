@@ -82,10 +82,11 @@ v="$(DGCLAW_PESADO_CGROUP_CPUMAX_ARQ="$TMP/cpumax" OMP_NUM_THREADS=1 "$PESADO" -
 [ "$v" = "1" ] && ok "OMP_NUM_THREADS=1 fica 1 mesmo com várias CPUs" || mal "OMP 1: '$v'"
 
 echo "dgclaw-pesado: nproc não obedece OMP_NUM_THREADS herdado"
-real="$(env -u OMP_NUM_THREADS nproc)"
+real="$(env -u OMP_NUM_THREADS -u OMP_THREAD_LIMIT nproc)"
+esperado=$(( real < 48 ? real : 48 ))
 printf 'max 100000\n' > "$TMP/cpumax"
-v="$(DGCLAW_PESADO_CGROUP_CPUMAX_ARQ="$TMP/cpumax" OMP_NUM_THREADS=48 MKL_NUM_THREADS=48 "$PESADO" -- sh -c 'echo "$OMP_NUM_THREADS $MKL_NUM_THREADS"' 2>/dev/null)"
-[ "$v" = "$real $real" ] && ok "OMP e MKL herdados com 48 ficam em $real (CPUs reais)" || mal "threads: '$v' (esperado '$real $real')"
+v="$(unset OMP_THREAD_LIMIT; DGCLAW_PESADO_CGROUP_CPUMAX_ARQ="$TMP/cpumax" OMP_NUM_THREADS=48 MKL_NUM_THREADS=48 "$PESADO" -- sh -c 'echo "$OMP_NUM_THREADS $MKL_NUM_THREADS"' 2>/dev/null)"
+[ "$v" = "$esperado $esperado" ] && ok "OMP e MKL herdados com 48 ficam em $esperado (min de CPUs reais e 48)" || mal "threads: '$v' (esperado '$esperado $esperado')"
 
 echo "dgclaw-pesado: teto de memória padrão"
 # O systemd-run falso só imprime o teto escolhido; o caminho com gerente não roda aqui.
@@ -107,6 +108,7 @@ unid() { XDG_RUNTIME_DIR="$TMP/run2" PATH="$TMP/bin:$PATH" "$PESADO" -- true 2>/
 [[ "$(unid)" == --unit=dgclaw-pesado-[0-9]*-[0-9]* ]] && ok "prefixo padrão: dgclaw-pesado-" || mal "prefixo padrão: $(unid)"
 [[ "$(DGCLAW_PESADO_PREFIXO=dgclaw-pesado-runner unid)" == --unit=dgclaw-pesado-runner-[0-9]*-[0-9]* ]] && ok "prefixo do ambiente é usado" || mal "prefixo do ambiente: $(DGCLAW_PESADO_PREFIXO=dgclaw-pesado-runner unid)"
 DGCLAW_PESADO_PREFIXO='Ruim/x' "$PESADO" -- true 2>/dev/null; [ $? -eq 2 ] && ok "prefixo inválido sai com 2" || mal "prefixo inválido"
+DGCLAW_PESADO_PREFIXO='-x' "$PESADO" -- true 2>/dev/null; [ $? -eq 2 ] && ok "prefixo começando por hífen sai com 2" || mal "prefixo -x"
 
 echo "dgclaw-pesado: recolhe o que sobrou"
 sleep 300 & FORA=$!
