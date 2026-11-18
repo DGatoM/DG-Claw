@@ -75,5 +75,5 @@ test('o toque fora do quadro da Voz é tratado na captura e consumido (não reve
   assert.match(bloco, /}, true\);$/);
   assert.match(bloco, /window\.addEventListener\('click'/);
   assert.match(bloco, /caminho\.includes\(conversaEl\)/);
-  assert.match(bloco, /data-sigx/);
+  assert.match(bloco, /n\.tagName === 'BUTTON' && !n\.classList\.contains\('mid'\)/);
 });

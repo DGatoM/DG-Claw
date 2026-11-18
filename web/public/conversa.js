@@ -4843,9 +4843,9 @@ if (btnVoz && menuVoz) {
     if (ev.key === 'Escape' && !menuVoz.hidden) { ev.stopPropagation(); abreMenuVoz(false, true); }
   });
   // captura na window (antes de qualquer tratador do document): o toque de fora fecha o quadro. Ele só é
-  // consumido quando cai na conversa (#chat), onde poderia revelar um balão mascarado ou abrir uma mídia;
-  // os controles (cabeçalho e barra de digitação) recebem o toque normalmente, e o "esconder de novo"
-  // ([data-sigx]) também passa, porque protege.
+  // consumido quando cai na conversa (#chat) fora de um botão: tocar num balão ou num link poderia revelar
+  // um balão mascarado ou abrir uma mídia sem querer. Botão é ação explícita, com rótulo (esconder de novo,
+  // esconder ou ver dados reais), e recebe o toque; o cabeçalho e a barra de digitação também.
   const conversaEl = $('chat');
   window.addEventListener('click', ev => {
     if (menuVoz.hidden) return;
@@ -4854,7 +4854,8 @@ if (btnVoz && menuVoz) {
     if (caminho.includes(menuVoz) || caminho.includes(btnVoz)) return;
     abreMenuVoz(false);
     if (!conversaEl || !caminho.includes(conversaEl)) return;
-    if (caminho.some(n => n && n.hasAttribute && n.hasAttribute('data-sigx'))) return;
+    // o botão de mídia (.mid) abre o visor: esse continua consumido, como no PASSA_CLIQUE do sigilo.js
+    if (caminho.some(n => n && n.tagName === 'BUTTON' && !n.classList.contains('mid'))) return;
     ev.preventDefault(); ev.stopPropagation();
   }, true);
   window.addEventListener('resize', () => { if (!menuVoz.hidden) posicionaMenuVoz(); });
