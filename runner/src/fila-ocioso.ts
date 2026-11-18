@@ -14,6 +14,11 @@ export interface ItemDaFila {
   texto: string;
   /** epoch ms de quando entrou na fila. */
   em: number;
+  /** Só no disco: o texto foi digitado no terminal e o CLI ainda não confirmou que o aceitou (sem recibo).
+   *  Ao carregar, volta para a frente da fila e sai de novo uma vez (ver recuperarDoDisco). */
+  digitado?: boolean;
+  /** O texto já foi entregue de novo uma vez depois de ficar sem recibo; uma segunda falha o descarta. */
+  reentregue?: boolean;
 }
 
 /** Nome de arquivo seguro: só [A-Za-z0-9._-], o resto vira "_". */
@@ -45,9 +50,12 @@ export function carregarFila(caminho: string, area: string): ItemDaFila[] {
     const dado = JSON.parse(bruto) as { versao?: unknown; itens?: unknown };
     if (dado?.versao !== 1 || !Array.isArray(dado.itens)) throw new Error("formato inesperado (esperava versao 1 e uma lista de itens)");
     const itens: ItemDaFila[] = [];
-    for (const it of dado.itens as Array<{ texto?: unknown; em?: unknown }>) {
+    for (const it of dado.itens as Array<{ texto?: unknown; em?: unknown; digitado?: unknown; reentregue?: unknown }>) {
       if (typeof it?.texto !== "string") throw new Error("item sem texto em formato de string");
-      itens.push({ texto: it.texto, em: typeof it.em === "number" ? it.em : Date.now() });
+      const item: ItemDaFila = { texto: it.texto, em: typeof it.em === "number" ? it.em : Date.now() };
+      if (it.digitado === true) item.digitado = true;
+      if (it.reentregue === true) item.reentregue = true;
+      itens.push(item);
     }
     return itens;
   } catch (err) {

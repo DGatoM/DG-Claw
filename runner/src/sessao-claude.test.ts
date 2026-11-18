@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import {
-  dormir, abrirServidorDeHooks, chaveFalsa, chaveFalsaOpenai, esperarAte, lerLinhasJson, lerTexto, logarClaude, prepararAmbiente,
+  dormir, abrirServidorDeHooks, chaveFalsa, chaveFalsaOpenai, esperarAte, gravarTranscriptDoClaude, lerLinhasJson, lerTexto, logarClaude, prepararAmbiente,
 } from "./apoio-teste.js";
 
 const amb = prepararAmbiente("sessao-claude");
@@ -316,6 +316,7 @@ test("troca de provedor ou de auth no boot abre conversa NOVA; só o modelo dife
   await s.subir("nova");
   await esperarAte(() => s.estado.status === "idle", 8_000);
   const idAntigo = s.estado.sessionId!;
+  gravarTranscriptDoClaude(idAntigo);
   s.parar("reboot simulado");
 
   // só o modelo muda: retoma com --resume e a flag nova
@@ -355,6 +356,7 @@ test("canal Telegram: principal Claude com canais.json ligado leva --channels e 
   assert.equal(e.valores.TELEGRAM_STATE_DIR, fs.realpathSync(estadoTg));
   assert.equal(e.env.includes("TELEGRAM_BOT_TOKEN"), true, "o token do cofre fica no canal ligado");
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(amb.claudeDir, "mcp-needs-auth-cache.json"), "utf8")), { "x:y": { timestamp: 2 } });
+  gravarTranscriptDoClaude(s.estado.sessionId!);
   s.parar("a");
 
   // retomar também leva --channels
@@ -963,6 +965,7 @@ test("login expirado: credencial mais nova que o erro reinicia RETOMANDO a mesma
   logarClaude(amb);
   const { s, hook, id } = await novaComRedeCurta(60_000, { vigiaLoginExpiradoMs: 100 });
   const sessionId = s.estado.sessionId!;
+  gravarTranscriptDoClaude(sessionId);
   hook("UserPromptSubmit");
   hook("StopFailure", { error: "authentication_failed" });
   assert.equal(s.estado.statusReason, "runner:login-expirado");
@@ -987,6 +990,7 @@ test("login expirado: aposLoginConcluido (login assistido) também retoma a mesm
   logarClaude(amb);
   const { s, hook, id } = await novaComRedeCurta(60_000);
   const sessionId = s.estado.sessionId!;
+  gravarTranscriptDoClaude(sessionId);
   hook("UserPromptSubmit");
   hook("StopFailure", { error: "authentication_failed" });
   const spawnsAntes = entradasDe(id).length;
@@ -1007,6 +1011,7 @@ test("login expirado: reiniciar SEM renovar a credencial não conta recado e dei
   const antes = recados();
   hook("UserPromptSubmit");
   hook("StopFailure", { error: "authentication_failed" });
+  gravarTranscriptDoClaude(s.estado.sessionId!);
   s.parar("teste");
   await s.subir("retomar");
   await esperarAte(() => s.estado.status === "idle", 8_000);
@@ -1051,4 +1056,249 @@ test("runner-hook.mjs: stdin que nunca fecha não trava (termina em menos de 3s)
     srv.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// --- pedido digitado sem recibo (incidente de 18/11/2026) ---------------------------------------------------
+
+const promptsDe = (texto: string) =>
+  lerLinhasJson(amb.logDosClis).filter((l) => l.bin === "claude" && l.modo === "prompt" && l.texto === texto).length;
+const filaEmDisco = (s: { arquivoDaFila: string }): Array<Record<string, unknown>> => {
+  try {
+    return JSON.parse(fs.readFileSync(s.arquivoDaFila, "utf8")).itens;
+  } catch {
+    return [];
+  }
+};
+const matarOTerminal = (s: { proc: unknown }) => (s.proc as { kill(): void }).kill();
+const REDE_CURTA = { reciboVigiaPassosMs: [300, 300] };
+
+test("sem recibo: o texto digitado fica pendente (também em disco); com o terminal morto e o respawn ele volta e sai UMA vez", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  logarClaude(amb);
+  process.env.FAKE_NAO_CONFIRMA = "1";
+  const { s } = await nova({}, { ...REDE_CURTA });
+  await s.subir("nova");
+  delete process.env.FAKE_NAO_CONFIRMA;
+  await esperarAte(() => s.estado.status === "idle", 8_000, "o SessionStart virar idle");
+  const sessionId = s.estado.sessionId!;
+  s.enfileirarQuandoOcioso("pedido-que-some-1");
+  await esperarAte(() => /ainda não confirmou que aceitou o pedido/.test(lerTexto(amb.logDoRunner).slice(marcaDoLog)), 25_000, "o aviso de pedido sem recibo");
+  assert.equal(promptsDe("pedido-que-some-1"), 1, "digitado uma vez no primeiro terminal");
+  assert.equal(s.filaQuandoIdle.length, 0);
+  assert.equal(s.semRecibo.length, 1, "pendente em memória");
+  assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.digitado]), [["pedido-que-some-1", true]], "pendente em disco, marcado como digitado");
+
+  // O terminal morre sozinho (como o runner reiniciado): o pedido volta para a frente da fila.
+  gravarTranscriptDoClaude(sessionId);
+  matarOTerminal(s);
+  await esperarAte(() => s.estado.status === "resumable", 8_000, "o terminal morrer");
+  assert.equal(s.semRecibo.length, 0);
+  assert.deepEqual(s.filaQuandoIdle.map((i) => [i.texto, i.reentregue]), [["pedido-que-some-1", true]]);
+  assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.digitado, i.reentregue]), [["pedido-que-some-1", undefined, true]]);
+  assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), /1 texto\(s\) digitado\(s\) sem recibo do claude .* voltam para a frente da fila/);
+
+  assert.equal(await s.subir("retomar"), "retomar");
+  await esperarAte(() => promptsDe("pedido-que-some-1") === 2, 25_000, "o pedido sair de novo no terminal novo");
+  await esperarAte(() => s.semRecibo.length === 0 && s.filaQuandoIdle.length === 0 && filaEmDisco(s).length === 0, 8_000, "o recibo limpar o pendente e o disco");
+  await dormir(1_500);
+  assert.equal(promptsDe("pedido-que-some-1"), 2, "entregue de novo uma única vez");
+});
+
+test("sem recibo: texto COM recibo nunca é reentregue, mesmo com o terminal morto e o respawn", async () => {
+  logarClaude(amb);
+  const { s } = await nova({}, { ...REDE_CURTA });
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const sessionId = s.estado.sessionId!;
+  s.enfileirarQuandoOcioso("pedido-com-recibo-1");
+  await esperarAte(() => promptsDe("pedido-com-recibo-1") === 1, 25_000, "o pedido ser digitado");
+  await esperarAte(() => s.semRecibo.length === 0 && filaEmDisco(s).length === 0 && !s.soltandoFila, 8_000, "o recibo tirar o pedido do pendente e do disco");
+  gravarTranscriptDoClaude(sessionId);
+  matarOTerminal(s);
+  await esperarAte(() => s.estado.status === "resumable", 8_000);
+  assert.equal(s.filaQuandoIdle.length, 0);
+  await s.subir("retomar");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  await dormir(7_000);
+  assert.equal(promptsDe("pedido-com-recibo-1"), 1, "nada foi repetido");
+});
+
+test("sem recibo: recibo atrasado (depois dos 3 Enters, com a vigia armada) tira o pedido do pendente e não duplica", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  logarClaude(amb);
+  process.env.FAKE_ACEITA_APOS_MS = "5000";
+  const { s } = await nova({}, { reciboVigiaPassosMs: [1_500, 1_500, 10_000] });
+  await s.subir("nova");
+  delete process.env.FAKE_ACEITA_APOS_MS;
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const sessionId = s.estado.sessionId!;
+  s.enfileirarQuandoOcioso("pedido-atrasado-1");
+  await esperarAte(() => /ainda não confirmou que aceitou o pedido/.test(lerTexto(amb.logDoRunner).slice(marcaDoLog)), 25_000, "o aviso de pedido sem recibo");
+  assert.equal(s.semRecibo.length, 1);
+  await esperarAte(() => /o recibo do texto digitado \(\d+ caracteres\) chegou atrasado/.test(lerTexto(amb.logDoRunner).slice(marcaDoLog)), 10_000, "o recibo atrasado");
+  assert.equal(s.semRecibo.length, 0);
+  await esperarAte(() => filaEmDisco(s).length === 0, 5_000, "o disco limpar");
+  gravarTranscriptDoClaude(sessionId);
+  matarOTerminal(s);
+  await esperarAte(() => s.estado.status === "resumable", 8_000);
+  assert.equal(s.filaQuandoIdle.length, 0, "o pedido não volta para a fila");
+  await s.subir("retomar");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  await dormir(7_000);
+  assert.equal(promptsDe("pedido-atrasado-1"), 1, "nunca duplicado");
+});
+
+test("sem recibo: sem SessionStart, o Claude que aceita o Enter 5 s depois ainda tem o recibo esperado, os 'Enter n/3' no log e a vigia armada", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  logarClaude(amb);
+  process.env.FAKE_SESSIONSTART_MS = "600000";
+  process.env.FAKE_PROMPT_PRONTO = "1";
+  process.env.FAKE_ACEITA_APOS_MS = "5000";
+  const { s } = await nova({}, { reciboVigiaPassosMs: [1_000, 1_000, 10_000], prazoSemHooksMs: 40_000 });
+  await s.subir("nova");
+  delete process.env.FAKE_SESSIONSTART_MS;
+  delete process.env.FAKE_PROMPT_PRONTO;
+  delete process.env.FAKE_ACEITA_APOS_MS;
+  await esperarAte(() => s.estado.status === "idle", 8_000, "o prompt na tela virar idle");
+  assert.equal(s.hooksVivos, false, "nenhum hook chegou");
+  assert.match(s.estado.statusReason!, /sem hooks/);
+  const marca = lerTexto(amb.logDoRunner).length;
+  const recebido = await s.digitarEEnviar("pedido-boot-lento-1");
+  assert.equal(recebido, false, "os 3 Enters passaram sem recibo");
+  const log = lerTexto(amb.logDoRunner).slice(marca);
+  assert.match(log, /o Enter 1\/3 não virou turno/);
+  assert.match(log, /o Enter 3\/3 não virou turno/);
+  assert.match(log, /continuo tentando em segundo plano/);
+  await esperarAte(() => /o turno abriu atrasado/.test(lerTexto(amb.logDoRunner).slice(marca)), 10_000, "o turno atrasado");
+  assert.equal(s.hooksVivos, true);
+});
+
+test("boot: sem SessionStart e sem o prompt na tela, o idle só sai no teto, com o aviso no log", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  logarClaude(amb);
+  process.env.FAKE_SEM_HOOKS = "1";
+  const { s } = await nova({}, { bootTimerMs: 300, tetoBootSemSinalMs: 2_000 });
+  await s.subir("nova");
+  delete process.env.FAKE_SEM_HOOKS;
+  await dormir(1_200);
+  assert.equal(s.estado.status, "spawning", "passou do boot-timer, mas sem sinal a fila não é solta");
+  await esperarAte(() => s.estado.status === "idle", 5_000, "o teto soltar");
+  assert.match(s.estado.statusReason!, /boot-timer 2s sem hook/);
+  assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), /nenhum hook chegou em \d+s desde o spawn e a tela não mostra o prompt pronto/);
+});
+
+test("boot: sem SessionStart mas com o prompt pronto na tela, vira idle na hora, sem esperar o teto", async () => {
+  logarClaude(amb);
+  process.env.FAKE_SESSIONSTART_MS = "600000";
+  process.env.FAKE_PROMPT_PRONTO = "1";
+  const { s } = await nova({}, { bootTimerMs: 300, tetoBootSemSinalMs: 20_000 });
+  await s.subir("nova");
+  delete process.env.FAKE_SESSIONSTART_MS;
+  delete process.env.FAKE_PROMPT_PRONTO;
+  await esperarAte(() => s.estado.status === "idle", 4_000, "o prompt na tela virar idle");
+  assert.match(s.estado.statusReason!, /\? for shortcuts/);
+});
+
+test("agente sem hooks de verdade: depois do prazo o recibo é dado por bom (um Enter só) e o pedido não fica pendente", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  logarClaude(amb);
+  process.env.FAKE_SEM_HOOKS = "1";
+  process.env.FAKE_PROMPT_PRONTO = "1";
+  const { s } = await nova({}, { bootTimerMs: 300, tetoBootSemSinalMs: 600, prazoSemHooksMs: 1_000 });
+  await s.subir("nova");
+  delete process.env.FAKE_SEM_HOOKS;
+  delete process.env.FAKE_PROMPT_PRONTO;
+  await esperarAte(() => s.estado.status === "idle", 4_000);
+  await esperarAte(() => Date.now() - s.spawnEm > 1_200, 3_000, "o prazo vencer");
+  const marca = lerTexto(amb.logDoRunner).length;
+  assert.equal(await s.digitarEEnviar("pedido-sem-hooks-1"), true);
+  await esperarAte(() => promptsDe("pedido-sem-hooks-1") === 1, 4_000, "o prompt chegar ao fake");
+  assert.doesNotMatch(lerTexto(amb.logDoRunner).slice(marca), /não virou turno/);
+  assert.equal(s.hooksVivos, false);
+
+  // Pela fila o pedido também não fica pendente (nada o reentregaria depois).
+  s.enfileirarQuandoOcioso("pedido-sem-hooks-2");
+  await esperarAte(() => promptsDe("pedido-sem-hooks-2") === 1, 10_000, "o pedido da fila sair");
+  await esperarAte(() => !s.soltandoFila, 5_000);
+  assert.equal(s.semRecibo.length, 0);
+  assert.equal(filaEmDisco(s).length, 0);
+});
+
+test("esperarRecibo: sem hook, antes do prazo de boot espera o recibo; depois do prazo dá por bom", async () => {
+  const { esperarRecibo } = await import("./sessao/digitacao.js");
+  const falso = (extra: Record<string, unknown>) =>
+    ({ hooksVivos: false, motor: { reciboPorRollout: false }, promptsAceitos: 0, compactsIniciados: 0, prazoSemHooksMs: 60_000, spawnEm: Date.now(), ...extra }) as never;
+  assert.equal(await esperarRecibo(falso({}), 0, 300), false, "boot recente, hook ainda não chegou: não é 'agente sem hooks'");
+  assert.equal(await esperarRecibo(falso({ spawnEm: Date.now() - 61_000 }), 0, 300), true, "passou do prazo sem nenhum hook");
+  assert.equal(await esperarRecibo(falso({ spawnEm: Date.now() - 100, prazoSemHooksMs: 400 }), 0, 2_000), true, "o prazo vence durante a espera");
+});
+
+test("fila: devolverSemRecibo põe na frente uma vez; a segunda falha descarta com erro; recuperarDoDisco faz o mesmo no boot", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  const { devolverSemRecibo } = await import("./sessao/fila.js");
+  const { gravarFila } = await import("./fila-ocioso.js");
+  const { s } = await nova();
+  s.filaQuandoIdle.push({ texto: "ja-na-fila", em: 1 });
+  s.semRecibo.push(
+    { item: { texto: "primeira-vez", em: 2 }, promptsAntes: 0, aguardando: true },
+    { item: { texto: "segunda-vez", em: 3, reentregue: true }, promptsAntes: 0, aguardando: true },
+  );
+  devolverSemRecibo(s, "teste");
+  assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["primeira-vez", "ja-na-fila"], "a que já tinha sido reentregue não volta");
+  assert.equal(s.filaQuandoIdle[0].reentregue, true);
+  assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), /um pedido de 11 caracteres foi digitado duas vezes e o claude não confirmou nenhuma \(teste\); não repito de novo/);
+
+  // No boot: o que o disco guardava como digitado volta na frente; o já reentregue é descartado; o resto fica como estava.
+  const id = "sess-disco";
+  const pasta = path.join(amb.estado, id);
+  fs.mkdirSync(pasta, { recursive: true });
+  const arquivo = path.join(pasta, "fila-ocioso", `${id}.json`);
+  gravarFila(arquivo, [
+    { texto: "digitado-sem-recibo", em: 1, digitado: true },
+    { texto: "digitado-duas-vezes", em: 2, digitado: true, reentregue: true },
+    { texto: "nunca-digitado", em: 3 },
+  ], "teste");
+  const { s: s2 } = await nova({}, { idFixo: id });
+  assert.deepEqual(s2.filaQuandoIdle.map((i) => [i.texto, i.reentregue, i.digitado]), [["digitado-sem-recibo", true, undefined], ["nunca-digitado", undefined, undefined]]);
+  assert.deepEqual(filaEmDisco(s2).map((i) => [i.texto, i.reentregue]), [["digitado-sem-recibo", true], ["nunca-digitado", undefined]]);
+});
+
+test("retomada: id sem transcript no disco sobe a sessão NOVA direto (sem o --resume que falha) e reentrega o pendente", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  logarClaude(amb);
+  process.env.FAKE_NAO_CONFIRMA = "1";
+  const { s, id } = await nova({}, { ...REDE_CURTA });
+  await s.subir("nova");
+  delete process.env.FAKE_NAO_CONFIRMA;
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const idAntigo = s.estado.sessionId!;
+  s.enfileirarQuandoOcioso("pedido-sem-transcript-1");
+  await esperarAte(() => /ainda não confirmou que aceitou o pedido/.test(lerTexto(amb.logDoRunner).slice(marcaDoLog)), 25_000);
+  matarOTerminal(s); // a sessão nunca gravou transcript: não há o que retomar
+  await esperarAte(() => s.estado.status === "resumable", 8_000);
+  const inicio = Date.now();
+  assert.equal(await s.subir("retomar"), "nova");
+  assert.notEqual(s.estado.sessionId, idAntigo);
+  assert.equal(s.estado.previousSessionId, idAntigo);
+  await esperarAte(() => entradasDe(id).length >= 2, 5_000, "o CLI reabrir");
+  assert.deepEqual(entradasDe(id)[1].argv.slice(0, 2), ["--session-id", s.estado.sessionId]);
+  assert.equal(entradasDe(id)[1].argv.includes("--resume"), false, "nem tentou o --resume");
+  assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), new RegExp(`não retomo a sessão ${idAntigo}: o histórico dela não está no disco`));
+  assert.doesNotMatch(lerTexto(amb.logDoRunner).slice(-4_000), /não abriu: o claude saiu com código/);
+  await esperarAte(() => promptsDe("pedido-sem-transcript-1") === 2, 25_000, "o pedido sair de novo na sessão nova");
+  assert.ok(Date.now() - inicio < 30_000);
+  await esperarAte(() => s.semRecibo.length === 0 && filaEmDisco(s).length === 0, 8_000);
+  await dormir(1_500);
+  assert.equal(promptsDe("pedido-sem-transcript-1"), 2, "uma única reentrega");
+});
+
+test("deriva de sessão: o log de 'a sessão viva mudou por dentro' traz o evento e o source do hook", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  logarClaude(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const nonce = s.nonce ?? undefined;
+  s.receberHook({ agentId: s.id, event: "SessionStart", nonce, sessionId: "11111111-1111-4111-8111-111111111111", source: "resume" });
+  assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), /a sessão viva mudou por dentro: .* -> 11111111-1111-4111-8111-111111111111 \(evento SessionStart, source resume\)/);
 });

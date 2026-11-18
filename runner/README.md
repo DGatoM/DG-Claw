@@ -105,6 +105,16 @@ Suspensão: a cada 60 s, paralela em `idle`, com fila vazia e parada além de
 input a acorda com `--resume`). `working`, `waiting_input` e `spawning` nunca são
 suspensas. A fila de ocioso agora é FIFO (antes o segundo texto apagava o primeiro).
 
+Pedido sem recibo: um texto da fila só conta como entregue quando o CLI confirma que o aceitou
+(`UserPromptSubmit` no Claude, `task_started` do rollout no Codex). Digitado e sem recibo, ele fica
+pendente em memória e no arquivo da fila (`digitado: true`). Se o terminal sair, a retomada falhar ou a
+sessão subir como nova antes do recibo, ele volta para a frente da fila e é digitado de novo uma única
+vez (`reentregue: true`; uma segunda falha o descarta com erro no log). Comando de barra (`/compact`,
+`/clear`) não entra nisso. O Claude só é tratado como agente sem hooks (sem recibo possível) depois de
+60 s do spawn sem nenhum hook, e a fila não é solta no boot sem o `SessionStart` ou o prompt na tela
+(teto de 30 s, com aviso no log). Antes de `--resume`, o runner confere se o transcript (Claude) ou o
+rollout (Codex) do id existe; sem ele sobe direto a sessão nova.
+
 ## Provedores (Claude e Codex)
 
 Cada sessão (a principal e as paralelas) roda o CLI que o dono escolheu: **Claude Code**

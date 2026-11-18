@@ -11,7 +11,7 @@ import { ehDialogoDeAutoMode, telaDeConfiancaDoCodex } from "./telas.js";
  * parte da colagem e vira quebra de linha dentro do campo. O Codex é mais
  * sensível ainda: trata texto rápido como colagem, então espera 500 ms.
  */
-export async function digitarEEnviar(s: Sessao, texto: string, daFila = false): Promise<void> {
+export async function digitarEEnviar(s: Sessao, texto: string, daFila = false): Promise<boolean> {
   if (!s.proc) throw new Error("não há terminal vivo para digitar");
   s.marcarAtividade();
   if (s.motor.provedor === "codex") await s.vencerTelaDeConfianca(daFila);
@@ -21,8 +21,7 @@ export async function digitarEEnviar(s: Sessao, texto: string, daFila = false): 
   if (texto.length <= 256) {
     s.escrever(texto);
     await new Promise((r) => setTimeout(r, pausa));
-    await enviarComRecibo(s, ehComandoDeBarra);
-    return;
+    return enviarComRecibo(s, ehComandoDeBarra);
   }
   await new Promise<void>((resolve) => {
     let i = 0;
@@ -40,7 +39,7 @@ export async function digitarEEnviar(s: Sessao, texto: string, daFila = false): 
     };
     passo();
   });
-  await enviarComRecibo(s, ehComandoDeBarra);
+  return enviarComRecibo(s, ehComandoDeBarra);
 }
 
 /** Orientação quando a tela bloqueia a caixa. Pela fila o pedido fica guardado e a fila tenta de novo
@@ -117,21 +116,25 @@ export async function vencerTelaDeConfianca(s: Sessao, daFila = false): Promise<
  *  O recibo é o hook UserPromptSubmit (Claude) ou o `task_started` do rollout
  *  (Codex), que só aparecem quando o CLI ACEITOU o prompt. Sem recibo, batemos na
  *  tecla de novo. Um Enter a mais numa caixa já vazia é inofensivo (o TUI ignora
- *  linha vazia; testado no Codex real); um Enter a menos perde o poke.  */
-export async function enviarComRecibo(s: Sessao, comandoDeBarra = false): Promise<void> {
+ *  linha vazia; testado no Codex real); um Enter a menos perde o poke.
+ *
+ *  Devolve true quando o texto está confirmado (recibo, ou agente sem hooks) e false quando NÃO está: os Enters
+ *  acabaram sem recibo (a vigia segue em segundo plano) ou o terminal saiu no meio. Quem chamou pela fila usa
+ *  isso para manter o pedido pendente em vez de dá-lo como entregue.  */
+export async function enviarComRecibo(s: Sessao, comandoDeBarra = false): Promise<boolean> {
   const espera = s.motor.reciboMs;
   // Quantas escritas o PTY deve ter contado se só estes Enters escreveram (ver vigiarReciboAtrasado).
   let entradasEsperadas = s.entradasManuais;
   // O terminal deste envio. Se a sessão for trocada no meio, nada daqui pode tocar no terminal novo.
   const proc = s.proc;
   for (let tentativa = 1; tentativa <= RECIBO_ENTER_TENTATIVAS; tentativa++) {
-    if (!s.proc || s.proc !== proc) return;
+    if (!s.proc || s.proc !== proc) return false;
     const antes = s.promptsAceitos;
     const compactAntes = s.compactsIniciados;
     s.escrever("\r");
     entradasEsperadas = s.entradasManuais;
     const recebeu = await esperarRecibo(s, antes, espera, comandoDeBarra ? compactAntes : undefined);
-    if (recebeu) return;
+    if (recebeu) return true;
     log.info(
       s.a("entrada"),
       `o Enter ${tentativa}/${RECIBO_ENTER_TENTATIVAS} não virou turno em ${espera}ms; batendo na tecla de novo`,
@@ -144,8 +147,9 @@ export async function enviarComRecibo(s: Sessao, comandoDeBarra = false): Promis
     s.a("entrada"),
     `${RECIBO_ENTER_TENTATIVAS} Enters sem recibo; continuo tentando em segundo plano por ~${segundos}s (mais ${s.reciboVigiaPassosMs.length} Enters espaçados)`,
   );
-  if (!proc || s.proc !== proc) return;
+  if (!proc || s.proc !== proc) return false;
   vigiarReciboAtrasado(s, comandoDeBarra, total, entradasEsperadas, proc);
+  return false;
 }
 
 /** Continua batendo no Enter, em segundo plano, depois que as tentativas de enviarComRecibo falharam.
@@ -217,16 +221,25 @@ function vigiarReciboAtrasado(
   agendar(0);
 }
 
-/** Espera o contador de prompts aceitos passar de `antes`. No Claude, sem hook vivo
- *  (agente sem hooks registrados) não existe recibo possível: aí damos o benefício da
- *  dúvida e voltamos true, para não bater na tecla três vezes à toa. No Codex o recibo
- *  vem do rollout, que vale esperar desde o primeiro Enter. */
+/** Claude sem NENHUM hook vivo e já passado o prazo de boot desde o spawn: agente sem hooks registrados
+ *  (settings recusado, versão sem hooks), para o qual não existe recibo possível. Antes do prazo a falta de hook
+ *  só quer dizer "ainda não chegou", e um Claude com os hooks travados é igual a esse caso (incidente de
+ *  18/11/2026: o pedido foi digitado sem recibo e sumiu). */
+export function semHooksDeVerdade(s: Sessao): boolean {
+  return !s.hooksVivos && !s.motor.reciboPorRollout && Date.now() - s.spawnEm >= s.prazoSemHooksMs;
+}
+
+/** Espera o contador de prompts aceitos passar de `antes`. No Claude, sem hook vivo depois do prazo de boot
+ *  (agente sem hooks registrados, ver semHooksDeVerdade) não existe recibo possível: aí damos o benefício da
+ *  dúvida e voltamos true, para não bater na tecla três vezes à toa. Antes do prazo espera o recibo como
+ *  sempre. No Codex o recibo vem do rollout, que vale esperar desde o primeiro Enter. */
 export function esperarRecibo(s: Sessao, antes: number, limiteMs: number, compactAntes?: number): Promise<boolean> {
-  if (!s.hooksVivos && !s.motor.reciboPorRollout) return Promise.resolve(true);
+  if (semHooksDeVerdade(s)) return Promise.resolve(true);
   return new Promise((resolve) => {
     const inicio = Date.now();
     const olhar = () => {
       if (s.promptsAceitos > antes) return resolve(true);
+      if (semHooksDeVerdade(s)) return resolve(true);
       // Comando de barra (`/compact`) não dispara UserPromptSubmit: o PreCompact depois deste Enter é o
       // recibo dele. Só para esse caso: PreToolUse de um turno ANTERIOR não prova que a mensagem nova
       // entrou (ela pode estar presa na caixa), então não conta.

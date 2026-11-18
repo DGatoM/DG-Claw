@@ -37,11 +37,13 @@ import { motorDe } from "./provedores/motores.js";
 import { parar, pararEEsperar, recusarPorRestricaoComContencao, reviver, subir, suspender, trocarPorSessaoLimpa } from "./sessao/ciclo.js";
 import { conferirContaComRestricoes } from "./restricoes-conta.js";
 import { ctxLeve, montarAmbienteBase } from "./sessao/configuracao.js";
-import { PAUSA_TECLA_PERGUNTA_MS, QUIETO_PARA_OLHAR_TRANSCRIPT_MS, RECIBO_VIGIA_PASSOS_MS, VIGIA_LOGIN_EXPIRADO_MS } from "./sessao/constantes.js";
+import {
+  BOOT_TIMER_MS, PAUSA_TECLA_PERGUNTA_MS, PRAZO_SEM_HOOKS_MS, QUIETO_PARA_OLHAR_TRANSCRIPT_MS, RECIBO_VIGIA_PASSOS_MS, TETO_BOOT_SEM_SINAL_MS, VIGIA_LOGIN_EXPIRADO_MS,
+} from "./sessao/constantes.js";
 import { digitarEEnviar, vencerTelaDeConfianca } from "./sessao/digitacao.js";
 import { MedidorDeUso } from "./uso.js";
 import { type PayloadDeHook, receberHook } from "./sessao/eventos.js";
-import { enfileirarQuandoOcioso, talvezSoltarFila } from "./sessao/fila.js";
+import { type SemRecibo, enfileirarQuandoOcioso, recuperarDoDisco, talvezSoltarFila } from "./sessao/fila.js";
 import { encerrarIncidenteDeLogin, entregarRecadoDeLogin, marcarLoginExpirado, retomarAposLoginExpirado } from "./sessao/login.js";
 import { ESC } from "./sessao/telas.js";
 import { guardarEEmitir } from "./sessao/terminal.js";
@@ -75,6 +77,12 @@ export interface OpcoesDaSessao {
   reintentoTelaBloqueadaMs?: number;
   /** Pausa entre as teclas da resposta de uma pergunta de escolha (ver responderPergunta). Testes usam valor curto. */
   pausaTeclaPerguntaMs?: number;
+  /** Quando o boot-timer olha se o SessionStart chegou (padrão 8 s). Testes usam valor curto. */
+  bootTimerMs?: number;
+  /** Teto da espera pelo SessionStart ou pela tela pronta antes de soltar a fila sem sinal (padrão 30 s). Testes usam valor curto. */
+  tetoBootSemSinalMs?: number;
+  /** Quanto tempo depois do spawn, sem nenhum hook, o Claude passa a ser tratado como "agente sem hooks" (padrão 60 s). Testes usam valor curto. */
+  prazoSemHooksMs?: number;
   /** Intervalos da vigia que insiste no Enter quando as tentativas normais não geraram recibo. Testes usam valores curtos. */
   reciboVigiaPassosMs?: number[];
   /** Comandos extras do evento UserPromptSubmit, depois do hook do runner. */
@@ -157,6 +165,9 @@ export class Sessao extends EventEmitter {
    *  se o runner cair no meio, o texto sai de novo no próximo boot (repetir uma
    *  mensagem é melhor que perder a de um cliente). */
   itemEmVoo: ItemDaFila | null = null;
+  /** Textos já digitados que o CLI ainda não confirmou (sem recibo). Vão junto no arquivo da fila, marcados
+   *  como digitados, e voltam para a frente dela se o terminal sair antes do recibo (ver sessao/fila.ts). */
+  semRecibo: SemRecibo[] = [];
   /** true enquanto um item da fila está sendo digitado, para dois idles seguidos
    *  não soltarem dois itens por cima um do outro. */
   soltandoFila = false;
@@ -170,6 +181,9 @@ export class Sessao extends EventEmitter {
   /** Vigia do Enter sem recibo (ver vigiarReciboAtrasado): um timer por vez e os intervalos dela. */
   vigiaDoRecibo: NodeJS.Timeout | null = null;
   readonly reciboVigiaPassosMs: number[];
+  readonly bootTimerMs: number;
+  readonly tetoBootSemSinalMs: number;
+  readonly prazoSemHooksMs: number;
   ultimaAtividade = Date.now();
   /** Quando o spawn atual foi uma RETOMADA, e quando ele começou. É o que
    *  permite separar "a sessão não abre" de "o agente trabalhou e saiu". */
@@ -229,11 +243,15 @@ export class Sessao extends EventEmitter {
     this.vigiaLoginExpiradoMs = opcoes.vigiaLoginExpiradoMs ?? VIGIA_LOGIN_EXPIRADO_MS;
     this.reintentoTelaBloqueadaMs = opcoes.reintentoTelaBloqueadaMs ?? 5_000;
     this.reciboVigiaPassosMs = opcoes.reciboVigiaPassosMs ?? RECIBO_VIGIA_PASSOS_MS;
+    this.bootTimerMs = opcoes.bootTimerMs ?? BOOT_TIMER_MS;
+    this.tetoBootSemSinalMs = opcoes.tetoBootSemSinalMs ?? TETO_BOOT_SEM_SINAL_MS;
+    this.prazoSemHooksMs = opcoes.prazoSemHooksMs ?? PRAZO_SEM_HOOKS_MS;
     this.pausaTeclaPerguntaMs = opcoes.pausaTeclaPerguntaMs ?? PAUSA_TECLA_PERGUNTA_MS;
     this.arquivoDeEstado = opcoes.arquivoDeEstado ?? STATE_FILE;
     this.pastaDeEstado = opcoes.pastaDeEstado ?? PASTA_DE_ESTADO;
     this.arquivoDaFila = caminhoDaFila(this.pastaDeEstado, descritor.id);
     this.filaQuandoIdle = carregarFila(this.arquivoDaFila, this.a("fila"));
+    recuperarDoDisco(this);
     if (this.filaQuandoIdle.length) {
       log.info(
         this.a("fila"),
@@ -711,7 +729,7 @@ export class Sessao extends EventEmitter {
   }
 
   /** Digita e envia, com recibo do Enter (ver sessao/digitacao.ts). */
-  digitarEEnviar(texto: string, daFila = false): Promise<void> {
+  digitarEEnviar(texto: string, daFila = false): Promise<boolean> {
     return digitarEEnviar(this, texto, daFila);
   }
 

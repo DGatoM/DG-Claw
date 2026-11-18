@@ -393,3 +393,98 @@ test("Codex login expirado: auth.json regravado depois do aviso reinicia RETOMAN
   assert.equal(s.estado.loginExpiradoEm, null);
   assert.equal(s.recusaDeEntrada(), null);
 });
+
+// --- pedido digitado sem recibo (incidente de 18/11/2026), no Codex --------------------------------------------
+
+const promptsDe = (texto: string) =>
+  lerLinhasJson(amb.logDosClis).filter((l) => l.bin === "codex" && l.modo === "prompt" && l.texto === texto).length;
+const filaEmDisco = (s: { arquivoDaFila: string }): Array<Record<string, unknown>> => {
+  try {
+    return JSON.parse(fs.readFileSync(s.arquivoDaFila, "utf8")).itens;
+  } catch {
+    return [];
+  }
+};
+const matarOTerminal = (s: { proc: unknown }) => (s.proc as { kill(): void }).kill();
+
+test("Codex sem recibo: o pedido digitado sem task_started fica pendente e, com o terminal morto, volta e sai UMA vez", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  logarCodex(amb);
+  const { s } = await nova({}, undefined, { reciboVigiaPassosMs: [300, 300] });
+  process.env.FAKE_CODEX_IGNORE_ENTERS = "999";
+  await s.subir("nova");
+  delete process.env.FAKE_CODEX_IGNORE_ENTERS;
+  await esperarAte(() => s.estado.status === "idle", 6_000);
+  s.enfileirarQuandoOcioso("pedido-codex-que-some-1");
+  await esperarAte(() => /ainda não confirmou que aceitou o pedido/.test(lerTexto(amb.logDoRunner).slice(marcaDoLog)), 40_000, "o aviso de pedido sem recibo");
+  assert.equal(promptsDe("pedido-codex-que-some-1"), 0, "o Codex ignorou todos os Enters");
+  assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.digitado]), [["pedido-codex-que-some-1", true]]);
+
+  matarOTerminal(s);
+  await esperarAte(() => s.estado.status === "resumable" || s.estado.status === "stopped", 8_000, "o terminal morrer");
+  assert.equal(s.semRecibo.length, 0);
+  assert.deepEqual(s.filaQuandoIdle.map((i) => [i.texto, i.reentregue]), [["pedido-codex-que-some-1", true]]);
+
+  await s.subir("retomar");
+  await esperarAte(() => promptsDe("pedido-codex-que-some-1") === 1, 30_000, "o pedido sair de novo");
+  await esperarAte(() => s.semRecibo.length === 0 && s.filaQuandoIdle.length === 0 && filaEmDisco(s).length === 0, 10_000, "o recibo (task_started) limpar o pendente e o disco");
+  await dormir(2_500);
+  assert.equal(promptsDe("pedido-codex-que-some-1"), 1, "entregue uma única vez");
+});
+
+test("Codex com recibo: o pedido que abriu turno (task_started) não é reentregue depois do terminal morrer e subir de novo", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000);
+  s.enfileirarQuandoOcioso("pedido-codex-com-recibo-1");
+  await esperarAte(() => promptsDe("pedido-codex-com-recibo-1") === 1, 30_000, "o pedido ser digitado");
+  await esperarAte(() => s.semRecibo.length === 0 && filaEmDisco(s).length === 0 && !s.soltandoFila, 10_000, "o recibo limpar o pendente");
+  await esperarAte(() => s.estado.sessionId !== null, 6_000);
+  matarOTerminal(s);
+  await esperarAte(() => s.estado.status === "resumable", 8_000);
+  assert.equal(s.filaQuandoIdle.length, 0);
+  await s.subir("retomar");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  await dormir(4_000);
+  assert.equal(promptsDe("pedido-codex-com-recibo-1"), 1);
+});
+
+test("Codex com recibo atrasado: o task_started que chega depois dos 3 Enters tira o pedido do pendente e não duplica", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  logarCodex(amb);
+  const { s } = await nova({}, undefined, { reciboVigiaPassosMs: [500, 500] });
+  process.env.FAKE_CODEX_IGNORE_ENTERS = "3";
+  await s.subir("nova");
+  delete process.env.FAKE_CODEX_IGNORE_ENTERS;
+  await esperarAte(() => s.estado.status === "idle", 6_000);
+  s.enfileirarQuandoOcioso("pedido-codex-atrasado-1");
+  await esperarAte(() => /ainda não confirmou que aceitou o pedido/.test(lerTexto(amb.logDoRunner).slice(marcaDoLog)), 40_000, "o aviso de pedido sem recibo");
+  await esperarAte(() => /o recibo do texto digitado \(\d+ caracteres\) chegou atrasado/.test(lerTexto(amb.logDoRunner).slice(marcaDoLog)), 10_000, "o recibo atrasado");
+  assert.equal(promptsDe("pedido-codex-atrasado-1"), 1);
+  await esperarAte(() => s.semRecibo.length === 0 && filaEmDisco(s).length === 0, 8_000);
+  await esperarAte(() => s.estado.sessionId !== null, 6_000);
+  matarOTerminal(s);
+  await esperarAte(() => s.estado.status === "resumable", 8_000);
+  assert.equal(s.filaQuandoIdle.length, 0, "o pedido não volta para a fila");
+  await s.subir("retomar");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  await dormir(3_000);
+  assert.equal(promptsDe("pedido-codex-atrasado-1"), 1, "nunca duplicado");
+});
+
+test("Codex: id sem rollout no disco sobe a sessão NOVA direto (sem 'codex resume' que falha)", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  logarCodex(amb);
+  const { s, id } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000);
+  s.parar("reboot simulado");
+  const fantasma = "11111111-2222-4333-8444-555555555555";
+  s.mudar({ sessionId: fantasma });
+  assert.equal(await s.subir("retomar"), "nova");
+  assert.equal(s.estado.previousSessionId, fantasma);
+  await esperarAte(() => entradasDe(id).length >= 2, 5_000, "o Codex reabrir");
+  assert.equal(entradasDe(id)[1].argv[0] === "resume", false, "nem tentou o resume");
+  assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), new RegExp(`não retomo a sessão ${fantasma}: o histórico dela não está no disco \\(rollout do Codex`));
+});

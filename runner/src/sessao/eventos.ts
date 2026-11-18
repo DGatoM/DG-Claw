@@ -4,7 +4,7 @@ import { mascarar } from "../mascara.js";
 import { RX_LOGIN_EXPIRADO } from "../transcript.js";
 import { spawn } from "./ciclo.js";
 import { STOP_CONFIRM_MS } from "./constantes.js";
-import { talvezSoltarFila } from "./fila.js";
+import { confirmarRecibos, talvezSoltarFila } from "./fila.js";
 import { conferirLoginExpiradoNoTranscript, marcarLoginExpirado } from "./login.js";
 import { nonceConfere } from "./telas.js";
 
@@ -42,7 +42,9 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
   // dentro (um `/resume` digitado no TUI), caso em que o id que guardamos
   // ficaria apontando para uma conversa que ninguém mais escreve.
   if (payload.sessionId && payload.sessionId !== s.estado.sessionId) {
-    log.info(s.a("hook"), `a sessão viva mudou por dentro: ${s.estado.sessionId} -> ${payload.sessionId}`);
+    // Quem causou: o evento e o source do hook (SessionStart com source=resume/clear/compact/startup...).
+    const causa = [payload.event ? `evento ${payload.event}` : null, payload.source ? `source ${payload.source}` : null].filter(Boolean).join(", ");
+    log.info(s.a("hook"), `a sessão viva mudou por dentro: ${s.estado.sessionId} -> ${payload.sessionId}${causa ? ` (${causa})` : ""}`);
     s.mudar({
       sessionId: payload.sessionId,
       previousSessionId: s.estado.sessionId ?? s.estado.previousSessionId ?? null,
@@ -83,6 +85,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       // de que o texto virou turno em vez de ficar escrito na caixa. Quem espera
       // por ele é o enviarComRecibo().
       s.promptsAceitos += 1;
+      confirmarRecibos(s);
       s.turnoComecouEm = Date.now();
       s.mudar({ status: "working", hookLatched: false, statusReason: "hook:UserPromptSubmit" });
       break;

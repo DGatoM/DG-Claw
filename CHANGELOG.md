@@ -7,6 +7,18 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção no runner: pedido digitado sem confirmação volta para a fila.** Um pedido enviado a um agente podia sumir
+quando o Claude Code não abria o turno (por exemplo, com os hooks travados) e o runner era reiniciado: o texto já tinha
+saído da fila, a conversa nunca tinha sido gravada e o agente subia vazio. Agora o runner só dá o pedido por entregue
+quando o Claude (`UserPromptSubmit`) ou o Codex (`task_started`) confirma que o aceitou. Sem essa confirmação ele fica
+pendente, também no arquivo da fila em disco, e se o terminal sair, a retomada falhar ou a sessão subir como nova, ele
+volta para a frente da fila e é digitado de novo uma única vez. Pedido confirmado nunca é repetido, e comando de barra
+(`/compact`, `/clear`) fica de fora. O runner também deixou de dar o Claude por "sem hooks" nos primeiros 60 s depois
+de abrir (antes disso ele espera a confirmação e insiste no Enter), de soltar a fila no boot sem o `SessionStart` ou o
+prompt na tela (teto de 30 s, com aviso no log) e de tentar `--resume` de uma conversa que não existe no disco: sem o
+histórico ele sobe a sessão nova direto, guardando a anterior em `previousSessionId`. O log de "a sessão viva mudou por
+dentro" passou a trazer o evento e o `source` do hook. Funciona igual no Claude e no Codex.
+
 **Correção: render de vídeo não esgota os processos do agente.** Um agente chegou a ficar mais de 30 minutos parado num
 render de vídeo porque o container tem um limite de processos (as threads contam), e o Chrome da Tela, o Claude Code e
 os Chromium novos que as tentativas de render abriam chegaram ao teto ("Resource temporarily unavailable" e "Target

@@ -8,7 +8,7 @@ import type { CtxMotor } from "../provedores/motor.js";
 import { turnoEncerradoNoTranscript } from "../transcript.js";
 import { CONFERE_TRANSCRIPT_A_CADA_MS, ROLLOUT_AUSENTE_MS } from "./constantes.js";
 import { aplicarEvento, cancelarStopPendente } from "./eventos.js";
-import { talvezSoltarFila } from "./fila.js";
+import { confirmarRecibos, talvezSoltarFila } from "./fila.js";
 import { conferirLoginExpiradoNoTranscript, credencialGravadaEm, marcarLoginExpirado } from "./login.js";
 
 /** Claude: se o hook Stop se perder, o agente ficaria "working" para sempre e a fila de ocioso
@@ -88,6 +88,7 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
           s.mudar({ sessionId: achado.id });
           // O rollout nascer é o recibo do primeiro Enter (ele só existe depois do primeiro turno).
           s.promptsAceitos += 1;
+          confirmarRecibos(s);
         }
       }
       if (!arquivo && !avisouAusencia && Date.now() - desde > ROLLOUT_AUSENTE_MS) {
