@@ -76,14 +76,21 @@ jobs:
   web:
     name: web
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Preparar geração real de miniaturas
-        run: command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y ffmpeg)
+        # O espelho regional que o runner recebe (ex.: us-east-2.ec2) chegou a passar de 10 min no ffmpeg.
+        # Troca para o espelho padrão dos runners do GitHub e instala sem os pacotes recomendados.
+        run: |
+          command -v ffmpeg >/dev/null && exit 0
+          sudo sed -i -E 's#https?://[a-z0-9.-]*archive\.ubuntu\.com/ubuntu#http://azure.archive.ubuntu.com/ubuntu#g' \
+            /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list 2>/dev/null || true
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Rodar os testes do web
         run: node --test web/test/
 
@@ -138,7 +145,14 @@ jobs:
           cache: npm
           cache-dependency-path: runner/package-lock.json
       - name: Preparar geração real de miniaturas
-        run: command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y ffmpeg)
+        # O espelho regional que o runner recebe (ex.: us-east-2.ec2) chegou a passar de 10 min no ffmpeg.
+        # Troca para o espelho padrão dos runners do GitHub e instala sem os pacotes recomendados.
+        run: |
+          command -v ffmpeg >/dev/null && exit 0
+          sudo sed -i -E 's#https?://[a-z0-9.-]*archive\.ubuntu\.com/ubuntu#http://azure.archive.ubuntu.com/ubuntu#g' \
+            /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list 2>/dev/null || true
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Cobertura do web
         run: |
           mkdir -p cobertura
