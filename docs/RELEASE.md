@@ -52,18 +52,21 @@ projeto. Nenhum agente faz o merge sozinho.
 ### 2. Depois do merge: a tag no SHA do merge
 
 A tag vai no commit do merge aprovado, não no HEAD da `main` (que pode ter andado depois do merge). O bloco
-roda num subshell com `set -euo pipefail`: para na primeira conferência que falhar, sem fechar o terminal, e
+usa as variáveis `VERSAO` e `PR` (e o passo 3 também `NOTAS`), definidas antes no terminal, por exemplo
+`VERSAO=1.1.0 PR=145 NOTAS=notas-1.1.0.md`. O bloco roda num subshell com `set -euo pipefail`: para na primeira conferência que falhar, sem fechar o terminal, e
 nesse caso não crie a tag.
 
 ```bash
 (
   set -euo pipefail
-  VERSAO=X.Y.Z
-  PR=<n>
-  SHA="$(gh pr view "$PR" -R DGatoM/DG-Claw --json mergeCommit,state -q 'select(.state=="MERGED").mergeCommit.oid')"
+  : "${VERSAO:?defina VERSAO=X.Y.Z antes}"
+  : "${PR:?defina PR=<número do PR de release> antes}"
+  SHA="$(gh pr view "$PR" -R DGatoM/DG-Claw --json mergeCommit,state,baseRefName,headRefName \
+    -q "select(.state==\"MERGED\" and .baseRefName==\"main\" and .headRefName==\"release/v$VERSAO\").mergeCommit.oid")"
   [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]                       # o PR está mergeado e o SHA veio
-  git fetch origin
-  git merge-base --is-ancestor "$SHA" origin/main      # o merge está na main
+  git fetch https://github.com/DGatoM/DG-Claw.git main
+  git merge-base --is-ancestor "$SHA" FETCH_HEAD       # o merge está na main oficial
+  if git diff --quiet "$SHA^1" "$SHA" -- VERSION; then echo "o merge não mudou o VERSION"; exit 1; fi
   [ "$(git cat-file -t "$SHA")" = commit ]
   [ "$(git show "$SHA":VERSION)" = "$VERSAO" ]         # o commit tem a versão certa
   git tag -a "v$VERSAO" "$SHA" -m "DG Claw $VERSAO"
@@ -79,16 +82,18 @@ ser de outro clone), e a tag local é conferida contra ele antes do push.
 ```bash
 (
   set -euo pipefail
-  VERSAO=X.Y.Z
-  PR=<n>
-  SHA="$(gh pr view "$PR" -R DGatoM/DG-Claw --json mergeCommit,state -q 'select(.state=="MERGED").mergeCommit.oid')"
+  : "${VERSAO:?defina VERSAO=X.Y.Z antes}"
+  : "${PR:?defina PR=<número do PR de release> antes}"
+  : "${NOTAS:?defina NOTAS=<arquivo com as notas da release> antes}"
+  SHA="$(gh pr view "$PR" -R DGatoM/DG-Claw --json mergeCommit,state,baseRefName,headRefName \
+    -q "select(.state==\"MERGED\" and .baseRefName==\"main\" and .headRefName==\"release/v$VERSAO\").mergeCommit.oid")"
   [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
   OFICIAL=https://github.com/DGatoM/DG-Claw.git
   [ "$(git cat-file -t "refs/tags/v$VERSAO")" = tag ]                  # tag anotada, não leve
   [ "$(git rev-parse "refs/tags/v$VERSAO^{commit}")" = "$SHA" ]       # a tag local aponta para o SHA do merge
   git push "$OFICIAL" "refs/tags/v$VERSAO"
   [ "$(git ls-remote "$OFICIAL" "refs/tags/v$VERSAO^{}" | cut -f1)" = "$SHA" ]   # a tag no repositório oficial também
-  gh release create "v$VERSAO" -R DGatoM/DG-Claw --verify-tag --title "DG Claw $VERSAO" --notes-file <arquivo>
+  gh release create "v$VERSAO" -R DGatoM/DG-Claw --verify-tag --title "DG Claw $VERSAO" --notes-file "$NOTAS"
 )
 ```
 

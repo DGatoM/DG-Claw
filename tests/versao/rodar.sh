@@ -7,7 +7,7 @@ set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # Mesmo limite do leitor do aviso (RX_VERSAO_REMOTA em scripts/checar-atualizacao.mjs): ate 4 digitos por parte.
-RX='^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$'
+RX='^(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})$'  # sem zero a esquerda (semver)
 TESTES=0; FALHAS=0
 ok()  { TESTES=$((TESTES + 1)); printf '  ok     %s\n' "$1"; }
 mal() { TESTES=$((TESTES + 1)); FALHAS=$((FALHAS + 1)); printf '  FALHOU %s\n' "$1"; }
