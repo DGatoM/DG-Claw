@@ -60,7 +60,7 @@ nesse caso não crie a tag.
   set -euo pipefail
   VERSAO=X.Y.Z
   PR=<n>
-  SHA="$(gh pr view "$PR" --json mergeCommit,state -q 'select(.state=="MERGED").mergeCommit.oid')"
+  SHA="$(gh pr view "$PR" -R DGatoM/DG-Claw --json mergeCommit,state -q 'select(.state=="MERGED").mergeCommit.oid')"
   [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]                       # o PR está mergeado e o SHA veio
   git fetch origin
   git merge-base --is-ancestor "$SHA" origin/main      # o merge está na main
@@ -81,12 +81,14 @@ ser de outro clone), e a tag local é conferida contra ele antes do push.
   set -euo pipefail
   VERSAO=X.Y.Z
   PR=<n>
-  SHA="$(gh pr view "$PR" --json mergeCommit,state -q 'select(.state=="MERGED").mergeCommit.oid')"
+  SHA="$(gh pr view "$PR" -R DGatoM/DG-Claw --json mergeCommit,state -q 'select(.state=="MERGED").mergeCommit.oid')"
   [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
-  [ "$(git rev-parse "v$VERSAO^{commit}")" = "$SHA" ]   # a tag local aponta para o SHA do merge
-  git push origin "v$VERSAO"
-  [ "$(git ls-remote origin "refs/tags/v$VERSAO^{}" | cut -f1)" = "$SHA" ]   # a tag remota aponta para o SHA do merge
-  gh release create "v$VERSAO" --verify-tag --title "DG Claw $VERSAO" --notes-file <arquivo>
+  OFICIAL=https://github.com/DGatoM/DG-Claw.git
+  [ "$(git cat-file -t "refs/tags/v$VERSAO")" = tag ]                  # tag anotada, não leve
+  [ "$(git rev-parse "refs/tags/v$VERSAO^{commit}")" = "$SHA" ]       # a tag local aponta para o SHA do merge
+  git push "$OFICIAL" "refs/tags/v$VERSAO"
+  [ "$(git ls-remote "$OFICIAL" "refs/tags/v$VERSAO^{}" | cut -f1)" = "$SHA" ]   # a tag no repositório oficial também
+  gh release create "v$VERSAO" -R DGatoM/DG-Claw --verify-tag --title "DG Claw $VERSAO" --notes-file <arquivo>
 )
 ```
 
