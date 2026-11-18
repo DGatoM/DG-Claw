@@ -191,6 +191,7 @@ Servidas pelo DG Claw Web. Quem: Dono, salvo o que a coluna disser. Colab só pa
 | `/api/saude` | Resposta de vida do Web: quantos agentes existem, se a lista de agentes está legível e se o login está trancado | Público | [SEGURANCA.md](../SEGURANCA.md) |
 | `/api/v1/eu` | Diz quem está logado, o papel (dono ou colaborador) e se precisa trocar a senha | Dono, Colab | [COLABORADORES.md](../../web/docs/COLABORADORES.md) |
 | `/api/v1/eu/senha` | O colaborador troca a própria senha (POST) | Colab | [COLABORADORES.md](../../web/docs/COLABORADORES.md) |
+| `/api/v1/dono/senha` | O dono logado troca a senha do painel, informando a atual (POST) | Dono | [seguranca.md](seguranca.md) |
 | `/api/v1/colaboradores` | Lista, convida (POST), reenvia convite e revoga acesso de colaboradores | **Só a sessão do dono**. Colab e Caixa recebem 403 | [COLABORADORES.md](../../web/docs/COLABORADORES.md) |
 | `/api/v1/logs` | Lê o histórico dos agentes para a tela Logs (lista de agentes, eventos e busca), só leitura | **Só a sessão do dono**. Colab recebe 403; agentes e o Admin por token não acessam | [LOGS.md](../../web/docs/LOGS.md) |
 | `/api/v1/login` | Documentação do login da conta de IA dentro da conversa (`/api/v1/agents/<slug>/login`: ver, começar, mandar código, cancelar) | Dono. Colab recebe 403 | [LOGIN-NA-CONVERSA.md](../../web/docs/LOGIN-NA-CONVERSA.md) |

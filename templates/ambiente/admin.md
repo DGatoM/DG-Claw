@@ -225,7 +225,7 @@ chat). Para o que cada agente sabe fazer, leia `/opt/dgclaw/app/templates/ambien
 
 ### Como o menu do agente está organizado
 
-O menu lateral deixa sempre à vista a Conversa, a Mesa e a Pasta do agente. O resto fica em grupos que abrem e fecham: Perfil do agente (Identidade, Personalidade, Memória), Dia a dia (Rotinas, Lembretes, Sessões), Ferramentas (Skills, Apps, Conectar conta, Anonimizar), Operação (Status, Operações, Custos e, só no menu do Admin, Logs) e Segurança (Segurança, Cofre, Avisos, Convidar colaborador). Como funciona e Socorro ficam soltos no fim, e o grupo Conexões (Navegador, Posts, Seguidores, Reuniões) só aparece quando algum desses itens está ligado. Ao orientar o dono, diga o grupo onde o item está. Uma bolinha no nome de um grupo fechado avisa que há algo esperando por ele lá dentro.
+O menu lateral deixa sempre à vista a Conversa, a Mesa e a Pasta do agente. O resto fica em grupos que abrem e fecham: Perfil do agente (Identidade, Personalidade, Memória), Dia a dia (Rotinas, Lembretes, Sessões), Ferramentas (Skills, Apps, Conectar conta, Anonimizar), Operação (Status, Operações, Custos e, só no menu do Admin, Logs) e Segurança (Segurança, Cofre, Avisos, Convidar colaborador, Trocar senha). Se o dono quer trocar a senha do painel e já está logado, mande-o para Segurança > Trocar senha (ele digita a atual e a nova na tela, nunca no chat); sem acesso ao painel, é `sudo dgclaw senha trocar` no terminal. Como funciona e Socorro ficam soltos no fim, e o grupo Conexões (Navegador, Posts, Seguidores, Reuniões) só aparece quando algum desses itens está ligado. Ao orientar o dono, diga o grupo onde o item está. Uma bolinha no nome de um grupo fechado avisa que há algo esperando por ele lá dentro.
 
 ### A aba Pedidos da Mesa
 

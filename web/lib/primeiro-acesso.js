@@ -57,6 +57,7 @@ function criarPrimeiroAcesso({ config, auth, log, agora }) {
   }
 
   function gravaHashNoEnv(hash) {
+    // Edição linha a linha: troca só a linha do hash e mantém o resto do web.env como está.
     if (hash.includes("'")) throw new Error('o hash gerado contém aspas simples e não pode ser gravado no web.env');
     let texto = '';
     try { texto = fs.readFileSync(webEnv, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
@@ -67,9 +68,59 @@ function criarPrimeiroAcesso({ config, auth, log, agora }) {
   }
 
   const erro = (status, msg, extra) => ({ status, corpo: Object.assign({ ok: false, erro: msg }, extra || {}) });
+  let trocandoDono = false;
+
+  /** Troca da senha do dono logado: confere a atual (mesmo limitador do login), grava só o hash no web.env e abre sessão nova.
+   *  As demais sessões caem em auth.definirHash. Mesmas regras de força do primeiro acesso. */
+  async function trocarSenhaDono(dados, ip, req, sessao) {
+    const { atual, nova, confirmacao } = dados || {};
+    if (typeof atual !== 'string' || !atual) return erro(400, 'Digite a senha atual.');
+    if (typeof nova !== 'string') return erro(400, 'Digite a senha nova.');
+    if (nova !== confirmacao) return erro(400, 'As senhas não conferem.');
+    if (nova.length < 12) return erro(400, `A senha precisa ter pelo menos 12 caracteres (a sua tem ${nova.length}).`);
+    if (nova.toLowerCase() === 'admin') return erro(400, 'Essa senha é fácil demais de adivinhar. Escolha outra.');
+    if (nova === atual) return erro(400, 'A senha nova precisa ser diferente da atual.');
+    if (trocandoDono) return erro(409, 'Já há uma troca de senha em andamento. Espere alguns segundos e tente de novo.');
+    trocandoDono = true;
+    try {
+      const v = await auth.verificaSenha(auth.usuario, atual, ip);
+      if (!v.ok) {
+        if (v.limite) { log('aviso', `Troca de senha do dono bloqueada por excesso de tentativas (ip ${ip}).`); return erro(429, v.erro, { retryAfter: v.retryAfter }); }
+        if (v.trancado) return erro(403, v.erro);
+        log('aviso', `Troca de senha do dono recusada (ip ${ip}): senha atual não confere.`);
+        return v.campo ? erro(403, 'A senha atual não confere.') : erro(500, v.erro);
+      }
+      let hash;
+      try {
+        hash = await auth.gerarHash(nova);
+      } catch (e) {
+        if (e.ocupado) return erro(429, e.message, { retryAfter: 2 });
+        log('erro', `Troca de senha do dono: falha ao gerar o hash (${e.message}).`);
+        return erro(500, 'Não consegui processar a senha agora. Tente de novo em instantes.');
+      }
+      // Depois dos awaits: a sessão que autorizou o pedido ainda tem de valer.
+      const agoraSessao = auth.sessaoDoPedido(req);
+      if (!agoraSessao || agoraSessao.papel !== 'dono' || agoraSessao.usuario !== sessao.usuario) return erro(401, 'A sua sessão deixou de valer enquanto você trocava a senha. Entre de novo.');
+      try {
+        gravaHashNoEnv(hash);
+      } catch (e) {
+        log('erro', `Troca de senha do dono: não consegui gravar a senha em ${webEnv} (${e.code || e.message}). A senha antiga continua valendo.`);
+        return erro(500, `Não consegui gravar a senha no servidor (${e.code || e.message}). A senha antiga continua valendo; peça ao Admin para conferir a permissão do arquivo de configuração.`);
+      }
+      const r = auth.definirHash(hash);
+      if (!r.ok) {
+        log('erro', `Troca de senha do dono: o hash gerado não foi aceito (${r.erro}).`);
+        return erro(500, `O servidor não aceitou o hash gerado (${r.erro}). Rode no servidor: sudo dgclaw senha`);
+      }
+      const s = auth.criaSessao(auth.usuario, req);
+      log('info', `${auth.usuario} trocou a senha do painel pelo painel (ip ${ip}); as outras sessões foram derrubadas.`);
+      return { status: 200, corpo: { ok: true, destino: '/' }, cookies: s.cookies };
+    } finally { trocandoDono = false; }
+  }
 
   return {
     arquivo,
+    trocarSenhaDono,
     async consumir(dados, ip, req) {
       const { token, senha, confirmacao } = dados || {};
       const espera = limite(ip || '?');

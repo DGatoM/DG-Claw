@@ -3,8 +3,10 @@
    Sem a senha temporária pendente, a mesma tela troca a senha comum e pede também a atual. */
 (function () {
   const $ = id => document.getElementById(id);
-  const MIN = 10, MAX = 128;
+  let MIN = 10;
+  const MAX = 128;
   let pendente = true;
+  let dono = false; /* o dono troca a senha do painel pela rota /api/v1/dono/senha; sempre pede a atual */
 
   function mostraErro(texto) {
     const e = $('erro');
@@ -31,13 +33,22 @@
   async function inicia() {
     try {
       const eu = await chama('GET', '/api/v1/eu');
-      if (eu.papel !== 'colaborador') { location.replace('/'); return; }
-      pendente = !!eu.trocar_senha;
+      dono = eu.papel !== 'colaborador';
+      pendente = dono ? false : !!eu.trocar_senha;
     } catch (e) { mostraErro(e.message); return; }
     if (!pendente) {
       $('tsAtualBloco').hidden = false;
       $('tsAtual').required = true;
       $('tsSub').textContent = 'Para trocar a sua senha, digite a atual e escolha a nova.';
+    }
+    if (dono) {
+      document.querySelector('h1').textContent = 'Trocar senha';
+      $('tsEnviar').textContent = 'Salvar';
+      MIN = 12;
+      $('tsNova').minLength = MIN;
+      $('tsDica').textContent = 'De ' + MIN + ' a ' + MAX + ' caracteres. Uma frase longa funciona bem. Ao salvar, as outras sessões abertas saem.';
+      $('tsSub').textContent = 'Digite a senha atual e escolha a nova. Os outros aparelhos em que você está logado vão precisar entrar de novo.';
+      $('tsVoltar').hidden = false;
     }
   }
 
@@ -61,15 +72,19 @@
     try {
       const corpo = { nova, confirmacao: conf };
       if (!pendente) corpo.atual = atual;
-      const d = await chama('POST', '/api/v1/eu/senha', corpo);
+      const d = await chama('POST', dono ? '/api/v1/dono/senha' : '/api/v1/eu/senha', corpo);
       location.href = d.destino || '/';
     } catch (e) {
       mostraErro(e.message);
-      b.disabled = false; b.textContent = 'Salvar e entrar';
+      b.disabled = false; b.textContent = dono ? 'Salvar' : 'Salvar e entrar';
     }
   });
 
-  const PASSOS = [
+  const PASSOS = () => [
+    ...(!pendente ? [{ alvo: '[data-tour="ts-atual"]', titulo: 'A senha atual',
+      oque: 'O campo em que você digita a senha que usa hoje.',
+      como: 'O servidor confere a senha atual antes de aceitar a nova. Erros seguidos bloqueiam novas tentativas por alguns minutos.',
+      porque: 'Se alguém pegar o seu aparelho aberto, não consegue trocar a sua senha sem saber a atual.' }] : []),
     { alvo: '[data-tour="ts-cartao"]', titulo: 'Criar a sua senha',
       oque: 'A tela em que você troca a senha temporária do convite por uma senha só sua.',
       como: 'Você entrou com a senha que veio no convite. Ela serve uma vez só: depois de salvar a nova, a temporária deixa de valer e você entra direto na conversa com o seu agente.',
@@ -89,7 +104,7 @@
   ];
   $('tsTutorial').addEventListener('click', () => {
     if (!window.DGTour) { mostraErro('A visita guiada não carregou. Recarregue a página e tente de novo.'); return; }
-    window.DGTour.inicia({ passos: PASSOS.filter(p => { const e = document.querySelector(p.alvo); return e && e.offsetParent !== null; }) });
+    window.DGTour.inicia({ passos: PASSOS().filter(p => { const e = document.querySelector(p.alvo); return e && e.offsetParent !== null; }) });
   });
 
   inicia();

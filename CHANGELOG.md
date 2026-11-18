@@ -7,6 +7,16 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção no login do painel e troca de senha do dono pelo painel.** O usuário do dono passou a ser comparado sem
+diferenciar maiúsculas de minúsculas e sem os espaços das pontas (teclados de celular e preenchimento automático costumam
+mudá-los); a senha continua exata e a comparação segue em tempo constante. O log do servidor agora diz qual campo não
+conferiu ("usuário não confere" ou "senha não confere"), sem registrar o que foi digitado, e a resposta ao navegador
+continua genérica. A tela de login passou a mostrar quantos minutos faltam quando o bloqueio por tentativas está ativo
+(o servidor manda `espera` na volta ao `/login`). O dono logado troca a própria senha em Segurança > Trocar senha
+(`/trocar-senha`, rota `POST /api/v1/dono/senha`): pede a senha atual, a nova duas vezes e usa as mesmas regras do primeiro
+acesso (mínimo de 12 caracteres). Só a linha do hash no `web.env` é regravada, o limite de tentativas da senha atual é o
+do login, as outras sessões caem e a sessão de quem trocou continua. Colaborador e chave de API recebem 403 nessa rota.
+
 **Correção: render de vídeo não esgota os processos do agente.** Um agente chegou a ficar mais de 30 minutos parado num
 render de vídeo porque o container tem um limite de processos (as threads contam), e o Chrome da Tela, o Claude Code e
 os Chromium novos que as tentativas de render abriam chegaram ao teto ("Resource temporarily unavailable" e "Target
