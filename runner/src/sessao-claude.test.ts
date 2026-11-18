@@ -136,7 +136,7 @@ async function novaComRedeCurta(prazoMs: number, opcoes: Record<string, unknown>
   /** Grava o transcript; `em` é o deslocamento em ms em relação a agora. */
   const transcript = (linhas: Array<[Record<string, unknown>, number]>) =>
     fs.writeFileSync(arquivo, linhas.map(([o, em]) => JSON.stringify({ ...o, timestamp: new Date(Date.now() + em).toISOString() })).join("\n") + "\n");
-  return { s, hooks, hook, transcript, id };
+  return { s, hooks, hook, transcript, id, arquivo };
 }
 const FIM_DO_TURNO = { type: "system", subtype: "turn_duration" };
 
@@ -165,6 +165,114 @@ test("Stop perdido: transcript terminando em tool_use (sleep longo) com o termin
   assert.equal(s.estado.status, "working");
 });
 
+const INTERROMPIDO = (texto: unknown) => ({ type: "user", message: { role: "user", content: texto } });
+test("Stop perdido: interrupção do usuário ('[Request interrupted by user]') no fim do transcript vira idle e solta a fila", async () => {
+  for (const texto of [[{ type: "text", text: "[Request interrupted by user for tool use]" }], "[Request interrupted by user]"]) {
+    const { s, hook, transcript } = await novaComRedeCurta(600);
+    hook("UserPromptSubmit");
+    s.escrever("\u001b");
+    transcript([[{ type: "assistant" }, 100], [INTERROMPIDO(texto), 200]]);
+    s.enfileirarQuandoOcioso("mensagem presa na fila");
+    await esperarAte(() => s.estado.status === "idle", 5_000, "o fim de turno por interrupção marcar idle");
+    assert.match(s.estado.statusReason ?? "", /^transcript:/);
+  }
+});
+test("Stop perdido: texto que só começa pelo prefixo de interrupção, ou interrupção antiga, não encerram o turno", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  transcript([[INTERROMPIDO([{ type: "text", text: "[Request interrupted by user] e mais coisa" }]), 200]]);
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+  transcript([[INTERROMPIDO("[Request interrupted by user]"), -60_000]]);
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+});
+test("Stop perdido: o marcador literal sem Esc, ou com Esc de outro processo, não encerra o turno", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  transcript([[INTERROMPIDO("[Request interrupted by user]"), 200]]);
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working", "sem nenhum Esc registrado");
+  s.ultimoEscReal = { em: Date.now(), proc: {} };
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working", "Esc de um processo anterior");
+});
+test("Stop perdido: dois Parar separados por 4 s, com o marcador do primeiro no transcript, vira idle e entrega a fila", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  const rel = { t: 1_000_000 };
+  s.agora = () => rel.t;
+  assert.equal(s.interromper().ok, true);
+  const primeiro = s.ultimoEscReal;
+  rel.t += 4_000;
+  assert.equal(s.interromper().ok, true);
+  assert.equal(s.ultimoEscReal, primeiro, "o segundo Esc não sobrescreve o pendente");
+  transcript([[INTERROMPIDO("[Request interrupted by user]"), 200]]);
+  const antes = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length;
+  s.enfileirarQuandoOcioso("mensagem presa na fila");
+  await esperarAte(() => s.estado.status === "idle", 5_000, "o fim de turno por interrupção marcar idle");
+  assert.equal(s.ultimoEscReal, null, "o turno terminou: o Esc pendente cai");
+  await esperarAte(() => lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length > antes, 12_000, "a fila soltar o texto no CLI");
+});
+test("Stop perdido: Esc de um turno já encerrado + marcador literal num turno novo não encerram o turno", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  s.escrever("\u001b");
+  assert.ok(s.ultimoEscReal);
+  s.mudar({ status: "idle", statusReason: "teste: turno acabou" });
+  assert.equal(s.ultimoEscReal, null);
+  hook("UserPromptSubmit");
+  transcript([[INTERROMPIDO("[Request interrupted by user]"), 200]]);
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+});
+test("Stop perdido: marcador que já era a última linha antes do Esc (horário anterior ao clique) não encerra o turno", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  transcript([[INTERROMPIDO("[Request interrupted by user]"), -1_000]]);
+  s.escrever("\u001b");
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+});
+test("Stop perdido: marcador com o mesmo horário do Esc vale, e entradas ai-title depois dele são puladas", async () => {
+  const { s, hook, arquivo } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  await dormir(20);
+  s.escrever("\u001b");
+  const em = s.ultimoEscReal!.em;
+  const linha = (o: Record<string, unknown>, ms: number) => JSON.stringify({ ...o, timestamp: new Date(ms).toISOString() });
+  fs.writeFileSync(arquivo, [linha(INTERROMPIDO("[Request interrupted by user]"), em), linha({ type: "ai-title", aiTitle: "titulo" }, em + 50), linha({ type: "file-history-snapshot" }, em + 60)].join("\n") + "\n");
+  await esperarAte(() => s.estado.status === "idle", 5_000, "o marcador no mesmo ms valer apesar dos tipos extras depois");
+});
+test("Stop perdido: queue-operation (ou qualquer registro não metadado) depois do marcador impede a prova", async () => {
+  const { s, hook, arquivo } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  await dormir(20);
+  s.escrever("\u001b");
+  const em = s.ultimoEscReal!.em;
+  const linha = (o: Record<string, unknown>, ms: number) => JSON.stringify({ ...o, timestamp: new Date(ms).toISOString() });
+  fs.writeFileSync(arquivo, [linha(INTERROMPIDO("[Request interrupted by user]"), em + 10), linha({ type: "queue-operation", operation: "enqueue" }, em + 20)].join("\n") + "\n");
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+});
+test("Stop perdido: user/assistant DEPOIS do marcador, mesmo com ai-title no meio, não encerram", async () => {
+  const { s, hook, arquivo } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  s.escrever("\u001b");
+  const em = s.ultimoEscReal!.em;
+  const linha = (o: Record<string, unknown>, ms: number) => JSON.stringify({ ...o, timestamp: new Date(ms).toISOString() });
+  fs.writeFileSync(arquivo, [linha(INTERROMPIDO("[Request interrupted by user]"), em + 10), linha({ type: "ai-title" }, em + 20), linha({ type: "assistant", message: { content: [] } }, em + 30)].join("\n") + "\n");
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+});
+test("Stop perdido: linhas 'null', número e lixo no fim do transcript não derrubam a leitura", async () => {
+  const { s, hook, transcript, arquivo } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  s.escrever("\u001b");
+  transcript([[INTERROMPIDO("[Request interrupted by user]"), 200]]);
+  fs.appendFileSync(arquivo, "null\n7\n[1]\nisto não é json\n");
+  await esperarAte(() => s.estado.status === "idle", 5_000, "o fim de turno ser reconhecido apesar das linhas estranhas");
+});
 test("Stop perdido: turn_duration ANTERIOR ao último prompt não conta", async () => {
   const { s, hook, transcript } = await novaComRedeCurta(600);
   transcript([[FIM_DO_TURNO, -60_000]]);
