@@ -523,6 +523,31 @@ class DadoDeAgente(Base):
         self.assertEqual(self.achado(usn)["estado"], "aberto", "a parte npm sumiu só porque o OSV caiu")
         self.assertTrue(any(x[1] == "foo-mcp" for x in self.registro_de(usn)["pacotes"]))
 
+    def test_mais_de_200_pacotes_cortados_impedem_o_rebaixamento_em_rodada_parcial(self):
+        usn = "USN-9997-1"
+        nomes = [f"pacote{n:03d}" for n in range(201)]
+        r = reg_ubuntu(usn, "CVE-2026-88892", nomes[0], "1.1")
+        r["affected"] = [{"package": {"ecosystem": ECO, "name": n}, "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "1.1"}]}]}
+                         for n in nomes]
+        r["affected"].append({"package": {"ecosystem": "npm", "name": "foo-mcp"}, "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "1.0.1"}]}]})
+        S["osv_vulns"][usn] = r
+        S["osv_paginas"]["npm|foo-mcp|1.0.0"] = [[usn]]
+        with open(os.path.join(self.stub, "dpkg.txt"), "a", encoding="utf-8") as f, open(os.path.join(self.stub, "apt_candidatos.txt"), "a", encoding="utf-8") as g:
+            for n in nomes:
+                f.write(f"{n}\t1.0\t{n}\t1.0\n")
+                g.write(f"{n}\t1.1\n")
+                S["osv_paginas"][f"{ECO}|{n}|1.0"] = [[usn]]
+        self.agente_com_mcp("x", "foo-mcp@1.0.0")
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "aberto")
+        reg = self.registro_de(usn)
+        self.assertEqual(len(reg["pacotes"]), 200)
+        self.assertIs(reg["pacotes_cortados"], True)
+        del S["osv_paginas"]["npm|foo-mcp|1.0.0"]
+        S["fora"].add("hn")   # rodada parcial; o npm do agente não volta
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "aberto", "o pacote do agente pode ter sido o descartado pelo teto")
+
     def test_achado_so_do_host_com_versao_nova_ainda_pode_ser_rebaixado_com_fonte_fora(self):
         vid = "UBUNTU-CVE-2026-88891"
         S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [[vid]]
@@ -1969,6 +1994,82 @@ class Paliativos(Base):
         a = self.achado(self.ID)
         self.assertIsNotNone(a)
         self.assertNotEqual(a["estado"], "atualizacao-sistema")
+
+    def usn_kernel(self, usn, cves, prio="critical"):
+        r = reg_ubuntu(usn, cves[0], "linux", "6.8.0-149.149", prio=prio)
+        r["aliases"] = list(cves)
+        S["osv_paginas"][f"{ECO}|linux|6.8.0-147.153"] = [[usn]]
+        S["osv_vulns"][usn] = r
+        self.meta("6.8.0-149.149")
+
+    def test_registro_legado_com_60_ids_sem_marca_nao_e_rebaixado_sem_os_aliases(self):
+        usn = "USN-7780-1"
+        cves = [f"CVE-2026-{20000 + n}" for n in range(60)]
+        self.usn_kernel(usn, cves[:1])
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "atualizacao-sistema")
+        est = self.estado_do_registro()
+        est["achados"][usn]["ids_osv"] = list(cves)   # a main antiga guardava até 60 e não deixava a marca
+        est["achados"][usn].pop("ids_incompletos", None)
+        self.escreve(self.p("var/lib/dgclaw/seguranca/estado.json"), est)
+        S["osv_vulns"][usn]["aliases"] = []
+        S["kev"] = [{"cveID": "CVE-2026-29999", "dateAdded": "2026-10-20"}]
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "aberto")
+        self.assertIs(self.estado_do_registro()["achados"][usn]["ids_incompletos"], True)
+
+    def test_usn_com_mais_de_mil_cves_nao_e_rebaixado_ja_na_primeira_rodada(self):
+        usn = "USN-7781-1"
+        self.usn_kernel(usn, [f"CVE-2026-{30000 + n}" for n in range(1001)])
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "aberto")
+        self.assertIs(self.estado_do_registro()["achados"][usn]["ids_incompletos"], True)
+
+    def acao_sysctl(self, casa):
+        self.escreve(self.p("opt/dgclaw/app/seguranca/acoes-permitidas.json"), {"versao": 1, "acoes": [
+            {"id": "sysctl-x", "tipo": "sysctl", "descricao": "Ajustar um parâmetro do kernel", "chave": "net.mptcp.enabled", "valor": "0",
+             "casa": casa, "exige_reinicio": False}]})
+
+    def test_acao_do_catalogo_que_casa_por_cve_so_do_registro_veta_o_rebaixamento(self):
+        usn = "USN-7782-1"
+        self.usn_kernel(usn, ["CVE-2026-40001"])
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "atualizacao-sistema")
+        self.acao_sysctl({"ids": ["CVE-2026-40001"]})
+        S["osv_vulns"][usn]["aliases"] = []   # redetectado sem a CVE: só o registro ainda a conhece
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "aberto")
+
+    def test_acao_do_catalogo_que_cita_o_segundo_pacote_do_achado_veta_o_rebaixamento(self):
+        usn = "USN-7783-1"
+        self.usn_kernel(usn, ["CVE-2026-40002"])
+        S["osv_vulns"][usn]["affected"].append({"package": {"ecosystem": ECO, "name": "openssl"},
+                                                "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "3.0.13-0ubuntu3.6"}]}]})
+        S["osv_paginas"][f"{ECO}|openssl|3.0.13-0ubuntu3.4"] = [[usn]]
+        with open(os.path.join(self.stub, "apt_candidatos.txt"), "a", encoding="utf-8") as f:
+            f.write("openssl\t3.0.13-0ubuntu3.6\n")
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(usn)
+        self.assertEqual(a["estado"], "atualizacao-sistema")
+        outro = "openssl" if a["componente"] != "openssl" else "linux"
+        self.acao_sysctl({"pacotes": [outro]})
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "aberto")
+
+    def test_achado_em_atualizacao_que_ganha_acao_no_catalogo_volta_a_aberto_na_reapresentacao(self):
+        usn = "USN-7784-1"
+        self.usn_kernel(usn, ["CVE-2026-40003"])
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "atualizacao-sistema")
+        reg = self.estado_do_registro()
+        reg["achados"][usn]["avisado_em"] = AGORA
+        self.escreve(self.p("var/lib/dgclaw/seguranca/estado.json"), reg)
+        self.acao_sysctl({"ids": ["CVE-2026-40003"]})
+        S["osv_paginas"].clear()   # o USN não é redetectado
+        S["fora"].add("hn")        # uma fonte fora: cai na reapresentação do registro anterior
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(usn)["estado"], "aberto")
+        self.assertIsNone(self.estado_do_registro()["achados"][usn]["avisado_em"])
 
     def test_texto_promovido_por_kev_fala_de_reinicio_so_quando_a_correcao_exige(self):
         import importlib.util

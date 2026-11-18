@@ -2242,15 +2242,20 @@ def texto_promovido_por_kev(ultimo):
     return TEXTO_KEV_SEM_CORRECAO
 
 
-def promove_se_kev(aid, reg, kev, t0):
+def promove_se_kev(aid, reg, kev, t0, catalogo=()):
     """Achado reapresentado do estado anterior (qualquer caminho que reaproveita `ultimo`) que estava em segundo plano
     (atualização do sistema ou aguardando o fornecedor) ou aberto sem ser explorado (nível 3), mas com algum id ligado a ele na lista KEV (CISA respondendo): volta a
-    `aberto`, nível 2, explorado, e o recado sai de novo."""
+    `aberto`, nível 2, explorado, e o recado sai de novo. Um achado em atualização do sistema que ganhou uma ação no catálogo
+    (`catalogo`) desde a última rodada também volta a `aberto`, no mesmo nível, com o recado renovado."""
     ultimo = reg["ultimo"]
     aberto_sem_kev = ultimo.get("estado") == "aberto" and not ultimo.get("explorada_ativamente")
     if ultimo.get("estado") not in (ESTADO_ATUALIZACAO, "aguardando-fornecedor") and not aberto_sem_kev:
         return ultimo   # protegido-aguardando fica como está: o caminho normal da rodada também mantém a KEV com proteção ativa assim
     if not (ids_para_kev({"id": aid, "key": "", "aliases": []}, reg) & set(kev)):
+        if ultimo.get("estado") == ESTADO_ATUALIZACAO and ha_acao_no_catalogo({"id": aid, "key": "", "aliases": [], "afetados": []}, reg, catalogo):
+            o = dict(ultimo, estado="aberto")
+            reg.update(avisado_em=None, estado_contrato="aberto", ultimo=o)
+            return o
         return ultimo
     o = dict(ultimo, estado="aberto", nivel=2, explorada_ativamente=True, como_corrigir=texto_promovido_por_kev(ultimo))
     reg.update(avisado_em=None, estado_contrato="aberto", ultimo=o)
@@ -2576,6 +2581,22 @@ def acao_do_catalogo(a, catalogo):
                 continue
         return ac
     return None
+
+
+def ha_acao_no_catalogo(a, reg, catalogo):
+    """Só para vetar o rebaixamento: existe alguma ação do catálogo (não paliativa) ligada ao achado por um id que o registro
+    ainda guarda ou por qualquer pacote dele, sem o filtro de versão de `acao_do_catalogo`?"""
+    ids = ids_para_kev(a, reg)
+    pacotes = {af["pacote"] for af in a.get("afetados") or [] if af.get("pacote")}
+    if isinstance(reg, dict):
+        pacotes |= {p[1] for p in reg.get("pacotes") or [] if isinstance(p, list) and len(p) >= 2}
+    for ac in catalogo:
+        if ac.get("paliativo"):
+            continue
+        casa = ac["casa"]
+        if ids & {x.upper() for x in casa.get("ids") or []} or pacotes & set(casa.get("pacotes") or []):
+            return True
+    return False
 
 
 # ---------------------------------------------------------------- teste de saúde
@@ -3225,6 +3246,9 @@ def origem_sem_cobertura(reg, incompletos):
     return False
 
 
+TETO_PACOTES = 200
+
+
 def une_ids_osv_com_corte(antigos, novos, teto=1000):
     """Devolve (ids, cortou). Acima do teto, os CVE antigos são os últimos a sair."""
     todos = {str(x).upper() for x in antigos or []} | set(novos)
@@ -3373,9 +3397,9 @@ def _rodada(cfg, sem_avisar):
             vistos.add(a["id"])
             reg = reg_all.get(a["id"])
             # KEV sem memória: com a CISA respondendo, qualquer id ligado ao achado (atual, registro anterior, ultimo) no catálogo o torna explorado
+            reg_kev = None if reg and reg.get("estado") == "corrigido" else reg
             if kev_confirmado and not a.get("kev"):
                 # reincidência: ids de um registro já corrigido não valem (o bloco abaixo os apaga, mas só depois desta consulta)
-                reg_kev = None if reg and reg.get("estado") == "corrigido" else reg
                 cve = next((c for c in sorted(ids_para_kev(a, reg_kev)) if c in ctx["kev"]), None)
                 if cve:
                     a["kev"] = {"cve": cve, "dateAdded": ctx["kev"][cve].get("dateAdded")}
@@ -3393,7 +3417,7 @@ def _rodada(cfg, sem_avisar):
                 reg = reg_all[a["id"]] = {"primeira_vez_em": iso(t0), "avisado_em": None, "estado": "aberto"}
             elif reg.get("estado") == "corrigido":
                 reg.update(estado="aberto", avisado_em=None, primeira_vez_em=iso(t0))
-                for velho in ("estado_contrato", "ultimo", "ids_osv", "ids_incompletos"):
+                for velho in ("estado_contrato", "ultimo", "ids_osv", "ids_incompletos", "pacotes_cortados"):
                     reg.pop(velho, None)   # a reincidência recomeça: fica aberta até uma consulta válida da CISA
             reg["visto_em"] = iso(t0)
             reg["componente"] = limpa(a["componente"], 80)
@@ -3440,12 +3464,17 @@ def _rodada(cfg, sem_avisar):
             # parcialmente visível, e não rebaixa. A comparação é por (ecossistema, pacote), sem a versão.
             atuais = {(af.get("eco"), af.get("pacote")) for af in a["afetados"] if af.get("eco") and af.get("pacote")}
             faltando = [tuple(p[:3]) for p in reg.get("pacotes") or [] if isinstance(p, list) and len(p) >= 2 and (p[0], p[1]) not in atuais]
-            coleta_parcial = rodada_parcial and bool(faltando)
-            if (estado == "aberto" and not coleta_parcial and not cat_erro and not reg.get("ids_incompletos")
+            # pacotes cortados no teto na rodada anterior: o que faltou pode nem estar em `faltando`
+            coleta_parcial = rodada_parcial and (bool(faltando) or bool(reg.get("pacotes_cortados")))
+            # a lista de ids precisa estar pronta antes da decisão. Registro legado que bateu o teto antigo (60, sem a chave) ou
+            # com a marca só é considerado completo quando a fonte trouxe os aliases nesta rodada.
+            ids_unidos, cortou = une_ids_osv_com_corte(reg.get("ids_osv"), {a["id"].upper(), str(a["key"]).upper()} | {str(x).upper() for x in a["aliases"]})
+            ids_incompletos = cortou or bool((reg.get("ids_incompletos") or ("ids_incompletos" not in reg and len(reg.get("ids_osv") or []) >= 60))
+                                             and not a.get("aliases"))
+            if (estado == "aberto" and not coleta_parcial and not cat_erro and not ids_incompletos
                     and (kev_confirmado or reg.get("estado_contrato") == ESTADO_ATUALIZACAO)):
-                # `ac` só é procurado para achado crítico; a ação do catálogo vale para qualquer severidade
-                ac_rebaixa = ac if ac is not None else acao_do_catalogo(a, catalogo)
-                if e_atualizacao_de_sistema(a, ac_rebaixa, corr):
+                # `ac` só é procurado para achado crítico; qualquer ação do catálogo ligada ao achado, de qualquer severidade, veta
+                if ac is None and not ha_acao_no_catalogo(a, reg_kev, catalogo) and e_atualizacao_de_sistema(a, None, corr):
                     estado = ESTADO_ATUALIZACAO
             if not (pal and pal["verificado"]):
                 reg.pop("paliativo_aplicado", None)   # alguém voltou a configuração: o que a ronda aplicou deixou de valer
@@ -3461,14 +3490,15 @@ def _rodada(cfg, sem_avisar):
             pacotes = {(af.get("eco"), af.get("pacote"), str(af.get("versao") or "")) for af in a["afetados"] if af.get("eco") and af.get("pacote")}
             if coleta_parcial:
                 # o que a leitura incompleta não trouxe continua guardado (com a versão antiga) e não pode ser o cortado pelo limite
-                guardados = sorted(set(faltando))[:40]
-                pacotes = set(guardados) | set(sorted(pacotes)[:40 - len(guardados)])
-            reg["pacotes"] = [list(x) for x in sorted(pacotes)[:40]]
-            reg["ids_osv"], cortou = une_ids_osv_com_corte(reg.get("ids_osv"), {a["id"].upper(), str(a["key"]).upper()} | {str(x).upper() for x in a["aliases"]})
-            if cortou:
-                reg["ids_incompletos"] = True
+                guardados = sorted(set(faltando))[:TETO_PACOTES]
+                pacotes = set(guardados) | set(sorted(pacotes)[:TETO_PACOTES - len(guardados)])
+            if len(pacotes) > TETO_PACOTES:
+                reg["pacotes_cortados"] = True
             else:
-                reg.pop("ids_incompletos", None)
+                reg.pop("pacotes_cortados", None)
+            reg["pacotes"] = [list(x) for x in sorted(pacotes)[:TETO_PACOTES]]
+            reg["ids_osv"] = ids_unidos
+            reg["ids_incompletos"] = ids_incompletos
             resultado.append(o)
         kev_atual = ctx["kev"] if kev_confirmado else {}
         # o que sumiu: corrigido; mas se uma fonte falhou nesta rodada, o sumiço pode ser só da fonte, e o achado segue na lista.
@@ -3478,18 +3508,18 @@ def _rodada(cfg, sem_avisar):
                 continue
             sem_cobertura = origem_sem_cobertura(reg, incompletos)
             if (parcial_fontes or sem_cobertura) and reg.get("estado") in ("aberto", "agendado") and isinstance(reg.get("ultimo"), dict):
-                resultado.append(promove_se_kev(aid, reg, kev_atual, t0))
+                resultado.append(promove_se_kev(aid, reg, kev_atual, t0, [] if cat_erro else catalogo))
             elif sem_cobertura:
                 continue
             elif (reg.get("estado") in ("aberto", "agendado") and ctx["osv_por_pacote"] is not None
                   and ainda_no_osv(aid, reg, ctx["osv_por_pacote"])):
                 # o OSV ainda devolve o id para o pacote instalado: não saiu da lista por estar corrigido
                 if isinstance(reg.get("ultimo"), dict):
-                    resultado.append(promove_se_kev(aid, reg, kev_atual, t0))
+                    resultado.append(promove_se_kev(aid, reg, kev_atual, t0, [] if cat_erro else catalogo))
             elif reg.get("estado") in ("aberto", "agendado") and not evidencia_de_correcao(reg, inv["componentes"]):
                 # mesma versão instalada e nenhum id equivalente no OSV: falta de evidência não é correção
                 if isinstance(reg.get("ultimo"), dict):
-                    resultado.append(promove_se_kev(aid, reg, kev_atual, t0))
+                    resultado.append(promove_se_kev(aid, reg, kev_atual, t0, [] if cat_erro else catalogo))
             else:
                 reg["estado_antes"] = reg.get("estado")
                 reg["estado"], reg["tratado_em"] = "corrigido", iso(t0)
