@@ -31,7 +31,7 @@
 #  24. instrucoes      tests/instrucoes: CLAUDE.md e AGENTS.md (agente e Admin) gerados da mesma fonte, com as mesmas secoes
 #  25. anexo-seguro    tests/anexo-seguro: o doctor --fix acrescenta secoes sem seguir link simbolico
 #  26. confianca        tests/confianca: a confianca de pasta do Claude (helper confiar-pastas, funcao dos crons) e o channel-watchdog dizendo a causa
-#  27. versao          tests/versao: o scripts/subir-versao.sh numa copia minima do repositorio, e as versoes (VERSION, package.json, CHANGELOG) em acordo
+#  27. versao          tests/versao: as versoes (VERSION, package.json do runner e do painel, lock, CHANGELOG) dizem o mesmo numero
 #
 # Nada aqui encosta no sistema de verdade: nao cria container, rede nem unidade.
 #
@@ -134,7 +134,7 @@ testes_shellcheck() {
         cd "$REPO" || exit 1
         arquivos=(install.sh bin/dgclaw lib/*.sh tests/rodar.sh tests/cli/*.sh tests/cli/stubs/*
                   tests/instalador/*.sh tests/novidades/*.sh tests/changelog/*.sh tests/monitor/*.sh tests/aviso-atualizacao/*.sh tests/boletins/*.sh tests/emergencia/*.sh tests/tela/*.sh tests/anonimizar/*.sh tests/docs-em-dia/*.sh tests/heartbeat/*.sh scripts/heartbeat.sh tests/reflexao/*.sh tests/comentarios/*.sh scripts/responder-comentario.sh scripts/cron/dgclaw-comentarios.sh tests/instrucoes/*.sh tests/anexo-seguro/*.sh scripts/_lib/anexo-seguro.sh tests/confianca/*.sh scripts/_lib/confiar-pastas.sh scripts/channel-watchdog.sh scripts/gerar-instrucoes.sh bin/dgclaw-tela-navegador tests/ronda/rodar.sh tests/ronda/stubs/* scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh
-                  scripts/revisao-adversarial.sh tests/revisao-adversarial/*.sh scripts/subir-versao.sh tests/versao/*.sh)
+                  scripts/revisao-adversarial.sh tests/revisao-adversarial/*.sh tests/versao/*.sh)
         "$sc" -x "${arquivos[@]}"
     )
 }
