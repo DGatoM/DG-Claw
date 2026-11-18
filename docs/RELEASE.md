@@ -66,7 +66,9 @@ nesse caso não crie a tag.
   [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]                       # o PR está mergeado e o SHA veio
   git fetch https://github.com/DGatoM/DG-Claw.git main
   git merge-base --is-ancestor "$SHA" FETCH_HEAD       # o merge está na main oficial
-  if git diff --quiet "$SHA^1" "$SHA" -- VERSION; then echo "o merge não mudou o VERSION"; exit 1; fi
+  ANTES="$(git show "$SHA^1":VERSION)"                  # para se o pai do merge não estiver no clone
+  [ "$ANTES" != "$VERSAO" ]                                                      # o número mudou
+  [ "$(printf '%s\n%s\n' "$ANTES" "$VERSAO" | sort -V | tail -n 1)" = "$VERSAO" ]  # e subiu
   [ "$(git cat-file -t "$SHA")" = commit ]
   [ "$(git show "$SHA":VERSION)" = "$VERSAO" ]         # o commit tem a versão certa
   git tag -a "v$VERSAO" "$SHA" -m "DG Claw $VERSAO"
@@ -91,7 +93,7 @@ ser de outro clone), e a tag local é conferida contra ele antes do push.
   OFICIAL=https://github.com/DGatoM/DG-Claw.git
   [ "$(git cat-file -t "refs/tags/v$VERSAO")" = tag ]                  # tag anotada, não leve
   [ "$(git rev-parse "refs/tags/v$VERSAO^{commit}")" = "$SHA" ]       # a tag local aponta para o SHA do merge
-  git push "$OFICIAL" "refs/tags/v$VERSAO"
+  git push --no-follow-tags "$OFICIAL" "refs/tags/v$VERSAO:refs/tags/v$VERSAO"
   [ "$(git ls-remote "$OFICIAL" "refs/tags/v$VERSAO^{}" | cut -f1)" = "$SHA" ]   # a tag no repositório oficial também
   gh release create "v$VERSAO" -R DGatoM/DG-Claw --verify-tag --title "DG Claw $VERSAO" --notes-file "$NOTAS"
 )
