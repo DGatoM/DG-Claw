@@ -28,12 +28,10 @@ test('btnVoz existe e aponta para o popover', () => {
   assert.match(tag, /aria-label="Voz: leitura em voz alta e conversa contínua"/);
 });
 
-test('btnLer e btnContinua ficam dentro de #menuVoz, e fora de #tools', () => {
-  const menu = trecho('menuVoz').corpo;
-  assert.ok(menu.includes('id="btnLer"') && menu.includes('id="btnContinua"'));
-  const tools = html.slice(html.indexOf('id="tools"'), html.indexOf('id="menuVoz"'));
+test('#menuVoz fica fora do header e começa vazio (o conversa.js põe ler e contínua nele)', () => {
   assert.ok(html.indexOf('id="menuVoz"') > html.indexOf('</header>'), '#menuVoz fica fora do header');
-  assert.ok(!tools.includes('id="btnLer"') && !tools.includes('id="btnContinua"'));
+  assert.match(html, /<div id="menuVoz"[^>]*><\/div>/);
+  assert.match(css, /body:not\(\.voz-montada\) #tools > #btnLer/);
 });
 
 test('todo botão e link de #tools tem aria-label', () => {
@@ -58,11 +56,12 @@ test('o JS não deixa btnVoz fora de sincronia e trata Esc', () => {
   assert.match(js, /addEventListener\('wheel'[\s\S]*passive: false/);
 });
 
-test('clique fora usa composedPath; sigilo.js na URL do pré-cache, com a classe aplicada antes dele', () => {
+test('clique fora usa composedPath; ler e contínua nascem em #tools e o conversa.js os move para o quadro', () => {
   assert.match(js, /ev\.composedPath\(\)/);
-  // a URL tem que ser a mesma do ESTATICOS do sw.js, senão a cópia guardada não serve sem rede
+  // o sigilo.js de qualquer versão monta o botão dele usando btnLer/btnVoz dentro de #tools como referência
+  const tools = html.slice(html.indexOf('id="tools"'), html.indexOf('</header>'));
+  assert.ok(tools.includes('id="btnLer"') && tools.includes('id="btnContinua"'));
   assert.ok(html.includes('<script src="/sigilo.js"></script>'));
-  const cedo = html.indexOf("localStorage.getItem('dgclaw:sigilo')"), mod = html.indexOf('<script src="/sigilo.js">');
-  assert.ok(cedo > 0 && cedo < mod, 'a classe sigilo entra antes do sigilo.js (falha fechada)');
-  assert.ok(html.indexOf('<script src="/conversa.js">') > mod, 'o histórico só é pintado depois');
+  assert.ok(html.indexOf('<script src="/conversa.js">') > html.indexOf('<script src="/sigilo.js">'), 'o conversa.js move depois do sigilo.js');
+  assert.match(js, /menuVoz\.append\(btnLer, btnContinua\)/);
 });

@@ -212,6 +212,8 @@
   .menu-voz .btn{display:flex;align-items:center;justify-content:flex-start;gap:8px;min-height:44px;
     width:100%;text-align:left;white-space:normal;color:var(--cor-texto)}
   .menu-voz .lbl{display:inline}
+  /* até o conversa.js mover os dois para o quadro, eles não aparecem soltos na faixa */
+  body:not(.voz-montada) #tools > #btnLer,body:not(.voz-montada) #tools > #btnContinua{display:none}
   @media (max-width:700px){
     header{flex-wrap:wrap;row-gap:0;gap:0 8px;padding-left:6px;padding-right:6px}
     header .who{flex:1 1 0;min-width:0}

@@ -4804,6 +4804,9 @@ entrada.addEventListener('keydown', ev => {
 
 /* Botão Voz: fica destacado quando ler OU contínua está ligado; o popover (#menuVoz) guarda os dois controles */
 const btnVoz = $('btnVoz'), menuVoz = $('menuVoz');
+// ler e contínua nascem dentro de #tools (o sigilo.js usa a faixa como referência ao montar o botão dele);
+// aqui, já depois do sigilo.js, eles vão para o quadro da Voz
+if (btnVoz && menuVoz) { menuVoz.append(btnLer, btnContinua); document.body.classList.add('voz-montada'); }
 /* Com o quadro fechado, o botão diz qual modo está ligado: a contínua (que reabre o microfone)
    tem ícone próprio e o nome avisa que ele volta a gravar. */
 function pintaVoz() {
