@@ -269,8 +269,9 @@ RUN ln -s /opt/dgclaw/app/bin/dgclaw-mesa /usr/local/bin/dgclaw-mesa
 RUN ln -s /opt/dgclaw/app/bin/dgclaw-tela-navegador /usr/local/bin/dgclaw-tela-navegador
 # dgclaw-pesado: roda render, ffmpeg e scripts de numpy num cgroup próprio, com teto de memória e de tempo.
 RUN ln -s /opt/dgclaw/app/bin/dgclaw-pesado /usr/local/bin/dgclaw-pesado
-# Linger do usuário agente: faz existir o user@UID.service (com memória, cpu e pids delegados), que o
-# dgclaw-pesado usa para pôr o comando num cgroup próprio.
+# Linger do usuário agente: marca o user@1001.service (com memória, cpu e pids delegados) para existir sem login.
+# Como o systemd-logind sai do boot (mais acima), quem o sobe é a dependência Wants= do dgclaw-runner.service;
+# o dgclaw-pesado usa esse gerente para pôr o comando num cgroup próprio.
 RUN mkdir -p /var/lib/systemd/linger && touch /var/lib/systemd/linger/agente
 
 # O painel é JavaScript puro (express e afins), sem parte nativa: instala aqui, sem compilador.

@@ -18,17 +18,29 @@
 # no stderr por quê.
 #
 # O código de saída é o do comando (137 = bateu no teto de memória, 124 = estourou o tempo).
-# Variáveis: DGCLAW_PESADO_MEM (teto de memória padrão, ex.: 2500M) e DGCLAW_PESADO_TIMEOUT (tempo padrão,
+# Sem o gerente systemd, o recolhimento alcança só o grupo de processos: um auxiliar que abre sessão própria
+# escapa. O caminho completo é o do scope.
+#
+# Teto de memória padrão: 60% da memória do container (memory.max do cgroup), no máximo 2500M; sem leitura
+# possível, 2500M. Ele precisa caber dentro da memória do container, com folga para o runner, o Claude e o
+# Chrome da Tela.
+# Variáveis: DGCLAW_PESADO_MEM (teto de memória, ex.: 2500M) e DGCLAW_PESADO_TIMEOUT (tempo padrão,
 # em segundos; vazio ou 0 = sem teto de tempo). Já dentro de um dgclaw-pesado, só executa o comando.
 set -uo pipefail
 
 uso="Uso: dgclaw-pesado [--mem 2500M] [--timeout SEGUNDOS] -- <comando> [args...]"
-mem="${DGCLAW_PESADO_MEM:-2500M}"
+mem="${DGCLAW_PESADO_MEM:-}"
 tempo="${DGCLAW_PESADO_TIMEOUT:-}"
+mem_dado=""
+tempo_dado=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --mem) mem="${2:?dgclaw-pesado: --mem precisa de um valor, ex.: --mem 2G}"; shift 2 ;;
-    --timeout) tempo="${2:?dgclaw-pesado: --timeout precisa de um valor em segundos, ex.: --timeout 600}"; shift 2 ;;
+    --mem)
+      [ $# -ge 2 ] || { echo "dgclaw-pesado: --mem precisa de um valor, ex.: --mem 2G" >&2; exit 2; }
+      mem="$2"; mem_dado=1; shift 2 ;;
+    --timeout)
+      [ $# -ge 2 ] || { echo "dgclaw-pesado: --timeout precisa de um valor em segundos, ex.: --timeout 600" >&2; exit 2; }
+      tempo="$2"; tempo_dado=1; shift 2 ;;
     --) shift; break ;;
     *) break ;;
   esac
@@ -37,15 +49,31 @@ if [ $# -eq 0 ]; then
   echo "dgclaw-pesado: faltou o comando. $uso" >&2
   exit 2
 fi
-case "$mem" in
-  *[!0-9KMGkmg]*|"") echo "dgclaw-pesado: teto de memória inválido: '$mem' (use algo como 1500M ou 2G)" >&2; exit 2 ;;
-esac
-case "$tempo" in
-  ""|0) tempo="" ;;
-  *[!0-9]*) echo "dgclaw-pesado: tempo máximo inválido: '$tempo' (use um número inteiro de segundos, como 600)" >&2; exit 2 ;;
-esac
+if [ -z "$mem" ] && [ -z "$mem_dado" ]; then
+  mem="2500M"
+  memmax="$(cat "${DGCLAW_PESADO_CGROUP_MEMMAX_ARQ:-/sys/fs/cgroup/memory.max}" 2>/dev/null || true)"
+  case "$memmax" in
+    ""|*[!0-9]*) ;;
+    *)
+      mb=$(( memmax / 1048576 ))
+      sessenta=$(( mb * 60 / 100 ))
+      if [ "$sessenta" -ge 1 ] && [ "$sessenta" -lt 2500 ]; then mem="${sessenta}M"; fi
+      ;;
+  esac
+fi
+if ! [[ "$mem" =~ ^[0-9]+[KMGkmg]?$ ]]; then
+  echo "dgclaw-pesado: teto de memória inválido: '$mem' (use algo como 1500M ou 2G)" >&2
+  exit 2
+fi
+if [ -n "$tempo_dado" ] || [ -n "$tempo" ]; then
+  if ! [[ "$tempo" =~ ^[0-9]+$ ]]; then
+    echo "dgclaw-pesado: tempo máximo inválido: '$tempo' (use um número inteiro de segundos, como 600)" >&2
+    exit 2
+  fi
+fi
+if [ -n "$tempo" ] && [ "$((10#$tempo))" -eq 0 ]; then tempo=""; fi
 
-if [ -n "${DGCLAW_PESADO:-}" ]; then exec "$@"; fi
+if [ -n "${DGCLAW_PESADO:-}" ]; then exec -- "$@"; fi
 export DGCLAW_PESADO=1
 
 cpus=$(nproc 2>/dev/null || echo 1)
@@ -57,8 +85,11 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-$cpus}" OPENBLAS_NUM_THREADS="${OPENB
 echo 800 > /proc/self/oom_score_adj 2>/dev/null || true
 
 # "timeout -k 10": TERM no estouro e KILL 10 s depois se o comando teimar; sai com 124 no estouro.
+# O comando vai atrás de "env --" para que um comando começando com "-" nunca vire opção do nice ou do timeout
+# (o timeout não aceita "--" depois da duração).
 limite=()
 if [ -n "$tempo" ]; then limite=(timeout -k 10 "$tempo"); fi
+inicio=$SECONDS
 
 pid=""
 unidade=""
@@ -67,6 +98,12 @@ unidade=""
 recolher() {
   if [ -n "$unidade" ]; then
     systemctl --user stop "$unidade.scope" >/dev/null 2>&1 || true
+    # Cobre a janela em que o scope ainda não existia quando o sinal chegou.
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -TERM "$pid" 2>/dev/null || true
+      sleep 0.5
+      kill -KILL "$pid" 2>/dev/null || true
+    fi
   elif [ -n "$pid" ]; then
     kill -TERM -- "-$pid" 2>/dev/null || true
     local espera=0
@@ -92,19 +129,21 @@ if [ -S "$XDG_RUNTIME_DIR/systemd/private" ] && command -v systemd-run >/dev/nul
   unidade="dgclaw-pesado-$$-$RANDOM"
   # Em segundo plano para poder recolher o scope inteiro depois. Sem controle de jobs o "&" joga o stdin
   # para /dev/null, por isso o 0<&0 explícito.
-  systemd-run --user --scope --quiet --collect --unit="$unidade" \
+  systemd-run --user --scope --quiet --collect --unit="$unidade" --description=dgclaw-pesado \
     -p MemoryMax="$mem" -p MemorySwapMax=0 \
-    -- nice -n 10 "${limite[@]}" "$@" 0<&0 &
+    -- nice -n 10 "${limite[@]}" env -- "$@" 0<&0 &
   pid=$!
 else
   echo "dgclaw-pesado: sem gerente systemd do usuário ($XDG_RUNTIME_DIR/systemd/private não existe); rodando sem teto de memória próprio, só com nice, teto de tempo e prioridade de sacrifício no OOM. Para ligar o teto: loginctl enable-linger $(id -un) (como root)." >&2
   # Sem controle de jobs o filho em background não é líder de grupo: o setsid não precisa criar processo
   # novo, e o pid de $! passa a ser o id do grupo que o recolher mata.
-  setsid nice -n 10 "${limite[@]}" "$@" 0<&0 &
+  setsid nice -n 10 "${limite[@]}" env -- "$@" 0<&0 &
   pid=$!
 fi
 
 wait "$pid"
 codigo=$?
+# O "timeout -k" mata com KILL quando o comando ignora o TERM: sai 137 em vez de 124.
+if [ "$codigo" -eq 137 ] && [ -n "$tempo" ] && [ $((SECONDS - inicio)) -ge "$((10#$tempo))" ]; then codigo=124; fi
 recolher
 exit "$codigo"

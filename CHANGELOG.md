@@ -15,10 +15,10 @@ por cerca de 25 minutos e as mensagens do dono ficaram paradas na fila: cada fer
 como atividade da conversa principal e cancelava o fim de turno já confirmado. Foram quatro mudanças. A unidade do runner
 passa a declarar `OOMPolicy=continue`, então um filho morto por falta de memória não derruba mais o runner nem as
 sessões. Existe um comando novo, `dgclaw-pesado -- <comando>`, que roda render, ffmpeg, scripts de numpy e transcrição num
-grupo próprio com teto de memória (`--mem`, 2500M por padrão) e de tempo (`--timeout`, em segundos): se estourar, morre só
-ele (código 137 para memória, 124 para tempo), e tudo o que ele deixou para trás, como o Chrome headless de um render, é
-recolhido no fim, sem tocar no Chrome da Tela. A imagem do agente traz o comando e liga o linger do usuário do agente, que
-é o que permite o grupo próprio. As skills `video-animado`, `site-animado` e `slide-animado` passam a rodar os scripts
+grupo próprio com teto de memória (`--mem`; por padrão 60% da memória do container, até 2500M) e de tempo (`--timeout`, em segundos): se estourar, morre só
+ele (137 quando é morto à força, quase sempre o teto de memória, e 124 para tempo), e tudo o que ele deixou para trás, como o Chrome headless de um render, é
+recolhido no fim, sem tocar no Chrome da Tela. A imagem do agente traz o comando e liga o linger do usuário do agente, e a unidade do runner passa a
+depender do gerente systemd desse usuário, que é o que permite o grupo próprio. As skills `video-animado`, `site-animado` e `slide-animado` passam a rodar os scripts
 pesados por dentro do `dgclaw-pesado` quando ele existe, e o agente conhece o comando pelas instruções. Por fim, o
 runner passa a reconhecer os eventos que vêm de dentro de um subagente e a ignorá-los para o estado da conversa
 principal, de modo que o fim de turno confirmado vale e a fila das mensagens do dono solta. Isso vale para o Claude; no
@@ -28,7 +28,10 @@ Codex não há esse caminho, e o motivo está em `docs/PARIDADE-CODEX.md`.
 
 Tudo isso entra quando o container do agente é recriado, e o `dgclaw atualizar` padrão já recria os agentes. A correção
 do subagente entra quando o runner é atualizado e só vale nas sessões abertas depois disso. Para aliviar um agente vivo
-antes da atualização, sem reiniciar nada, rode os dois comandos abaixo. O primeiro cria um ajuste que mora em `/run` e
+antes da atualização, sem reiniciar nada, rode os dois comandos abaixo. Num agente vivo, o `loginctl enable-linger agente`
+deve subir o gerente do usuário na hora (não consegui conferir isso num container real; se não subir, o `dgclaw-pesado`
+avisa que está sem teto de memória e roda mesmo assim); a dependência nova do runner (que sobe esse gerente a cada partida do container)
+só chega com a recriação. O primeiro cria um ajuste que mora em `/run` e
 some sozinho quando o container reinicia; o segundo liga o linger do usuário do agente:
 
 ```

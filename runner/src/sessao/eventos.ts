@@ -52,9 +52,12 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
     });
   }
 
-  // Ferramenta de um subagente (em especial o que roda em segundo plano) não é atividade da sessão principal.
+  // Ferramenta de um subagente (em especial o que roda em segundo plano) não decide o estado da sessão principal.
   // O session_id é o mesmo, então sem este filtro cada PreToolUse dele cancelava o Stop já confirmado da
   // principal: o status ficava em working e as mensagens do dono presas na fila de ocioso por ~25 min.
+  // Não muda status, não cancela o Stop pendente e não mexe em currentTool. Ainda assim é sinal de vida:
+  // renova a atividade (o relógio de suspensão dos cards não pode dormir um card com subagente trabalhando) e
+  // guarda o id da ferramenta (o Notification de permissão usa o do último PreToolUse, que pode ser o do subagente).
   // A pergunta ao dono (AskUserQuestion) continua valendo, porque o turno só segue quando ele responde.
   if (
     payload.subagentId &&
@@ -63,8 +66,10 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
   ) {
     log.debug(
       s.a("hook"),
-      `evento de subagente ignorado (${payload.event} ${payload.toolName ?? ""}, subagente ${payload.subagentType ?? payload.subagentId}): não conta como atividade da sessão principal`,
+      `evento de subagente (${payload.event} ${payload.toolName ?? ""}, subagente ${payload.subagentType ?? payload.subagentId}): renova a atividade, sem mudar o estado da sessão principal`,
     );
+    s.marcarAtividade();
+    if (payload.event === "PreToolUse") s.ultimoToolUseId = payload.toolUseId ?? null;
     s.hooksVivos = true;
     if (!s.estado.hookActive) s.estado.hookActive = true;
     return { ok: true };

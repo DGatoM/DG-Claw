@@ -1,6 +1,12 @@
 [Unit]
 Description=DG Claw runner (o processo que é o agente: abre o terminal do Claude/Codex e fala HTTP com o painel)
 After=network.target
+# O dgclaw-pesado usa o gerente systemd do usuário agente (user@1001.service, UID fixo do useradd da imagem).
+# A imagem tira o systemd-logind do boot, então só o arquivo de linger não o sobe: esta dependência sobe o
+# user@1001 antes do runner. Wants, e não Requires: se ele falhar o runner sobe igual, e o dgclaw-pesado cai
+# no modo sem teto de memória, avisando.
+Wants=user@1001.service
+After=user@1001.service
 # O runner.json vem de uma montagem somente leitura do host (o agente não o reescreve).
 # Sem ele o agente ainda não foi configurado: a unidade fica quieta em vez de falhar.
 ConditionPathExists=/etc/dgclaw-runner/runner.json

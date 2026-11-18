@@ -1029,7 +1029,7 @@ test("subagente: PreToolUse dele não cancela o Stop da principal, e a fila solt
   hook("PostToolUse", { toolName: "Bash", ...SUB });
   assert.equal(s.stopPendente, pendente, "o evento do subagente não cancela o Stop");
   assert.equal(s.estado.status, "working", "o idle ainda não chegou, só a janela de confirmação");
-  assert.equal(s.ultimoToolUseId, null, "o id da ferramenta do subagente não é guardado");
+  assert.equal(s.ultimoToolUseId, "tu-sub", "o id da ferramenta do subagente é guardado (permissão aponta para ela)");
   const antes = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length;
   s.enfileirarQuandoOcioso("mensagem do dono presa na fila");
   await esperarAte(() => s.estado.status === "idle", STOP_CONFIRM_MS + 6_000, "o Stop confirmar apesar do subagente");
@@ -1047,8 +1047,19 @@ test("subagente: em idle, o PreToolUse dele não põe em working nem marca ativi
   await dormir(20);
   hook("PreToolUse", { toolName: "Bash", toolUseId: "tu-sub", ...SUB });
   assert.equal(s.estado.status, "idle");
-  assert.equal(s.ultimaAtividade, atividade, "a atividade da principal não foi tocada");
+  assert.ok(s.ultimaAtividadeEm() > atividade, "o evento do subagente renova a atividade (relógio de suspensão), sem mudar o status");
   assert.equal(s.estado.currentTool ?? null, null);
+});
+
+test("subagente: a permissão pedida por ele aponta para a ferramenta dele, não para a ferramenta Agent", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  hook("PreToolUse", { toolName: "Agent", toolUseId: "tu-agent" });
+  hook("PreToolUse", { toolName: "Bash", toolUseId: "tu-bash", ...SUB });
+  hook("Notification");
+  assert.equal(s.estado.status, "waiting_input");
+  assert.equal(s.estado.motivo, "permissao");
+  assert.equal(s.estado.pendenteId, "tu-bash");
 });
 
 test("subagente: a pergunta ao dono (AskUserQuestion) continua valendo", async () => {
