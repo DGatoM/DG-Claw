@@ -93,13 +93,15 @@ inicio=$SECONDS
 
 pid=""
 unidade=""
+esperado=""
 
 # Recolhe o que sobrou do comando. Idempotente: roda no fim normal e no trap.
 recolher() {
   if [ -n "$unidade" ]; then
     systemctl --user stop "$unidade.scope" >/dev/null 2>&1 || true
-    # Cobre a janela em que o scope ainda não existia quando o sinal chegou.
-    if kill -0 "$pid" 2>/dev/null; then
+    # Cobre a janela em que o scope ainda não existia quando o sinal chegou. Só antes do wait terminar:
+    # depois dele o pid já foi liberado e pode ser de outro processo.
+    if [ -z "$esperado" ] && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
       kill -TERM "$pid" 2>/dev/null || true
       sleep 0.5
       kill -KILL "$pid" 2>/dev/null || true
@@ -143,6 +145,7 @@ fi
 
 wait "$pid"
 codigo=$?
+esperado=1
 # O "timeout -k" mata com KILL quando o comando ignora o TERM: sai 137 em vez de 124.
 if [ "$codigo" -eq 137 ] && [ -n "$tempo" ] && [ $((SECONDS - inicio)) -ge "$((10#$tempo))" ]; then codigo=124; fi
 recolher
