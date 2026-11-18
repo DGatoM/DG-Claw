@@ -44,6 +44,9 @@ import { type PayloadDeHook, receberHook } from "./sessao/eventos.js";
 import { enfileirarQuandoOcioso, talvezSoltarFila } from "./sessao/fila.js";
 import { encerrarIncidenteDeLogin, entregarRecadoDeLogin, marcarLoginExpirado, retomarAposLoginExpirado } from "./sessao/login.js";
 import { ESC } from "./sessao/telas.js";
+
+/** Intervalo mínimo entre dois Esc no mesmo PTY (dois em menos de ~1 s abrem o menu de voltar). */
+const TRAVA_ESC_MS = 3000;
 import { guardarEEmitir } from "./sessao/terminal.js";
 import type { AgentState } from "./tipos.js";
 
@@ -117,6 +120,10 @@ export class Sessao extends EventEmitter {
   readonly pausaTeclaPerguntaMs: number;
   /** true enquanto responderPergunta digita: ninguém mais escreve tecla crua nem permissão nesse intervalo. */
   respondendoPergunta = false;
+  /** Relógio da trava do Esc (trocável nos testes). */
+  agora: () => number = () => Date.now();
+  /** Quando o último Esc foi escrito no PTY (por /interromper ou pela permissão negada); 0 = nunca. */
+  ultimoEscEm = 0;
   /**
    * A pergunta (processo + tool_use_id) cuja resposta já começou a ser digitada. Fica depois da trava cair:
    * a segunda aba que responde a mesma pergunta chega depois da última tecla e antes do PostToolUse, quando
@@ -563,7 +570,41 @@ export class Sessao extends EventEmitter {
     }
     log.info(this.a("entrada"), `permissão ${decisao === "aprovar" ? "aprovada" : "negada"} por API`);
     this.escrever(decisao === "aprovar" ? "1" : ESC);
+    if (decisao === "negar") this.ultimoEscEm = this.agora();
     return { ok: true };
+  }
+
+  /**
+   * O botão Parar: escreve um único Esc no PTY, o mesmo que apertar Esc no terminal. Dois Esc em menos de
+   * ~1 s abrem o menu de voltar do Claude Code e travam a sessão; por isso a trava de 3 s, que também conta
+   * o Esc da permissão negada. Nada do pedido HTTP chega ao PTY. Sessão sem PTY não é acordada.
+   */
+  interromper():
+    | { ok: true; enviadoEm: string; statusAntes: string; provedor: string }
+    | { ok: false; status: number; erro: string; comoResolver: string; code: string; espereS?: number } {
+    if (!this.proc) {
+      return { ok: false, status: 409, code: "NO_PTY", erro: `O agente ${this.slug} não tem terminal vivo agora, então não há o que parar.`, comoResolver: "nada a fazer: o próximo envio de mensagem abre a sessão" };
+    }
+    if (this.respondendoPergunta) {
+      return { ok: false, status: 409, code: "RESPOSTA_EM_ANDAMENTO", erro: `O agente ${this.slug} está recebendo a resposta de uma pergunta de escolha.`, comoResolver: "esperar alguns segundos e tentar de novo" };
+    }
+    const falta = this.ultimoEscEm + TRAVA_ESC_MS - this.agora();
+    if (this.ultimoEscEm > 0 && falta > 0) {
+      const espereS = Math.round(falta / 100) / 10 || 0.1;
+      return {
+        ok: false,
+        status: 429,
+        code: "MUITO_RAPIDO",
+        espereS,
+        erro: `O Esc anterior foi há menos de ${TRAVA_ESC_MS / 1000} s. Dois Esc seguidos abrem o menu de voltar do terminal e travam a sessão.`,
+        comoResolver: `esperar ${espereS} s e apertar Parar de novo`,
+      };
+    }
+    const statusAntes = this.estado.status;
+    this.escrever(ESC);
+    this.ultimoEscEm = this.agora();
+    log.info(this.a("entrada"), `Esc enviado por API (parar): status antes=${statusAntes}, provedor=${this.motor.provedor}`);
+    return { ok: true, enviadoEm: new Date(this.ultimoEscEm).toISOString(), statusAntes, provedor: this.motor.provedor };
   }
 
   /**

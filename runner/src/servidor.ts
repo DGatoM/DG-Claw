@@ -401,6 +401,17 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           return;
         }
 
+        if (acao === "/interromper" && metodo === "POST") {
+          // O corpo do pedido é ignorado de propósito: o que vai para o PTY é um Esc fixo, nunca algo do pedido.
+          const r = sessao.interromper();
+          if (!r.ok) {
+            json(res, { success: false, error: r.erro, howToFix: r.comoResolver, code: r.code, ...(r.espereS !== undefined ? { espereS: r.espereS } : {}) }, r.status);
+            return;
+          }
+          json(res, { success: true, data: { enviado: true, enviadoEm: r.enviadoEm, statusAntes: r.statusAntes, provedor: r.provedor } });
+          return;
+        }
+
         if (acao === "/pergunta" && metodo === "POST") {
           const corpo = await lerCorpo(req).catch((err: Error) => ({ __erro: err.message }));
           if (typeof (corpo as { __erro?: string }).__erro === "string") {
@@ -536,7 +547,7 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             error: `O runner não tem a rota ${metodo} ${rota}.`,
             howToFix:
               "o runner implementa o que um agente entregue usa: GET /api/agents, GET /api/agents/:id, " +
-              "POST /input, POST /permissao, POST /pergunta, POST /resume, POST /revive, POST /reiniciar, POST /suspend (só paralelas), DELETE /remove, " +
+              "POST /input, POST /permissao, POST /interromper, POST /pergunta, POST /resume, POST /revive, POST /reiniciar, POST /suspend (só paralelas), DELETE /remove, " +
               "GET /conversation, GET /api/capacidade, GET /api/saude, POST /api/agent-hook, " +
               "GET/POST /api/provedor (+ /login), POST /api/sessoes e DELETE /api/sessoes/<id>. " +
               "O resto (cofre, worktree, board, handoff) é do Bunker e não existe aqui",
