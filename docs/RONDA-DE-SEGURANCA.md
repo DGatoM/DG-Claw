@@ -173,7 +173,7 @@ também conta. Se alguém voltar a configuração, a falha volta a pedir ação.
 Falha de um pacote do sistema (o kernel Linux, o openssl e afins, os pacotes Ubuntu do `dpkg`) que **já tem correção** no `apt` deste
 servidor nunca aparece como crítica nem em destaque. A ronda só trata a falha como "do sistema" quando o apt confirma que **todos** os
 pacotes afetados têm versão corrigida disponível (sem cortar a lista de binários; só o kernel em execução se confere por metapacotes,
-e só pelos de imagem da mesma variante do `uname -r` (aceita também o sufixo da série em execução, como `linux-image-generic-6.8` num kernel 6.8), então um `linux-image-aws` não prova nada num kernel `generic`, e um
+e só pelos de imagem da mesma variante do `uname -r` (aceita também o sufixo da série em execução, como `linux-image-generic-6.8` num kernel 6.8; o candidato do metapacote também precisa ser da mesma série do kernel em execução, então um `hwe` na 6.17 não prova nada num kernel 6.8), então um `linux-image-aws` não prova nada num kernel `generic`, e um
 `linux-headers-*` nunca prova; um pacote que só começa com "linux", como o `linuxptp`, confere os próprios binários). Sem essa confirmação (por exemplo, o `apt-cache` falhou), a falha segue as regras de sempre.
 Com ela, a falha vai para o estado **Atualização do sistema** (segundo plano):
 

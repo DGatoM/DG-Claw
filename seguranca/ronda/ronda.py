@@ -1564,6 +1564,8 @@ def mesclar(destino, a):
         d["severidade"] = d["sev_ubuntu"]
     d["fontes"] = sorted(set(d["fontes"]) | set(a["fontes"]))
     d["aliases"] = sorted((set(d["aliases"]) | set(a["aliases"]) | {a["id"], d["id"]}) - {d["key"], d["id"]})
+    if d.get("cves_mapa") or a.get("cves_mapa"):
+        d["cves_mapa"] = sorted(set(d.get("cves_mapa") or []) | set(a.get("cves_mapa") or []))
     for af in a["afetados"]:
         if af not in d["afetados"]:
             d["afetados"].append(af)
@@ -1625,11 +1627,12 @@ def achado_de_registro(d, vid, eco, nome, ver, grupo, fonte="OSV.dev"):
     aliases = list(d.get("aliases") or []) + list(d.get("upstream") or [])
     a = novo_achado(vid, aliases, d.get("summary") or (d.get("details") or "")[:120], sev, fonte, nome,
                     d.get("published"), f"https://osv.dev/vulnerability/{vid}", d.get("details") or "", sev_u, cv)
-    # CVEs do cves_map do pacote instalado entram nos aliases (KEV e ids_osv) depois da chave: a chave de agrupamento não muda
+    # CVEs do cves_map do pacote instalado ficam em `cves_mapa`, fora dos aliases: servem só para KEV e ids_osv, e um paliativo ou
+    # ação do catálogo de UMA CVE não pode proteger o USN inteiro
     alvo = nome_pip(nome) if eco == "PyPI" else nome
     do_mapa = {c for af in d.get("affected") or [] if (nome_pip((af.get("package") or {}).get("name", "")) if eco == "PyPI"
                else (af.get("package") or {}).get("name", "")) == alvo for c in cves_do_cves_map(af)}
-    a["aliases"] = sorted(set(a["aliases"]) | do_mapa)
+    a["cves_mapa"] = sorted(do_mapa)
     corr = corrigida_para(d, eco, nome, ver)
     for onde in sorted(set(grupo["ondes"])):
         a["afetados"].append({"onde": onde, "pacote": nome, "versao": ver, "corrigida": corr, "eco": eco,
@@ -2117,8 +2120,7 @@ def casar_usn(n, eco, por_nome, ctx):
         nomes_bin = [b.get("binary_name") for b in (af.get("ecosystem_specific") or {}).get("binaries") or []]
         alvos = {id(c): c for nm in [p.get("name")] + nomes_bin for c in por_nome.get(nm, [])}
         sev, cvss = "desconhecida", None
-        cves_af = list(cves)
-        cves_af += [c for c in cves_do_cves_map(af) if c not in cves_af]
+        cves_mapa = cves_do_cves_map(af)
         for cv in ((af.get("database_specific") or {}).get("cves_map") or {}).get("cves") or []:
             s = prio_ubuntu(cv)
             if s and ORDEM_SEV[s] > ORDEM_SEV[sev]:
@@ -2131,9 +2133,10 @@ def casar_usn(n, eco, por_nome, ctx):
             if cmp_dpkg(c["versao"], fixed) >= 0:
                 continue
             conf += 1
-            a = novo_achado(n["id"], sorted(cves_af), n.get("summary"), sev, "Ubuntu USN", c["nome"], n.get("published"),
+            a = novo_achado(n["id"], cves, n.get("summary"), sev, "Ubuntu USN", c["nome"], n.get("published"),
                             f"https://ubuntu.com/security/notices/{n['id']}", n.get("details") or "", sev_u, cvss)
             a["key"] = n["id"]
+            a["cves_mapa"] = sorted(set(cves_mapa))
             a["afetados"].append({"onde": c["onde"], "pacote": c["nome"], "versao": c["versao"], "corrigida": fixed, "eco": eco,
                                   "binarios": c.get("binarios", [])[:6], "binarios_apt": list(c.get("binarios", [])),
                                   "kernel_em_execucao": bool(c.get("kernel_em_execucao")),
@@ -2153,6 +2156,8 @@ def fundir_usn(achados):
             co = cves_do_achado(o)
             if co and co <= cu:
                 u["aliases"] = sorted(set(u["aliases"]) | {o["id"]} | set(o["aliases"]))
+                if u.get("cves_mapa") or o.get("cves_mapa"):
+                    u["cves_mapa"] = sorted(set(u.get("cves_mapa") or []) | set(o.get("cves_mapa") or []))
                 u["kev"] = u.get("kev") or o.get("kev")
                 u["noticia_url"] = u.get("noticia_url") or o.get("noticia_url")
                 if ORDEM_SEV[o["severidade"]] > ORDEM_SEV[u["severidade"]] and not u.get("sev_ubuntu"):
@@ -2245,7 +2250,7 @@ TEXTO_KEV_SEM_CORRECAO = ("Esta falha está sendo explorada por criminosos, e n�
 def ids_para_kev(a, reg):
     """Todos os ids ligados ao achado, para conferir no catálogo KEV: o do achado atual (id, key, aliases), os do registro anterior
     (`ids_osv`) e os do `ultimo`. Assim um USN redetectado sem o alias da CVE continua sendo reconhecido como explorado."""
-    ids = {str(a["id"]), str(a.get("key") or "")} | {str(x) for x in a.get("aliases") or []}
+    ids = {str(a["id"]), str(a.get("key") or "")} | {str(x) for x in a.get("aliases") or []} | {str(x) for x in a.get("cves_mapa") or []}
     if isinstance(reg, dict):
         ids |= ids_do_registro(a["id"], reg)
         ultimo = reg.get("ultimo") if isinstance(reg.get("ultimo"), dict) else {}
@@ -2266,8 +2271,8 @@ def texto_promovido_por_kev(ultimo):
     return TEXTO_KEV_SEM_CORRECAO
 
 
-TEXTO_ACAO_NO_CATALOGO = ("Apareceu uma ação no catálogo do DG Claw para esta falha. Peça ao Admin para conferir com "
-                          "sudo dgclaw seguranca resumo e aplicar a ação, se ela servir.")
+TEXTO_ACAO_NO_CATALOGO = ("Apareceu uma ação no catálogo do DG Claw para esta falha. Peça ao Admin para rodar "
+                          "sudo dgclaw seguranca rodar: com a falha detectada de novo, a ação aparece no painel para aplicar, se servir.")
 
 
 def promove_se_kev(aid, reg, kev, t0, catalogo=()):
@@ -2441,7 +2446,9 @@ def apt_todos_instalaveis(a, cand, inv):
     for af in a["afetados"]:
         corrigida = af["corrigida"]
         if via_metapacote(af):
-            vers = [normaliza_meta(cand[n]) for n in metapacotes_de_imagem(inv) if cand.get(n)]
+            serie = (re.findall(r"\d+", inv.get("kernel") or "") + ["", ""])[:2]
+            vers = [v for v in (normaliza_meta(cand[n]) for n in metapacotes_de_imagem(inv) if cand.get(n))
+                    if (re.findall(r"\d+", v) + ["", ""])[:2] == serie]
             if not any(candidato_cobre(v, corrigida) for v in vers):
                 return False
             continue
@@ -3524,7 +3531,8 @@ def _rodada(cfg, sem_avisar):
             coleta_parcial = rodada_parcial and (bool(faltando) or bool(reg.get("pacotes_cortados")))
             # a lista de ids precisa estar pronta antes da decisão. Registro legado que bateu o teto antigo (60, sem a chave) ou
             # com a marca só é considerado completo quando a fonte trouxe os aliases nesta rodada.
-            ids_atuais = {a["id"].upper(), str(a["key"]).upper()} | {str(x).upper() for x in a["aliases"]}
+            ids_atuais = {a["id"].upper(), str(a["key"]).upper()} | {str(x).upper() for x in a["aliases"]} \
+                         | {str(x).upper() for x in a.get("cves_mapa") or []}
             ids_unidos, cortou = une_ids_osv_com_corte(reg.get("ids_osv"), ids_atuais)
             # a marca anterior só se apaga quando a fonte trouxe de novo TODOS os ids já guardados
             ids_incompletos = cortou or bool((reg.get("ids_incompletos") or ("ids_incompletos" not in reg and len(reg.get("ids_osv") or []) >= 60))

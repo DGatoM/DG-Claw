@@ -1733,6 +1733,16 @@ class Paliativos(Base):
         self.ronda("executar", "--sem-avisar")
         self.assertEqual(self.achado(self.ID)["estado"], "atualizacao-sistema")
 
+    def test_metapacote_de_outra_serie_do_kernel_nao_prova_a_correcao(self):
+        S["osv_paginas"][f"{ECO}|linux|6.8.0-147.153"] = [[self.ID]]
+        S["osv_vulns"][self.ID] = reg_ubuntu(self.ID, "CVE-2026-98432", "linux", "6.8.0-149.149", prio="critical")
+        self.meta("6.17.0-30.30~24.04.1", nome="linux-image-generic-hwe-24.04")   # série 6.17 não atualiza o 6.8 em execução
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["estado"], "aberto")
+        self.meta("6.8.0-149.149", nome="linux-image-generic-hwe-24.04")   # mesma série: vale
+        self.ronda("executar", "--sem-avisar")
+        self.assertEqual(self.achado(self.ID)["estado"], "atualizacao-sistema")
+
     def test_metapacote_com_sufixo_da_serie_do_kernel_em_execucao_prova_a_imagem(self):
         S["osv_paginas"][f"{ECO}|linux|6.8.0-147.153"] = [[self.ID]]
         S["osv_vulns"][self.ID] = reg_ubuntu(self.ID, "CVE-2026-98432", "linux", "6.8.0-149.149", prio="critical")
@@ -2165,6 +2175,8 @@ class Paliativos(Base):
         a = self.achado(usn)
         self.assertEqual(a["estado"], "aberto")
         self.assertIn("ação no catálogo", a["como_corrigir"])
+        self.assertIn("sudo dgclaw seguranca rodar", a["como_corrigir"])
+        self.assertNotIn("aplicar a ação", a["como_corrigir"])
         self.assertNotIn("atualização automática", a["como_corrigir"])
 
     def test_recado_so_de_atualizacao_do_sistema_nao_pede_alerta(self):
@@ -2359,6 +2371,37 @@ class Paliativos(Base):
         self.ronda("executar", "--sem-avisar")
         a = self.achado("UBUNTU-CVE-2026-77777")
         self.assertEqual((a["estado"], a["correcao"]["tipo"]), ("atualizacao-sistema", "apt"), "segundo plano, com o pedido ao Admin")
+
+    def cves_map_nao_herda_o_paliativo(self, caminho):
+        usn = "USN-7795-1"
+        mapa = {"cves_map": {"cves": [{"id": "CVE-2026-98432", "severity": [{"type": "Ubuntu", "score": "high"}]}]}}
+        self.catalogo_mptcp(sozinha=False)   # paliativo só da CVE-2026-98432, que o USN só traz no cves_map; a explorada (98433) está nos aliases
+        self.escreve(os.path.join(self.stub, "sysctl", "net.mptcp.enabled"), "0\n")   # MPTCP desligado
+        self.escreve(os.path.join(self.stub, "apt_candidatos.txt"), "linux-image-virtual\t6.8.0-147.147\n")   # o apt ainda não corrige
+        S["kev"] = [{"cveID": "CVE-2026-98433", "dateAdded": "2026-10-20"}]
+        if caminho == "feed":
+            S["gh_commits"] = ["c" * 40]
+            S["gh_commit_files"]["c" * 40] = [f"osv/usn/{usn}.json"]
+            S["usn"][f"osv/usn/{usn}.json"] = {
+                "id": usn, "summary": "Kernel", "details": "Falha no kernel.", "published": "2026-10-28T00:00:00Z",
+                "aliases": ["CVE-2026-98433"],
+                "affected": [{"package": {"ecosystem": ECO, "name": "linux"}, "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "6.8.0-149.149"}]}],
+                              "database_specific": mapa}]}
+        else:
+            S["osv_paginas"][f"{ECO}|linux|6.8.0-147.153"] = [[usn]]
+            r = reg_ubuntu(usn, "CVE-2026-98433", "linux", "6.8.0-149.149")
+            r["affected"][0]["database_specific"] = mapa
+            S["osv_vulns"][usn] = r
+        self.meta("6.8.0-147.147")
+        self.ronda("executar", "--sem-avisar")
+        a = self.achado(usn)
+        self.assertEqual((a["estado"], a.get("explorada_ativamente")), ("aberto", True), caminho)
+
+    def test_cve_so_do_cves_map_nao_herda_o_paliativo_pelo_feed_do_usn(self):
+        self.cves_map_nao_herda_o_paliativo("feed")
+
+    def test_cve_so_do_cves_map_nao_herda_o_paliativo_pelo_querybatch_do_osv(self):
+        self.cves_map_nao_herda_o_paliativo("querybatch")
 
     def test_sem_correcao_e_com_paliativo_verificado_fica_protegido_aguardando(self):
         self.vuln_kernel(None)
