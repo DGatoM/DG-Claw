@@ -27,7 +27,7 @@ test('parar: trabalhando => 200 com trabalhando e a mensagem de interrupção', 
     assert.notEqual(r.json.enviado_em, '2020-01-01T00:00:00.000Z', 'o horário é o medido pelo Web, não o do runner');
     assert.ok(Math.abs(Date.parse(r.json.enviado_em) - Date.now()) < 10000);
     assert.match(r.json.mensagem, /Mandei um Esc para Ana/);
-    assert.match(r.json.mensagem, /costuma parar na hora/);
+    assert.match(r.json.mensagem, /pode continuar executando/);
     assert.match(r.json.mensagem, /pode continuar/);
     assert.doesNotMatch(r.json.mensagem, /foi interrompido/);
     assert.equal(s.runner.rec.interrupcoes, 1);

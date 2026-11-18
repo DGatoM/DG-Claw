@@ -3,7 +3,7 @@
 ## O que é
 
 O botão **Parar** aparece na faixa "está trabalhando" da conversa e faz o mesmo que apertar **Esc** no terminal do
-agente: o que está em andamento em primeiro plano costuma parar na hora, a sessão continua aberta e a conversa não se
+agente: o turno dele para na hora (um comando que estava rodando pode continuar executando), a sessão continua aberta e a conversa não se
 perde. A próxima mensagem entra normalmente. Não pede confirmação.
 
 O Parar manda um Esc e não garante o resultado: um comando que o agente deixou em segundo plano pode continuar
@@ -30,7 +30,7 @@ de escolha, a conversa já tem os botões próprios desses cartões.
   "agente": "ana",
   "enviado_em": "2026-11-18T12:00:00.000Z",
   "trabalhando": true,
-  "mensagem": "Mandei um Esc para Ana (o mesmo que apertar Esc no terminal). O que está em primeiro plano costuma parar na hora; um comando que ele deixou rodando em segundo plano pode continuar."
+  "mensagem": "Mandei um Esc para Ana (o mesmo que apertar Esc no terminal). O turno dele para na hora, mas um comando que estava rodando pode continuar executando (no Codex isso acontece até com o comando que estava em primeiro plano). Confira antes de mexer nos mesmos arquivos."
 }
 ```
 

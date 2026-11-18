@@ -435,17 +435,20 @@ if (atividadeEl) {
       ev.stopPropagation();         // não abre o detalhe da faixa nem as mídias
       if (atvPararEl.disabled || demoAtividade) return;
       atvPararEl.disabled = true;
-      const reabilita = setTimeout(() => { atvPararEl.disabled = false; }, 3000);
+      // Fica desabilitado até a resposta chegar E a trava de 3 s (ou a espera do 429) passar: nunca dois Esc em voo.
+      const inicio = Date.now();
+      let esperaMs = 3000;
       try {
         const d = await api(API + '/parar', { method: 'POST', body: {}, timeoutMs: 15000 });
-        mostraAviso(d.mensagem || ('Pedi para ' + AGENTE.nome + ' parar.'));
+        mostraAviso(d.mensagem || ('Mandei um Esc para ' + AGENTE.nome + '.'));
       } catch (e) {
         const espere = e.dados && typeof e.dados.espere_s === 'number' ? e.dados.espere_s : null;
-        if (e.status === 429 && espere !== null) {
-          clearTimeout(reabilita);
-          setTimeout(() => { atvPararEl.disabled = false; }, Math.ceil(espere * 1000) + 100);
-        }
+        if (e.status === 429 && espere !== null) esperaMs = Math.ceil(espere * 1000) + 100;
         mostraErro('Não consegui parar ' + AGENTE.nome + ': ' + e.message);
+      } finally {
+        // A trava de 3 s conta desde o clique; a espera do 429 conta desde a resposta.
+        const atraso = esperaMs === 3000 ? Math.max(0, 3000 - (Date.now() - inicio)) : esperaMs;
+        setTimeout(() => { atvPararEl.disabled = false; }, atraso);
       }
     });
   }
@@ -4965,7 +4968,7 @@ function passosTutorial() {
     },
     depois: () => { demoAtividade = false; pintaAtividade(); },
     oque: 'Um botão que aparece na faixa de atividade enquanto o agente está trabalhando.',
-    como: 'Ao tocar, ele manda um Esc para a sessão do agente, igual ao teclado do terminal. O que está em primeiro plano costuma parar na hora e um comando que foi para segundo plano pode continuar. Espere 3 segundos entre um toque e outro.',
+    como: 'Ao tocar, ele manda um Esc para a sessão do agente, igual ao teclado do terminal. O turno do agente para na hora, mas um comando que estava rodando pode continuar executando. Espere 3 segundos entre um toque e outro.',
     porque: 'Para cortar um trabalho que foi pelo caminho errado sem reiniciar o agente e sem perder a conversa.' });
   passos.push({ alvo: '#btnMenu', antes: fechaM, titulo: 'O botão do menu',
     oque: 'No celular, o botão de menu (as três linhas) abre o menu do agente. No computador ele não aparece, porque o menu já fica fixo à esquerda.',
