@@ -216,7 +216,7 @@ const AQUI = location.pathname + location.search;
 const EH_ADMIN = AGENTE.tipo === 'admin';
 /* Colaborador: só este agente. Tira da tela o que é do dono (o servidor também barra; aqui é para não sobrar botão que não leva a lugar nenhum). */
 const COLAB = !!(window.DGPapel && window.DGPapel.colaborador);
-if (COLAB) for (const id of ['btnMesa', 'btnLembretes', 'btnNaoLida', 'trocaBaixo']) { const e = $(id); if (e) e.remove(); }
+if (COLAB) for (const id of ['btnMesa', 'btnLembretes', 'btnNaoLida', 'trocaBaixo', 'btnPararAgente']) { const e = $(id); if (e) e.remove(); }
 /* A Mesa e os Lembretes levam o agente junto (?a=), para o menu deles ser o deste agente. */
 (function () {
   // localStorage para a casca das outras telas; o cookie é o que o servidor lê na rota "/" (abre o último agente usado)
@@ -308,6 +308,7 @@ const atividadeEl = $('atividade');
 const atvNomeEl = atividadeEl && atividadeEl.querySelector('.atv-nome');
 const atvSepEl = atividadeEl && atividadeEl.querySelector('.atv-sep');
 const atvAcaoEl = atividadeEl && atividadeEl.querySelector('.atv-acao');
+const atvPararEl = $('btnPararAgente');
 window.atividadeFoto = null;
 let atvDeslocaMs = 0;          // relógio do servidor menos o do aparelho
 let atvDetalheAte = 0;         // até quando o toque mostra o detalhe no lugar do texto
@@ -380,8 +381,10 @@ function pintaAtividade() {
     // observador de rolagem (acima) mantém quem estava no fim no fim e quem lia lá em cima parado
     atividadeEl.hidden = !mostra;
   }
-  if (!mostra) { atvBase = null; return; }
+  if (!mostra) { atvBase = null; if (atvPararEl) atvPararEl.hidden = true; return; }
   const f = atvFrase(est);
+  // Parar só quando está trabalhando de verdade: com permissão ou pergunta abertas já há botões próprios
+  if (atvPararEl) atvPararEl.hidden = !(est.estado === 'trabalhando' && est.alerta !== 'permissao' && est.alerta !== 'pergunta');
   atividadeEl.className = f.classe;
   atividadeEl.title = f.titulo;
   if (Date.now() < atvDetalheAte) {
@@ -426,6 +429,33 @@ if (atividadeEl) {
     pintaAtividade();
     setTimeout(pintaAtividade, 4100);
   });
+  /* Botão Parar: um Esc na sessão do agente (POST /parar). Sem confirmação; reabilita depois de 3 s (a trava do runner). */
+  if (atvPararEl) {
+    atvPararEl.addEventListener('click', async ev => {
+      ev.stopPropagation();         // não abre o detalhe da faixa nem as mídias
+      if (atvPararEl.disabled || demoAtividade) return;
+      atvPararEl.disabled = true;
+      // Fica desabilitado até a resposta chegar E a trava de 3 s (ou a espera do 429) passar: nunca dois Esc em voo.
+      const inicio = Date.now();
+      let esperaMs = 3000;
+      try {
+        const d = await api(API + '/parar', { method: 'POST', body: {}, timeoutMs: 15000 });
+        if (d && d.ok === true) mostraSempre(fAviso, d.mensagem || ('Mandei um Esc para ' + AGENTE.nome + '.'));
+        else mostraSempre(fErro, 'A resposta do Parar de ' + AGENTE.nome + ' veio incompleta. Olhe a conversa antes de apertar de novo: dois Esc seguidos podem travar a sessão.');
+      } catch (e) {
+        const espere = e.dados && typeof e.dados.espere_s === 'number' ? e.dados.espere_s : null;
+        if (e.status === 429 && espere !== null) esperaMs = Math.ceil(espere * 1000) + 100;
+        // Sem status HTTP (rede, corte, prazo) ou 504 INCERTO: o Esc pode ter chegado; não diga que falhou.
+        const reconhecido = ['MUITO_RAPIDO', 'NO_PTY', 'NAO_TRABALHANDO', 'COMPACTANDO', 'ESPERANDO_DECISAO', 'RESPOSTA_EM_ANDAMENTO', 'SO_O_DONO', 'RUNNER_FORA', 'RUNNER_ANTIGO', 'AGENTE_DE_OUTRO_RUNNER', 'RECUSADO'].includes(e.codigo);
+        if (!e.status || (e.status === 504 && e.codigo === 'INCERTO') || (e.status >= 500 && !reconhecido)) mostraSempre(fErro, 'Não sei se o pedido de parar chegou a ' + AGENTE.nome + '. Olhe a conversa antes de apertar de novo.');
+        else mostraSempre(fErro, 'Não consegui parar ' + AGENTE.nome + ': ' + e.message);
+      } finally {
+        // A trava de 3 s conta desde o clique; a espera do 429 conta desde a resposta.
+        const atraso = esperaMs === 3000 ? Math.max(0, 3000 - (Date.now() - inicio)) : esperaMs;
+        setTimeout(() => { atvPararEl.disabled = false; }, atraso);
+      }
+    });
+  }
   /* "há 3 min" anda sozinho, sem evento: um timer local. */
   setInterval(() => {
     if (document.visibilityState !== 'visible' || !window.atividadeFoto) return;
@@ -1244,6 +1274,8 @@ function fechaFaixaAviso() {
   }
   faixa(fAviso, '');
 }
+/* Resultado de uma ação do dono (ex.: Parar): sempre aparece, sem passar pelo histórico de avisos dispensados. */
+const mostraSempre = (el, t) => faixa(el, t);
 const mostraAviso = t => {
   if (t && PURO.avisoDescansando(avisosFechados(), t, Date.now())) return;
   faixa(fAviso, t);
@@ -4929,6 +4961,21 @@ function passosTutorial() {
     oque: 'Uma faixa que aparece sozinha quando o agente está trabalhando. O que você vê agora é só um exemplo.',
     como: 'Ela mostra o que ele está fazendo naquele momento. Fica amarela se ele estiver esperando uma autorização sua, e cinza se a conexão com ele cair ("sem sinal").',
     porque: 'Alguns pedidos demoram. Com a faixa você sabe que o agente não travou, e sabe quando precisa agir.' });
+  if (!COLAB) passos.push({ alvo: '#btnPararAgente', titulo: 'O botão Parar',
+    antes: () => {
+      demoAtividade = true;
+      const el = $('atividade');
+      el.hidden = false;
+      el.className = '';
+      el.querySelector('.atv-nome').textContent = nome + ' está trabalhando';
+      el.querySelector('.atv-sep').hidden = false;
+      el.querySelector('.atv-acao').textContent = 'lendo um arquivo (exemplo)';
+      $('btnPararAgente').hidden = false;
+    },
+    depois: () => { demoAtividade = false; pintaAtividade(); },
+    oque: 'Um botão que aparece na faixa de atividade enquanto o agente está trabalhando.',
+    como: 'Ao tocar, ele manda um Esc para a sessão do agente, igual ao teclado do terminal. Se o agente estava no meio de um turno, o turno costuma parar em instantes, mas um comando que estava rodando pode continuar executando. Espere 3 segundos entre um toque e outro.',
+    porque: 'Para cortar um trabalho que foi pelo caminho errado sem reiniciar o agente e sem perder a conversa.' });
   passos.push({ alvo: '#btnMenu', antes: fechaM, titulo: 'O botão do menu',
     oque: 'No celular, o botão de menu (as três linhas) abre o menu do agente. No computador ele não aparece, porque o menu já fica fixo à esquerda.',
     como: 'Toque nele quando quiser trocar de agente, abrir uma página do painel ou sair. Toque fora do menu, no X ou na tecla Esc para fechar.',
