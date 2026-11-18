@@ -159,8 +159,8 @@ def calcular_estado(eventos, agora):
     return itens
 
 
-def _troca_atomica(caminho, conteudo):
-    """Grava em arquivo temporario na mesma pasta e troca com os.replace (modo 0644)."""
+def _preparar_temporario(caminho, conteudo):
+    """Grava o conteudo num temporario na mesma pasta (modo 0644, com fsync) e devolve o caminho dele. Nao troca nada."""
     d = os.path.dirname(caminho)
     fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=d)
     try:
@@ -169,13 +169,17 @@ def _troca_atomica(caminho, conteudo):
             f.flush()
             os.fsync(f.fileno())
         os.chmod(tmp, 0o644)
-        os.replace(tmp, caminho)
     except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
+        _apagar(tmp)
         raise
+    return tmp
+
+
+def _apagar(tmp):
+    try:
+        os.unlink(tmp)
+    except OSError:
+        pass
 
 
 def _recusar_root():
@@ -282,9 +286,26 @@ def _registrar_travado(d, iid, resultado, origem, agora):
         eventos.append({"em": _fmt(agora), "id": iid, "resultado": resultado, "origem": origem})
     eventos = eventos[-MAX_LINHAS:]
     estado = {"versao": 1, "geradoEm": _fmt(agora), "integracoes": calcular_estado(eventos, agora)}
-    # Estado primeiro: o vigia le o estado, e se a segunda troca falhar ele ja mostra o evento (a direcao segura).
-    _troca_atomica(os.path.join(d, "estado.json"), json.dumps(estado, ensure_ascii=False, indent=1) + "\n")
-    _troca_atomica(arq_eventos, "".join(json.dumps(e, ensure_ascii=False, separators=(",", ":")) + "\n" for e in eventos))
+    texto_estado = json.dumps(estado, ensure_ascii=False, indent=1) + "\n"
+    texto_eventos = "".join(json.dumps(e, ensure_ascii=False, separators=(",", ":")) + "\n" for e in eventos)
+    # Os dois temporarios nascem antes de qualquer troca: falta de espaco acontece ao escrever, e ai nenhum dos dois arquivos muda.
+    tmp_eventos = _preparar_temporario(arq_eventos, texto_eventos)
+    try:
+        tmp_estado = _preparar_temporario(os.path.join(d, "estado.json"), texto_estado)
+    except BaseException:
+        _apagar(tmp_eventos)
+        raise
+    try:
+        os.replace(tmp_eventos, arq_eventos)
+    except BaseException:
+        _apagar(tmp_eventos)
+        _apagar(tmp_estado)
+        raise
+    try:
+        os.replace(tmp_estado, os.path.join(d, "estado.json"))
+    except BaseException:
+        _apagar(tmp_estado)
+        raise
     return resultado_gravacao
 
 

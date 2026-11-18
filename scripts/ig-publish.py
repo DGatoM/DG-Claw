@@ -128,8 +128,9 @@ def publish_image(account, image_url, caption, token, wait=2):
     if r2.status_code >= 500:
         # 5xx depois do media_publish tambem nao prova que nao publicou: fica incerto no mapa.
         registrar_silencioso("instagram", "incerto")
-        print(_graph_error(r2), file=sys.stderr)
-        sys.exit(1)
+        print(f"RESULTADO INCERTO: a chamada de publicar voltou com erro {r2.status_code} do servidor; o Instagram pode "
+              "ter publicado o post. Confira na conta antes de tentar de novo.", file=sys.stderr)
+        sys.exit(4)
     if r2.status_code != 200:
         _registrar_falha(r2)
         print(_graph_error(r2), file=sys.stderr)

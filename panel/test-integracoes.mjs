@@ -143,6 +143,15 @@ try {
   ok(p.status === 200 && (await p.json()).desligada === false, 'POST ligar responde 200');
   r = await get();
   ok(r.j.integracoes.find((x) => x.id === 'instagram').estado === 'vermelho', 'depois de ligar volta ao estado calculado');
+  // linha alheia no preferencias.json sobrevive a desligar e a ligar
+  fs.writeFileSync(path.join(pasta, 'preferencias.json'), JSON.stringify({ outra: { x: 1 }, desligadas: [] }));
+  p = await post('instagram/desligar');
+  let alheio = JSON.parse(fs.readFileSync(path.join(pasta, 'preferencias.json'), 'utf8'));
+  ok(p.status === 200 && alheio.outra && alheio.outra.x === 1 && alheio.desligadas.join() === 'instagram', 'desligar mantém a chave alheia do preferencias.json');
+  p = await post('instagram/ligar');
+  alheio = JSON.parse(fs.readFileSync(path.join(pasta, 'preferencias.json'), 'utf8'));
+  ok(p.status === 200 && alheio.outra && alheio.outra.x === 1 && alheio.desligadas.length === 0, 'ligar mantém a chave alheia do preferencias.json');
+  fs.rmSync(path.join(pasta, 'preferencias.json'));
   // preferências existentes mas inválidas: recusa gravar (não parte de lista vazia) e não apaga o arquivo
   fs.writeFileSync(path.join(pasta, 'preferencias.json'), '{quebrado');
   p = await post('instagram/desligar');

@@ -3,6 +3,7 @@
 import datetime
 import json
 import os
+import pathlib
 import subprocess
 import sys
 import tempfile
@@ -135,17 +136,24 @@ class TestGravacao(Base):
             self.assertEqual(os.stat(os.path.join(self.dir, nome)).st_mode & 0o777, 0o644, nome)
         self.assertEqual(sorted(os.listdir(self.dir)), [".trava", "estado.json", "eventos.jsonl"])
 
-    def test_falha_na_troca_do_historico_deixa_o_estado_com_o_evento(self):
-        original = I._troca_atomica
-        def falha_no_historico(caminho, conteudo):
-            if caminho.endswith("eventos.jsonl"):
+    def test_falha_ao_escrever_o_temporario_do_estado_nao_muda_nenhum_dos_dois(self):
+        I.registrar("groq", "erro", agora=em(0))
+        hist = pathlib.Path(os.path.join(self.dir, "eventos.jsonl")).read_text()
+        est = pathlib.Path(os.path.join(self.dir, "estado.json")).read_text()
+        original = I._preparar_temporario
+        def falha_no_estado(caminho, conteudo):
+            if caminho.endswith("estado.json"):
                 raise OSError(28, "No space left on device")
             return original(caminho, conteudo)
-        with mock.patch.object(I, "_troca_atomica", side_effect=falha_no_historico):
+        with mock.patch.object(I, "_preparar_temporario", side_effect=falha_no_estado):
             with self.assertRaises(I.ErroGravacao):
-                I.registrar("groq", "erro", agora=T0)
-        self.assertEqual(self.estado_de("groq")["ultimoResultado"], "erro")
-        self.assertFalse(os.path.exists(os.path.join(self.dir, "eventos.jsonl")))
+                I.registrar("groq", "erro", agora=em(1))
+        self.assertEqual(pathlib.Path(os.path.join(self.dir, "eventos.jsonl")).read_text(), hist)
+        self.assertEqual(pathlib.Path(os.path.join(self.dir, "estado.json")).read_text(), est)
+        self.assertFalse([n for n in os.listdir(self.dir) if n.startswith(".tmp-")], "nenhum temporario sobra")
+        I.registrar("groq", "erro", agora=em(2))
+        self.assertEqual(len(self.linhas()), 2)
+        self.assertEqual(self.estado_de("groq")["ultimoEvento"], I._fmt(em(2)))
 
     def test_gravacao_atomica_nao_deixa_temporario(self):
         for i in range(5):
@@ -350,6 +358,47 @@ class TestLeituraEtrava(Base):
 
 
 class TestCli(Base):
+    """Como root, o que precisa rodar como usuario sem privilegio (nobody) usa uma pasta propria, entregue a ele.
+    A pasta temporaria do teste continua 0700 de root; nada dentro da pasta entregue e preparado pelo root."""
+
+    def setUp(self):
+        super().setUp()
+        self.area = self.tmp.name
+        if ERA_ROOT:
+            self.area = tempfile.mkdtemp(prefix="dgclaw-int-")
+            os.chown(self.area, 65534, 65534)
+            os.chmod(self.area, 0o700)
+        self.dir = os.path.join(self.area, "integracoes")
+        os.environ["DGCLAW_INTEGRACOES_DIR"] = self.dir
+
+    def tearDown(self):
+        if ERA_ROOT:
+            self.agente_py("import shutil,sys; shutil.rmtree(sys.argv[1]); ", self.area)
+        super().tearDown()
+
+    @staticmethod
+    def _baixa():
+        os.setgroups([])   # sem os grupos suplementares de root
+        os.setgid(65534)
+        os.setuid(65534)
+
+    def agente_py(self, codigo, *args, entrada=None):
+        """Roda um trecho de Python como o usuario do agente (sem privilegio quando o teste e root)."""
+        r = subprocess.run([sys.executable, "-I", "-c", codigo, *args], input=entrada, capture_output=True, text=True,
+                           preexec_fn=self._baixa if ERA_ROOT else None)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def cria_pasta(self, modo=0o755):
+        self.agente_py("import os,sys; os.makedirs(sys.argv[1], exist_ok=True); os.chmod(sys.argv[1], int(sys.argv[2], 8))",
+                       self.dir, oct(modo)[2:])
+
+    def escreve(self, caminho, texto, modo=0o644):
+        self.agente_py("import os,sys; open(sys.argv[1], 'w').write(sys.stdin.read()); os.chmod(sys.argv[1], int(sys.argv[2], 8))",
+                       caminho, oct(modo)[2:], entrada=texto)
+
+    def apaga(self, caminho):
+        self.agente_py("import os,sys; os.unlink(sys.argv[1])", caminho)
+
     def rodar(self, *args):
         return subprocess.run([os.path.join(AQUI, "..", "..", "bin", "dgclaw-integracao"), *args],
                               capture_output=True, text=True, env=dict(os.environ))
@@ -358,12 +407,8 @@ class TestCli(Base):
         """Como root o registro recusa; neste caso roda o comando como o usuario sem privilegio."""
         if not ERA_ROOT:
             return self.rodar(*args)
-        os.chmod(self.tmp.name, 0o777)
-        def baixa():
-            os.setgid(65534)
-            os.setuid(65534)
         return subprocess.run([os.path.join(AQUI, "..", "..", "bin", "dgclaw-integracao"), *args],
-                              capture_output=True, text=True, env=dict(os.environ), preexec_fn=baixa)
+                              capture_output=True, text=True, env=dict(os.environ), preexec_fn=self._baixa)
 
     def test_registrar_como_root_sai_1_com_mensagem(self):
         if not ERA_ROOT:
@@ -404,22 +449,18 @@ class TestCli(Base):
             "ultimaTentativaReal": I._fmt(T0), "ultimaFalha": None, "ultimaFalhaResultado": None}]}
 
     def test_estado_imprime_so_campos_validados(self):
-        os.makedirs(self.dir)
+        self.cria_pasta()
         e = self._estado_bom()
         e["integracoes"][0]["extra"] = "SEGREDO-DO-AGENTE"
         e["lixo"] = "SEGREDO-DO-AGENTE"
-        with open(os.path.join(self.dir, "estado.json"), "w") as f:
-            json.dump(e, f)
-        os.chmod(self.dir, 0o755)
-        os.chmod(os.path.join(self.dir, "estado.json"), 0o644)
+        self.escreve(os.path.join(self.dir, "estado.json"), json.dumps(e))
         r = self.rodar_sem_root("estado")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotIn("SEGREDO", r.stdout)
         self.assertEqual(json.loads(r.stdout)["integracoes"][0]["id"], "groq")
 
     def test_estado_invalido_grande_link_e_fifo_sao_recusados(self):
-        os.makedirs(self.dir)
-        os.chmod(self.dir, 0o755)
+        self.cria_pasta()
         arq = os.path.join(self.dir, "estado.json")
         ruins = {
             "json": "{SEGREDO quebrado",
@@ -429,24 +470,20 @@ class TestCli(Base):
         }
         for nome, texto in ruins.items():
             with self.subTest(nome):
-                with open(arq, "w") as f:
-                    f.write(texto)
-                os.chmod(arq, 0o644)
+                self.escreve(arq, texto)
                 r = self.rodar_sem_root("estado")
                 self.assertEqual(r.returncode, 1, r.stdout)
                 self.assertEqual(r.stdout, "")
                 self.assertNotIn("SEGREDO", r.stderr)
-                os.unlink(arq)
+                self.apaga(arq)
         with self.subTest("link"):
-            alvo = os.path.join(self.tmp.name, "alvo.json")
-            with open(alvo, "w") as f:
-                json.dump(self._estado_bom(), f)
-            os.chmod(alvo, 0o644)
-            os.symlink(alvo, arq)
+            alvo = os.path.join(self.area, "alvo.json")
+            self.escreve(alvo, json.dumps(self._estado_bom()))
+            self.agente_py("import os,sys; os.symlink(sys.argv[1], sys.argv[2])", alvo, arq)
             self.assertEqual(self.rodar_sem_root("estado").returncode, 1)
-            os.unlink(arq)
+            self.apaga(arq)
         with self.subTest("fifo"):
-            os.mkfifo(arq)
+            self.agente_py("import os,sys; os.mkfifo(sys.argv[1])", arq)
             r = self.rodar_sem_root("estado")
             self.assertEqual(r.returncode, 1)
             self.assertIn("arquivo comum", r.stderr)

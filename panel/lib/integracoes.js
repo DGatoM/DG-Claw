@@ -138,7 +138,14 @@ function lerDesligadas(dir) {
   }
 }
 
-const serializarDesligadas = (lista) => JSON.stringify({ desligadas: lista }, null, 1) + '\n';
+/** O objeto inteiro de preferencias.json (para gravar só `desligadas` e manter qualquer outra chave). Ausente ou ilegível: {}. */
+function lerObjetoPrefs(dir) {
+  const r = lerArquivoPequeno(path.join(dir, 'preferencias.json'));
+  if (r.texto === undefined) return {};
+  try { const j = JSON.parse(r.texto); return j && typeof j === 'object' && !Array.isArray(j) ? j : {}; } catch (_) { return {}; }
+}
+
+const serializarDesligadas = (lista, resto = {}) => JSON.stringify({ ...resto, desligadas: lista }, null, 1) + '\n';
 
 /** Ids que o mapa conhece agora: catálogo, itens do estado.json (se válido) e os declarados pelas skills. */
 function idsConhecidos(CONFIG, serverDir, dir) {
@@ -167,7 +174,7 @@ function gravarDesligadas(dir, lista) {
   let fd = null;
   try {
     fd = fs.openSync(tmp, flags, 0o600);
-    fs.writeSync(fd, serializarDesligadas(lista));
+    fs.writeSync(fd, serializarDesligadas(lista, lerObjetoPrefs(dir)));
     fs.closeSync(fd);
     fd = null;
     fs.renameSync(tmp, arq);
@@ -262,7 +269,7 @@ function registrar(router, { CONFIG, serverDir }) {
             return res.status(404).json({ error: `A integração ${id} não está no mapa deste agente, então não a desliguei.`, howToFix: 'Confira o id na lista de integrações (GET /api/integracoes) e tente de novo.' });
           }
           set.add(id);
-          const tamanho = Buffer.byteLength(serializarDesligadas([...set].sort()));
+          const tamanho = Buffer.byteLength(serializarDesligadas([...set].sort(), lerObjetoPrefs(dir)));
           if (tamanho > MAX_BYTES) {
             return res.status(413).json({ error: `Não desliguei ${id}: a lista de integrações desligadas passaria de ${MAX_BYTES} bytes (ficaria com ${tamanho}), e o painel não leria mais o arquivo.`, howToFix: 'Religue integrações que não precisam ficar desligadas, ou peça ao Admin para limpar o preferencias.json.' });
           }

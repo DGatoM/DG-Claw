@@ -12,7 +12,7 @@ Os programas que falam com um sistema externo anotam o resultado de cada uso rea
 
 - `eventos.jsonl`: uma linha por evento (`em`, `id`, `resultado`, `origem`). Nunca há texto livre.
 - `estado.json`: o estado calculado de cada integração. É a fonte desta rota.
-- `preferencias.json`: o que o dono desligou na tela (`{"desligadas":["id"]}`).
+- `preferencias.json`: o que o dono desligou na tela (`{"desligadas":["id"]}`). Só muda o mapa: não cala o alerta nem o pedido ao Admin (isso é o "Silenciar" da faixa, guardado no host).
 
 Resultados aceitos: `ok`, `credencial_recusada`, `sem_saldo`, `limite`, `fora_do_ar`,
 `desconectado`, `rede`, `incerto`, `vencendo`, `erro`. O `id` segue `^[a-z0-9][a-z0-9-]{0,31}$`.

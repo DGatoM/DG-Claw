@@ -24,11 +24,10 @@ const item = (extra) => Object.assign({
   ultimoOk: null, ultimaTentativaReal: iso(T0 - H), ultimaFalha: iso(T0 - H), ultimaFalhaResultado: 'desconectado',
 }, extra || {});
 
-/** Leitura falsa: `dados[slug] = { itens, desligadas, medido }`, que o teste muda à vontade. */
+/** Leitura falsa: `dados[slug] = { itens, medido }`, que o teste muda à vontade. */
 function leituraFalsa(dados) {
   return {
     lerEstado: (ag) => { const d = dados[ag.slug]; if (!d) return { medido: true, itens: [] }; return d.medido === false ? { medido: false, motivo: 'teste' } : { medido: true, itens: d.itens || [] }; },
-    lerDesligadas: (ag) => (dados[ag.slug] && dados[ag.slug].desligadas !== undefined ? dados[ag.slug].desligadas : []),
   };
 }
 function runnerFalso(opcoes) {
@@ -81,7 +80,7 @@ test('deduplicação: duas reavaliações dão um incidente com o mesmo id; reca
   } finally { t.limpa(); }
 });
 
-test('fecha ao ficar verde, ao ser desligada, ao sumir da lista e quando o agente sai do registro; amarelo mantém', async () => {
+test('fecha ao ficar verde, ao sumir da lista e quando o agente sai do registro; amarelo mantém', async () => {
   const t = montar({ dados: { luna: { itens: [item(), item({ id: 'groq' })] } } });
   try {
     await t.v.reavaliar(T0);
@@ -93,7 +92,7 @@ test('fecha ao ficar verde, ao ser desligada, ao sumir da lista e quando o agent
     t.dados.luna.itens = [item({ estado: 'verde' }), item({ id: 'groq' })];
     await t.v.reavaliar(T0);
     assert.deepEqual(t.v.estado().incidentes.map((i) => i.integracao), ['groq']);
-    t.dados.luna.desligadas = ['groq'];
+    t.dados.luna.itens = [item({ estado: 'verde' }), item({ id: 'groq', estado: 'verde' })];
     await t.v.reavaliar(T0);
     assert.equal(t.v.estado().incidentes.length, 0);
     t.dados.luna = { itens: [item()] };
@@ -113,29 +112,15 @@ test('fecha ao ficar verde, ao ser desligada, ao sumir da lista e quando o agent
   } finally { t2.limpa(); }
 });
 
-test('desligada no preferencias.json não abre; não medido não abre nem fecha', async () => {
-  const t = montar({ dados: { luna: { itens: [item()], desligadas: ['whatsapp'] } } });
+test('não medido não abre nem fecha', async () => {
+  const t = montar({ dados: { luna: { itens: [item()] } } });
   try {
-    await t.v.reavaliar(T0);
-    assert.equal(t.v.estado().incidentes.length, 0);
-    t.dados.luna.desligadas = [];
     await t.v.reavaliar(T0);
     assert.equal(t.v.estado().incidentes.length, 1);
     t.dados.luna = { medido: false };
     await t.v.reavaliar(T0);
     assert.equal(t.v.estado().incidentes.length, 1, 'não medido não fecha');
     assert.equal(t.v.estado().naFaixaIds.size, 1, 'o incidente já aberto continua na faixa: sem medir, não se diz que se recuperou');
-  } finally { t.limpa(); }
-});
-
-test('preferências ilegíveis: o agente vira não medido, sem abrir incidente novo', async () => {
-  const t = montar({ dados: { luna: { itens: [item()], desligadas: null } } });
-  try {
-    await t.v.reavaliar(T0);
-    assert.equal(t.v.estado().incidentes.length, 0);
-    await t.v.reavaliar(T0);
-    const r = await chamar(t.v, 'GET', '/api/v1/integracoes', { papel: 'dono' });
-    assert.deepEqual(r.json.naoMedidos, [{ agente: 'luna', agenteNome: 'Luna', motivo: 'as preferências do agente estão ilegíveis' }]);
   } finally { t.limpa(); }
 });
 
@@ -186,6 +171,8 @@ test('automático: desligado de fábrica não envia; ligado envia 1 por incident
     assert.equal(c.agente, 'admin');
     assert.equal(c.corpo.submit, true);
     assert.equal(c.corpo.injectWhenIdle, true);
+    assert.match(c.corpo.text, /^<plataforma recado="integracoes-vigia" tipo="aviso" ts="[^"]+">O DG Claw detectou uma integração com defeito\./);
+    assert.match(c.corpo.text, /<\/plataforma>$/);
     assert.match(c.corpo.text, /Agente luna/);
     await v.reavaliar(T0 + 60000);
     assert.equal(t.runner.chamadas.length, 1, 'um por incidente');
@@ -452,7 +439,7 @@ test('anonimização: se o filtro lança, não envia, não reserva e loga', asyn
 });
 
 test('incidentes.json existe mas está ruim: guarda cópia, suspende o automático até o dono mexer no interruptor', async () => {
-  for (const ruim of ['{quebrado', JSON.stringify({ versao: 1, outraCoisa: true })]) {
+  for (const ruim of ['{quebrado', JSON.stringify({ versao: 1, outraCoisa: true }), 'null', JSON.stringify({ incidentes: [], silenciadas: {} })]) {
     const t = montar({ dados: { luna: { itens: [item()] } } });
     try {
       const dir = path.join(t.dataDir, 'integracoes');
@@ -462,6 +449,7 @@ test('incidentes.json existe mas está ruim: guarda cópia, suspende o automáti
       fs.writeFileSync(path.join(dir, 'automatico.json'), JSON.stringify({ ligado: true, alteradoEm: iso(T0), envios: [] }));
       const v = t.criar();
       assert.equal(fs.readFileSync(path.join(dir, 'incidentes.json.corrompido'), 'utf8'), ruim, 'a cópia nova sobrescreve a antiga');
+      assert.equal((await chamar(v, 'GET', '/api/v1/integracoes', { papel: 'dono' })).json.automatico.suspenso, true, 'a API diz que está suspenso');
       await v.reavaliar(T0);
       assert.equal(t.runner.chamadas.length, 0, 'suspenso: não envia');
       assert.ok(t.logs.some((l) => /suspenso/.test(l) && /incidentes\.json/.test(l)));

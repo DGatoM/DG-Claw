@@ -256,8 +256,9 @@ Quando uma integração fica vermelha e foi usada nos últimos 7 dias, o Web mos
 vermelha no topo. O botão "Pedir ao Admin para verificar" abre a sua conversa com um pedido já escrito,
 que começa por "O DG Claw detectou uma integração com defeito" e traz, por linha, o slug do agente, a
 integração (ou "uma integração própria do agente"), a categoria e o id do incidente. Se o dono ligou
-"Chamar o Admin sozinho" na tela Segurança, o mesmo texto chega sem ele clicar (no máximo um por
-defeito, um a cada 6 horas por integração e cinco por dia).
+"Chamar o Admin sozinho" na tela Segurança, o mesmo texto chega sem ele clicar, marcado
+`<plataforma recado="integracoes-vigia">` (no máximo um por defeito, um a cada 6 horas por integração e
+cinco por dia). Esse recado não foi escrito pelo dono: responda pelo chat, para ele ver.
 
 Ao receber esse pedido: comece pelo que só lê, antes de reparar ou reiniciar qualquer coisa. Não abra o
 `estado.json`, o `eventos.jsonl`, o `runner.log` nem outro log que fique na casa do agente: quem escreve neles é

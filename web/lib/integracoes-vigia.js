@@ -120,7 +120,12 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
       log('erro', `Integrações: não consegui ler ${arq} (${e.code || e.message}); começo vazio. Confira as permissões da pasta ${dir}.`);
       return null;
     }
-    try { return JSON.parse(bruto); } catch (e) {
+    try {
+      const v = JSON.parse(bruto);
+      // arquivo que existe com o conteúdo `null` não é arquivo ausente: é ilegível para o vigia
+      if (v === null && existiaIlegivel) { existiaIlegivel.valor = true; existiaIlegivel.bruto = bruto; }
+      return v;
+    } catch (e) {
       if (existiaIlegivel) { existiaIlegivel.valor = true; existiaIlegivel.bruto = bruto; }
       log('erro', `Integrações: ${arq} está com o JSON quebrado (${e.message}); começo vazio. O arquivo será regravado na próxima mudança.`);
       return null;
@@ -161,11 +166,12 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
     const ruim = { valor: false, bruto: null };
     const i = lerJsonOuVazio(arqIncidentes, ruim);
     if (ruim.valor) protegeIncidentesRuim(ruim);
-    if (i && Array.isArray(i.incidentes)) {
+    const formatoOk = !!i && typeof i === 'object' && Array.isArray(i.incidentes) && (i.silenciadas === undefined || Array.isArray(i.silenciadas));
+    if (formatoOk) {
       incidentes = i.incidentes.filter((x) => x && typeof x.id === 'string' && typeof x.agente === 'string' && RX_SLUG.test(x.agente) && typeof x.integracao === 'string' && RX_ID.test(x.integracao))
         .map((x) => ({ id: x.id, agente: x.agente, integracao: x.integracao, categoria: categoriaDe(x.categoria), abertoEm: String(x.abertoEm), adiadoAte: x.adiadoAte || null, pedidoAutomaticoEm: x.pedidoAutomaticoEm || null, instancia: typeof x.instancia === 'string' ? x.instancia : null }));
       silenciadas = Array.isArray(i.silenciadas) ? i.silenciadas.filter((s) => s && typeof s.agente === 'string' && RX_SLUG.test(s.agente) && typeof s.integracao === 'string' && RX_ID.test(s.integracao)).map((s) => ({ agente: s.agente, integracao: s.integracao, instancia: typeof s.instancia === 'string' ? s.instancia : null })) : [];
-    } else if (i) {
+    } else if (i !== null) {
       log('erro', `Integrações: ${arqIncidentes} não tem o formato esperado; começo vazio.`);
       protegeIncidentesRuim({ bruto: JSON.stringify(i) });
     }
@@ -216,6 +222,9 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
       log('erro', `Integrações: o pedido automático ao Admin para ${rotulo} não saiu porque o filtro de anonimização falhou (${e.message}). Confira a configuração de anonimização do Admin; peça pelo botão "Pedir ao Admin para verificar".`);
       return null;
     }
+    // Mesmo envelope dos outros recados que o Web injeta sozinho (lembretes, login): <plataforma ...> diz que veio do sistema,
+    // não do dono. O Claude e o Codex já o reconhecem (web/lib/thread.js e web/lib/rollout.js).
+    texto = `<plataforma recado="integracoes-vigia" tipo="aviso" ts="${new Date(agoraMs).toISOString()}">${texto.replace(/</g, '&lt;')}</plataforma>`;
     const em = new Date(agoraMs).toISOString();
     // Reserva e grava ANTES de chamar o runner: se o Web cair no meio do envio, o disco já diz que foi enviado
     // e o pedido não sai duas vezes. Se não der para gravar a reserva, não envia.
@@ -292,23 +301,15 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
         for (const inc of incidentes) if (inc.agente === ag.slug) faixa.add(inc.id);
         continue;
       }
-      const listaDesligadas = L.lerDesligadas(ag);
-      if (listaDesligadas === null) {
-        // preferências existem mas não dá para ler: não se abre incidente, e os abertos continuam à vista
-        nao.push({ agente: ag.slug, motivo: 'as preferências do agente estão ilegíveis' });
-        for (const inc of incidentes) if (inc.agente === ag.slug) faixa.add(inc.id);
-        continue;
-      }
-      const desligadas = new Set(listaDesligadas);
       const porId = new Map(lido.itens.map((it) => [it.id, it]));
-      // fecha o que ficou verde, foi desligado ou sumiu
+      // fecha o que ficou verde ou sumiu
       incidentes = incidentes.filter((inc) => {
         if (inc.agente !== ag.slug) return true;
         const it = porId.get(inc.integracao);
-        return !!it && it.estado !== 'verde' && !desligadas.has(inc.integracao);
+        return !!it && it.estado !== 'verde';
       });
       for (const it of lido.itens) {
-        if (it.estado !== 'vermelho' || desligadas.has(it.id) || !elegivel(it, agoraN)) continue;
+        if (it.estado !== 'vermelho' || !elegivel(it, agoraN)) continue;
         if (ehSilenciada(ag.slug, it.id)) continue;
         let inc = incidentes.find((i) => i.agente === ag.slug && i.integracao === it.id);
         if (!inc) {
@@ -392,7 +393,7 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
     }));
     return {
       ok: true, faixa, pedido: textoDoPedido(lista, registro, catalogo),
-      automatico: { ligado: automatico.ligado },
+      automatico: { ligado: automatico.ligado, suspenso: automatico.suspenso === true },
       silenciadas: silenciadas.map((s) => ({ agente: s.agente, integracao: s.integracao })),
       naoMedidos: naoMedidos.map((n) => ({ agente: n.agente, agenteNome: nomeDoAgente(n.agente), motivo: n.motivo })),
     };

@@ -30,9 +30,8 @@ Relê o estado de todos os agentes e devolve o que está na faixa agora.
 }
 ```
 
-- Um incidente abre quando a integração está `vermelha`, não foi desligada pelo dono na aba
-  Integrações do painel do agente e teve **tentativa real** (ou, sem ela, algum evento) nos últimos 7 dias.
-  Fecha quando a integração volta ao verde, é desligada, some da lista ou o agente sai do registro.
+- Um incidente abre quando a integração está `vermelha` e teve **tentativa real** (ou, sem ela, algum evento) nos últimos 7 dias.
+  Fecha quando a integração volta ao verde, some da lista ou o agente sai do registro.
   Amarelo ou "sem uso recente" não fecha o incidente, mas ele sai da faixa.
 - Um incidente por agente e integração. O id é gerado no host. Recarregar a página ou reiniciar o Web
   não duplica nada (`<DGCLAW_WEB_DATA>/integracoes/incidentes.json`, modo 0600). Se esse arquivo
@@ -100,7 +99,7 @@ O Web roda como root e o `estado.json` é escrito pelo agente. A leitura (`web/l
    itens, ids por formato, resultados pela lista fechada) e, em qualquer falha, devolve "não medido" com um
    motivo fixo, nunca uma lista verde. Arquivo ou pasta inexistente é lista vazia (medido).
 
-As integrações que o dono desligou vêm de `preferencias.json` no mesmo caminho, lido do mesmo modo (falha = nenhuma desligada).
+O Web não lê `preferencias.json`: "Desligar no mapa", no painel do agente, só muda o desenho do mapa. O que cala alerta e pedido ao Admin é o "Silenciar" da faixa, guardado no host.
 
 ## GET /api/v1/integracoes/docs.md
 

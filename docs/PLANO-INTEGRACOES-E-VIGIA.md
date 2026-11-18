@@ -204,7 +204,8 @@ só na passiva.
   fiscal `file-text`, CRM `users`, agenda `calendar`, voz `volume`, IA `sparkle`, desconhecido
   `link`. Ícone que faltar entra no sprite pelo processo do `docs/DESIGN-SYSTEM.md`.
 - Tocar num nó abre o cartão: estado em português, última vez que funcionou, último problema
-  (pela categoria), quais skills usam, e o botão de desligar.
+  (pela categoria), quais skills usam, e o botão de desligar. Desligar só muda o mapa: o Web não lê
+  essa preferência, e o que cala o alerta e o pedido ao Admin é o "Silenciar" da faixa.
 - **Modo aula:** mostra só as integrações que estão funcionando. Nunca pinta de verde o que não
   está.
 - Celular: os nós viram uma lista com a bolinha e a palavra do estado, embaixo da foto.

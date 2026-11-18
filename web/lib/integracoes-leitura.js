@@ -145,20 +145,4 @@ function lerEstado(agente) {
   }
 }
 
-/**
- * Ids que o dono desligou no painel. Arquivo ausente vale como "nenhuma desligada". Arquivo que existe mas
- * está ilegível ou inválido devolve null: o vigia trata o agente como não medido, em vez de abrir incidente.
- */
-function lerDesligadas(agente) {
-  try {
-    const r = lerTexto(agente, 'preferencias.json');
-    if (r.ausente) return [];
-    const j = JSON.parse(r.texto);
-    if (!j || typeof j !== 'object' || !Array.isArray(j.desligadas)) return null;
-    return j.desligadas.filter((x) => typeof x === 'string' && ID_RE.test(x));
-  } catch (_) {
-    return null;
-  }
-}
-
-module.exports = { lerEstado, lerDesligadas, validarEstado, MAX_BYTES, ID_RE };
+module.exports = { lerEstado, validarEstado, MAX_BYTES, ID_RE };

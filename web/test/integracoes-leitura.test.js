@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { lerEstado, lerDesligadas, MAX_BYTES } = require('../lib/integracoes-leitura');
+const { lerEstado, MAX_BYTES } = require('../lib/integracoes-leitura');
 
 const souRoot = typeof process.getuid === 'function' && process.getuid() === 0;
 const UID_AGENTE = 65534;
@@ -152,21 +152,6 @@ test('esquema inválido e JSON quebrado: recusa', semUidDoAgente, () => {
     const c = casa({ estado: t });
     try { ruim(lerEstado(c.agente)); } finally { limpa(c); }
   }
-});
-
-test('preferencias.json: lista as desligadas; falha vira nenhuma', semUidDoAgente, () => {
-  const c = casa({});
-  try {
-    assert.deepEqual(lerDesligadas(c.agente), []);
-    fs.writeFileSync(path.join(c.pasta, 'preferencias.json'), JSON.stringify({ desligadas: ['whatsapp', 'Ruim!', 7] }));
-    c.entrega();
-    assert.deepEqual(lerDesligadas(c.agente), ['whatsapp']);
-    fs.writeFileSync(path.join(c.pasta, 'preferencias.json'), '{quebrado');
-    assert.equal(lerDesligadas(c.agente), null, 'existe mas está quebrado: null (não medido), não "nenhuma desligada"');
-    fs.writeFileSync(path.join(c.pasta, 'preferencias.json'), JSON.stringify({ outra: 1 }));
-    c.entrega();
-    assert.equal(lerDesligadas(c.agente), null, 'existe mas sem a lista: null');
-  } finally { limpa(c); }
 });
 
 test('estado.json: id que não é texto ou que se repete recusa a lista inteira', semUidDoAgente, () => {

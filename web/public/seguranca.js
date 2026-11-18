@@ -402,12 +402,15 @@
   }
 
   /* ── chamar o Admin sozinho ─────────────────────────────────────────────── */
-  const auto = { ligado: null, erro: null, confirmando: false };
+  const auto = { ligado: null, suspenso: false, erro: null, confirmando: false };
+  const TEXTO_SUSPENSO = 'O pedido automático está suspenso: o arquivo de incidentes estava ilegível; confira incidentes.json.corrompido. Mexa no interruptor abaixo para retomar.';
 
   function pintaAutoAdmin() {
     const estado = $('autoAdminEstado'); const aviso = $('autoAdminAviso'); const acoes = $('autoAdminAcoes');
     if (!estado) return;
     acoes.textContent = '';
+    const susp = $('autoAdminSuspenso');
+    if (susp) { susp.textContent = auto.suspenso ? TEXTO_SUSPENSO : ''; susp.hidden = !auto.suspenso; }
     if (auto.ligado === null) {
       estado.textContent = auto.erro || 'Conferindo…';
       aviso.hidden = true;
@@ -433,7 +436,7 @@
 
   async function carregaAutoAdmin() {
     const r = await R.chama(buscar, 'GET', '/api/v1/integracoes');
-    if (r.ok && r.json && r.json.automatico && typeof r.json.automatico.ligado === 'boolean') { auto.ligado = r.json.automatico.ligado; auto.erro = null; }
+    if (r.ok && r.json && r.json.automatico && typeof r.json.automatico.ligado === 'boolean') { auto.ligado = r.json.automatico.ligado; auto.suspenso = r.json.automatico.suspenso === true; auto.erro = null; }
     else { auto.ligado = null; auto.erro = 'Não consegui ler o estado do Admin automático. ' + (r.erro || ''); }
     pintaAutoAdmin();
   }
@@ -444,6 +447,7 @@
     const r = await R.chama(buscar, 'POST', '/api/v1/integracoes/automatico', corpo);
     if (!r.ok) { msgAuto('Não consegui mudar: ' + r.erro, 'erro'); return; }
     auto.ligado = !!(r.json && r.json.automatico && r.json.automatico.ligado);
+    auto.suspenso = false;   // mexer no interruptor retoma o pedido automático
     auto.confirmando = false;
     pintaAutoAdmin();
     msgAuto(auto.ligado ? 'Ligado.' : 'Desligado.', 'ok');
