@@ -1062,6 +1062,19 @@ test("subagente: a permissão pedida por ele aponta para a ferramenta dele, não
   assert.equal(s.estado.pendenteId, "tu-bash");
 });
 
+test("subagente em primeiro plano: depois da permissão ele segue, e o Stop da principal ainda leva a idle", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  hook("PreToolUse", { toolName: "Agent", toolUseId: "tu-agent" });
+  hook("PreToolUse", { toolName: "Bash", toolUseId: "tu-bash", ...SUB });
+  hook("Notification");
+  assert.equal(s.estado.status, "waiting_input");
+  hook("PreToolUse", { toolName: "Read", toolUseId: "tu-read", ...SUB });
+  assert.equal(s.estado.status, "working", "com a sessão em waiting_input o evento do subagente segue o caminho normal");
+  hook("Stop");
+  await esperarAte(() => s.estado.status === "idle", STOP_CONFIRM_MS + 6_000, "o Stop da principal confirmar");
+});
+
 test("subagente: a pergunta ao dono (AskUserQuestion) continua valendo", async () => {
   const { s, hook } = await novaComRedeCurta(60_000);
   hook("UserPromptSubmit");

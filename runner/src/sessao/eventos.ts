@@ -59,8 +59,11 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
   // renova a atividade (o relógio de suspensão dos cards não pode dormir um card com subagente trabalhando) e
   // guarda o id da ferramenta (o Notification de permissão usa o do último PreToolUse, que pode ser o do subagente).
   // A pergunta ao dono (AskUserQuestion) continua valendo, porque o turno só segue quando ele responde.
+  // Com a sessão em waiting_input o filtro não vale: é o subagente em primeiro plano seguindo depois de uma
+  // permissão (o de segundo plano não abre diálogo), e o caminho normal o devolve a working, como antes.
   if (
     payload.subagentId &&
+    s.estado.status !== "waiting_input" &&
     (payload.event === "PreToolUse" || payload.event === "PostToolUse") &&
     payload.toolName !== "AskUserQuestion"
   ) {

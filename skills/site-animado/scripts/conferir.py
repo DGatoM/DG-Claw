@@ -17,9 +17,13 @@ def _autoembrulho():
     args = [exe]
     if not os.environ.get("DGCLAW_PESADO_TIMEOUT"):
         args += ["--timeout", "600"]
-    # sys.orig_argv guarda as opções do interpretador (ex.: -I); sem elas a segunda execução perderia o isolamento.
-    original = getattr(sys, "orig_argv", None) or [sys.executable, *sys.argv]
-    os.execv(exe, args + ["--", sys.executable, *original[1:]])
+    # Reexecuta ESTE arquivo (não o programa que o chamou) e mantém as opções de isolamento do interpretador.
+    if sys.flags.isolated:
+        opcoes = ["-I"]
+    else:
+        opcoes = [o for o, ligada in (("-E", sys.flags.ignore_environment), ("-s", sys.flags.no_user_site),
+                                      ("-P", getattr(sys.flags, "safe_path", False))) if ligada]
+    os.execv(exe, args + ["--", sys.executable, *opcoes, os.path.abspath(__file__), *sys.argv[1:]])
 
 def main():
     ap = argparse.ArgumentParser()

@@ -79,6 +79,13 @@ if [ -n "${DGCLAW_PESADO:-}" ]; then exec -- "$@"; fi
 export DGCLAW_PESADO=1
 
 cpus=$(nproc 2>/dev/null || echo 1)
+# O nproc do Ubuntu 24.04 não enxerga a cota de CPU do container (cpu.max): sem isto, 32 threads de numpy
+# num container de 1 CPU.
+read -r cota periodo < /sys/fs/cgroup/cpu.max 2>/dev/null || cota=max
+if [[ "${cota:-max}" =~ ^[0-9]+$ ]] && [[ "${periodo:-}" =~ ^[0-9]+$ ]] && [ "$periodo" -gt 0 ]; then
+  cpus_cota=$(( (cota + periodo - 1) / periodo ))
+  if [ "$cpus_cota" -ge 1 ] && [ "$cpus_cota" -lt "$cpus" ]; then cpus=$cpus_cota; fi
+fi
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-$cpus}" OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-$cpus}" \
        MKL_NUM_THREADS="${MKL_NUM_THREADS:-$cpus}" NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-$cpus}" \
        OPENCV_FOR_THREADS_NUM="${OPENCV_FOR_THREADS_NUM:-$cpus}"
@@ -108,9 +115,10 @@ recolher() {
       kill -TERM "$pid" 2>/dev/null || true
       sleep 0.5
       kill -KILL "$pid" 2>/dev/null || true
-      # O lançador pode ter criado o scope e um auxiliar entre a primeira parada e o sinal: para de novo.
-      systemctl --user stop "$unidade.scope" >/dev/null 2>&1 || true
     fi
+    # Cancelamento antes do fim: o lançador pode ter criado o scope e um auxiliar depois da primeira parada
+    # (inclusive já tendo saído). Para de novo pelo nome da unidade.
+    if [ -z "$esperado" ]; then systemctl --user stop "$unidade.scope" >/dev/null 2>&1 || true; fi
   elif [ -n "$pid" ]; then
     # Também o próprio pid enquanto o wait não terminou: cobre a janela em que o grupo ainda não existe.
     if [ -z "$esperado" ]; then kill -TERM "$pid" 2>/dev/null || true; fi
