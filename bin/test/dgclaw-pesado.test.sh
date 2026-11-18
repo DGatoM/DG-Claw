@@ -85,6 +85,7 @@ teto() { printf '%s\n' "$1" > "$TMP/memmax"; XDG_RUNTIME_DIR="$TMP/run2" PATH="$
 [ "$(teto max)" = "MemoryMax=2500M" ] && ok "memory.max = max -> 2500M" || mal "max: $(teto max)"
 [ "$(teto 17179869184)" = "MemoryMax=2500M" ] && ok "container grande -> limitado a 2500M" || mal "16 GiB: $(teto 17179869184)"
 [ "$(XDG_RUNTIME_DIR="$TMP/run2" PATH="$TMP/bin:$PATH" "$PESADO" --mem 1G -- true 2>/dev/null)" = "MemoryMax=1G" ] && ok "--mem manda sobre o padrão" || mal "--mem 1G"
+[ "$(XDG_RUNTIME_DIR="$TMP/run2" PATH="$TMP/bin:$PATH" "$PESADO" --mem 400m -- true 2>/dev/null)" = "MemoryMax=400M" ] && ok "sufixo minúsculo vira maiúsculo (o systemd só aceita 400M)" || mal "--mem 400m"
 
 echo "dgclaw-pesado: recolhe o que sobrou"
 sleep 300 & FORA=$!

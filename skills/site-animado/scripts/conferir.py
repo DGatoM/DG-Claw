@@ -17,7 +17,9 @@ def _autoembrulho():
     args = [exe]
     if not os.environ.get("DGCLAW_PESADO_TIMEOUT"):
         args += ["--timeout", "600"]
-    os.execv(exe, args + ["--", sys.executable, *sys.argv])
+    # sys.orig_argv guarda as opções do interpretador (ex.: -I); sem elas a segunda execução perderia o isolamento.
+    original = getattr(sys, "orig_argv", None) or [sys.executable, *sys.argv]
+    os.execv(exe, args + ["--", sys.executable, *original[1:]])
 
 def main():
     ap = argparse.ArgumentParser()

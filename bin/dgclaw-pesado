@@ -61,7 +61,9 @@ if [ -z "$mem" ] && [ -z "$mem_dado" ]; then
       ;;
   esac
 fi
-if ! [[ "$mem" =~ ^[0-9]+[KMGkmg]?$ ]]; then
+# O systemd só aceita o sufixo em maiúscula (1G; 1g dá erro).
+mem="${mem^^}"
+if ! [[ "$mem" =~ ^[0-9]+[KMG]?$ ]]; then
   echo "dgclaw-pesado: teto de memória inválido: '$mem' (use algo como 1500M ou 2G)" >&2
   exit 2
 fi
@@ -106,6 +108,8 @@ recolher() {
       kill -TERM "$pid" 2>/dev/null || true
       sleep 0.5
       kill -KILL "$pid" 2>/dev/null || true
+      # O lançador pode ter criado o scope e um auxiliar entre a primeira parada e o sinal: para de novo.
+      systemctl --user stop "$unidade.scope" >/dev/null 2>&1 || true
     fi
   elif [ -n "$pid" ]; then
     # Também o próprio pid enquanto o wait não terminou: cobre a janela em que o grupo ainda não existe.
