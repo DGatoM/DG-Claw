@@ -7,6 +7,36 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção nos cards: o agente só diz que o card está trabalhando depois que o pedido virou turno.** Num caso real, o
+agente abriu um card, o `dgclaw-card abrir` respondeu "Card aberto" assim que o texto entrou na fila (o runner responde
+202 antes de qualquer Enter), o agente avisou o dono, o pedido nunca virou turno e a tela de Sessões mostrou a sessão
+como "concluída" com a conversa vazia. Dois minutos depois o agente fechou o card por achar que tinha travado, e o
+pedido se perdeu. O que mudou:
+
+- O runner passou a informar `turnosAceitos` no estado de cada sessão (quantos pedidos o CLI já aceitou como turno
+  desde que o runner subiu). É só leitura: a lógica de envio e de recibo não mudou.
+- `dgclaw-card abrir` espera até 60 s (`--espera-turno SEG`, 0 desliga) o primeiro turno. Sem turno, sai com o código
+  novo 9 e diz que o card existe, que não está trabalhando e como esperar ou reenviar. Com turno, a saída é a de sempre.
+- `dgclaw-card estado` diz "sem primeiro turno ainda" e `dgclaw-card ler` diz o motivo da conversa vazia (na fila,
+  digitado e sem turno, ou dormindo). `dgclaw-card fechar` recusa um card que nunca teve turno (código 10) e pede
+  `--forcar`.
+- Na aba Sessões, um card sem primeiro turno aparece como "esperando o primeiro turno" (grupo Paradas, visível em
+  "Ativas"), nunca como concluído. A conversa vazia mostra o motivo no lugar de "Esta sessão ainda não tem mensagens".
+- `GET /conversation` do runner, quando a sessão atual ainda não gravou nada e existe uma sessão anterior, devolve as
+  mensagens da anterior com um `aviso` no corpo (Claude pelo transcript, Codex pelo rollout). A tela mostra o aviso.
+
+No Codex vale igual: o contador `turnosAceitos` conta o `task_started` e o nascimento do rollout, o `dgclaw-card` é o
+mesmo comando e a busca da conversa anterior usa o rollout.
+
+### Como atualizar (primeiro turno do card)
+
+Nesta versão há uma instrução nova para o seu agente entender quando um card realmente começou: só avisar você que o card
+está trabalhando depois que o `dgclaw-card abrir` terminar bem, e nunca fechar um card que não respondeu sem contar a
+você. O `dgclaw atualizar` padrão já recria os agentes com o comando novo. Se você personalizou as instruções do agente,
+peça ao Admin para juntar a instrução nova a elas, sem apagar o que você escreveu. O `turnosAceitos` volta a zero quando o
+runner reinicia, então depois de uma reinicialização um card antigo e ocioso pode pedir `--forcar` para fechar, caso a
+conversa dele também esteja vazia.
+
 **Correção: render de vídeo não esgota os processos do agente.** Um agente chegou a ficar mais de 30 minutos parado num
 render de vídeo porque o container tem um limite de processos (as threads contam), e o Chrome da Tela, o Claude Code e
 os Chromium novos que as tentativas de render abriam chegaram ao teto ("Resource temporarily unavailable" e "Target

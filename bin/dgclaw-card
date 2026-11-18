@@ -6,6 +6,9 @@
 #   dgclaw-card abrir --provedor codex|claude [--auth assinatura|api|token] [--modelo M] --titulo "T"
 #                     (--pedido "texto" | --pedido-arquivo F | pedido pelo stdin)
 #                     [--monitor --entregue "criterio de entregue" [--cada MIN]]
+#                     [--espera-turno SEG]
+#                     --espera-turno: depois de entregar o pedido, o "abrir" espera ate SEG segundos (padrao 60,
+#                     0 desliga) o pedido virar o primeiro turno do card. Sem turno, sai com 9.
 #                     --monitor liga o MODO MONITOR neste card (docs/MODO-MONITOR.md): um vigia sem modelo
 #                     que so acorda voce quando o card para, pede algo, trava ou erra. --entregue e
 #                     obrigatorio com --monitor; --cada e o intervalo em minutos (padrao 10).
@@ -14,7 +17,7 @@
 #   dgclaw-card esperar <id> [--max SEGUNDOS]        (padrao 900; olha a cada 5 s)
 #   dgclaw-card ler <id> [--n N]                     (padrao 4 mensagens)
 #   dgclaw-card listar                               (so os cards criados por esta via)
-#   dgclaw-card fechar <id>
+#   dgclaw-card fechar <id> [--forcar]               (card que nunca teve turno: pede --forcar)
 #   dgclaw-card ajuda
 #
 # Variaveis de ambiente:
@@ -43,6 +46,9 @@
 #      Se o card abriu mas o "dgclaw-monitor add" falhou, a saida e 8: o card esta aberto e SEM monitor,
 #      e a mensagem traz o comando para ligar o monitor a mao.
 #   8  (so no "abrir --monitor") o card abriu e o pedido foi entregue, mas o monitor nao ligou
+#   9  (so no "abrir") o card foi criado e o texto entrou na fila, mas o pedido NAO virou turno dentro da espera
+#      (--espera-turno): o card nao esta trabalhando. Nao feche: espere ou reenvie com "mandar".
+#  10  (so no "fechar") o card nunca teve turno; fechar joga fora o pedido. Repita com --forcar se for isso mesmo.
 set -euo pipefail
 umask 077
 
@@ -160,7 +166,7 @@ enviar_texto() { # $1 id ; texto em TEXTO
 
 # --- subcomandos ----------------------------------------------------------
 cmd_abrir() {
-  local provedor="" auth="" modelo="" titulo="" pedido="" arquivo="" monitor=0 entregue="" cada=""
+  local provedor="" auth="" modelo="" titulo="" pedido="" arquivo="" monitor=0 entregue="" cada="" espera=60
   while [ $# -gt 0 ]; do
     case "$1" in
       --provedor) provedor="${2:-}"; shift 2 || die "falta o valor de --provedor." ;;
@@ -172,11 +178,13 @@ cmd_abrir() {
       --monitor) monitor=1; shift ;;
       --entregue) entregue="${2:-}"; shift 2 || die "falta o valor de --entregue." ;;
       --cada) cada="${2:-}"; shift 2 || die "falta o valor de --cada." ;;
+      --espera-turno) espera="${2:-}"; shift 2 || die "falta o valor de --espera-turno." ;;
       *) die "opcao desconhecida em 'abrir': '$1'. Veja 'dgclaw-card ajuda'." ;;
     esac
   done
   case "$provedor" in codex|claude) ;; *) die "--provedor precisa ser codex ou claude (recebido: '${provedor}')." ;; esac
   case "$auth" in ""|assinatura|api|token) ;; *) die "--auth precisa ser assinatura, api ou token (recebido: '$auth')." ;; esac
+  [[ "$espera" =~ ^[0-9]+$ ]] || die "--espera-turno precisa ser um numero de segundos, 0 para desligar (recebido: '$espera'). Nenhum card foi aberto."
   # Confere o monitor ANTES de criar o card: erro de uso nao pode deixar card aberto para tras.
   if [ "$monitor" = 1 ]; then
     [ -n "${entregue//[[:space:]]/}" ] || die "--monitor precisa de --entregue \"criterio de entregue\": diga como saber que o card terminou (ex.: --entregue \"o relatorio salvo em /home/agente/relatorio.md\"). Nenhum card foi aberto."
@@ -212,9 +220,34 @@ cmd_abrir() {
       HTTP="$http_input"; RESP="$resp_input"
       falha_geral ;;
   esac
+  # O /input responde 202 assim que o texto entra na fila, antes de o CLI aceitar o pedido como turno.
+  # So dizemos "card aberto" depois de ver o primeiro turno; senao o agente avisa o dono de um trabalho que nao existe.
+  [ "$espera" = 0 ] || esperar_primeiro_turno "$id" "$espera"
   echo "$id"
   echo "Card aberto em $(nome_do_provedor "$provedor"). Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
   [ "$monitor" = 0 ] || ligar_monitor "$id" "$entregue" "$cada"
+}
+
+# Espera o pedido virar turno: turnosAceitos > 0 ou status working. Runner que nao informa turnosAceitos
+# (versao antiga) nao permite essa conferencia: segue sem esperar. Sem turno no prazo, sai com 9.
+esperar_primeiro_turno() { # $1 id ; $2 segundos
+  local inicio=$SECONDS passo="${DGCLAW_CARD_INTERVALO:-5}" turnos status
+  [ "$passo" = 5 ] && passo=1
+  while :; do
+    if chamar GET "/api/agents/$1"; then
+      case "$HTTP" in
+        2??)
+          turnos="$(campo .data.turnosAceitos)"; status="$(campo .data.status)"
+          [ -n "$turnos" ] || return 0
+          if [ "$turnos" != 0 ] || [ "$status" = working ]; then return 0; fi
+          [ "$status" != errored ] || CODIGO=6 die "o card $1 foi criado, mas parou com erro antes de o pedido virar turno: $(campo .data.error). Veja 'dgclaw-card estado $1'. Nao diga ao dono que ele esta trabalhando." ;;
+      esac
+    fi
+    if [ $((SECONDS - inicio)) -ge "$2" ]; then
+      CODIGO=9 die "o card $1 foi criado, mas o pedido ainda nao virou turno em $2 segundos: ele NAO esta trabalhando. Nao feche o card. Espere com 'dgclaw-card esperar $1' ou reenvie com 'dgclaw-card mandar $1 \"...\"'. Nao diga ao dono que o card esta trabalhando antes de ver o primeiro turno."
+    fi
+    sleep "$passo"
+  done
 }
 
 # Liga o modo monitor num card que acabou de abrir. O dgclaw-monitor mora ao lado deste script.
@@ -259,12 +292,15 @@ provedor_do() {
 
 cmd_estado() {
   validar_id "${1:-}"
-  local id="$1" status titulo fila reason prov auth modelo
+  local id="$1" status titulo fila reason prov auth modelo turnos semturno=""
   chamar_ou_sair GET "/api/agents/$id"
+  turnos="$(campo .data.turnosAceitos)"
+  [ "$turnos" != 0 ] || semturno=1
   status="$(campo .data.status)"; titulo="$(campo .data.sessao.titulo)"; fila="$(campo .data.sessao.fila)"
   reason="$(campo .data.error)"
   chamar_ou_sair GET "/api/provedor?sessao=$id"
   prov="$(campo .provedor)"; auth="$(campo .auth)"; modelo="$(campo .modelo)"
+  [ -z "$semturno" ] || [ "$status" = working ] || status="${status:-desconhecido} (sem primeiro turno ainda: o pedido nao virou turno)"
   echo "$id: ${status:-desconhecido}${fila:+ (na fila: $fila)}${titulo:+ | titulo: $titulo}"
   echo "provedor: ${prov:-?} | auth: ${auth:-?} | modelo: ${modelo:-padrao}"
   [ -z "$reason" ] || echo "aviso do runner: $reason"
@@ -324,10 +360,31 @@ cmd_ler() {
   chamar_ou_sair GET "/api/agents/$id/conversation?limit=$n"
   # Resposta sem JSON conta como conversa vazia; ler de novo mostra o conteudo quando o runner voltar ao normal.
   if [ "$(printf '%s' "$RESP" | jq '.data | length' 2>/dev/null || echo 0)" = "0" ]; then
-    echo "O card $id ainda nao tem mensagens. Se acabou de ser aberto, espere com: dgclaw-card esperar $id"
+    explicar_conversa_vazia "$id"
     return 0
   fi
   printf '%s' "$RESP" | jq -r '.data[] | (if .role == "assistant" then "[resposta]" else "[pedido]" end) + "\n" + .text + "\n"'
+}
+
+# Diz por que a conversa do card esta vazia, pelo estado dele, em vez de so "sem mensagens".
+explicar_conversa_vazia() { # $1 id
+  local id="$1" status fila turnos
+  if chamar GET "/api/agents/$id" && [[ "$HTTP" == 2* ]]; then
+    status="$(campo .data.status)"; fila="$(campo .data.sessao.fila)"; fila="${fila:-0}"; turnos="$(campo .data.turnosAceitos)"
+    if [ "$fila" != 0 ]; then
+      echo "O card $id ainda nao tem mensagens: o pedido esta na fila ($fila) e ainda nao virou turno. Espere com: dgclaw-card esperar $id"
+    elif [ "$status" = resumable ]; then
+      echo "O card $id ainda nao tem mensagens: a sessao esta dormindo (sem terminal aberto). Ela acorda quando voce manda um recado: dgclaw-card mandar $id \"...\""
+    elif [ "$status" = working ]; then
+      echo "O card $id esta trabalhando no primeiro turno, e a conversa ainda nao gravou nada. Espere com: dgclaw-card esperar $id"
+    elif [ "$turnos" = 0 ]; then
+      echo "O card $id nao tem mensagens: o pedido foi digitado e ainda nao virou turno (sem primeiro turno, estado $status). Ele NAO esta trabalhando. Espere com 'dgclaw-card esperar $id' ou reenvie com 'dgclaw-card mandar $id \"...\"'."
+    else
+      echo "O card $id ainda nao tem mensagens para mostrar (estado $status). Se acabou de ser aberto, espere com: dgclaw-card esperar $id"
+    fi
+  else
+    echo "O card $id ainda nao tem mensagens, e nao consegui ler o estado dele. Se acabou de ser aberto, espere com: dgclaw-card esperar $id"
+  fi
 }
 
 cmd_listar() {
@@ -346,8 +403,25 @@ cmd_listar() {
 
 cmd_fechar() {
   validar_id "${1:-}"
-  chamar_ou_sair DELETE "/api/sessoes/$1"
-  echo "Card $1 fechado. A conversa dele continua guardada no disco."
+  local id="$1" forcar=0 turnos
+  shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --forcar) forcar=1; shift ;;
+      *) die "opcao desconhecida em 'fechar': '$1'. Use --forcar." ;;
+    esac
+  done
+  # Card que nunca teve turno nem conversa ainda tem o pedido guardado so na fila ou na caixa de texto:
+  # fechar agora o joga fora. Falha ao conferir nao bloqueia: o DELETE abaixo trata o erro de verdade.
+  if [ "$forcar" = 0 ] && chamar GET "/api/agents/$id" && [[ "$HTTP" == 2* ]]; then
+    turnos="$(campo .data.turnosAceitos)"
+    if [ "$turnos" = 0 ] && chamar GET "/api/agents/$id/conversation?limit=1" && [[ "$HTTP" == 2* ]] \
+      && [ "$(printf '%s' "$RESP" | jq '.data | length' 2>/dev/null || echo 0)" = "0" ]; then
+      CODIGO=10 die "o card $id nunca teve um turno: o pedido dele ainda nao foi aceito. Fechar agora joga o pedido fora. Em vez de fechar, espere com 'dgclaw-card esperar $id' ou reenvie com 'dgclaw-card mandar $id \"...\"', e conte ao dono o que aconteceu. Se for fechar mesmo assim, repita com: dgclaw-card fechar $id --forcar"
+    fi
+  fi
+  chamar_ou_sair DELETE "/api/sessoes/$id"
+  echo "Card $id fechado. A conversa dele continua guardada no disco."
 }
 
 cmd_ajuda() {

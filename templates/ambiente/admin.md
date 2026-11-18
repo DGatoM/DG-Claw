@@ -118,7 +118,11 @@ id="$(dgclaw-card abrir --provedor claude --titulo "Atualização do servidor" -
 dgclaw-card mandar|esperar|ler|listar|fechar ...
 ```
 
-Card de tarefa longa nasce SEMPRE com `--monitor --entregue "<critério>"`, no mesmo turno. Quando
+Card de tarefa longa nasce SEMPRE com `--monitor --entregue "<critério>"`, no mesmo turno. Só diga ao
+dono que o card está trabalhando depois que o `dgclaw-card abrir` sair com 0. Se sair com 9 (o pedido não
+virou turno) ou se o `dgclaw-card ler` continuar sem mensagens depois de um minuto, não feche o card:
+reenvie com `dgclaw-card mandar` e conte ao dono o que aconteceu. Nunca feche um card que não respondeu
+sem avisar o dono. Quando
 chegar uma mensagem **MODO MONITOR**, avise o dono qual card parou, por quê e o que pediu, e
 pergunte se pode continuar. Com o "pode", responda no card com `dgclaw-card mandar`. Entregue
 de verdade: confira, avise e rode `dgclaw-monitor rm <id>`.

@@ -79,6 +79,32 @@ DGCLAW_CARD_INTERVALO=0.3 "$BIN" esperar card-abc123 --max 1 >"$T/o" 2>"$T/e"; c
 ok "esperar estourando o tempo sai com 7" $([ $c = 7 ] && echo 0 || echo 1)
 grep -q "segue trabalhando" "$T/e"; ok "esperar diz que a sessao segue trabalhando" $?
 
+# --- o pedido nao vira turno (202 enfileirado, mas o CLI nunca aceita) -----------------------------
+subir sem-turno
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
+ok "pedido que nao vira turno sai com 9" $([ $c = 9 ] && echo 0 || echo 1)
+grep -q "card card-abc123 foi criado" "$T/e" && grep -q "NAO esta trabalhando" "$T/e" && grep -q "dgclaw-card esperar card-abc123" "$T/e" && grep -q "dgclaw-card mandar card-abc123" "$T/e"; ok "a mensagem diz o id, que nao esta trabalhando e como esperar ou reenviar" $?
+! grep -q "Card aberto" "$T/o"; ok "sem turno nao imprime 'Card aberto'" $?
+"$BIN" estado card-abc123 >"$T/o" 2>"$T/e"; grep -q "sem primeiro turno ainda" "$T/o"; ok "estado de card sem turno diz 'sem primeiro turno ainda'" $?
+"$BIN" ler card-abc123 >"$T/o" 2>"$T/e"; grep -q "ainda nao virou turno" "$T/o" && grep -q "NAO esta trabalhando" "$T/o"; ok "ler de card sem turno diz o motivo (e nao so 'sem mensagens')" $?
+"$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
+ok "fechar card sem turno recusa com 10" $([ $c = 10 ] && echo 0 || echo 1)
+grep -q -- "--forcar" "$T/e" && grep -q "joga o pedido fora" "$T/e"; ok "a recusa explica e pede --forcar" $?
+! grep -q '"metodo":"DELETE"' "$LOG"; ok "a recusa nao chamou o DELETE" $?
+"$BIN" fechar card-abc123 --forcar >"$T/o" 2>"$T/e"; c=$?
+ok "fechar --forcar fecha" $([ $c = 0 ] && echo 0 || echo 1)
+grep -q '"metodo":"DELETE","url":"/api/sessoes/card-abc123"' "$LOG"; ok "--forcar faz o DELETE" $?
+
+# --- o pedido vira turno depois de ~2 s: abrir espera e sai com 0 ---------------------------------
+subir turno-lento
+"$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
+ok "pedido que vira turno em ~2 s sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
+[ "$(head -1 "$T/o")" = "card-abc123" ] && grep -q "Card aberto" "$T/o"; ok "com turno, a saida e a de sempre" $?
+subir sem-turno
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 0 >"$T/o" 2>"$T/e"; c=$?
+ok "--espera-turno 0 desliga a espera (saida 0 mesmo sem turno)" $([ $c = 0 ] && echo 0 || echo 1)
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno abc >/dev/null 2>&1; ok "--espera-turno invalido recusado" $([ $? = 1 ] && echo 0 || echo 1)
+
 # --- limite (429) ---------------------------------------------------------------------------------
 subir limite
 "$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?

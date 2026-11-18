@@ -46,6 +46,8 @@ dgclaw-card esperar "$id" --max 900
 dgclaw-card ler "$id" --n 2
 ```
 
+- O `abrir` só imprime o id e "Card aberto" quando o pedido virou o primeiro turno do card (espera até 60 s).
+  Se a variável `id` ficar vazia, o `abrir` não saiu com 0: leia a mensagem de erro, que traz o id do card.
 - `esperar` serve para card CURTO ou segunda opinião, em que a resposta sai em poucos minutos. Para tarefa
   longa, a sessão principal NÃO espera: abre o card com `--monitor`, fica livre para conversar com o dono
   e deixa o monitor acordá-la (ver "Tarefa longa" abaixo e "Sempre livre para conversar" no seu prompt).
@@ -118,6 +120,12 @@ O comando já escreve a frase pronta. Repasse ao dono em linguagem simples:
 - Código 4 (limite): há cards demais abertos (o padrão desta instalação é 8). Rode `dgclaw-card listar`, feche os que acabaram com
   `dgclaw-card fechar <id>` e tente de novo. Se o dono quiser mais vagas, o limite sobe em
   `RUNNER_MAX_SESSOES_EXTRAS` (quem mantém a máquina ajusta).
+- Código 9 (o pedido não virou turno): o card foi criado e o texto entrou na fila, mas o card NÃO está
+  trabalhando. Não diga ao dono que ele está trabalhando e não feche o card. Espere com
+  `dgclaw-card esperar <id>` ou reenvie com `dgclaw-card mandar <id> --arquivo ...`, e conte ao dono o que
+  aconteceu. O `abrir` espera 60 segundos por isso; `--espera-turno SEG` muda o prazo (0 desliga).
+- Código 10 (`fechar` recusado): o card nunca teve turno, e fechar agora joga o pedido fora. Só use
+  `dgclaw-card fechar <id> --forcar` depois de avisar o dono.
 - Código 5 (sem login): o provedor ainda não está conectado. Peça ao dono para abrir o painel,
   aba Status, cartão Modelo e autenticação, e usar Entrar com a assinatura (ou colar a chave de
   API). Depois repita o pedido.

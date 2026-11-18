@@ -991,6 +991,8 @@
         d.msgs = modo === 'antigos' ? lista.concat(d.msgs) : lista;
         d.antes = res.corpo.antes;
         d.truncado = !!res.corpo.truncado;
+        d.avisoConv = typeof res.corpo.aviso === 'string' ? res.corpo.aviso : '';
+        d.motivoVazio = typeof res.corpo.motivo_vazio === 'string' ? res.corpo.motivo_vazio : '';
         d.carregouConv = true;
       }
     } catch (e) {
@@ -1009,7 +1011,8 @@
     r.convEstado.hidden = false;
     if (d.erroConv) { r.convEstado.textContent = d.erroConv; r.convEstado.className = 'sx-msg erro'; }
     else if (!d.carregouConv) { r.convEstado.textContent = 'Carregando a conversa...'; r.convEstado.className = 'sx-vazio'; }
-    else if (!d.msgs.length) { r.convEstado.textContent = 'Esta sessão ainda não tem mensagens.'; r.convEstado.className = 'sx-vazio'; }
+    else if (!d.msgs.length) { r.convEstado.textContent = d.motivoVazio || 'Esta sessão ainda não tem mensagens.'; r.convEstado.className = 'sx-vazio'; }
+    else if (d.avisoConv) { r.convEstado.textContent = d.avisoConv; r.convEstado.className = 'sx-vazio'; }
     else r.convEstado.hidden = true;
     r.mais.hidden = !(d.truncado && d.antes != null && !d.erroConv);
     const sig = JSON.stringify(d.msgs);

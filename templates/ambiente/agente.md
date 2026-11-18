@@ -96,8 +96,17 @@ tarefa curta direto, e mande a longa para um card do mesmo jeito.
    caminho ou o link da entrega e um resumo de 3 linhas".
    Se o card não abrir (o comando sai com erro), não abandone o pedido: faça a tarefa você mesmo na
    conversa, avise {{DONO}} que vai demorar e por quê, e conte o erro do card.
-2. Responda a {{DONO}} na hora, curto: o que você abriu e que avisa quando terminar. Exemplo: "Abri um
-   card para montar a apresentação. Te aviso aqui quando ficar pronta, pode continuar falando comigo."
+   O `abrir` espera até 60 segundos o pedido virar o primeiro turno do card e só então sai com 0.
+   Sair com 9 quer dizer que o card existe, mas o pedido não virou turno e ele NÃO está trabalhando.
+   O id só é impresso quando o `abrir` sai com 0: se a variável `id` ficar vazia, leia a mensagem de erro,
+   que traz o id do card.
+2. Só diga a {{DONO}} que o card está trabalhando depois que o `dgclaw-card abrir` sair com 0. Aí
+   responda curto: o que você abriu e que avisa quando terminar. Exemplo: "Abri um card para montar a
+   apresentação. Te aviso aqui quando ficar pronta, pode continuar falando comigo." Se o `abrir` sair
+   com 9, ou se o `dgclaw-card ler` continuar sem mensagens depois de um minuto, NÃO feche o card:
+   reenvie o pedido com `dgclaw-card mandar <id> --arquivo /tmp/pedido.md` e conte a {{DONO}} o que
+   aconteceu. Nunca feche um card que não respondeu sem avisar {{DONO}} antes (o `fechar` também recusa,
+   com o código 10, um card que nunca teve turno; só `--forcar` fecha, e isso joga o pedido fora).
 3. Fique livre. **Não use `dgclaw-card esperar` na conversa principal para tarefa longa**: ele prende
    você até o card acabar. Quem acompanha é o monitor, que te acorda quando o card para, termina, pede
    algo ou erra. Se {{DONO}} perguntar como está, olhe com `dgclaw-card estado <id>` e `dgclaw-card ler <id>`.
@@ -148,7 +157,7 @@ dgclaw-card mandar "$id" "texto"     # recado novo no mesmo card
 dgclaw-card esperar "$id" --max 900  # volta quando o card termina o turno
 dgclaw-card ler "$id" --n 2          # as últimas respostas
 dgclaw-card listar                   # os cards abertos
-dgclaw-card fechar "$id"             # fecha (a conversa fica guardada)
+dgclaw-card fechar "$id"             # fecha (a conversa fica guardada); card sem turno pede --forcar
 ```
 
 O pedido é autossuficiente: o card não viu a conversa. Traga objetivo, caminhos completos, o que

@@ -250,10 +250,28 @@ function registrar(router, { CONFIG }) {
     return s.tipo === 'bastidores' ? 'bastidores' : 'card';
   }
 
+  /** O pedido de um card que nunca virou turno: o runner conta `turnosAceitos` (0 = nenhum pedido foi aceito
+   *  pelo CLI) e a conversa não tem nada. Runner antigo não manda o campo: aí não dá para afirmar nada. */
+  function semPrimeiroTurno(ag) {
+    return papelDe(ag) === 'card' && ag.turnosAceitos === 0 && !espacos(ag.lastMessage);
+  }
+
   /** {grupo, estado, motivo, tem_terminal} a partir do status do runner. */
   function estadoDe(ag) {
     const st = ag.status;
     const ferramenta = ag.currentTool ? ` (${ag.currentTool})` : '';
+    // Card que nunca teve turno não "terminou": o pedido ainda não foi aceito. Fica em "parado", que a lista
+    // "Ativas" mostra, e nunca em "concluído" nem em "fechado" (onde sumiria do filtro padrão).
+    if (semPrimeiroTurno(ag) && (st === 'idle' || st === 'completed' || st === 'resumable')) {
+      const dorme = st === 'resumable';
+      const fila = ag.sessao && ag.sessao.fila > 0;
+      return {
+        grupo: 'parado', estado: 'esperando_primeiro_turno', tem_terminal: !dorme,
+        motivo: fila ? 'esperando o primeiro turno: o pedido está na fila' : dorme
+          ? 'esperando o primeiro turno: sessão dormindo, o pedido ainda não virou turno'
+          : 'esperando o primeiro turno: o pedido ainda não foi aceito',
+      };
+    }
     switch (st) {
       case 'waiting_input':
         return { grupo: 'esperando_voce', estado: ag.pendingPermission ? 'pedindo_permissao' : 'esperando_resposta', motivo: 'esperando sua decisão', tem_terminal: true };
@@ -456,6 +474,17 @@ function registrar(router, { CONFIG }) {
     enviarJson(res, 200, corpo);
   }
 
+  function motivoDaConversaVazia(it) {
+    if (it.estado === 'esperando_primeiro_turno') {
+      if (/na fila/.test(it.motivo)) return 'O pedido está na fila e ainda não virou turno. Assim que o CLI aceitar, a conversa aparece aqui.';
+      if (/dormindo/.test(it.motivo)) return 'A sessão está dormindo e o pedido ainda não virou turno. Mande um recado ou use Retomar para acordá-la.';
+      return 'O pedido foi digitado, mas o CLI ainda não o aceitou como turno: o card não está trabalhando. Mande o pedido de novo ou feche o card.';
+    }
+    if (it.grupo === 'fechado') return 'A sessão está dormindo, sem terminal aberto. Ela acorda com um recado ou com Retomar.';
+    if (it.grupo === 'trabalhando') return 'A sessão está trabalhando no primeiro turno e a conversa ainda não gravou nada.';
+    return 'Esta sessão ainda não tem mensagens.';
+  }
+
   /** Página de mensagens: `antes` conta quantas mensagens do fim já foram entregues. */
   async function rotaConversa(req, res, id, query) {
     const it = await itemPorId(id);
@@ -480,10 +509,15 @@ function registrar(router, { CONFIG }) {
       return o;
     });
     const entregues = antes + mensagens.length;
-    enviarJson(res, 200, {
+    const corpo = {
       ok: true, mensagens, antes: entregues,
       truncado: msgs.length >= pedir && pedir < CONVERSA_BUSCA_MAX,
-    });
+    };
+    // O runner avisa quando as mensagens são da sessão anterior (a atual ainda não gravou nada).
+    if (typeof (r.json && r.json.aviso) === 'string' && msgs.length) corpo.aviso = r.json.aviso.slice(0, 300);
+    // Conversa vazia: diz por quê, conforme o estado, em vez de deixar a tela sem explicação.
+    if (!mensagens.length) corpo.motivo_vazio = motivoDaConversaVazia(it);
+    enviarJson(res, 200, corpo);
   }
 
   function resolverPasta(pasta) {

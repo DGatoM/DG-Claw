@@ -1,7 +1,7 @@
 // Runner falso para o teste do dgclaw-card. Grava cada requisicao em $LOG (uma linha JSON com
 // metodo, url, corpo e o cabecalho Authorization) e simula o ciclo de um card:
 // criado dormindo -> /input -> working -> idle com resposta do assistente.
-// Chaves de ambiente: RUNNER_BEARER (token esperado), MODO (normal|limite|sem-login|input-falha|nunca-termina).
+// Chaves de ambiente: RUNNER_BEARER (token esperado), MODO (normal|limite|sem-login|input-falha|nunca-termina|sem-turno|turno-lento).
 const http = require("http");
 const fs = require("fs");
 const LOG = process.env.LOG;
@@ -21,7 +21,9 @@ http.createServer((req, res) => {
     const p = u.pathname;
     const visao = (id) => {
       const c = cards.get(id);
-      return { id, status: c.status, sessao: { tipo: "card", titulo: c.titulo, fila: 0 } };
+      // turno-lento: o pedido so vira turno ~2 s depois do /input (o 202 sai antes, como no runner de verdade).
+      if (c.viraEm && Date.now() >= c.viraEm) { c.viraEm = 0; c.status = "working"; c.turnos = 1; c.polls = 0; }
+      return { id, status: c.status, turnosAceitos: c.turnos, sessao: { tipo: "card", titulo: c.titulo, fila: 0 } };
     };
     let m;
     if (p === "/api/sessoes" && req.method === "POST") {
@@ -30,7 +32,7 @@ http.createServer((req, res) => {
       }
       const b = JSON.parse(corpo);
       const id = b.id || "card-abc123";
-      cards.set(id, { titulo: b.titulo, provedor: b.provedor, auth: b.auth || "assinatura", modelo: b.modelo || "", msgs: [], polls: 0, status: "stopped" });
+      cards.set(id, { titulo: b.titulo, provedor: b.provedor, auth: b.auth || "assinatura", modelo: b.modelo || "", msgs: [], polls: 0, status: "stopped", turnos: 0, viraEm: 0 });
       return j(201, { success: true, data: visao(id) });
     }
     if ((m = p.match(/^\/api\/sessoes\/([^/]+)$/)) && req.method === "DELETE") {
@@ -53,8 +55,11 @@ http.createServer((req, res) => {
       if (m[2] === "/input" && req.method === "POST") {
         if (MODO === "sem-login") return j(409, { success: false, code: "SEM_LOGIN", error: "O agente ainda nao entrou no Codex", howToFix: "login" });
         if (MODO === "input-falha") return j(500, { success: false, code: "ERRO_INTERNO", error: "estourou" });
+        // sem-turno: 202 enfileirado, mas o CLI nunca aceita o pedido (nada na conversa, status parado, turnos 0).
+        if (MODO === "sem-turno") return j(202, { success: true, data: { enfileirado: true, acordando: true } });
         c.msgs.push({ role: "user", text: JSON.parse(corpo).text });
-        c.status = "working"; c.polls = 0;
+        if (MODO === "turno-lento") { c.viraEm = Date.now() + 2000; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
+        c.status = "working"; c.polls = 0; c.turnos = 1;
         return j(202, { success: true, data: { enfileirado: true, acordando: true } });
       }
       if (m[2] === "/conversation") return j(200, { success: true, data: c.msgs.slice(-Number(u.searchParams.get("limit") || 6)) });
