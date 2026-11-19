@@ -25,6 +25,59 @@ comum nada muda. Relatado por aluno da mentoria.
 
 A versão nova do Codex só chega aos seus agentes depois que a imagem deles é reconstruída. O `dgclaw atualizar` já faz isso sozinho (a etapa "reconstruindo a imagem dos agentes", que leva de 10 a 20 minutos), então basta pedir ao Admin, no chat: "atualiza o DG Claw". Quem atualizou só o código e não reconstruiu a imagem continua com o Codex antigo: rode `dgclaw imagem construir --agora` e depois `dgclaw agente recriar <nome>` para cada agente, porque a imagem nova só vale quando o container é recriado. Suas chaves, logins, conversas e agentes continuam como estavam.
 
+**Correção no download do YouTube: yt-dlp atualizado e teste de verdade na saúde.** O agente não conseguia baixar vídeo do
+YouTube por três motivos. O `yt-dlp` da imagem estava velho e sem o `yt-dlp-ejs`, que resolve o desafio de JavaScript do
+YouTube; o comando `yt-dlp` não estava no PATH do serviço do runner; e o YouTube responde "Sign in to confirm you're not a
+bot" para quem não está logado, e a Tela nunca tinha entrado no YouTube. Agora a imagem traz `yt-dlp` 2026.10.26 e `yt-dlp-ejs`
+0.8.0 (os dois com versão fixa), um link em `/usr/local/bin/yt-dlp` e o arquivo de sistema `/etc/yt-dlp.conf` (root:root, 0644)
+com uma linha só, `--js-runtimes node`, para o node da imagem resolver o desafio. Nenhum cookie fica em configuração global, e o
+DG Claw não grava mais nada de `yt-dlp` na casa do agente. As instruções do agente (`templates/ambiente/agente.md`) dizem
+que o agente tira do link só o ID do vídeo (11 caracteres, link de youtube.com ou youtu.be) e monta ele mesmo a URL, sem colar o
+link recebido no comando; quando o YouTube pedir login, ele usa a chamada isolada `yt-dlp --ignore-config --no-plugin-dirs
+--js-runtimes node --cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome/Default" --no-playlist --match-filters
+"availability=public & age_limit=0"` (só para o YouTube, só para vídeo público e sem restrição de idade, nunca com `--cookies
+arquivo`) e, se continuar pedindo login, pede ao dono para entrar pela Tela. O diagnóstico ganhou o item `agente.<slug>.youtube`: um download
+real e pequeno (vídeo de 19 s, o formato menor, teto de 5 MB, pasta temporária que é apagada) feito dentro do container como o
+usuário agente, primeiro sem cookies e, só se o YouTube pedir login, com a chamada isolada e os cookies da Tela. A tela de diagnóstico só lê o último resultado, guardado com horário em
+`youtube-saude.json`, e nunca dispara o download; quem testa é um vigia que roda a primeira vez 2 minutos depois de o painel
+subir e depois a cada 6 horas. Enquanto não há resultado, o item fica "não medido" e diz que o teste roda sozinho a cada 6
+horas. Se o YouTube pedir login, ou o `yt-dlp` avisar que os cookies deixaram de valer (mesmo com o vídeo baixado), o item vira
+"atenção" e diz para abrir a Tela e entrar em youtube.com; se a pasta do Chrome da Tela ainda não existe (a Tela nunca foi
+aberta), o item também vira "atenção", e isso não conta como download ok. Quando a infraestrutura falha (podman ausente,
+container que não aceitou o comando, erro interno), a tentativa é guardada com horário como "não medido" e o último resultado
+concluído fica preservado à parte. Nada do texto de erro do `yt-dlp` vai para a tela, o log ou o arquivo: só o tipo do problema
+(login, Tela não aberta, ausente, tempo ou outro, este com o código de saída), e a saída lida é limitada a 8 KB antes de
+qualquer análise. A checagem roda no container e não depende do motor do agente: vale igual no Claude e no Codex.
+O resultado guardado leva a identidade da instância do agente: se o agente for removido e criado de novo com o mesmo nome, o
+resultado antigo é descartado. Ele vale por 13 horas (duas rodadas e uma margem); depois disso o item volta a "não medido" e diz o
+horário do último teste. O código 125 do podman (por exemplo, container parado) conta como falha de infraestrutura, não como
+problema do YouTube. As instruções do agente limitam a chamada com cookies à checagem anti-robô: vídeo privado, de membros ou com
+restrição de idade não é tentado com os cookies, e o agente avisa que o vídeo não é público.
+
+### Como atualizar (download do YouTube)
+
+1. **Atualize a imagem dos agentes.** A versão nova do `yt-dlp`, o link do comando e o arquivo `/etc/yt-dlp.conf` vêm na
+   imagem, então só entram depois que ela for reconstruída e os agentes recriados. O `dgclaw atualizar` padrão já faz isso.
+   Sem a imagem nova o `yt-dlp` do agente continua sem o runtime de JavaScript.
+2. **Entre no YouTube pela Tela, uma vez por agente, com uma conta do Google dedicada àquele agente.** Abra a Tela do agente
+   (menu do agente, grupo Conexões, "Navegador") e entre em youtube.com. Use uma conta criada só para esse agente, não a sua
+   conta pessoal, porque o perfil do navegador vai junto se o agente for entregue a um cliente. Quando o YouTube pedir login, o
+   agente usa essa sessão. Sem isso o YouTube continua recusando o download, e a tela de diagnóstico mostra o aviso "O YouTube
+   pediu login". Se você já usou a Tela de um agente que vai ser entregue com a sua conta pessoal (ou guardou senhas e
+   entrou em outros serviços nela), sair do YouTube não basta: o perfil do navegador guarda senhas, histórico e as sessões
+   dos outros sites, e limpar os dados de navegação não apaga downloads, extensões nem outros perfis. Antes da entrega,
+   confira a pasta de downloads do agente (normalmente `Downloads` na casa dele) e tire de lá os seus arquivos pessoais,
+   mantendo os que são do cliente. Em seguida, desligue a sincronização do Chrome na Tela e peça ao Admin para apagar o perfil inteiro do navegador (a pasta
+   `.tela-chrome` na casa do agente, com a Tela fechada), para o cliente receber um perfil novo. Depois confira abrindo
+   youtube.com e os outros sites que você usou que nenhuma conta sua continua conectada.
+   Como o `dgclaw atualizar` guarda cópias da casa do agente, a limpeza não alcança essas cópias: nesse caso, saia
+   também das sessões pelos próprios serviços (na conta do Google, "Seus dispositivos"), troque as senhas que ficaram
+   salvas na Tela. Só depois, e antes de entregar o acesso, retire da VPS as cópias de backup e snapshots anteriores à
+   limpeza. Antes de apagar qualquer uma, crie um backup novo, já depois da limpeza, e confira que ele abre e tem as
+   conversas, os cofres e as configurações do agente, para não ficar sem nenhum ponto de restauração. Se você quiser
+   guardar o histórico das cópias antigas, leve-as para fora da VPS, cifradas e sob o seu controle, e só então apague
+   as que ficaram no ambiente que vai ser entregue.
+
 ## [1.1.0] - 2026-11-18
 
 - **Correção no aviso de versão nova: o número agora sobe a cada release e, quando é igual, o aviso mostra o commit.** O
