@@ -274,6 +274,32 @@ for (const tipo of ['fifo', 'link', 'ausente']) {
   });
 }
 
+test('troca de senha do dono: web.env que some durante a troca responde 409 sem recriar o arquivo nem apagar o link de recuperação', async () => {
+  const dir = pastaTemp('sd4');
+  const webEnv = path.join(dir, 'web.env');
+  fs.writeFileSync(webEnv, "DGCLAW_PANEL_USER=Mariana\n", { mode: 0o600 });
+  const pa = path.join(dir, 'primeiro-acesso.json');
+  fs.writeFileSync(pa, '{"versao":1}\n', { mode: 0o600 });
+  const t = await subirWeb({ agentes: AG, env: { DGCLAW_PANEL_USER: 'Mariana', DGCLAW_WEB_ENV: webEnv } });
+  const lstatOrig = fs.lstatSync;
+  try {
+    assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
+    // A primeira conferência vê o arquivo; ele some antes da segunda (como uma manutenção no meio da troca).
+    let vezes = 0;
+    fs.lstatSync = function (alvo, ...resto) {
+      if (alvo === webEnv && ++vezes === 2) fs.renameSync(webEnv, webEnv + '.movido');
+      return lstatOrig.call(this, alvo, ...resto);
+    };
+    const r = await t.c.post('/api/v1/dono/senha', { json: { atual: t.senha, nova: NOVA, confirmacao: NOVA } });
+    fs.lstatSync = lstatOrig;
+    assert.equal(r.status, 409, r.texto);
+    assert.match(r.json.erro, /não existe/);
+    assert.ok(vezes >= 2, 'a segunda conferência aconteceu');
+    assert.ok(!fs.existsSync(webEnv), 'o web.env não foi recriado só com o hash');
+    assert.ok(fs.existsSync(pa), 'o link de recuperação não foi apagado');
+  } finally { fs.lstatSync = lstatOrig; await t.fechar(); }
+});
+
 test('tamanho mínimo da senha: vale na forma digitada e na NFKC (troca de senha)', async () => {
   const { t } = await comWebEnv();
   try {
