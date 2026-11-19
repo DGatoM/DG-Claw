@@ -53,7 +53,7 @@ echo "reparar sobe o container antigo sem recriar"
 maquina 8 2
 echo "1073741824 100000 100000 1024" >"$STUB_ESTADO/lim-dgclaw-a4"   # criado antes: 1 GB, 1.0 CPU, 1024 processos
 : >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
-afirma "rodou o podman update com memoria, swap, CPUs e processos" grep -q '^podman update --memory-swap=12288m --memory=6144m --cpus=1.8 --pids-limit=4096 dgclaw-a4' "$STUB_LOG"
+afirma "rodou o podman update com memoria, swap (mesma folga de 1 GB do container) , CPUs e processos" grep -q '^podman update --memory-swap=7168m --memory=6144m --cpus=1.8 --pids-limit=4096 dgclaw-a4' "$STUB_LOG"
 nega "nao recriou" grep -q '^podman create\|^podman rm' "$STUB_LOG"
 afirma "mostra o antes" grep -q 'antes:  memoria 1.0 GB, CPUs 1.0, processos 1024' "$TMP/rep.txt"
 afirma "mostra o depois" grep -q 'depois: memoria 6.0 GB, CPUs 1.8, processos 4096' "$TMP/rep.txt"
@@ -81,8 +81,9 @@ afirma "avisa em portugues o que fazer" grep -q 'dgclaw agente recriar a4' "$TMP
 rm -f "$STUB_ESTADO/update-sem-suporte"
 touch "$STUB_ESTADO/update-sem-swap"
 echo "1073741824 100000 100000 1024" >"$STUB_ESTADO/lim-dgclaw-a4"
-dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
+: >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
 igual "sem --memory-swap o reparar termina com 0" "0" "$?"
+nega "memoria nunca vai sozinha, sem o swap, na tentativa um por vez" grep -q '^podman update --memory=' "$STUB_LOG"
 afirma "avisa do flag que nao foi aceito" grep -q "nao aceitou 'podman update --memory-swap" "$TMP/rep.txt"
 afirma "os outros limites foram aplicados" grep -q 'depois: .*CPUs 1.8, processos 4096' "$TMP/rep.txt"
 rm -f "$STUB_ESTADO/update-sem-swap"
@@ -91,5 +92,50 @@ dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
 igual "se nao da para ler os limites o reparar segue" "0" "$?"
 afirma "e avisa" grep -q 'nao consegui ler os limites atuais' "$TMP/rep.txt"
 rm -f "$STUB_ESTADO/inspect-limites-falha"
+
+echo "recriar valida os limites antes de mexer no container"
+maquina 8 2
+: >"$STUB_LOG"; DGCLAW_CONTAINER_MEMORIA=4GB dgclaw agente recriar a8 --forcar >"$TMP/rec.txt" 2>&1
+nega "memoria invalida faz o recriar falhar" test "$?" -eq 0
+afirma "a mensagem cita a variavel" grep -q 'DGCLAW_CONTAINER_MEMORIA' "$TMP/rec.txt"
+nega "o podman nao recebeu stop, rm nem create" grep -q '^podman stop\|^podman rm\|^podman create\|^podman kill' "$STUB_LOG"
+
+echo "CPU sem limite e processos baixos (-1 e 1024)"
+echo "1073741824 -1 100000 1024 2147483648" >"$STUB_ESTADO/lim-dgclaw-a4"
+: >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
+afirma "quota -1 nao derruba a leitura: sobe memoria e processos" grep -q '^podman update --memory-swap=7168m --memory=6144m --pids-limit=4096 dgclaw-a4' "$STUB_LOG"
+nega "CPU sem limite continua sem limite" grep -q '^podman update.*--cpus' "$STUB_LOG"
+afirma "mostra o antes com CPUs sem limite" grep -q 'antes:  memoria 1.0 GB, CPUs sem limite, processos 1024' "$TMP/rep.txt"
+echo "1073741824 -1 100000 -1 -1" >"$STUB_ESTADO/lim-dgclaw-a4"
+: >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
+afirma "pids -1 e swap -1 leem sem erro; so a memoria sobe, com swap ilimitado" grep -q '^podman update --memory-swap=-1 --memory=6144m dgclaw-a4' "$STUB_LOG"
+
+echo "CPU arredonda para cima"
+echo "8589934592 5000 100000 4096 17179869184" >"$STUB_ESTADO/lim-dgclaw-a8"   # 0.05 CPU
+: >"$STUB_LOG"; dgclaw agente reparar a8 >"$TMP/rep.txt" 2>&1
+afirma "0.05 CPU vira 0.1 e nao 'sem limite'" grep -q 'antes:  memoria 8.0 GB, CPUs 0.1, processos 4096' "$TMP/rep.txt"
+afirma "e sobe para o calculado" grep -q '^podman update --cpus=1.8 dgclaw-a8' "$STUB_LOG"
+
+echo "swap: a politica vigente e preservada"
+echo "1073741824 100000 100000 4096 1073741824" >"$STUB_ESTADO/lim-dgclaw-a4"   # swap igual a memoria: sem swap
+: >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
+afirma "sem swap continua sem swap" grep -q '^podman update --memory-swap=6144m --memory=6144m --cpus=1.8 dgclaw-a4' "$STUB_LOG"
+echo "1073741824 100000 100000 4096 -1" >"$STUB_ESTADO/lim-dgclaw-a4"   # swap ilimitado
+: >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
+afirma "swap ilimitado continua ilimitado" grep -q '^podman update --memory-swap=-1 --memory=6144m --cpus=1.8 dgclaw-a4' "$STUB_LOG"
+echo "1073741824 100000 100000 4096 -1" >"$STUB_ESTADO/lim-dgclaw-a4"
+
+echo "recriar nao toma o atalho da imagem atual com limites abaixo do calculado"
+maquina 8 2
+echo imagem-estavel >"$STUB_ESTADO/imagem-id"
+echo imagem-estavel >"$STUB_ESTADO/img-dgclaw-a8"
+echo "17179869184 400000 100000 8192 34359738368" >"$STUB_ESTADO/lim-dgclaw-a8"
+: >"$STUB_LOG"; dgclaw agente recriar a8 >"$TMP/rec.txt" 2>&1
+afirma "limites em dia: atalho, nada a recriar" grep -q 'nada a recriar' "$TMP/rec.txt"
+echo "1073741824 100000 100000 4096 2147483648" >"$STUB_ESTADO/lim-dgclaw-a8"
+: >"$STUB_LOG"; dgclaw agente recriar a8 >"$TMP/rec.txt" 2>&1
+nega "limites abaixo: nao toma o atalho" grep -q 'nada a recriar' "$TMP/rec.txt"
+afirma "diz por que recria" grep -q 'limites do container estao abaixo do calculado' "$TMP/rec.txt"
+afirma "recriou com o limite calculado" grep -q '^podman create .*--memory 6144m' "$STUB_LOG"
 
 fim

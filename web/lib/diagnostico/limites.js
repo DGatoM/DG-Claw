@@ -88,32 +88,50 @@ function tarefaDeLimites(ctx, ag, container, naoRodando, PARADO) {
           sinais.push(`memory.max ${mb} MB (esperado ${esperadoMb} MB)`);
         } else sinais.push(`memory.max ${mb} MB`);
       }
+      // O oom_kill do cgroup e acumulado desde que o container foi ligado: so mandamos reparar se algum limite esta abaixo do esperado.
+      const limiteAbaixo = avisos.length > 0;
       const oomCgroup = Number.isInteger(eventos.oom_kill) ? eventos.oom_kill : 0;
       const r2 = await exec('podman', ['exec', ag.container, 'sh', '-c', SCRIPT_RUNNER], { timeout: 4500 });
-      let oomJournal = 0;
-      let reinicios = 0;
+      // null = não medido (nunca vira 0): o runner falhou ou o valor não veio no formato esperado.
+      let oomJournal = null;
+      let reinicios = null;
+      const faltou = [];
       if (r2.codigo === 0) {
         const mo = /^oom ([0-9]{1,9})$/m.exec(r2.stdout);
         const mr = /^reinicios ([0-9]{1,9})$/m.exec(r2.stdout);
         if (mo) oomJournal = Number(mo[1]);
+        else faltou.push('o journal do runner (oom-kill das últimas 24 horas)');
         if (mr) reinicios = Number(mr[1]);
-      } else log('aviso', `Diagnóstico: não consegui ler o journal e os reinícios do runner de ${ag.container} (código ${r2.codigo}, ${r2.erro || 'sem erro de sistema'}).`);
-      if (oomCgroup > 0 || oomJournal > 0) {
+        else faltou.push('os reinícios do runner');
+      } else {
+        faltou.push('o journal e os reinícios do runner');
+        log('aviso', `Diagnóstico: não consegui ler o journal e os reinícios do runner de ${ag.container} (código ${r2.codigo}, ${r2.erro || 'sem erro de sistema'}).`);
+      }
+      if (oomCgroup > 0 || (oomJournal !== null && oomJournal > 0)) {
         const partes = [];
         if (oomCgroup > 0) partes.push(`o cgroup do container registra ${oomCgroup} processo${oomCgroup === 1 ? '' : 's'} morto${oomCgroup === 1 ? '' : 's'} por falta de memória desde que ele foi ligado`);
         if (oomJournal > 0) partes.push(`o journal do runner tem ${oomJournal} linha${oomJournal === 1 ? '' : 's'} com "oom-kill" nas últimas 24 horas`);
-        avisos.push(`O container ficou sem memória: ${partes.join(' e ')}. O sistema matou um processo do agente, e se foi o runner a conversa caiu. Rode ${cmdReparar} para subir o limite; se voltar a acontecer, peça ao agente para rodar menos coisas pesadas ao mesmo tempo.`);
-        sinais.push(`oom_kill ${oomCgroup}, oom-kill no journal ${oomJournal}`);
+        const fim = limiteAbaixo
+          ? `Rode ${cmdReparar} para subir o limite; se voltar a acontecer, peça ao agente para rodar menos coisas pesadas ao mesmo tempo.`
+          : 'Os limites do container estão em dia, então reparar não resolve: o evento pode ser antigo (a contagem do cgroup é acumulada desde que o container foi ligado). Se voltar a acontecer, peça ao agente para rodar menos coisas pesadas ao mesmo tempo.';
+        avisos.push(`O container ficou sem memória: ${partes.join(' e ')}. O sistema matou um processo do agente, e se foi o runner a conversa caiu. ${fim}`);
+        sinais.push(`oom_kill ${oomCgroup}, oom-kill no journal ${oomJournal === null ? 'não medido' : oomJournal}`);
       }
-      if (reinicios >= MIN_REINICIOS) {
+      if (reinicios !== null && reinicios >= MIN_REINICIOS) {
         avisos.push(`O runner reiniciou ${reinicios} vez${reinicios === 1 ? '' : 'es'} sozinho desde que o container foi ligado. Isso costuma vir de falta de memória ou de processos. Veja os itens de memória e de processos acima e, se não houver nenhum, olhe você mesmo o journal com \`podman exec dgclaw-${slug} journalctl -u dgclaw-runner -n 50\`.`);
         sinais.push(`NRestarts ${reinicios}`);
       }
+      const textoFaltou = faltou.length ? `Não consegui ler ${faltou.join(' nem ')}.` : '';
+      if (faltou.length) sinais.push('leitura do runner incompleta');
       const evidencia = { horario: null, codigo_saida: null, sinal: sinais.join('; ') || null };
-      if (!avisos.length) return R('ok', null, { evidencia });
-      return R('atencao', avisos.join(' '), {
+      if (!avisos.length) {
+        if (faltou.length) return R('nao_medido', `Os limites do cgroup estão em dia, mas faltou uma leitura. ${textoFaltou}`, { evidencia });
+        return R('ok', null, { evidencia });
+      }
+      const recomendaReparar = limiteAbaixo;
+      return R('atencao', `${avisos.join(' ')}${textoFaltou ? ` ${textoFaltou}` : ''}`, {
         evidencia,
-        ...conserta(`o container de ${quem} está com limites ou sinais de falta de recurso: ${avisos.map((a) => a.split(' Rode ')[0].split(' Veja ')[0]).join(' ')}`, '`podman stats --no-stream`', cmdReparar),
+        ...conserta(`o container de ${quem} está com limites ou sinais de falta de recurso: ${avisos.map((a) => a.split(' Rode ')[0].split(' Veja ')[0].split(' Os limites do container estão em dia')[0]).join(' ')}`, '`podman stats --no-stream`', recomendaReparar ? cmdReparar : 'podman stats --no-stream'),
       });
     },
   };

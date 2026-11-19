@@ -61,19 +61,31 @@ limites_calcular() {
 
 _limites_mb_texto() { awk -v mb="$1" 'BEGIN { printf "%.1f GB", mb / 1024 }'; }
 
-# limites_ler_atuais <container>: preenche ATU_MEM_MB, ATU_CPUS_DEC e ATU_PIDS com o que o container tem agora
-# (0 = sem limite). Retorna 1 se o podman nao respondeu ou respondeu algo que nao e numero.
+# limites_ler_atuais <container>: preenche ATU_MEM_MB, ATU_CPUS_DEC, ATU_PIDS e ATU_SWAP_MB com o que o container tem
+# agora (0 = sem limite) e ATU_SWAP_RAW com o MemorySwap cru (-1 = ilimitado, 0 = nao definido). O podman devolve -1
+# em CpuQuota, MemorySwap e PidsLimit quando nao ha limite: isso vira 0, nao erro. A CPU arredonda para CIMA (com
+# minimo de 1 decimo quando ha quota), para 0.05 CPU nao virar "sem limite". Cada campo e validado sozinho.
+# Retorna 1 se o podman nao respondeu ou respondeu algo que nao e numero.
 # shellcheck disable=SC2034 # lidas por quem carrega este arquivo
 limites_ler_atuais() {
-    local c="$1" saida mem quota periodo pids
-    saida="$(podman inspect -f '{{.HostConfig.Memory}} {{.HostConfig.CpuQuota}} {{.HostConfig.CpuPeriod}} {{.HostConfig.PidsLimit}}' "$c" 2>/dev/null)" || return 1
-    read -r mem quota periodo pids <<<"$saida"
-    case "$mem$quota$periodo" in ''|*[!0-9]*) return 1 ;; esac
-    case "$pids" in ''|-|*[!0-9-]*) return 1 ;; esac
+    local c="$1" saida mem quota periodo pids swap
+    saida="$(podman inspect -f '{{.HostConfig.Memory}} {{.HostConfig.CpuQuota}} {{.HostConfig.CpuPeriod}} {{.HostConfig.PidsLimit}} {{.HostConfig.MemorySwap}}' "$c" 2>/dev/null)" || return 1
+    read -r mem quota periodo pids swap <<<"$saida"
+    case "$mem" in ''|*[!0-9]*) return 1 ;; esac
+    case "$periodo" in ''|*[!0-9]*) return 1 ;; esac
+    case "$quota" in -1) quota=0 ;; ''|*[!0-9]*) return 1 ;; esac
+    case "$pids" in -1) pids=0 ;; ''|*[!0-9]*) return 1 ;; esac
+    case "$swap" in -1) ;; ''|*[!0-9]*) return 1 ;; esac
     ATU_MEM_MB=$((mem / 1048576))
     ATU_CPUS_DEC=0
-    if [ "$quota" -gt 0 ] && [ "$periodo" -gt 0 ]; then ATU_CPUS_DEC=$((quota * 10 / periodo)); fi
+    if [ "$quota" -gt 0 ] && [ "$periodo" -gt 0 ]; then
+        ATU_CPUS_DEC=$(((quota * 10 + periodo - 1) / periodo))
+        [ "$ATU_CPUS_DEC" -ge 1 ] || ATU_CPUS_DEC=1
+    fi
     ATU_PIDS="$pids"
+    ATU_SWAP_RAW="$swap"
+    ATU_SWAP_MB=0
+    if [ "$swap" != -1 ] && [ "$swap" -gt 0 ]; then ATU_SWAP_MB=$((swap / 1048576)); fi
 }
 
 _limites_resumo() {
@@ -88,7 +100,7 @@ _limites_resumo() {
 # `podman update`. So sobe: o que a pessoa aumentou a mao (ou o que esta sem limite) nao e tocado. Se o podman
 # da maquina nao tem o `update` ou nao aceita um dos flags, avisa e segue (nunca derruba o reparar).
 limites_ajustar_existente() {
-    local slug="$1" c="dgclaw-$1" args=() ok_flags=() f
+    local slug="$1" c="dgclaw-$1" args=() grupos=() ok_flags=() f sw
     limites_calcular
     if [ "$ENSAIO" = 1 ]; then
         info "limites calculados para esta maquina: memoria $LIM_MEM_ARG, CPUs $LIM_CPUS_ARG, processos $LIMITE_PIDS"
@@ -100,24 +112,45 @@ limites_ajustar_existente() {
     fi
     info "antes:  $(_limites_resumo "$ATU_MEM_MB" "$ATU_CPUS_DEC" "$ATU_PIDS")"
     if [ "$ATU_MEM_MB" -gt 0 ] && [ "$ATU_MEM_MB" -lt "$LIM_MEM_MB" ]; then
-        # O swap (2x a memoria, como o podman ja faz na criacao) vai antes: o limite de memoria nao pode passar do de memoria+swap.
-        args+=("--memory-swap=$((LIM_MEM_MB * 2))m" "--memory=${LIM_MEM_MB}m")
+        # O swap vai antes da memoria (o limite de memoria nao pode passar do de memoria+swap) e mantem a politica de
+        # swap que o container ja tem: ilimitado continua ilimitado, sem swap continua sem swap, e com swap mantem a mesma folga.
+        if [ "$ATU_SWAP_RAW" = -1 ]; then sw="-1"
+        elif [ "$ATU_SWAP_RAW" = 0 ]; then sw="$((LIM_MEM_MB * 2))m"
+        elif [ "$ATU_SWAP_MB" -le "$ATU_MEM_MB" ]; then sw="${LIM_MEM_MB}m"
+        else sw="$((LIM_MEM_MB + ATU_SWAP_MB - ATU_MEM_MB))m"; fi
+        grupos+=("--memory-swap=$sw --memory=${LIM_MEM_MB}m")
     fi
-    if [ "$ATU_CPUS_DEC" -gt 0 ] && [ "$ATU_CPUS_DEC" -lt "$LIM_CPUS_DEC" ]; then args+=("--cpus=$LIM_CPUS_ARG"); fi
-    if [ "$ATU_PIDS" -gt 0 ] && [ "$ATU_PIDS" -lt "$LIMITE_PIDS" ]; then args+=("--pids-limit=$LIMITE_PIDS"); fi
-    if [ "${#args[@]}" -eq 0 ]; then
+    if [ "$ATU_CPUS_DEC" -gt 0 ] && [ "$ATU_CPUS_DEC" -lt "$LIM_CPUS_DEC" ]; then grupos+=("--cpus=$LIM_CPUS_ARG"); fi
+    if [ "$ATU_PIDS" -gt 0 ] && [ "$ATU_PIDS" -lt "$LIMITE_PIDS" ]; then grupos+=("--pids-limit=$LIMITE_PIDS"); fi
+    if [ "${#grupos[@]}" -eq 0 ]; then
         ok "os limites do container ja estao iguais ou acima do calculado ($(_limites_resumo "$LIM_MEM_MB" "$LIM_CPUS_DEC" "$LIMITE_PIDS")); nada foi mudado"
         return 0
     fi
+    # Os grupos sao palavras sem espaco dentro (valores numericos), entao a divisao sem aspas e segura.
+    # shellcheck disable=SC2206
+    for f in "${grupos[@]}"; do args+=($f); done
     if podman update "${args[@]}" "$c" >/dev/null 2>&1; then
         ok "limites do container $c aumentados sem recriar"
     else
-        # Um flag que o podman desta maquina nao aceita nao pode impedir os outros: tenta um por vez.
-        for f in "${args[@]}"; do
-            if podman update "$f" "$c" >/dev/null 2>&1; then ok_flags+=("$f")
+        # Um flag que o podman desta maquina nao aceita nao pode impedir os outros: tenta um por vez
+        # (memoria e swap sempre juntos, numa chamada so).
+        for f in "${grupos[@]}"; do
+            # shellcheck disable=SC2086
+            if podman update $f "$c" >/dev/null 2>&1; then ok_flags+=("$f")
             else aviso "o podman desta maquina nao aceitou 'podman update $f $c'. Esse limite continua como estava; para aplicar, recrie o agente: dgclaw agente recriar $slug"; fi
         done
         [ "${#ok_flags[@]}" -eq 0 ] || ok "aplicado: ${ok_flags[*]}"
     fi
     if limites_ler_atuais "$c"; then info "depois: $(_limites_resumo "$ATU_MEM_MB" "$ATU_CPUS_DEC" "$ATU_PIDS")"; fi
+}
+
+# limites_abaixo_do_calculado <container>: retorna 0 se memoria, CPU ou processos do container existente estao
+# ABAIXO do calculado (mesmo criterio de limites_ajustar_existente; sem limite nao conta). Exige limites_calcular antes.
+# Retorna 1 se estao em dia ou se nao deu para ler.
+limites_abaixo_do_calculado() {
+    limites_ler_atuais "$1" || return 1
+    { [ "$ATU_MEM_MB" -gt 0 ] && [ "$ATU_MEM_MB" -lt "$LIM_MEM_MB" ]; } && return 0
+    { [ "$ATU_CPUS_DEC" -gt 0 ] && [ "$ATU_CPUS_DEC" -lt "$LIM_CPUS_DEC" ]; } && return 0
+    { [ "$ATU_PIDS" -gt 0 ] && [ "$ATU_PIDS" -lt "$LIMITE_PIDS" ]; } && return 0
+    return 1
 }
