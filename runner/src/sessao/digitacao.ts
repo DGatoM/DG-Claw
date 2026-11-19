@@ -1,7 +1,7 @@
 import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
-import { type SemRecibo, liberarBarra, reter, suspenderPorRascunho, talvezSoltarFila } from "./fila.js";
+import { type SemRecibo, devolverNaoDigitado, liberarBarra, pendenteEm, reter, suspenderPorRascunho, talvezSoltarFila } from "./fila.js";
 import { INTERVALO_MS, PEDACO, RECIBO_ENTER_TENTATIVAS } from "./constantes.js";
 import { ehDialogoDeAutoMode, estadoDaCaixa, telaDeConfiancaDoCodex } from "./telas.js";
 
@@ -17,7 +17,10 @@ import { ehDialogoDeAutoMode, estadoDaCaixa, telaDeConfiancaDoCodex } from "./te
  * serializados: um texto só começa a ser colado depois que o anterior terminou o Enter dele.
  */
 export function digitarEEnviar(s: Sessao, texto: string, daFila = false, envio: SemRecibo | null = null): Promise<boolean> {
-  const minha = s.cadeiaDeEnvio.then(() => digitar(s, texto, daFila, envio));
+  // O terminal é capturado AGORA, quando o envio é aceito, e não depois da espera na cadeia: se a sessão reiniciar
+  // (ou trocar de provedor) enquanto este envio espera a vez, nada é escrito no terminal novo.
+  const procAceito = s.proc;
+  const minha = s.cadeiaDeEnvio.then(() => digitar(s, texto, daFila, envio, procAceito));
   s.cadeiaDeEnvio = minha.then(
     () => undefined,
     () => undefined,
@@ -35,10 +38,24 @@ function terminalTrocado(s: Sessao, envio: SemRecibo | null): false {
   return false;
 }
 
-async function digitar(s: Sessao, texto: string, daFila: boolean, envio: SemRecibo | null): Promise<boolean> {
-  // O terminal deste envio, capturado no começo: toda escrita abaixo confere que ele continua sendo o da sessão.
-  const proc = s.proc;
+async function digitar(s: Sessao, texto: string, daFila: boolean, envio: SemRecibo | null, procAceito: Sessao["proc"]): Promise<boolean> {
+  // O terminal de quando o envio foi aceito: toda escrita abaixo confere que ele continua sendo o da sessão.
+  const proc = procAceito;
   if (!proc) throw new Error("não há terminal vivo para digitar");
+  // Item da fila que já não está pendente (foi retido como incerto enquanto esperava a vez): nada é escrito.
+  if (envio && !pendenteEm(s, envio)) {
+    log.aviso(s.a("entrada"), "o pedido deixou de estar pendente enquanto esperava a vez de ser digitado; não escrevi nada no terminal");
+    return false;
+  }
+  if (s.proc !== proc) {
+    // Nada foi escrito: o item da fila volta para a frente da fila (se ainda for dele) em vez de ficar incerto.
+    log.aviso(
+      s.a("entrada"),
+      "o terminal mudou (reinício ou troca de provedor) entre aceitar o envio e começar a digitar; não escrevi nada no terminal novo",
+    );
+    if (envio && !devolverNaoDigitado(s, envio)) envio.parada = { tipo: "terminal", motivo: "o terminal foi trocado antes de começar a digitar" };
+    return false;
+  }
   s.marcarAtividade();
   if (s.motor.provedor === "codex") await s.vencerTelaDeConfianca(daFila, proc);
   if (s.proc !== proc) return terminalTrocado(s, envio);
@@ -159,6 +176,10 @@ type DecisaoDoEnter = { acao: "enter" } | { acao: "esperar" } | { acao: "parar";
 function decidirEnter(s: Sessao, texto: string, entradasEsperadas: number): DecisaoDoEnter {
   if (s.entradasManuais !== entradasEsperadas) {
     return { acao: "parar", tipo: "caixa", motivo: "houve outra escrita no terminal depois do Enter anterior, e a caixa já não é a mesma" };
+  }
+  // Com o agente esperando uma resposta (permissão, pergunta) um Enter poderia aprovar ou responder algo por conta própria.
+  if (s.estado.status === "waiting_input") {
+    return { acao: "parar", tipo: "caixa", motivo: "o agente está esperando uma resposta (permissão ou pergunta), e um Enter ali poderia respondê-la" };
   }
   const caixa = estadoDaCaixa(s.telaInteira(), texto);
   if (caixa === "mesmo-texto") return { acao: "enter" };

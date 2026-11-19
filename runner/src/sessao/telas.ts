@@ -113,7 +113,7 @@ function compacta(t: string): string {
 }
 
 const RE_MARCA_DE_DIALOGO = /esctocancel|doyouwant|\(y\/n\)|1\.yes|1\.no|yes,|no,keep|no,exit|allowonce|alwaysallow|pressentertoconfirm/i;
-const RE_RODAPE_DA_CAIXA_VAZIA = /^(\?forshortcuts|⏵|\(shift\+tab|bypasspermissions|automode|acceptedits|planmode|\?)/i;
+const RE_RODAPE_DA_CAIXA_VAZIA = /^(\?forshortcuts|⏵|\(shift\+tab|bypasspermissions|automode|acceptedits|planmode)/i;
 
 function haDialogoAberto(tela: string): boolean {
   return ehDialogoDeAutoMode(tela) || ehDialogoDeConfiancaDoClaude(tela) || ehDialogoDeBypass(tela) || telaDeConfiancaDoCodex(tela);
@@ -129,9 +129,13 @@ export function estadoDaCaixa(tela: string, texto: string): EstadoDaCaixa {
   const fim = compacta(texto).slice(-40);
   if (fim.length > 0) {
     const i = t.lastIndexOf(fim);
-    if (i >= 0) {
+    // Só vale o texto que está DEPOIS do último marcador de prompt: um pedido antigo que ficou no buffer acima
+    // de um menu redesenhado não conta.
+    const p = Math.max(t.lastIndexOf("❯"), t.lastIndexOf("›"));
+    if (i >= 0 && i > p && p >= 0) {
+      // Depois do texto só pode haver nada ou o rodapé da caixa; qualquer outra coisa é indeterminada.
       const depois = t.slice(i + fim.length);
-      if (depois.length <= 400 && !RE_MARCA_DE_DIALOGO.test(depois) && !depois.includes("❯") && !depois.includes("›")) return "mesmo-texto";
+      if ((depois === "" || RE_RODAPE_DA_CAIXA_VAZIA.test(depois)) && !RE_MARCA_DE_DIALOGO.test(depois)) return "mesmo-texto";
       return "indeterminada";
     }
   }

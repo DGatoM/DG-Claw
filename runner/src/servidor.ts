@@ -397,7 +397,23 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             return;
           }
           if (enviar) {
-            await sessao.digitarEEnviar(texto);
+            const confirmado = await sessao.digitarEEnviar(texto);
+            if (!confirmado) {
+              // 502, e não 4xx: o texto PODE ter sido escrito no terminal (um 4xx diria "comprovadamente não entrou"
+              // e o chamador reenviaria, repetindo o pedido). Quem chama deve conferir a conversa antes de reenviar.
+              json(
+                res,
+                {
+                  success: false,
+                  error: `Não sei se o agente ${sessao.slug} recebeu o texto: o terminal mudou ou o envio foi interrompido (por um diálogo, outro texto na caixa ou um reinício) depois de o texto poder ter sido digitado. A entrega é incerta.`,
+                  howToFix: "Conferir a conversa do agente antes de reenviar: se o pedido já aparece lá, não reenviar; se não aparece, reenviar.",
+                  code: "ENTREGA_INCERTA",
+                  data: { enviado: false, submit: enviar, chars: texto.length },
+                },
+                502,
+              );
+              return;
+            }
           } else {
             sessao.escrever(texto);
           }

@@ -235,6 +235,10 @@ export function talvezSoltarFila(s: Sessao): void {
       s.itemEmVoo = null;
       // O comando de barra que ainda espera o recibo próprio continua no disco (barraPendente), não só em memória.
       espelharFila(s);
+      // As tentativas de continuar a fila feitas enquanto a flag estava ligada voltaram sem fazer nada: reavalia
+      // agora que ela foi liberada (a própria talvezSoltarFila confere se há motivo para soltar).
+      // Se já há uma nova tentativa agendada (tela bloqueada), ela cuida disso: reavaliar agora giraria em falso.
+      if (!s.reintentoDaFila) setImmediate(() => talvezSoltarFila(s));
     });
 }
 
@@ -282,8 +286,20 @@ function retirarSemRecibo(s: Sessao, entrada: SemRecibo): void {
   if (s.barraPendente === entrada) s.barraPendente = null;
 }
 
-function pendenteEm(s: Sessao, entrada: SemRecibo): boolean {
+export function pendenteEm(s: Sessao, entrada: SemRecibo): boolean {
   return s.semRecibo.includes(entrada) || s.barraPendente === entrada;
+}
+
+/** Nada foi escrito no terminal para este envio (o terminal mudou antes da primeira escrita): o item volta para a
+ *  frente da fila, sem a marca de digitado. Devolve false se o item já não está pendente ou já foi retido como incerto. */
+export function devolverNaoDigitado(s: Sessao, entrada: SemRecibo): boolean {
+  if (!pendenteEm(s, entrada) || entrada.item.incerto || entrada.enterEscrito) return false;
+  retirarSemRecibo(s, entrada);
+  delete entrada.item.digitado;
+  if (s.itemEmVoo === entrada.item) s.itemEmVoo = null;
+  s.filaQuandoIdle.unshift(entrada.item);
+  espelharFila(s);
+  return true;
 }
 
 /** O comando de barra teve o recibo próprio (ou o comando foi consumido e não tem recibo): sai do disco. */

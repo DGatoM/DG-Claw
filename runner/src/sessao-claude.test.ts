@@ -1390,7 +1390,12 @@ async function sessaoComPedidoSemRecibo(texto: string, opcoes: Record<string, un
   await esperarAte(() => s.estado.status === "idle", 8_000, "o SessionStart virar idle");
   const sessionId = s.estado.sessionId!;
   s.enfileirarQuandoOcioso(texto);
-  await esperarAte(() => /ainda não confirmou que aceitou o pedido/.test(lerTexto(amb.logDoRunner).slice(marcaDoLog)), 25_000, "o aviso de pedido sem recibo");
+  // Confere também o estado desta sessão: o aviso no log compartilhado pode vir de uma sessão de um teste anterior.
+  await esperarAte(
+    () => /ainda não confirmou que aceitou o pedido/.test(lerTexto(amb.logDoRunner).slice(marcaDoLog)) && (s.semRecibo.some((e) => e.aguardando) || s.retidos.length > 0),
+    25_000,
+    "o aviso de pedido sem recibo",
+  );
   return { s, id, sessionId, marcaDoLog };
 }
 
@@ -1574,7 +1579,6 @@ test("antes de repetir o Enter, outra escrita no terminal para a repetição, de
   assert.notEqual(s.digitacaoSuspensaEm, null, "o recibo não limpa a suspensão");
   s.escrever("\r");
   await esperarAte(() => promptsDe("rascunho-do-dono") === 1, 5_000, "o Enter do dono");
-  talvezSoltarFila(s);
   await esperarAte(() => promptsDe("segundo-com-rascunho-1") === 1, 25_000, "o segundo sair com a caixa vazia");
   assert.equal(s.digitacaoSuspensaEm, null);
 });
@@ -1753,6 +1757,10 @@ test("estadoDaCaixa: mesmo texto, caixa vazia, diálogo e texto diferente", asyn
   const comDialogo = caixa("pedido-x") + " Do you want to proceed?\r\n ❯ 1. Yes\r\n   2. No\r\n Esc to cancel\r\n";
   assert.equal(estadoDaCaixa(comDialogo, "pedido-x"), "indeterminada");
   assert.equal(caixaVaziaNaTela(caixa("")), true);
+  assert.equal(caixaVaziaNaTela(caixa("? posso apagar a pasta de vendas?")), false, "rascunho que começa com ? não é caixa vazia");
+  assert.equal(estadoDaCaixa(caixa("? posso apagar a pasta de vendas?"), "qualquer pedido"), "indeterminada", "rascunho com ? é indeterminada");
+  assert.equal(estadoDaCaixa(caixa("pedido-x") + "  Do you want to proceed?\r\n", "pedido-x"), "indeterminada", "algo depois do texto que não é o rodapé");
+  assert.equal(estadoDaCaixa("╭──╮\r\n│ ❯ pedido-antigo\r\n╰──╯\r\n ❯ outro menu\r\n", "pedido-antigo"), "indeterminada", "texto acima do último prompt não conta");
   assert.equal(caixaVaziaNaTela(caixa("rascunho")), false);
   assert.equal(caixaVaziaNaTela(comDialogo), false);
 });
@@ -1782,7 +1790,6 @@ test("suspensão por rascunho: um recibo NÃO a encerra; só a caixa vazia no id
   // O dono dá o Enter: o rascunho vira o prompt dele e a caixa fica vazia; no idle a fila é solta.
   s.escrever("\r");
   await esperarAte(() => promptsDe("rascunho-suspenso-do-dono") === 1, 5_000, "o Enter do dono");
-  talvezSoltarFila(s);
   await esperarAte(() => promptsDe("segundo-suspenso-1") === 1, 25_000, "o segundo sair com a caixa vazia");
   assert.equal(s.digitacaoSuspensaEm, null);
   assert.equal(lerLinhasJson(amb.logDosClis).some((l) => typeof l.texto === "string" && l.texto.includes("rascunho-suspenso-do-donosegundo")), false, "sem concatenação com o rascunho");
@@ -1834,6 +1841,39 @@ test("terminal trocado no meio do envio: para de escrever e retém o pedido", as
   assert.equal(escritas.length, 2, "depois da troca nada mais foi escrito (nem colagem, nem Enter)");
   assert.equal(entrada.enterEscrito, false);
   assert.equal(entrada.parada?.tipo, "terminal");
+});
+
+test("reinício entre aceitar o envio e escrever: nada é escrito no terminal novo e o item da fila volta para a frente da fila", async () => {
+  logarClaude(amb);
+  const { s } = await nova({}, { ...REDE_CURTA });
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const procAntigo = s.proc;
+  const escritas: string[] = [];
+  const original = s.escrever.bind(s);
+  (s as unknown as { escrever: (t: string) => void }).escrever = (t: string) => {
+    escritas.push(t);
+  };
+  // Um envio anterior segura a cadeia; o reinício acontece enquanto o próximo espera a vez.
+  let soltar: () => void = () => {};
+  s.cadeiaDeEnvio = new Promise<void>((r) => {
+    soltar = r;
+  });
+  const item = { texto: "pedido-do-reinicio", em: 1, id: "eeee5555", digitado: true };
+  const entrada: import("./sessao/fila.js").SemRecibo = { item, promptsAntes: 0, aguardando: false, enterEscrito: false, interrompido: false };
+  s.semRecibo.push(entrada);
+  s.itemEmVoo = item;
+  const envio = s.digitarEEnviar(item.texto, true, entrada);
+  (s as unknown as { proc: unknown }).proc = { write() {}, kill() {} }; // reinício: terminal novo
+  soltar();
+  const recebido = await envio;
+  (s as unknown as { proc: unknown }).proc = procAntigo;
+  (s as unknown as { escrever: unknown }).escrever = original;
+  assert.equal(recebido, false);
+  assert.deepEqual(escritas, [], "nada foi escrito no terminal novo");
+  assert.equal(s.semRecibo.length, 0);
+  assert.equal(item.digitado, undefined, "o item não foi digitado");
+  assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["pedido-do-reinicio"], "o item voltou para a frente da fila");
 });
 
 test("sem nenhum hook além do prazo: o pedido NÃO é declarado entregue e fica retido como incerto", async () => {

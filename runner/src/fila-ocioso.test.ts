@@ -108,3 +108,18 @@ test("se o fsync falha, a gravação não conta como sucesso e nenhum temporári
   assert.equal(fs.existsSync(arq), false);
   assert.deepEqual(fs.readdirSync(path.dirname(arq)), [], "nenhum .tmp sobra");
 });
+
+test("gravar: writeSync que grava só parte dos bytes não deixa o arquivo da fila truncado", () => {
+  const estado = pastaTemporaria("fila");
+  const arq = caminhoDaFila(estado, "parcial");
+  const original = fs.writeSync;
+  // Simula um writeSync que só aceita 7 bytes por chamada.
+  (fs as unknown as { writeSync: unknown }).writeSync = (fd: number, buf: Buffer, off: number, len: number) =>
+    original(fd, buf, off, Math.min(7, len));
+  try {
+    assert.equal(gravarFila(arq, [{ texto: "um texto bem mais comprido que sete bytes", em: 1 }], "teste"), true);
+  } finally {
+    (fs as unknown as { writeSync: unknown }).writeSync = original;
+  }
+  assert.deepEqual(carregarFila(arq, "teste").map((i) => i.texto), ["um texto bem mais comprido que sete bytes"]);
+});

@@ -90,6 +90,16 @@ export function carregarFila(caminho: string, area: string): ItemDaFila[] {
  *  aceita a 1, recusa o arquivo (e o guarda como corrompido) em vez de executar um pedido incerto. */
 export const VERSAO_DA_FILA = 2;
 
+/** fs.writeSync pode gravar menos bytes do que o pedido (disco quase cheio, sinal): insiste até o Buffer inteiro. */
+export function escreverTudo(fd: number, dados: Buffer): void {
+  let feito = 0;
+  while (feito < dados.length) {
+    const n = fs.writeSync(fd, dados, feito, dados.length - feito);
+    if (n <= 0) throw new Error("o sistema não gravou nenhum byte do arquivo da fila (disco cheio?)");
+    feito += n;
+  }
+}
+
 function sincronizarPasta(pasta: string): void {
   const fd = fs.openSync(pasta, "r");
   try {
@@ -117,7 +127,7 @@ export function gravarFila(caminho: string, itens: ItemDaFila[], area: string): 
     try {
       const fd = fs.openSync(tmp, "w", 0o600);
       try {
-        fs.writeSync(fd, JSON.stringify({ versao: VERSAO_DA_FILA, itens }));
+        escreverTudo(fd, Buffer.from(JSON.stringify({ versao: VERSAO_DA_FILA, itens })));
         fs.fsyncSync(fd);
       } finally {
         fs.closeSync(fd);
