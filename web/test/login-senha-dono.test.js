@@ -300,6 +300,25 @@ test('troca de senha do dono: web.env que some durante a troca responde 409 sem 
   } finally { fs.lstatSync = lstatOrig; await t.fechar(); }
 });
 
+test('troca de senha do dono: web.env vazio (sem DGCLAW_PANEL_USER) responde 409 sem gravar nem apagar o link de recuperação', async () => {
+  const dir = pastaTemp('sd5');
+  const webEnv = path.join(dir, 'web.env');
+  fs.writeFileSync(webEnv, '', { mode: 0o600 });
+  const pa = path.join(dir, 'primeiro-acesso.json');
+  fs.writeFileSync(pa, '{"versao":1}\n', { mode: 0o600 });
+  const t = await subirWeb({ agentes: AG, env: { DGCLAW_PANEL_USER: 'Mariana', DGCLAW_WEB_ENV: webEnv } });
+  try {
+    assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
+    const r = await t.c.post('/api/v1/dono/senha', { json: { atual: t.senha, nova: NOVA, confirmacao: NOVA } });
+    assert.equal(r.status, 409, r.texto);
+    assert.match(r.json.erro, /DGCLAW_PANEL_USER/);
+    assert.equal(fs.readFileSync(webEnv, 'utf8'), '', 'o web.env não foi gravado');
+    assert.ok(fs.existsSync(pa), 'o link de recuperação não foi apagado');
+    assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.tmp')), [], 'sem temporário largado');
+    assert.equal((await login(cliente(t.porta), 'Mariana', t.senha)).status, 200, 'a senha antiga segue valendo');
+  } finally { await t.fechar(); }
+});
+
 test('tamanho mínimo da senha: vale na forma digitada e na NFKC (troca de senha)', async () => {
   const { t } = await comWebEnv();
   try {

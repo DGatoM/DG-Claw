@@ -12,6 +12,7 @@ const JANELA_MS = 10 * 60 * 1000;
 const MAX_POSTS = 10;
 const RX_TOKEN = /^[A-Za-z0-9_-]{43}$/;
 const RX_LINHA_HASH = /^(\s*(?:export\s+)?)DGCLAW_PANEL_PASSWORD_HASH\s*=.*$/m;
+const RX_USUARIO_PAINEL = /^\s*(?:export\s+)?DGCLAW_PANEL_USER\s*=\s*['"]?[^'"\s#]/m; // o usuário do painel com valor
 
 const sha256buf = (v) => crypto.createHash('sha256').update(v).digest();
 
@@ -56,8 +57,11 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy }) {
     return JSON.parse(fs.readFileSync(arquivo, 'utf8'));
   }
 
-  /** exigirExistente: na troca do dono o web.env tem de continuar lá; recriar só com o hash trancaria o próximo login. */
-  function gravaHashNoEnv(hash, exigirExistente) {
+  function gravaHashNoEnv(hash) { gravaAtomico(webEnv, textoComHash(hash, false)); }
+
+  /** O web.env com a linha do hash trocada. exigirExistente: na troca do dono o web.env tem de continuar lá;
+   *  recriar só com o hash trancaria o próximo login. */
+  function textoComHash(hash, exigirExistente) {
     // Edição linha a linha: troca só a linha do hash e mantém o resto do web.env como está.
     if (hash.includes("'")) throw new Error('o hash gerado contém aspas simples e não pode ser gravado no web.env');
     let texto = '';
@@ -73,7 +77,7 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy }) {
         return `${linha}\n`;
       });
     } else texto = texto + (texto && !texto.endsWith('\n') ? '\n' : '') + `${linha}\n`;
-    gravaAtomico(webEnv, texto);
+    return texto;
   }
 
   /** O web.env precisa existir e ser arquivo comum: ausente, link simbólico, dispositivo ou FIFO não recebem o hash. */
@@ -141,17 +145,41 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy }) {
         log('erro', `Troca de senha do dono recusada: ${webEnv} ${destinoAgora.motivo} (mudou durante a troca).`);
         return erro(409, `Não dá para trocar a senha por aqui: ${webEnv} ${destinoAgora.motivo}. Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env como arquivo comum (ou rode no servidor: sudo dgclaw senha).`);
       }
-      // Antes de gravar: o link de primeiro acesso pendente deixa de valer (como na troca pelo terminal).
+      // O arquivo novo fica pronto (e conferido) ANTES de consumir o link: falta de espaço ou um web.env sem o
+      // usuário do painel não podem custar o link de recuperação.
+      let texto;
+      try {
+        texto = textoComHash(hash, true);
+      } catch (e) {
+        log('erro', `Troca de senha do dono: não consegui ler ${webEnv} (${e.code || e.message}). A senha antiga continua valendo.`);
+        return erro(409, `Não consegui ler o web.env (${e.code || e.message}). Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env (ou rode no servidor: sudo dgclaw senha).`);
+      }
+      if (!RX_USUARIO_PAINEL.test(texto)) {
+        log('erro', `Troca de senha do dono recusada: ${webEnv} não define DGCLAW_PANEL_USER; depois de reiniciar, o login ficaria trancado.`);
+        return erro(409, `O web.env não tem o usuário do painel (DGCLAW_PANEL_USER). Com a senha gravada nele, o próximo reinício trancaria o login, então nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env (ou rode no servidor: sudo dgclaw senha).`);
+      }
+      const tmp = `${webEnv}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+      try {
+        fs.writeFileSync(tmp, texto, { mode: 0o600 });
+        fs.chmodSync(tmp, 0o600);
+      } catch (e) {
+        try { fs.unlinkSync(tmp); } catch (_) { /* não existia */ }
+        log('erro', `Troca de senha do dono: não consegui preparar o web.env novo (${e.code || e.message}). A senha antiga continua valendo.`);
+        return erro(500, `Não consegui gravar a senha no servidor (${e.code || e.message}). A senha antiga continua valendo e o link de recuperação pendente continua valendo; peça ao Admin para conferir o espaço e a permissão da pasta de configuração.`);
+      }
+      // Antes de publicar: o link de primeiro acesso pendente deixa de valer (como na troca pelo terminal).
       // Se não der para apagar, a troca não acontece e a senha antiga continua valendo.
       try {
         fs.rmSync(arquivo, { force: true });
       } catch (e) {
+        try { fs.unlinkSync(tmp); } catch (_) { /* já saiu */ }
         log('erro', `Troca de senha do dono: não consegui invalidar o link de primeiro acesso pendente em ${arquivo} (${e.code || e.message}). A senha antiga continua valendo.`);
         return erro(500, `Não consegui invalidar o link de recuperação pendente (${e.code || e.message}). A senha antiga continua valendo; peça ao Admin para conferir a permissão da pasta de configuração.`);
       }
       try {
-        gravaHashNoEnv(hash, true);
+        fs.renameSync(tmp, webEnv);
       } catch (e) {
+        try { fs.unlinkSync(tmp); } catch (_) { /* já saiu */ }
         log('erro', `Troca de senha do dono: não consegui gravar a senha em ${webEnv} (${e.code || e.message}). A senha antiga continua valendo.`);
         return erro(500, `Não consegui gravar a senha no servidor (${e.code || e.message}). A senha antiga continua valendo; peça ao Admin para conferir a permissão do arquivo de configuração.`);
       }
