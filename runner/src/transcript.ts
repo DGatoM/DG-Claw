@@ -61,25 +61,34 @@ function existe(caminho: string): boolean {
  *  saber" (erro ao ler o disco). Quem decide algo grave com base na ausência precisa dessa diferença. */
 export function inspecionarArquivoDaSessao(sessionId: string, configDir?: string | null): InspecaoDoTranscript {
   const raiz = pastaDeProjetos(configDir);
+  let entradas: string[];
   try {
-    let entradas: string[];
-    try {
-      entradas = fs.readdirSync(raiz);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return { estado: "nao-existe" };
-      throw err;
-    }
-    for (const dir of entradas) {
-      const alvo = path.join(raiz, dir, `${sessionId}.jsonl`);
-      if (existe(alvo)) return { estado: "achou", arquivo: alvo };
-    }
-    // Algumas instalações gravam o jsonl solto na raiz.
-    const solto = path.join(raiz, `${sessionId}.jsonl`);
-    if (existe(solto)) return { estado: "achou", arquivo: solto };
-    return { estado: "nao-existe" };
+    entradas = fs.readdirSync(raiz);
   } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { estado: "nao-existe" };
     return { estado: "inconclusivo", motivo: err instanceof Error ? err.message : String(err) };
   }
+  // Um erro numa pasta de projeto (EACCES, ELOOP...) não interrompe a busca: o arquivo pode estar na pasta
+  // seguinte. O erro é guardado, a varredura continua, e só se não achar em nenhuma é que o resultado é
+  // "inconclusivo" (não deu para olhar tudo), nunca "não existe".
+  const erros: string[] = [];
+  const olhar = (alvo: string): boolean => {
+    try {
+      return existe(alvo);
+    } catch (err) {
+      erros.push(`${alvo}: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
+  };
+  for (const dir of entradas) {
+    const alvo = path.join(raiz, dir, `${sessionId}.jsonl`);
+    if (olhar(alvo)) return { estado: "achou", arquivo: alvo };
+  }
+  // Algumas instalações gravam o jsonl solto na raiz.
+  const solto = path.join(raiz, `${sessionId}.jsonl`);
+  if (olhar(solto)) return { estado: "achou", arquivo: solto };
+  if (erros.length) return { estado: "inconclusivo", motivo: `não consegui olhar ${erros.length} lugar(es): ${erros.slice(0, 3).join("; ")}` };
+  return { estado: "nao-existe" };
 }
 
 function textoDoConteudo(conteudo: unknown): string {

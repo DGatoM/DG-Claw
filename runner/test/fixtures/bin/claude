@@ -152,6 +152,15 @@ if (process.env.FAKE_AVISO_AUTO && !pulaAvisoAuto) {
 }
 
 let linha = "";
+// FAKE_IGNORA_ENTER=n: os n primeiros Enters não enviam nada e o texto continua na caixa (o Enter "engolido" do TUI real).
+let ignorarEnters = Number(process.env.FAKE_IGNORA_ENTER || 0);
+// Como o TUI de verdade, redesenha a caixa de composição a cada tecla: o runner olha a tela antes de repetir um Enter.
+function desenharCaixa() {
+  process.stdout.write("\u001b[2J\u001b[H\u276f " + linha + "\r\n? for shortcuts\r\n");
+}
+// FAKE_DIALOGO_APOS_ENTER=1: depois do primeiro Enter abre um diálogo de permissão por cima, sem apagar a caixa.
+let dialogoAposEnter = process.env.FAKE_DIALOGO_APOS_ENTER === "1";
+let dialogoAbertoAposEnter = false;
 if (process.stdin.isTTY) process.stdin.setRawMode(true);
 process.stdin.on("data", (d) => {
   if (avisoAutoAberto) {
@@ -165,9 +174,19 @@ process.stdin.on("data", (d) => {
   for (const ch of d.toString()) {
     if (ch === "\r" || ch === "\n") {
       const texto = linha.trim();
+      if (dialogoAposEnter) {
+        dialogoAposEnter = false;
+        registrar({ modo: "enter-no-dialogo", texto });
+        process.stdout.write("\u001b[2J\u001b[H" + "\u276f " + linha + "\r\n\r\n Do you want to proceed?\r\n \u276f 1. Yes\r\n   2. No\r\n Esc to cancel\r\n");
+        dialogoAbertoAposEnter = true;
+        continue;
+      }
+      if (dialogoAbertoAposEnter) { registrar({ modo: "tecla-no-dialogo", bytes: 1 }); continue; }
+      if (texto && ignorarEnters > 0) { ignorarEnters -= 1; continue; }
       linha = "";
       if (!texto) continue; // Enter com a caixa vazia não faz nada
       registrar({ modo: "prompt", texto });
+      desenharCaixa();
       // FAKE_ACEITA_APOS_MS: o recibo (UserPromptSubmit) só sai tanto tempo depois do Enter.
       setTimeout(() => {
         disparar("UserPromptSubmit", {});
@@ -177,6 +196,7 @@ process.stdin.on("data", (d) => {
       linha += ch;
     }
   }
+  if (!dialogoAbertoAposEnter) desenharCaixa();
 });
 process.on("SIGTERM", () => process.exit(0));
 // Filho no mesmo grupo que ignora o SIGHUP do fechamento do terminal (como os servidores MCP do claude de verdade): o teste mata só o líder e

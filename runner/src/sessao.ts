@@ -43,7 +43,7 @@ import {
 import { digitarEEnviar, vencerTelaDeConfianca } from "./sessao/digitacao.js";
 import { MedidorDeUso } from "./uso.js";
 import { type PayloadDeHook, receberHook } from "./sessao/eventos.js";
-import { type SemRecibo, enfileirarQuandoOcioso, recuperarDoDisco, talvezSoltarFila } from "./sessao/fila.js";
+import { type SemRecibo, enfileirarQuandoOcioso, itensNaoEntregues, recuperarDoDisco, talvezSoltarFila } from "./sessao/fila.js";
 import { encerrarIncidenteDeLogin, entregarRecadoDeLogin, marcarLoginExpirado, retomarAposLoginExpirado } from "./sessao/login.js";
 import { ESC } from "./sessao/telas.js";
 
@@ -180,9 +180,15 @@ export class Sessao extends EventEmitter {
   /** Textos já digitados que o CLI ainda não confirmou (sem recibo). Vão junto no arquivo da fila, marcados
    *  como digitados, e ficam retidos (incertos, nunca digitados de novo) se o terminal sair antes do recibo (ver sessao/fila.ts). */
   semRecibo: SemRecibo[] = [];
-  /** O envio em curso (do primeiro caractere ao fim da espera do recibo), para a digitação avisar a fila de que o
-   *  Enter foi escrito ou de que a repetição parou. */
-  envioAtual: SemRecibo | null = null;
+  /** O comando de barra (/compact, /clear) digitado que ainda espera o recibo próprio (PreCompact para o /compact).
+   *  Não entra em `semRecibo` (não tem UserPromptSubmit), mas fica no arquivo da fila até o recibo ou até ser retido
+   *  como incerto; a vigia do Enter o enxerga pelo próprio item que recebe. */
+  barraPendente: SemRecibo | null = null;
+  /** Fim do último texto colado: os envios de texto de um mesmo terminal são serializados nesta cadeia
+   *  (ver digitarEEnviar), para a fila e o POST /input não se intercalarem. */
+  cadeiaDeEnvio: Promise<void> = Promise.resolve();
+  /** true depois que o log disse que a suspensão da digitação continua (uma vez por suspensão). */
+  suspensaoLogada = false;
   /** Quando o dono escreveu no terminal e um pedido ficou retido por isso: a digitação automática fica suspensa até
    *  chegar um recibo ou um turno começar e terminar (ver suspenderPorRascunho). null quando não está suspensa. */
   digitacaoSuspensaEm: number | null = null;
@@ -347,11 +353,11 @@ export class Sessao extends EventEmitter {
 
   /** A fila de texto que ainda não foi entregue ao agente: o item em digitação e os que esperam. */
   pendentesDaFila(): ItemDaFila[] {
-    return this.itemEmVoo ? [this.itemEmVoo, ...this.filaQuandoIdle] : [...this.filaQuandoIdle];
+    return itensNaoEntregues(this);
   }
 
   tamanhoDaFila(): number {
-    return this.filaQuandoIdle.length;
+    return itensNaoEntregues(this).length;
   }
 
   marcarAtividade(): void {
@@ -826,13 +832,13 @@ export class Sessao extends EventEmitter {
   }
 
   /** Digita e envia, com recibo do Enter (ver sessao/digitacao.ts). */
-  digitarEEnviar(texto: string, daFila = false): Promise<boolean> {
-    return digitarEEnviar(this, texto, daFila);
+  digitarEEnviar(texto: string, daFila = false, envio: SemRecibo | null = null): Promise<boolean> {
+    return digitarEEnviar(this, texto, daFila, envio);
   }
 
   /** Responde à tela de confiança de pasta do Codex (ver sessao/digitacao.ts). */
-  vencerTelaDeConfianca(daFila = false): Promise<void> {
-    return vencerTelaDeConfianca(this, daFila);
+  vencerTelaDeConfianca(daFila = false, proc: Sessao["proc"] = this.proc): Promise<void> {
+    return vencerTelaDeConfianca(this, daFila, proc);
   }
 
   /** Guarda um texto para digitar quando o agente ficar ocioso (ver sessao/fila.ts). */

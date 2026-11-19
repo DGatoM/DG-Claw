@@ -97,7 +97,7 @@ test("Codex: o Enter sem recibo é repetido (o primeiro foi tratado como colagem
   await esperarAte(() => s.estado.status === "idle", 6_000);
   await s.digitarEEnviar("texto que precisa de dois Enters");
   await esperarAte(() => lerLinhasJson(amb.logDosClis).some((l) => l.bin === "codex" && l.texto === "texto que precisa de dois Enters"), 4_000, "o prompt entrar");
-  assert.match(lerTexto(amb.logDoRunner), /o Enter 1\/3 não virou turno em 3000ms; batendo na tecla de novo/);
+  assert.match(lerTexto(amb.logDoRunner), /o Enter 1\/3 não virou turno em 3000ms; o mesmo texto continua na caixa, batendo na tecla de novo/);
   assert.ok(entradasDe(id).length >= 1);
 });
 

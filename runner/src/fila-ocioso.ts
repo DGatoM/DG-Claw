@@ -55,15 +55,17 @@ export function carregarFila(caminho: string, area: string): ItemDaFila[] {
   }
   try {
     const dado = JSON.parse(bruto) as { versao?: unknown; itens?: unknown };
-    if (dado?.versao !== 1 || !Array.isArray(dado.itens)) throw new Error("formato inesperado (esperava versao 1 e uma lista de itens)");
+    const versao = dado?.versao;
+    if ((versao !== 1 && versao !== 2) || !Array.isArray(dado.itens)) throw new Error("formato inesperado (esperava versao 1 ou 2 e uma lista de itens)");
     const itens: ItemDaFila[] = [];
     for (const it of dado.itens as Array<Record<string, unknown>>) {
       if (typeof it?.texto !== "string") throw new Error("item sem texto em formato de string");
       const item: ItemDaFila = { texto: it.texto, em: typeof it.em === "number" ? it.em : Date.now() };
       if (it.esperou === true) item.esperou = true;
       if (typeof it.id === "string") item.id = it.id;
-      if (it.digitado === true) item.digitado = true;
-      if (it.incerto === true) item.incerto = true;
+      // A versão 1 não conhecia `digitado` nem `incerto`: um item vindo dela é um pedido comum da fila.
+      if (versao === 2 && it.digitado === true) item.digitado = true;
+      if (versao === 2 && it.incerto === true) item.incerto = true;
       itens.push(item);
     }
     return itens;
@@ -84,22 +86,48 @@ export function carregarFila(caminho: string, area: string): ItemDaFila[] {
   }
 }
 
+/** A versão do arquivo que o runner grava. A 2 acrescenta `digitado` e `incerto`; um runner antigo, que só
+ *  aceita a 1, recusa o arquivo (e o guarda como corrompido) em vez de executar um pedido incerto. */
+export const VERSAO_DA_FILA = 2;
+
+function sincronizarPasta(pasta: string): void {
+  const fd = fs.openSync(pasta, "r");
+  try {
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 /**
- * Grava a fila de forma atômica (arquivo .tmp na mesma pasta + rename). Fila vazia apaga o
- * arquivo. Nunca lança: se falhar, loga e a fila continua valendo em memória. Devolve true quando gravou e
- * false quando falhou: quem vai digitar um texto só digita depois de um true.
+ * Grava a fila de forma atômica (arquivo .tmp na mesma pasta, fsync do temporário, rename e fsync da pasta). Fila
+ * vazia apaga o arquivo. Nunca lança: se falhar, loga e a fila continua valendo em memória. Devolve true só depois
+ * de o conteúdo estar no disco e false quando falhou: quem vai digitar um texto só digita depois de um true.
  */
 export function gravarFila(caminho: string, itens: ItemDaFila[], area: string): boolean {
   try {
+    const pasta = path.dirname(caminho);
     if (itens.length === 0) {
       fs.rmSync(caminho, { force: true });
+      if (fs.existsSync(pasta)) sincronizarPasta(pasta);
       return true;
     }
-    const pasta = path.dirname(caminho);
     fs.mkdirSync(pasta, { recursive: true, mode: 0o700 });
     const tmp = `${caminho}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ versao: 1, itens }), { mode: 0o600 });
-    fs.renameSync(tmp, caminho);
+    try {
+      const fd = fs.openSync(tmp, "w", 0o600);
+      try {
+        fs.writeSync(fd, JSON.stringify({ versao: VERSAO_DA_FILA, itens }));
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
+      fs.renameSync(tmp, caminho);
+    } catch (e) {
+      fs.rmSync(tmp, { force: true });
+      throw e;
+    }
+    sincronizarPasta(pasta);
     return true;
   } catch (err) {
     log.erro(

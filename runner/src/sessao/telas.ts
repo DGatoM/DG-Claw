@@ -102,3 +102,49 @@ export function nonceConfere(esperado: string | null, recebido: unknown): boolea
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+
+/** O que a tela mostra na caixa de composição, comparado com o texto que o runner digitou. */
+export type EstadoDaCaixa = "mesmo-texto" | "vazia" | "indeterminada";
+
+/** Tira espaço, quebra de linha e as linhas de moldura da caixa (U+2500 a U+257F): o TUI quebra o texto
+ *  comprido e desenha a borda no meio dele, então a comparação ignora tudo isso. */
+function compacta(t: string): string {
+  return t.replace(/[\s─-╿]/g, "");
+}
+
+const RE_MARCA_DE_DIALOGO = /esctocancel|doyouwant|\(y\/n\)|1\.yes|1\.no|yes,|no,keep|no,exit|allowonce|alwaysallow|pressentertoconfirm/i;
+const RE_RODAPE_DA_CAIXA_VAZIA = /^(\?forshortcuts|⏵|\(shift\+tab|bypasspermissions|automode|acceptedits|planmode|\?)/i;
+
+function haDialogoAberto(tela: string): boolean {
+  return ehDialogoDeAutoMode(tela) || ehDialogoDeConfiancaDoClaude(tela) || ehDialogoDeBypass(tela) || telaDeConfiancaDoCodex(tela);
+}
+
+/** Olha o fim da tela e diz se a caixa de composição ainda traz o MESMO texto digitado (o final dele, de forma
+ *  tolerante a quebra de linha e moldura), se está vazia, ou se não dá para saber (diálogo, menu, texto de outra
+ *  pessoa, tela que não é a caixa). Só "mesmo-texto" autoriza repetir o Enter: um Enter numa caixa que mudou
+ *  poderia mandar um rascunho do dono ou confirmar um diálogo de permissão. */
+export function estadoDaCaixa(tela: string, texto: string): EstadoDaCaixa {
+  if (haDialogoAberto(tela)) return "indeterminada";
+  const t = compacta(semAnsi(desdeAUltimaLimpezaDeTela(tela)));
+  const fim = compacta(texto).slice(-40);
+  if (fim.length > 0) {
+    const i = t.lastIndexOf(fim);
+    if (i >= 0) {
+      const depois = t.slice(i + fim.length);
+      if (depois.length <= 400 && !RE_MARCA_DE_DIALOGO.test(depois) && !depois.includes("❯") && !depois.includes("›")) return "mesmo-texto";
+      return "indeterminada";
+    }
+  }
+  return caixaVaziaNaTela(tela) ? "vazia" : "indeterminada";
+}
+
+/** A tela mostra a caixa de composição sem nenhum texto (só o prompt e o rodapé)? */
+export function caixaVaziaNaTela(tela: string): boolean {
+  if (haDialogoAberto(tela)) return false;
+  const t = compacta(semAnsi(desdeAUltimaLimpezaDeTela(tela)));
+  const p = Math.max(t.lastIndexOf("❯"), t.lastIndexOf("›"));
+  if (p < 0) return false;
+  const resto = t.slice(p + 1);
+  if (RE_MARCA_DE_DIALOGO.test(resto)) return false;
+  return resto === "" || RE_RODAPE_DA_CAIXA_VAZIA.test(resto);
+}

@@ -3,6 +3,7 @@ import type { Sessao } from "../sessao.js";
 import { type ItemDaFila, gravarFila } from "../fila-ocioso.js";
 import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
+import { caixaVaziaNaTela } from "./telas.js";
 import { AVISO_DE_FILA_APOS_MS, JANELA_DE_PRONTIDAO_MS, PRONTO_APOS_SPAWN_MS, QUIETO_ANTES_DE_DIGITAR_MS } from "./constantes.js";
 
 /** Um texto que já foi digitado no terminal e ainda não tem recibo do CLI (UserPromptSubmit no Claude,
@@ -20,6 +21,12 @@ export interface SemRecibo {
   /** true quando a repetição do Enter parou porque houve outra escrita no terminal: o que está na caixa já não é
    *  garantidamente este pedido. */
   interrompido: boolean;
+  /** Por que o envio parou antes de ter o recibo (preenchido pela rotina do Enter, que recebe este item
+   *  explicitamente): o terminal foi trocado, a caixa mudou ou não há recibo possível. A fila retém o pedido. */
+  parada?: { tipo: "terminal" | "caixa" | "sem-hooks"; motivo: string };
+  /** true para o comando de barra (/compact, /clear): não tem o recibo do prompt (UserPromptSubmit). Fica em
+   *  `Sessao.barraPendente`, no disco, até o recibo próprio (PreCompact) ou até ser retido como incerto. */
+  barra?: boolean;
 }
 
 const MOTIVOS_DE_TELA_BLOQUEADA = ["runner:dialogo-auto-mode", "runner:tela-de-confianca"];
@@ -31,7 +38,15 @@ export function enfileirarQuandoOcioso(s: Sessao, texto: string, esperouNoPainel
   s.marcarAtividade();
   // Entrou com o agente ocupado, com outra na frente ou com um item sendo digitado: vai ser lida depois de falas
   // dele que quem escreveu ainda não viu (ver avisoDeAtraso).
-  const esperou = esperouNoPainel || s.estado.status !== "idle" || s.filaQuandoIdle.length > 0 || s.soltandoFila;
+  // Também com um pedido digitado esperando recibo, ou com a digitação suspensa por rascunho: o agente ainda vai falar antes.
+  const esperou =
+    esperouNoPainel ||
+    s.estado.status !== "idle" ||
+    s.filaQuandoIdle.length > 0 ||
+    s.soltandoFila ||
+    s.semRecibo.length > 0 ||
+    s.barraPendente !== null ||
+    s.digitacaoSuspensaEm !== null;
   s.filaQuandoIdle.push({ texto, em: Date.now(), id: randomUUID().slice(0, 8), ...(esperou ? { esperou: true } : {}) });
   espelharFila(s);
   log.info(
@@ -89,12 +104,26 @@ export function talvezSoltarFila(s: Sessao): void {
   }
   if (s.estado.status !== "idle") return;
   // Um envio automático sem recibo por vez: enquanto houver um digitado sem confirmação, a fila espera.
-  if (s.semRecibo.length) return;
-  // O dono escreveu na caixa do terminal (rascunho sem Enter): nada é digitado por cima até ele dar o Enter
-  // (chega um recibo) ou até um turno começar e terminar (idle depois do turno).
+  if (s.semRecibo.length || s.barraPendente) return;
+  // Pode haver texto (um rascunho do dono, o pedido que ficou na caixa) ou um diálogo no terminal: nada é digitado
+  // por cima. A suspensão só acaba quando, num idle, a tela mostra a caixa de composição vazia. Um recibo (hook)
+  // sozinho não basta: ele pode ser de outro turno e a caixa continuar com texto.
   if (s.digitacaoSuspensaEm !== null) {
-    if (s.turnoComecouEm < s.digitacaoSuspensaEm) return;
+    if (!caixaVaziaNaTela(s.telaInteira())) {
+      if (!s.suspensaoLogada) {
+        s.suspensaoLogada = true;
+        log.aviso(
+          s.a("entrada"),
+          "a digitação automática continua suspensa: a tela do terminal não mostra a caixa de composição vazia (pode haver texto ou um diálogo nela). " +
+            "Os pedidos continuam guardados na fila. O que fazer: abrir o terminal do agente (aba Sessões, botão Terminal), dar o Enter ou apagar o texto e responder o diálogo, se houver",
+        );
+      }
+      // Olha de novo daqui a pouco: a pessoa pode limpar a caixa sem que nenhum evento chegue ao runner.
+      agendarReintento(s);
+      return;
+    }
     s.digitacaoSuspensaEm = null;
+    s.suspensaoLogada = false;
   }
   const item = s.filaQuandoIdle[0];
   if (!item) {
@@ -117,12 +146,18 @@ export function talvezSoltarFila(s: Sessao): void {
   // fica em semRecibo. Mas também é gravado como digitado antes de ser digitado, e sai do disco quando termina:
   // se o runner cair no meio, no boot ele aparece digitado e fica retido, nunca é executado de novo.
   const ehBarra = texto.trim().startsWith("/");
-  const entrada: SemRecibo | null = ehBarra
-    ? null
-    : { item, promptsAntes: s.promptsAceitos, aguardando: false, enterEscrito: false, interrompido: false };
-  if (entrada) s.semRecibo.push(entrada);
+  const entrada: SemRecibo = {
+    item,
+    promptsAntes: s.promptsAceitos,
+    aguardando: false,
+    enterEscrito: false,
+    interrompido: false,
+    ...(ehBarra ? { barra: true } : {}),
+  };
+  if (ehBarra) s.barraPendente = entrada;
+  else s.semRecibo.push(entrada);
   if (!espelharFila(s)) {
-    if (entrada) retirarSemRecibo(s, entrada);
+    retirarSemRecibo(s, entrada);
     delete item.digitado;
     s.itemEmVoo = null;
     s.filaQuandoIdle.unshift(item);
@@ -138,19 +173,20 @@ export function talvezSoltarFila(s: Sessao): void {
     agendarReintento(s);
     return;
   }
-  s.envioAtual = entrada;
   s.soltandoFila = true;
   if (!s.bloqueioDaFilaLogado) log.info(
     s.a("entrada"),
     `soltando os ${texto.length} caracteres enfileirados (agente ocioso; restam ${s.filaQuandoIdle.length} na fila)`,
   );
-  s.digitarEEnviar(texto, true)
+  s.digitarEEnviar(texto, true, entrada)
     .then((recebido) => {
       s.bloqueioDaFilaLogado = false;
-      if (!entrada || !s.semRecibo.includes(entrada)) return;
-      if (entrada.interrompido) {
-        suspenderPorRascunho(s);
-        reter(s, item, "a repetição do Enter parou porque houve outra escrita no terminal depois do primeiro Enter");
+      if (!pendenteEm(s, entrada)) return;
+      if (entrada.parada) {
+        // Só a caixa que mudou (rascunho, diálogo) suspende a digitação: terminal trocado ou sem hooks não deixam nada na caixa.
+        if (entrada.parada.tipo === "caixa") suspenderPorRascunho(s);
+        reter(s, item, entrada.parada.motivo);
+        talvezSoltarFila(s);
         return;
       }
       if (recebido) {
@@ -171,7 +207,7 @@ export function talvezSoltarFila(s: Sessao): void {
       // passo de digitarEEnviar só OLHA a tela. Quando o dono responder o aviso no terminal, sai uma vez.
       if (err instanceof ErroDeMotor && MOTIVOS_DE_TELA_BLOQUEADA.includes(err.statusReason)) {
         // Se o terminal saiu no meio, devolverSemRecibo já reteve o item (e o tirou de itemEmVoo): não mexe.
-        if (entrada) retirarSemRecibo(s, entrada);
+        retirarSemRecibo(s, entrada);
         if (s.itemEmVoo === item) {
           // Nada foi digitado: o item volta como estava, sem a marca de digitado.
           delete item.digitado;
@@ -185,7 +221,7 @@ export function talvezSoltarFila(s: Sessao): void {
         agendarReintento(s);
         return;
       }
-      if (entrada) retirarSemRecibo(s, entrada);
+      retirarSemRecibo(s, entrada);
       log.erro(
         s.a("entrada"),
         `falhei ao digitar o texto enfileirado: ${err instanceof Error ? err.message : err}`,
@@ -197,7 +233,7 @@ export function talvezSoltarFila(s: Sessao): void {
     .finally(() => {
       s.soltandoFila = false;
       s.itemEmVoo = null;
-      s.envioAtual = null;
+      // O comando de barra que ainda espera o recibo próprio continua no disco (barraPendente), não só em memória.
       espelharFila(s);
     });
 }
@@ -233,6 +269,7 @@ export function espelharFila(s: Sessao): boolean {
     }
   };
   for (const e of s.semRecibo) somar(e.item);
+  somar(s.barraPendente?.item);
   somar(s.itemEmVoo);
   for (const it of s.filaQuandoIdle) somar(it);
   for (const it of s.retidos) somar(it);
@@ -242,6 +279,38 @@ export function espelharFila(s: Sessao): boolean {
 function retirarSemRecibo(s: Sessao, entrada: SemRecibo): void {
   const i = s.semRecibo.indexOf(entrada);
   if (i >= 0) s.semRecibo.splice(i, 1);
+  if (s.barraPendente === entrada) s.barraPendente = null;
+}
+
+function pendenteEm(s: Sessao, entrada: SemRecibo): boolean {
+  return s.semRecibo.includes(entrada) || s.barraPendente === entrada;
+}
+
+/** O comando de barra teve o recibo próprio (ou o comando foi consumido e não tem recibo): sai do disco. */
+export function liberarBarra(s: Sessao, entrada: SemRecibo): void {
+  if (s.barraPendente !== entrada) return;
+  s.barraPendente = null;
+  if (s.itemEmVoo === entrada.item) s.itemEmVoo = null;
+  espelharFila(s);
+  talvezSoltarFila(s);
+}
+
+/** O que o painel precisa saber da fila: os itens que ainda não foram entregues, sem repetir nenhum
+ *  (em digitação, digitado sem recibo, comando de barra à espera do recibo próprio e os que esperam). */
+export function itensNaoEntregues(s: Sessao): ItemDaFila[] {
+  const vistos = new Set<ItemDaFila>();
+  const lista: ItemDaFila[] = [];
+  const somar = (it: ItemDaFila | null | undefined) => {
+    if (it && !vistos.has(it)) {
+      vistos.add(it);
+      lista.push(it);
+    }
+  };
+  somar(s.itemEmVoo);
+  for (const e of s.semRecibo) somar(e.item);
+  somar(s.barraPendente?.item);
+  for (const it of s.filaQuandoIdle) somar(it);
+  return lista;
 }
 
 /** O pedido fica guardado no arquivo da fila, marcado `incerto`, SEM ser enviado sozinho e sem bloquear os
@@ -249,6 +318,7 @@ function retirarSemRecibo(s: Sessao, entrada: SemRecibo): void {
 export function reter(s: Sessao, item: ItemDaFila, motivo: string): void {
   const i = s.semRecibo.findIndex((e) => e.item === item);
   if (i >= 0) s.semRecibo.splice(i, 1);
+  if (s.barraPendente?.item === item) s.barraPendente = null;
   if (s.itemEmVoo === item) s.itemEmVoo = null;
   const j = s.filaQuandoIdle.indexOf(item);
   if (j >= 0) s.filaQuandoIdle.splice(j, 1);
@@ -265,13 +335,14 @@ export function reter(s: Sessao, item: ItemDaFila, motivo: string): void {
   espelharFila(s);
 }
 
-/** O dono escreveu na caixa do terminal e o pedido ficou retido: a digitação automática fica suspensa até chegar
- *  um recibo (ele deu o Enter) ou até um turno começar e terminar. Chamar ANTES de reter. */
+/** A caixa do terminal pode ter texto (rascunho do dono, pedido que ficou lá) ou um diálogo: a digitação automática
+ *  fica suspensa até a tela, num idle, mostrar a caixa de composição vazia. Chamar ANTES de reter. */
 export function suspenderPorRascunho(s: Sessao): void {
   s.digitacaoSuspensaEm = Date.now();
+  s.suspensaoLogada = false;
   log.aviso(
     s.a("entrada"),
-    "alguém escreveu no terminal do agente: a digitação automática dos próximos pedidos fica suspensa até o dono dar o Enter ou o agente terminar um turno. " +
+    "a caixa do terminal do agente pode ter texto ou um diálogo: a digitação automática dos próximos pedidos fica suspensa até a caixa aparecer vazia com o agente ocioso. " +
       "Os pedidos seguintes continuam guardados na fila",
   );
 }
@@ -281,8 +352,8 @@ export function suspenderPorRascunho(s: Sessao): void {
  *  exemplo) e não prova nada. Confirmar o recibo NÃO solta a fila: o próximo texto só sai no próximo idle, depois
  *  que o turno começou e terminou. Chamado pelos dois recibos (hook do Claude, rollout do Codex). */
 export function confirmarRecibos(s: Sessao): void {
-  // O dono deu o Enter (ou o agente abriu um turno): o rascunho que suspendia a digitação foi consumido.
-  s.digitacaoSuspensaEm = null;
+  // Não limpa a suspensão por rascunho: um recibo não prova que a caixa ficou vazia (pode ser de outro turno, e o
+  // texto continuar lá). Quem encerra a suspensão é talvezSoltarFila, ao ver a caixa vazia num idle.
   const e = s.semRecibo[0];
   if (!e) return;
   if (!e.enterEscrito) {
@@ -307,9 +378,11 @@ export function devolverSemRecibo(s: Sessao, motivo: string): void {
   for (const e of pendentes) {
     reter(s, e.item, !e.enterEscrito && !e.aguardando ? `a digitação foi interrompida no meio (${motivo})` : motivo);
   }
-  // O comando de barra em digitação não está em semRecibo, mas também está marcado como digitado.
+  // O comando de barra (em digitação ou à espera do recibo próprio) não está em semRecibo, mas também está marcado como digitado.
+  const barra = s.barraPendente;
+  if (barra) reter(s, barra.item, `o comando de barra ficou sem o recibo próprio (${motivo})`);
   const emVoo = s.itemEmVoo;
-  if (emVoo && emVoo.digitado && s.soltandoFila) reter(s, emVoo, `a digitação foi interrompida no meio (${motivo})`);
+  if (emVoo && emVoo.digitado && s.soltandoFila && !emVoo.incerto) reter(s, emVoo, `a digitação foi interrompida no meio (${motivo})`);
 }
 
 /** O que o disco guardava no boot: os retidos (incertos) continuam retidos, e os digitados sem recibo (o runner

@@ -142,6 +142,7 @@ function lerStdin() {
 
   process.stdout.write("fake codex pronto\r\n");
   let linha = "";
+  const desenharCaixa = () => process.stdout.write("\u001b[2J\u001b[H\u203a " + linha + "\r\n? for shortcuts\r\n");
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
   process.stdin.on("data", (d) => {
     for (const ch of d.toString()) {
@@ -156,6 +157,7 @@ function lerStdin() {
         linha += ch;
       }
     }
+    desenharCaixa();
   });
   process.on("SIGTERM", () => process.exit(0));
   setInterval(() => {}, 1000);
