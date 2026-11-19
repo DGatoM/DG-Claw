@@ -10,7 +10,6 @@ preparar
 PATH="$AQUI/stubs-entrega:$PATH"
 export PATH
 export DGCLAW_CLI="$AQUI/stubs-entrega/dgclaw-falso"
-export DGCLAW_SMOKE_ESPERA=2
 CASA="$DGCLAW_RAIZ/var/lib/dgclaw/agentes/ana/home"
 CG="$DGCLAW_RAIZ/sys/fs/cgroup/machine.slice/libpod-abc.scope"
 
@@ -52,15 +51,10 @@ nega "nao varre as skills no container" grep -q 'FIM-DA-VARREDURA' "$STUB_LOG"
 afirma "item 6 OK no yt-dlp.conf" grep -q 'OK     \[6\] /etc/yt-dlp.conf tem a diretiva --js-runtimes node' "$TMP/s.txt"
 afirma "item 6 OK no perfil da Tela" grep -q 'OK     \[6\] o perfil da Tela existe' "$TMP/s.txt"
 afirma "item 6 deixa o YouTube PENDENTE" grep -q 'PENDENTE \[6\] login do YouTube e download' "$TMP/s.txt"
+afirma "item 7 OK com o Chrome headless" grep -q 'OK     \[7\] o Chrome headless rodou' "$TMP/s.txt"
 afirma "o render usa pasta privada e apaga so ela" grep -q 'rm -rf -- /tmp/smoke-entrega.abc123$' "$STUB_LOG"
 nega "nao usa o /tmp fixo antigo" grep -q 'smoke-entrega-yt' "$STUB_LOG"
-nega "nao baixa nada com o yt-dlp" grep -qE 'yt-dlp (--|-f|http)' "$STUB_LOG"
-afirma "o PENDENTE do YouTube traz o diagnostico e o comando a mao" grep -q 'agente.ana.youtube.*cookies-from-browser' "$TMP/s.txt"
-afirma "a saude do runner e lida sem proxy" grep -q "curl .*--noproxy \* .*127.0.0.1:4301/api/saude" "$STUB_LOG"
-afirma "item 7 OK sem sobra de Chrome" grep -q 'OK     \[7\] render headless terminou' "$TMP/s.txt"
 afirma "item 8 OK no servidor e no container" bash -c "grep -c 'OK     \[8\]' '$TMP/s.txt' | grep -qx 2"
-afirma "item 11 OK com a sessao de pe" grep -q 'OK     \[11\] a sessao principal' "$TMP/s.txt"
-afirma "chamou o reparar" grep -q '^dgclaw agente reparar ana' "$STUB_LOG"
 nega "nao imprime FALHA" grep -q 'FALHA' "$TMP/s.txt"
 afirma "lista o que fica a mao" grep -q 'Conferir a mao' "$TMP/s.txt"
 nega "nao mostra valor de chave (so o nome)" grep -q 'abcd' "$TMP/s.txt"
@@ -86,9 +80,8 @@ limpar_estado
 cofre_com GEMINI_API_KEY
 printf 'OUTRA=1\n' >"$ETC/web.env"
 cgroup 4294967296 1024; echo 153 >"$STUB_ESTADO/tasksmax"; echo 3 >"$STUB_ESTADO/nrestarts"
-: >"$STUB_ESTADO/oom-journal"; : >"$STUB_ESTADO/sem-ffmpeg-container"; : >"$STUB_ESTADO/chrome-sobra"
+: >"$STUB_ESTADO/oom-journal"; : >"$STUB_ESTADO/sem-ffmpeg-container"
 : >"$STUB_ESTADO/yt-falha"
-printf '%s' '{"ok":true,"agente":{"slug":"ana","status":"idle","ptyVivo":false},"sessoes":[{"id":"p1","tipo":"paralela","status":"working","ptyVivo":true}]}' >"$STUB_ESTADO/saude.json"
 smoke ana
 igual "sai com 1" "1" "$?"
 afirma "FALHA no pids.max" grep -q 'FALHA  \[3\] pids.max do container e 1024' "$TMP/s.txt"
@@ -97,27 +90,12 @@ afirma "FALHA no NRestarts" grep -q 'FALHA  \[3\] o runner reiniciou sozinho 3' 
 afirma "FALHA no OOM" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias' "$TMP/s.txt"
 afirma "FALHA sem chave de microfone no web.env" grep -q 'FALHA  \[5\] o web.env nao tem ELEVENLABS_API_KEY, GROQ_API_KEY nem OPENAI_API_KEY' "$TMP/s.txt"
 afirma "as dicas de recriar nao mandam --forcar" bash -c "! grep -q -- 'recriar ana --forcar' '$TMP/s.txt'"
+afirma "a dica de recriar manda pedir ao Admin a camada gravavel" grep -q 'peca ao Admin para conferir o que existe so na camada gravavel' "$TMP/s.txt"
+nega "a dica de recriar nao manda abrir podman diff" grep -q 'podman diff' "$TMP/s.txt"
 afirma "a dica de recriar avisa que pode recriar na hora" grep -q 'pode recriar o container na hora' "$TMP/s.txt"
-afirma "a dica de recriar indica inspecao so de leitura" grep -q 'podman inspect dgclaw-ana' "$TMP/s.txt"
 nega "a dica de recriar nao a apresenta como so listar" grep -q 'ele lista e para' "$TMP/s.txt"
-afirma "FALHA com Chrome sobrando" grep -q 'FALHA  \[7\] sobraram 2 processo' "$TMP/s.txt"
 afirma "FALHA sem ffmpeg no container" grep -q 'FALHA  \[8\] ffmpeg nao esta no container' "$TMP/s.txt"
-afirma "FALHA com a sessao principal parada" grep -q 'FALHA  \[11\] a sessao principal do agente ana esta parada' "$TMP/s.txt"
 afirma "o resumo manda nao entregar" grep -q 'NAO entregue a VPS' "$TMP/s.txt"
-
-echo "smoke-entrega: runner nao volta, reparar falha"
-limpar_estado
-: >"$STUB_ESTADO/runner-mudo"
-smoke ana
-igual "runner mudo: sai com 1" "1" "$?"
-afirma "FALHA do runner sem resposta" grep -q 'FALHA  \[11\] o runner nao respondeu' "$TMP/s.txt"
-rm -f "$STUB_ESTADO/runner-mudo"; : >"$STUB_ESTADO/reparar-falha"
-smoke ana
-igual "reparar falho: sai com 1" "1" "$?"
-afirma "FALHA do reparar com o codigo" grep -q 'FALHA  \[11\] dgclaw agente reparar ana saiu com codigo 1\.' "$TMP/s.txt"
-rm -f "$STUB_ESTADO/reparar-falha"; : >"$STUB_LOG"
-smoke ana --sem-reparar
-afirma "--sem-reparar nao chama o reparar" bash -c "! grep -q 'agente reparar' '$STUB_LOG'"
 
 echo "smoke-entrega: memoria e processos sem limite no cgroup"
 limpar_estado
@@ -126,20 +104,21 @@ smoke ana
 igual "sem limite: sai com 1" "1" "$?"
 afirma "FALHA sem limite de processos" grep -q 'FALHA  \[3\] o container dgclaw-ana esta sem limite de processos' "$TMP/s.txt"
 afirma "FALHA sem limite de memoria" grep -q 'FALHA  \[3\] o container dgclaw-ana esta sem limite de memoria' "$TMP/s.txt"
+afirma "a correcao cita DGCLAW_CONTAINER_MEMORIA (a partir da 1.1.1), sem numero de RAM" grep -q 'configure DGCLAW_CONTAINER_MEMORIA (a partir da 1.1.1) com' "$TMP/s.txt"
+nega "a correcao nao sugere podman update --memory" grep -qE 'sem limite de memoria.*podman update|podman update --memory [0-9]+g dgclaw-ana \(vale ate o container ser recriado\). Para' "$TMP/s.txt"
 limpar_estado
 echo /machine.slice/../../etc >"$STUB_ESTADO/cgpath"
 smoke ana
 afirma "caminho de cgroup invalido: INCONCLUSIVO, nao FALHA nem OK" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o limite de processos' "$TMP/s.txt"
 nega "caminho invalido nao vira OK de pids" grep -q 'OK     \[3\] pids.max' "$TMP/s.txt"
 
-echo "smoke-entrega: erro de leitura e INCONCLUSIVO (journal, Chrome, OOMPolicy)"
+echo "smoke-entrega: erro de leitura e INCONCLUSIVO (journal, OOMPolicy)"
 limpar_estado
-: >"$STUB_ESTADO/journal-erro"; : >"$STUB_ESTADO/chrome-erro"; echo inventado >"$STUB_ESTADO/oompolicy"
+: >"$STUB_ESTADO/journal-erro"; echo inventado >"$STUB_ESTADO/oompolicy"
 smoke ana
 igual "so inconclusivo e aviso: sai com 0" "0" "$?"
 afirma "journal com erro: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal' "$TMP/s.txt"
 nega "journal com erro nao diz 'nenhum OOM'" grep -q 'nenhum OOM' "$TMP/s.txt"
-afirma "contagem do Chrome com erro: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[7\] nao consegui contar' "$TMP/s.txt"
 afirma "OOMPolicy fora da lista fechada: aviso fixo" grep -q 'AVISO  \[3\] o OOMPolicy do runner veio com um valor que nao conheco' "$TMP/s.txt"
 nega "o valor de fora nao e impresso" grep -q 'inventado' "$TMP/s.txt"
 afirma "o resumo conta os inconclusivos" grep -qE 'Resumo: 0 falha.*[1-9][0-9]* inconclusivo' "$TMP/s.txt"
@@ -173,23 +152,6 @@ afirma "caminho do yt-dlp acima do limite: INCONCLUSIVO" grep -q 'INCONCLUSIVO \
 nega "o lixo do yt-dlp nao entra no relatorio" grep -q 'aaaaaaaa' "$TMP/s.txt"
 afirma "TasksMax fora do formato: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o TasksMax' "$TMP/s.txt"
 nega "o texto livre do container nao entra no relatorio" grep -q 'texto livre' "$TMP/s.txt"
-limpar_estado
-: >"$STUB_ESTADO/saude-grande"
-smoke ana
-afirma "/api/saude acima do limite: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[11\]' "$TMP/s.txt"
-nega "a resposta grande nao entra no relatorio" grep -q 'aaaaaaaa' "$TMP/s.txt"
-
-echo "smoke-entrega: porta do runner invalida em agentes.json"
-limpar_estado
-cp "$ETC/agentes.json" "$ETC/agentes.json.bom"
-for porta in abc 0 70000 "4301;x"; do
-    jq --arg r "127.0.0.1:$porta" '.agentes[0].runner = $r' "$ETC/agentes.json.bom" >"$ETC/agentes.json"
-    : >"$STUB_LOG"
-    smoke ana
-    afirma "porta '$porta': FALHA no item 11" grep -q 'FALHA  \[11\] a porta do runner' "$TMP/s.txt"
-    nega "porta '$porta': nao chama o curl" grep -q '^curl ' "$STUB_LOG"
-done
-mv "$ETC/agentes.json.bom" "$ETC/agentes.json"
 
 echo "smoke-entrega: CPU pelo cpu.max do cgroup"
 limpar_estado
@@ -250,21 +212,30 @@ printf '%s\nGROQ_API_KEY=gsk_x\n' "\$(touch $TMP/executou)" >"$ETC/web.env"
 smoke ana
 nega "o web.env e lido como texto, nunca executado" test -e "$TMP/executou"
 
-echo "smoke-entrega: sessao principal parada com paralela ativa, outro agente na porta, formato ilegivel"
+echo "smoke-entrega: OOM num journal com o outro ilegivel, saida cortada e systemctl com erro"
 limpar_estado
-printf '%s' '{"ok":true,"agente":{"slug":"ana","status":"idle","ptyVivo":false},"sessoes":[{"id":"p1","tipo":"paralela","status":"working","ptyVivo":true}]}' >"$STUB_ESTADO/saude.json"
+: >"$STUB_ESTADO/oom-journal"; : >"$STUB_ESTADO/journal-host-erro"
 smoke ana
-igual "principal parada: sai com 1" "1" "$?"
-afirma "FALHA da principal parada" grep -q 'FALHA  \[11\] a sessao principal do agente ana esta parada' "$TMP/s.txt"
-printf '%s' '{"ok":true,"agente":{"slug":"outra","status":"idle","ptyVivo":true}}' >"$STUB_ESTADO/saude.json"
+igual "OOM no runner e kernel ilegivel: sai com 1" "1" "$?"
+afirma "FALHA dizendo a fonte ilegivel (kernel)" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias.*o journal do kernel do servidor ficou ilegivel' "$TMP/s.txt"
+limpar_estado
+: >"$STUB_ESTADO/oom-host"; : >"$STUB_ESTADO/journal-erro"
 smoke ana
-afirma "slug de outro agente: FALHA" grep -q 'FALHA  \[11\] o runner na porta 4301 respondeu, mas' "$TMP/s.txt"
-printf '%s' '"texto"' >"$STUB_ESTADO/saude.json"
+igual "OOM no kernel e runner ilegivel: sai com 1" "1" "$?"
+afirma "FALHA dizendo a fonte ilegivel (runner)" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias.*o journal do runner ficou ilegivel' "$TMP/s.txt"
+limpar_estado
+: >"$STUB_ESTADO/journal-grande"
 smoke ana
-afirma "JSON fora do formato: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[11\]' "$TMP/s.txt"
-printf '%s' '{"ok":true,"agente":{"slug":"ana","status":"working","ptyVivo":true}}' >"$STUB_ESTADO/saude.json"
+igual "journal acima de 1 MiB: sem FALHA, sai com 0" "0" "$?"
+afirma "journal acima de 1 MiB: INCONCLUSIVO de saida cortada" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal do runner.*saida cortada' "$TMP/s.txt"
+nega "journal cortado nao diz 'nenhum OOM'" grep -q 'nenhum OOM' "$TMP/s.txt"
+limpar_estado
+: >"$STUB_ESTADO/systemctl-erro"
 smoke ana
-igual "principal viva (working): sai com 0" "0" "$?"
+igual "systemctl com erro: sai com 0" "0" "$?"
+afirma "TasksMax com systemctl em erro: INCONCLUSIVO com o codigo" grep -q 'INCONCLUSIVO \[3\] o systemctl do TasksMax.*codigo 3' "$TMP/s.txt"
+afirma "NRestarts com systemctl em erro: INCONCLUSIVO com o codigo" grep -q 'INCONCLUSIVO \[3\] o systemctl do NRestarts.*codigo 3' "$TMP/s.txt"
+nega "TasksMax com erro nao vira OK" grep -q 'OK     \[3\] TasksMax' "$TMP/s.txt"
 
 echo "smoke-entrega: web.env ausente"
 limpar_estado

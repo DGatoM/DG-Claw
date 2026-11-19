@@ -13,7 +13,7 @@ No servidor do cliente, como root:
 sudo bash scripts/smoke-entrega.sh <agente>
 ```
 
-O script automatiza os passos 1, 3, 7, 8 e 11, e parte dos passos 5 e 6 (o microfone e os nomes do cofre; o
+O script automatiza os passos 1, 3, 7 e 8, e parte dos passos 5 e 6 (o microfone e os nomes do cofre; o
 perfil da Tela e a configuração do `yt-dlp`). Ele **não** cruza as skills com o cofre e **não** baixa nada do
 YouTube: esses dois ficam à mão, com os comandos nos passos 5 e 6.
 
@@ -25,10 +25,9 @@ YouTube: esses dois ficam à mão, com os comandos nos passos 5 e 6.
   entrega.
 - O relatório só tem mensagens fixas. Nenhum texto vindo do container (caminho, nome escolhido pelo agente,
   saída de comando) entra nele: só contagens validadas e o que o servidor já conhece. Toda leitura de dentro
-  do container tem limite de bytes; resposta grande demais ou fora do formato é `INCONCLUSIVO`.
+  do container tem limite de bytes; resposta grande demais ou fora do formato é `INCONCLUSIVO`. Se um comando
+  do container sai com erro, o item não interpreta a saída e diz o código.
 - No fim sai a lista "conferir à mão", que é a parte deste guia que o script não alcança.
-- O item 11 roda `dgclaw agente reparar <agente>` e reinicia o runner do agente. Use `--sem-reparar`
-  para pular esse passo (e então faça o item 11 à mão).
 - O script nunca mostra o valor de uma chave do cofre, só os nomes.
 - Rode de novo depois de cada correção. Os itens que dependem de uma correção da 1.1.1 aparecem como
   `AVISO` com a marca "(a partir da 1.1.1)" até a VPS ser atualizada.
@@ -64,20 +63,19 @@ O script confere, para `dgclaw-<agente>`:
 | Item | Como confere | Esperado |
 | --- | --- | --- |
 | Processos | `pids.max` do cgroup do container, lido no servidor (`podman inspect -f '{{.State.CgroupPath}}'`, caminho validado, arquivo em `/sys/fs/cgroup<caminho>`), e `PidsLimit` do `podman inspect` | 4096 ou mais. Menos que isso, ou `max` (sem limite), é `FALHA`. Caminho ou arquivo ilegível é `INCONCLUSIVO` |
-| Memória | `memory.max` do mesmo cgroup e `MemTotal` do servidor | `max` (sem limite) é `FALHA`. Mais de 2 GB quando a VPS tem mais RAM. Senão, `AVISO` com o comando `podman update --memory <N>g` |
+| Memória | `memory.max` do mesmo cgroup e `MemTotal` do servidor | `max` (sem limite) é `FALHA`: configure `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin. Com 2 GB e a VPS com mais RAM, `AVISO` com o comando `podman update --memory <N>g` |
 | CPU | `cpu.max` do mesmo cgroup (quota dividida pelo período; `max` é sem limite) e `nproc` | Mais de 1 quando a VPS tem mais núcleos. Senão, `AVISO` com `podman update --cpus <N>`. Arquivo ilegível é `INCONCLUSIVO` |
 | `TasksMax` do runner | `systemctl show -p TasksMax` dentro do container | 2400 ou mais. Menos que isso é `FALHA` |
 | `OOMPolicy` do runner | `systemctl show -p OOMPolicy` dentro do container, validado contra a lista `continue`, `stop`, `kill` | `continue` (a partir da 1.1.1; antes disso sai `AVISO`). Valor fora da lista é `AVISO`, sem repetir o que veio |
 | Reinícios do runner | `NRestarts` da unidade `dgclaw-runner` | 0. Mais que isso é `FALHA` |
-| Falta de memória (OOM) | `journalctl` do runner e `journalctl _TRANSPORT=kernel --since "7 days ago"` (o `-k` olharia só o boot atual), últimos 7 dias | Nenhuma linha de "out of memory" ou "oom-kill". Qualquer uma é `FALHA`. Se o `journalctl` der erro, é `INCONCLUSIVO`, que é diferente de "zero eventos". Se o journal do kernel guarda menos de 7 dias, o relatório diz a cobertura real |
+| Falta de memória (OOM) | `journalctl` do runner e `journalctl _TRANSPORT=kernel --since "7 days ago"` (o `-k` olharia só o boot atual), últimos 7 dias | Nenhuma linha de "out of memory" ou "oom-kill". Qualquer uma é `FALHA`. Se o `journalctl` der erro ou a saída passar de 1 MiB, é `INCONCLUSIVO`, que é diferente de "zero eventos". Se uma fonte mostra OOM e a outra ficou ilegível, é `FALHA`, e a mensagem diz qual fonte falhou. Se o journal do kernel guarda menos de 7 dias, o relatório diz a cobertura real |
 
 Atenção: `podman update` vale até o container ser recriado (`dgclaw agente recriar`). Se a VPS é grande,
 suba o limite, confira com o smoke e avise o time para repetir isso depois de qualquer recriação.
 
 **Recriar o agente sem perder nada.** O `dgclaw agente recriar <agente>` pode recriar o container na hora,
-então ele não é uma simples listagem. Antes dele, olhe só em leitura o que existe dentro do container:
-`podman diff dgclaw-<agente>` (o que mudou dentro dele) e `podman inspect dgclaw-<agente>`. Decida com o
-dono antes de qualquer perda e só então rode o `recriar`, sempre **sem** `--forcar`: sem a opção, se houver
+então ele não é uma simples listagem. Antes dele, peça ao Admin para conferir o que existe só na camada
+gravável do container. Decida com o dono antes de qualquer perda e só então rode o `recriar`, sempre **sem** `--forcar`: sem a opção, se houver
 algo só dentro do container (pacotes instalados à mão, arquivos fora da casa), ele para e não recria.
 Quando a correção pedir imagem nova, rode `dgclaw imagem construir --agora` e confira que terminou com
 sucesso antes de recriar.
@@ -110,9 +108,10 @@ sucesso antes de recriar.
 - **Esperado:** toda chave que uma skill do cliente cita (por exemplo `ELEVENLABS_API_KEY` ou
   `GEMINI_API_KEY`) está no cofre. O WhatsApp não usa chave no cofre: o pareamento é feito no painel,
   confira à mão.
-- **Se faltar:** `printf %s "$CHAVE" | dgclaw agente cofre <agente> guardar <NOME>`.
-- **À mão:** toda chave provisória da equipe precisa ter sido trocada pela do cliente (guardar de novo com o
-  mesmo nome substitui). Se a skill cita uma chave que o cliente não vai usar, pode ignorar.
+- **Se faltar:** `printf %s "$CHAVE" | dgclaw agente cofre <agente> guardar <NOME> --aplicar`.
+- **À mão:** toda chave provisória da equipe precisa ter sido trocada pela do cliente: rode
+  `printf %s "$CHAVE" | dgclaw agente cofre <agente> guardar <NOME> --aplicar` (guardar de novo com o
+  mesmo nome substitui) e confira que o comando terminou sem erro. Se a skill cita uma chave que o cliente não vai usar, pode ignorar.
 
 ### 6. YouTube e yt-dlp (login à mão)
 
@@ -120,8 +119,11 @@ sucesso antes de recriar.
    navegador dela com uma **conta dedicada ao agente**, deixando a sessão aberta. A senha da Tela se troca
    com `dgclaw agente tela-senha <agente>`.
 2. **Confira o login:** a partir da 1.1.1, olhe o item de diagnóstico `agente.<agente>.youtube`. Antes disso,
-   rode à mão, dentro do container, o `yt-dlp` com o perfil da Tela:
-   `podman exec --user agente dgclaw-<agente> yt-dlp --cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome" -F <url de um vídeo curto>`.
+   faça à mão um download curto de verdade, numa pasta descartável dentro do container, com a mesma chamada
+   isolada que o agente usa, como usuário `agente`:
+   `podman exec --user agente dgclaw-<agente> yt-dlp --ignore-config --no-plugin-dirs --js-runtimes node --cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome/Default" --no-playlist -f "worst/worstvideo" --max-filesize 5M -P /tmp/teste-yt -- 'https://www.youtube.com/watch?v=jNQXAC9IJRQ'`.
+   Esperado: um arquivo com conteúdo em `/tmp/teste-yt` (`podman exec --user agente dgclaw-<agente> ls -l /tmp/teste-yt`).
+   Depois apague a pasta: `podman exec --user agente dgclaw-<agente> rm -rf /tmp/teste-yt`.
 - **Esperado:** `yt-dlp` no PATH em `/usr/local/bin` (a partir da 1.1.1; antes, em `/opt/venv/bin`, e o
   script avisa sem repetir o caminho). Não existe mais configuração global de cookies. O script confere:
   (a) que o `/etc/yt-dlp.conf` do container tem a diretiva ativa (não comentada) `--js-runtimes node`;
@@ -130,17 +132,15 @@ sucesso antes de recriar.
 - **Se pedir login ou "não é um robô":** refaça o login na Tela com a conta do agente. Para ver o erro
   completo, repita o comando à mão acima com `-v`.
 
-### 7. Render headless sem sobrar Chrome (automático)
+### 7. Chrome headless roda (automático)
 
-- **Conferir:** o script conta `pgrep -c chrome` dentro do container, roda um render curto do Chrome
-  headless com prazo (`timeout`) num perfil descartável de uma pasta privada (`mktemp -d`, apagada no
-  fim), espera alguns segundos e conta de novo. Erro na contagem é `INCONCLUSIVO`, não "zero".
-- **Esperado:** a contagem depois é igual à de antes. O Chrome da Tela continua vivo, e por isso fica nas
-  duas contas.
+- **Conferir:** o script roda um render curto do Chrome headless com prazo (`timeout`) num perfil
+  descartável de uma pasta privada (`mktemp -d`, apagada no fim) e olha o código de saída.
+- **Esperado:** o Chrome headless termina com código 0. Código diferente é `FALHA`.
 - **Em render de verdade** (carrossel, vídeo), use o `dgclaw-pesado --timeout` (a partir da 1.1.1), que
   encerra o que sobrar. Antes dele, envolva o comando em `timeout`.
-- **Se sobrar processo:** `FALHA`. Mate o que ficou (`podman exec dgclaw-<agente> pkill -f <trecho>`) e veja
-  quem chamou o Chrome sem prazo.
+- **Processo sobrando:** o script não conta processos. Depois de um render de verdade, olhe à mão se ficou
+  Chrome para trás e veja quem o chamou sem prazo.
 
 ### 8. ffmpeg (automático)
 
@@ -180,14 +180,12 @@ Hoje é passo manual. Para cada skill do cliente:
 - **Esperado:** nenhum caminho aponta para fora da casa, nenhum arquivo é de `root`, e o `setup-check`
   não acusa nada ausente.
 
-### 11. Sessão principal de pé depois de reparar e reiniciar (automático)
+### 11. Reparar e conferir a sessão principal (à mão)
 
-- **O que o script faz:** `dgclaw agente reparar <agente>` (só o código de saída conta), reinicia o
-  `dgclaw-runner` dentro do container, espera o runner responder em `/api/saude` e lê o JSON dele: o
-  `agente.slug` tem de ser o agente pedido, `agente.ptyVivo` verdadeiro e `agente.status` em `idle`,
-  `working` ou `waiting_input`.
-- **Esperado:** `OK` nos três. Runner mudo, slug de outro agente ou sessão principal parada é `FALHA`, mesmo
-  que haja uma sessão paralela ativa ou um processo `claude`/`codex` solto. JSON ilegível é `INCONCLUSIVO`.
+- **Fazer:** rode `dgclaw agente reparar <agente>` e confira que termina sem erro e que a conversa
+  principal responde (abra o painel do agente e mande um pedido curto).
+- **Esperado:** o comando termina sem erro e a sessão principal responde, com o terminal vivo e em estado
+  normal.
 - **Se falhar:** `podman exec dgclaw-<agente> journalctl -u dgclaw-runner --no-pager | tail -n 50` e,
   se preciso, `dgclaw agente reiniciar <agente>`. Veja [SESSAO-PRINCIPAL.md](SESSAO-PRINCIPAL.md).
 
@@ -203,7 +201,7 @@ Hoje é passo manual. Para cada skill do cliente:
 - [ ] `scripts/smoke-entrega.sh <agente>` sai com 0 e nenhum `AVISO` ficou sem resposta
 - [ ] Os passos 2 (inclusive suporte temporário revogado e chave permanente da equipe fora do
       `authorized_keys`), 4, 5 (skills contra o cofre e chave do cliente), 6 (login do YouTube), 9 (inclusive a
-      senha trocada pelo próprio cliente), 10 e 12 estão feitos e marcados
+      senha trocada pelo próprio cliente), 10, 11 e 12 estão feitos e marcados
 - [ ] Nenhum `INCONCLUSIVO` ficou sem conferência à mão e o `PENDENTE` do YouTube foi confirmado (Tela e diagnóstico)
 - [ ] O checklist de entrega do [projeto de cliente](PROJETO-DE-CLIENTE.md#4-checklist-de-onboarding)
       (suporte desligado, senha de root trocada) também está completo

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # smoke-entrega.sh: confere uma VPS de cliente antes da entrega. Roda no servidor, como root.
 #
-#   sudo bash scripts/smoke-entrega.sh <agente> [--sem-reparar]
+#   sudo bash scripts/smoke-entrega.sh <agente>
 #
-# Automatiza os itens 1, 3, 5 (microfone e nomes do cofre), 6 (so o que se le sem baixar nada), 7, 8 e 11 do
+# Automatiza os itens 1, 3, 5 (microfone e nomes do cofre), 6 (so o que se le sem baixar nada), 7 e 8 do
 # checklist (docs/ENTREGA-CLIENTE.md). Cruzar as skills com o cofre (5) e o login do YouTube (6) ficam a mao. Cada item
 # imprime OK, AVISO, FALHA ou INCONCLUSIVO (nao deu para medir: erro de leitura nao e OK nem FALHA) com a
 # causa e o que fazer; PENDENTE e o que o dono confirma depois. O resto sai como lista "conferir a mao".
@@ -13,22 +13,18 @@
 # captura de saida do container passa por limite de bytes; estourou o limite ou veio fora do formato, e INCONCLUSIVO.
 #
 # O que este script NAO faz: mostrar valor de chave do cofre (so os nomes), apagar coisa do agente
-# ou do servidor. O item 11 chama `dgclaw agente reparar` e reinicia o runner; --sem-reparar pula isso.
+# ou do servidor. Reparar o agente e reiniciar o runner (item 11) ficam a mao.
 #
-# Env (usadas pelos testes): DGCLAW_RAIZ (raiz falsa), DGCLAW_CLI (o dgclaw a chamar),
-#   DGCLAW_SMOKE_ESPERA (segundos de espera do runner e da sessao, padrao 90).
+# Env (usadas pelos testes): DGCLAW_RAIZ (raiz falsa), DGCLAW_CLI (o dgclaw a chamar).
 set -u
 
 R="${DGCLAW_RAIZ:-}"
 CLI="${DGCLAW_CLI:-dgclaw}"
-ESPERA="${DGCLAW_SMOKE_ESPERA:-90}"
 
-USO='uso: sudo bash scripts/smoke-entrega.sh <agente> [--sem-reparar]'
+USO='uso: sudo bash scripts/smoke-entrega.sh <agente>'
 SLUG=""
-REPARAR=1
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --sem-reparar) REPARAR=0; shift ;;
         --ajuda|-h) echo "$USO"; exit 0 ;;
         -*) echo "opcao desconhecida: $1. $USO" >&2; exit 2 ;;
         *)
@@ -40,7 +36,6 @@ done
 case "$SLUG" in
     *[!a-z0-9-]*|-*) echo "'$SLUG' nao e um nome de agente valido (letras minusculas, numeros e hifen). $USO" >&2; exit 2 ;;
 esac
-case "$ESPERA" in ''|*[!0-9]*) ESPERA=90 ;; esac
 
 for f in jq podman curl; do
     command -v "$f" >/dev/null 2>&1 || { echo "falta o programa '$f' no PATH. Instale com: apt-get install -y $f" >&2; exit 2; }
@@ -51,8 +46,7 @@ AGENTES_JSON="$R/etc/dgclaw/agentes.json"
 [ -s "$AGENTES_JSON" ] || { echo "nao achei $AGENTES_JSON, entao nao sei quais agentes existem. Rode o smoke no servidor do DG Claw, como root." >&2; exit 2; }
 REG="$(jq -r --arg s "$SLUG" '.agentes[] | select(.slug == $s and .tipo == "agente") | [(.runner // ""), (.home_host // ""), (.provedor // "?")] | @tsv' "$AGENTES_JSON" 2>/dev/null | head -n 1)"
 [ -n "$REG" ] || { echo "o agente '$SLUG' nao esta em $AGENTES_JSON. Veja os que existem com: dgclaw agente listar" >&2; exit 2; }
-IFS=$'\t' read -r RUNNER _ PROVEDOR <<<"$REG"
-PORTA="${RUNNER##*:}"
+IFS=$'\t' read -r _ _ PROVEDOR <<<"$REG"
 
 FALHAS=0
 AVISOS=0
@@ -66,6 +60,7 @@ falha() { FALHAS=$((FALHAS + 1)); printf '  FALHA  [%s] %s\n         O que fazer
 inconclusivo() { INCONCLUSIVOS=$((INCONCLUSIVOS + 1)); printf '  INCONCLUSIVO [%s] %s\n         O que fazer: %s\n' "$1" "$2" "$3"; }
 pendente() { PENDENTES=$((PENDENTES + 1)); printf '  PENDENTE [%s] %s\n         O que fazer: %s\n' "$1" "$2" "$3"; }
 # cx: comando como root dentro do container. ca: o mesmo como o usuario agente.
+# shellcheck disable=SC2317  # chamado por capt, de forma indireta
 cx() { timeout 60 podman exec "$C" "$@"; }
 ca() { timeout "${PRAZO:-60}" podman exec --user agente "$C" "$@"; }
 # capt <comando...>: roda o comando e devolve a saida, no maximo CAPLIM bytes (padrao 4096). Devolve o codigo do
@@ -79,24 +74,20 @@ capt() {
 }
 # so_digitos <texto> <maximo de caracteres>: verdadeiro se for um numero curto.
 so_digitos() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "${#1}" -le "$2" ]; }
-# contar_chrome: quantos processos chrome ha no container (0 se nenhum). Erro de leitura, limite estourado ou
-# formato estranho = sem saida e codigo 1.
-contar_chrome() {
-    local n rc
-    n="$(capt cx pgrep -c chrome)"; rc=$?
-    so_digitos "$n" 9 || return 1
-    [ "$rc" -le 1 ] || return 1
-    printf '%s' "$n"
-}
 # contar_oom <comando...>: quantas linhas de falta de memoria o comando mostra (so o numero fica guardado, o
-# texto do journal passa direto pelo grep). Se o proprio comando falhar (journal ilegivel, container mudo),
-# imprime nada e sai com 1: isso e INCONCLUSIVO, nao "zero".
+# texto do journal passa direto pelo filtro). A leitura tem limite de 1 MiB: se passar disso, sai com 98 e nada
+# (saida cortada, INCONCLUSIVO). Se o proprio comando falhar (journal ilegivel, container mudo), sai com 1 e
+# nada: isso e INCONCLUSIVO, nao "zero".
 contar_oom() {
-    local r n rc
-    r="$("$@" 2>/dev/null | grep -ciE 'out of memory|oom-kill|oom_kill|killed process'; printf 'rc=%s' "${PIPESTATUS[0]}")"
-    rc="${r##*rc=}"; n="${r%%$'\n'*}"
-    [ "$rc" = 0 ] || return 1
+    local r linha n bytes rc
+    r="$("$@" 2>/dev/null | head -c 1048577 | LC_ALL=C awk 'BEGIN { n = 0; b = 0 } { b += length($0) + 1; if (tolower($0) ~ /out of memory|oom-kill|oom_kill|killed process/) n++ } END { print n, b }'; printf 'rc=%s' "${PIPESTATUS[0]}")"
+    rc="${r##*rc=}"; linha="${r%%$'\n'*}"
+    read -r n bytes _ <<<"$linha"
     so_digitos "$n" 9 || return 1
+    so_digitos "$bytes" 9 || return 1
+    [ "$bytes" -le 1048577 ] || return 1
+    [ "$bytes" -le 1048576 ] || return 98
+    [ "$rc" = 0 ] || return 1
     printf '%s' "$n"
 }
 # ler_cpu <caminho validado>: "<quota> <periodo>" do cpu.max do cgroup do container, no host (quota "max" = sem limite).
@@ -138,7 +129,7 @@ fi
 
 # --- 3. Limites do container e da unidade do runner ----------------------------------------------
 printf '\n3. Limites do container e do runner\n'
-RECRIAR_DICA="o dgclaw agente recriar $SLUG pode recriar o container na hora. Antes, olhe so em leitura o que existe so dentro dele (podman diff $C e podman inspect $C), decida com o dono antes de qualquer perda e so entao rode: dgclaw agente recriar $SLUG"
+RECRIAR_DICA="o dgclaw agente recriar $SLUG pode recriar o container na hora. Antes, peca ao Admin para conferir o que existe so na camada gravavel do container, decida com o dono antes de qualquer perda e so entao rode: dgclaw agente recriar $SLUG"
 estado="$(podman inspect -f '{{.State.Status}}' "$C" 2>/dev/null | head -c 64 | head -n 1)"
 case "$estado" in
     running|created|exited|paused|stopped|stopping|configured|initialized|removing|unknown) ;;
@@ -194,7 +185,7 @@ else
             "confira: podman inspect -f '{{.State.CgroupPath}}' $C e leia memory.max em /sys/fs/cgroup<esse caminho>"
     elif [ "$mem_cg" = max ]; then
         falha 3 "o container $C esta sem limite de memoria (memory.max=max, o servidor tem ${ram_gb} GB). Um render pesado pode derrubar o servidor inteiro." \
-            "ponha um limite: podman update --memory $((ram_gb > 6 ? ram_gb / 2 : 3))g $C (vale ate o container ser recriado). Para ficar de vez, $RECRIAR_DICA"
+            "configure DGCLAW_CONTAINER_MEMORIA (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin, e recrie o container. $RECRIAR_DICA"
     elif [ "$mem_cg" -le 2147483648 ] && [ "$ram_gb" -gt 4 ]; then
         sug=$((ram_gb / 2)); [ "$sug" -ge 3 ] || sug=3
         aviso 3 "o container tem 2 GB de memoria e o servidor tem ${ram_gb} GB. Render, Chrome da Tela e card paralelo apertam em 2 GB." \
@@ -223,9 +214,12 @@ else
         fi
     fi
 
-    tasks="$(capt cx systemctl show -p TasksMax --value dgclaw-runner | head -n 1)"
+    tasks="$(capt cx systemctl show -p TasksMax --value dgclaw-runner)"; rc_t=$?
+    tasks="${tasks%%$'\n'*}"
     case "$tasks" in infinity) ;; *) so_digitos "$tasks" 12 || tasks="" ;; esac
-    if [ "$tasks" = infinity ] || { [ -n "$tasks" ] && [ "$tasks" -ge 2400 ]; }; then
+    if [ "$rc_t" -ne 0 ]; then
+        inconclusivo 3 "o systemctl do TasksMax do dgclaw-runner dentro do container saiu com codigo $rc_t (99 = resposta grande demais), entao nao interpretei a saida." "confira: podman exec $C systemctl show -p TasksMax dgclaw-runner"
+    elif [ "$tasks" = infinity ] || { [ -n "$tasks" ] && [ "$tasks" -ge 2400 ]; }; then
         ok 3 "TasksMax da unidade do runner: $tasks (minimo 2400)"
     elif [ -n "$tasks" ]; then
         falha 3 "TasksMax do dgclaw-runner e $tasks, abaixo de 2400. O Claude principal aborta e o card nasce parado." \
@@ -234,8 +228,11 @@ else
         inconclusivo 3 "nao consegui ler o TasksMax do dgclaw-runner dentro do container." "confira: podman exec $C systemctl show -p TasksMax dgclaw-runner"
     fi
 
-    oom_pol="$(capt cx systemctl show -p OOMPolicy --value dgclaw-runner | head -n 1)"
+    oom_pol="$(capt cx systemctl show -p OOMPolicy --value dgclaw-runner)"; rc_o=$?
+    oom_pol="${oom_pol%%$'\n'*}"
+    [ "$rc_o" -eq 0 ] || oom_pol="#rc"
     case "$oom_pol" in
+        "#rc") inconclusivo 3 "o systemctl do OOMPolicy do dgclaw-runner dentro do container saiu com codigo $rc_o (99 = resposta grande demais), entao nao interpretei a saida." "confira: podman exec $C systemctl show -p OOMPolicy dgclaw-runner" ;;
         continue) ok 3 "OOMPolicy=continue na unidade do runner" ;;
         stop|kill)
             aviso 3 "OOMPolicy da unidade do runner e '$oom_pol', e o esperado e 'continue' (a partir da 1.1.1). Sem isso, um processo morto por falta de memoria derruba o runner todo." \
@@ -244,15 +241,18 @@ else
         *) aviso 3 "o OOMPolicy do runner veio com um valor que nao conheco (esperado: continue, stop ou kill)." "confira: podman exec $C systemctl show -p OOMPolicy dgclaw-runner" ;;
     esac
 
-    nrest="$(capt cx systemctl show -p NRestarts --value dgclaw-runner | head -n 1)"
+    nrest="$(capt cx systemctl show -p NRestarts --value dgclaw-runner)"; rc_n=$?
+    nrest="${nrest%%$'\n'*}"
     so_digitos "$nrest" 9 || nrest=""
-    if [ "$nrest" = 0 ]; then
+    if [ "$rc_n" -ne 0 ]; then
+        inconclusivo 3 "o systemctl do NRestarts do dgclaw-runner dentro do container saiu com codigo $rc_n (99 = resposta grande demais), entao nao interpretei a saida." "confira: podman exec $C systemctl show -p NRestarts dgclaw-runner"
+    elif [ "$nrest" = 0 ]; then
         ok 3 "o runner nao reiniciou sozinho (NRestarts=0)"
     elif [ -n "$nrest" ]; then
         falha 3 "o runner reiniciou sozinho $nrest vez(es) (NRestarts=$nrest). Algo derrubou o runner." \
-            "leia o motivo: podman exec $C journalctl -u dgclaw-runner --no-pager | tail -n 80. Depois de resolver, reinicie o runner (item 11) e rode o smoke de novo."
+            "leia o motivo: podman exec $C journalctl -u dgclaw-runner --no-pager | tail -n 80. Depois de resolver, reinicie o runner (dgclaw agente reiniciar $SLUG) e rode o smoke de novo."
     else
-        aviso 3 "nao consegui ler o NRestarts do runner." "confira: podman exec $C systemctl show -p NRestarts dgclaw-runner"
+        inconclusivo 3 "o NRestarts do runner veio num formato que nao consegui ler." "confira: podman exec $C systemctl show -p NRestarts dgclaw-runner"
     fi
 
     # Kernel do servidor: _TRANSPORT=kernel (o -k so olha o boot atual e perderia um OOM de antes de um reinicio).
@@ -268,8 +268,16 @@ else
         elif [ "$dias_k" -eq 0 ]; then cobertura="menos de 1 dia, porque e o que o journal do kernel guarda"
         else cobertura="$dias_k dia(s), porque e o que o journal do kernel guarda"; fi
     fi
-    if [ "$rc_c" -ne 0 ] || [ "$rc_h" -ne 0 ]; then
-        inconclusivo 3 "nao consegui ler o journal dos ultimos 7 dias (do runner, do kernel do servidor ou os dois). Isso nao quer dizer zero eventos de falta de memoria." \
+    fonte_ruim=""
+    [ "$rc_c" -eq 0 ] || fonte_ruim="o journal do runner"
+    if [ "$rc_h" -ne 0 ]; then
+        if [ -n "$fonte_ruim" ]; then fonte_ruim="$fonte_ruim e o journal do kernel do servidor"; else fonte_ruim="o journal do kernel do servidor"; fi
+    fi
+    if { [ "$rc_c" -eq 0 ] && [ "${oom_c:-0}" -gt 0 ]; } || { [ "$rc_h" -eq 0 ] && [ "${oom_h:-0}" -gt 0 ]; }; then
+        falha 3 "OOM nos ultimos 7 dias: $([ "$rc_c" -eq 0 ] && echo "${oom_c:-0}" || echo "?") linha(s) no journal do runner e $([ "$rc_h" -eq 0 ] && echo "${oom_h:-0}" || echo "?") no kernel do servidor${fonte_ruim:+ ($fonte_ruim ficou ilegivel ou foi cortado, entao a conta esta incompleta)}." \
+            "veja quem foi morto: journalctl _TRANSPORT=kernel --since '7 days ago' | grep -i 'out of memory'. Suba a memoria do container (podman update --memory <N>g $C) e a do plano da VPS, se for o caso."
+    elif [ -n "$fonte_ruim" ]; then
+        inconclusivo 3 "nao consegui ler $fonte_ruim dos ultimos 7 dias (erro, prazo ou saida cortada em 1 MiB). Isso nao quer dizer zero eventos de falta de memoria." \
             "leia a mao: podman exec $C journalctl -u dgclaw-runner --since '7 days ago' --no-pager | grep -i 'out of memory' e journalctl _TRANSPORT=kernel --since '7 days ago' | grep -i 'out of memory'"
     elif [ "$oom_c" -eq 0 ] && [ "$oom_h" -eq 0 ]; then
         if [ -n "$cobertura" ]; then
@@ -278,9 +286,6 @@ else
             inconclusivo 3 "nenhum OOM achado, mas o journal do kernel do servidor nao mostrou nenhuma entrada nos ultimos 7 dias, entao nao sei o que ele cobre." \
                 "confira a mao: journalctl _TRANSPORT=kernel --since '7 days ago' | head e se o journal e persistente (ls /var/log/journal)"
         fi
-    else
-        falha 3 "OOM nos ultimos 7 dias: $oom_c linha(s) no journal do runner e $oom_h no kernel do servidor." \
-            "veja quem foi morto: journalctl _TRANSPORT=kernel --since '7 days ago' | grep -i 'out of memory'. Suba a memoria do container (podman update --memory <N>g $C) e a do plano da VPS, se for o caso."
     fi
 fi
 
@@ -384,11 +389,11 @@ else
     fi
     # (c) o login do YouTube e o download nao se medem daqui: sao a mao (passo 6 do guia).
     pendente 6 "login do YouTube e download: o smoke nao baixa nada nem mede o login." \
-        "entre na Tela com a conta dedicada ao agente e confira o diagnostico agente.$SLUG.youtube (a partir da 1.1.1). Antes disso, rode a mao: podman exec --user agente $C yt-dlp --cookies-from-browser \"chrome+basictext:/home/agente/.tela-chrome\" -F <url de um video curto>"
+        "entre na Tela com a conta dedicada ao agente e confira o diagnostico agente.$SLUG.youtube (a partir da 1.1.1). Antes disso, rode a mao o download curto do passo 6 do guia (docs/ENTREGA-CLIENTE.md)"
 fi
 
 # --- 7. Render headless sem sobra de Chrome --------------------------------------------------------
-printf '\n7. Render headless nao deixa Chrome para tras\n'
+printf '\n7. Chrome headless roda\n'
 if [ "$CONTAINER_OK" != 1 ]; then
     aviso 7 "render nao testado: o container nao esta de pe." "resolva o item 3 e rode de novo."
 elif ! ca sh -c 'command -v google-chrome-stable' >/dev/null 2>&1; then
@@ -399,80 +404,18 @@ else
     dir_ch="$(PRAZO=30 capt ca mktemp -d /tmp/smoke-entrega.XXXXXX | head -n 1)"
     case "$dir_ch" in
         /tmp/smoke-entrega.??????)
-            antes="$(contar_chrome)"; rc_a=$?
             PRAZO=90 ca google-chrome-stable --headless=new --no-sandbox --disable-gpu --user-data-dir="$dir_ch/perfil" --dump-dom about:blank >/dev/null 2>&1
             rc=$?
-            sleep 3
-            depois="$(contar_chrome)"; rc_d=$?
             PRAZO=30 ca rm -rf -- "$dir_ch" >/dev/null 2>&1
             if [ "$rc" -ne 0 ]; then
                 falha 7 "o Chrome headless nao rodou (codigo $rc). Render de carrossel e video nao vai funcionar." \
                     "rode a mao e leia o erro: podman exec --user agente $C google-chrome-stable --headless=new --no-sandbox --dump-dom about:blank"
-            elif [ "$rc_a" -ne 0 ] || [ "$rc_d" -ne 0 ]; then
-                inconclusivo 7 "nao consegui contar os processos do Chrome no container (antes ou depois do render). Isso nao quer dizer que nao sobrou nada." \
-                    "confira a mao: podman exec $C pgrep -c chrome (antes e depois de um render curto)"
-            elif [ "$depois" -gt "$antes" ]; then
-                falha 7 "sobraram $((depois - antes)) processo(s) do Chrome depois do render (antes: $antes, depois: $depois; o Chrome da Tela continua vivo e esta na conta)." \
-                    "o render nao esta sendo encerrado. Use o dgclaw-pesado --timeout (a partir da 1.1.1) e mate o resto: podman exec $C pkill -f smoke-entrega"
             else
-                ok 7 "render headless terminou e nao sobrou Chrome (antes: $antes, depois: $depois; a conta inclui o Chrome da Tela)"
+                ok 7 "o Chrome headless rodou e terminou sem erro"
             fi ;;
         *)
             inconclusivo 7 "nao consegui criar a pasta privada do render de teste dentro do container." "confira: podman exec --user agente $C mktemp -d /tmp/smoke-entrega.XXXXXX" ;;
     esac
-fi
-
-# --- 11. Reparar e reiniciar o runner --------------------------------------------------------------
-printf '\n11. Sessao principal de pe depois de reparar e reiniciar o runner\n'
-if [ "$REPARAR" = 0 ]; then
-    aviso 11 "pulado por --sem-reparar." "rode sem essa opcao antes de entregar."
-elif [ "$CONTAINER_OK" != 1 ]; then
-    falha 11 "o container $C nao esta de pe, entao nao ha o que reparar." "resolva o item 3 e rode de novo."
-elif ! so_digitos "$PORTA" 5 || [ "$PORTA" -lt 1 ] || [ "$PORTA" -gt 65535 ]; then
-    falha 11 "a porta do runner em $AGENTES_JSON nao e um numero de 1 a 65535, entao nao sei onde conferir a saude." "confira o campo runner do agente $SLUG em $AGENTES_JSON e rode: dgclaw agente reparar $SLUG"
-else
-    # A saida do reparar nao entra no relatorio (so o codigo de saida): vai para o lixo na origem.
-    "$CLI" agente reparar "$SLUG" >/dev/null 2>&1
-    rc=$?
-    if [ "$rc" -ne 0 ]; then
-        falha 11 "dgclaw agente reparar $SLUG saiu com codigo $rc." "rode a mao e leia a mensagem inteira: dgclaw agente reparar $SLUG"
-    else
-        ok 11 "dgclaw agente reparar $SLUG terminou sem erro"
-        if ! cx systemctl restart dgclaw-runner >/dev/null 2>&1; then
-            falha 11 "nao consegui reiniciar o dgclaw-runner dentro do container." "veja: podman exec $C journalctl -u dgclaw-runner --no-pager | tail -n 50"
-        else
-            # Confere no JSON do /api/saude o agente PEDIDO (slug, estado e ptyVivo da sessao principal);
-            # processo claude/codex solto ou sessao paralela ativa nao valem. Vira so uma palavra fixa.
-            t=0; respondeu=0; veredito=""
-            while [ "$t" -lt "$ESPERA" ]; do
-                corpo="$(CAPLIM=65536 capt curl -fsS --noproxy '*' --max-time 3 "http://127.0.0.1:$PORTA/api/saude")"; rc_curl=$?
-                if [ "$rc_curl" -eq 99 ]; then
-                    # Resposta maior que o limite: nao se interpreta.
-                    respondeu=1; veredito="ilegivel"; break
-                elif [ -n "$corpo" ]; then
-                    respondeu=1
-                    veredito="$(printf '%s' "$corpo" | jq -r --arg s "$SLUG" 'try (if (.agente.slug // "") != $s then "outro" elif .agente.ptyVivo != true then "parada" elif ((.agente.status // "") | IN("idle", "working", "waiting_input")) | not then "estado" else "viva" end) catch "ilegivel"' 2>/dev/null)"
-                    [ "$veredito" = viva ] && break
-                fi
-                sleep 1; t=$((t + 1))
-            done
-            if [ "$respondeu" != 1 ]; then
-                falha 11 "o runner nao respondeu em 127.0.0.1:$PORTA/api/saude em ${ESPERA}s depois de reiniciar." \
-                    "veja: podman exec $C journalctl -u dgclaw-runner --no-pager | tail -n 50 e tente: dgclaw agente reiniciar $SLUG"
-            else
-                ok 11 "o runner voltou e responde em 127.0.0.1:$PORTA/api/saude"
-                case "$veredito" in
-                    viva) ok 11 "a sessao principal do agente $SLUG ($PROVEDOR) esta de pe" ;;
-                    outro) falha 11 "o runner na porta $PORTA respondeu, mas o /api/saude nao e do agente $SLUG." "confira a porta do agente em /etc/dgclaw/agentes.json e rode: dgclaw agente reparar $SLUG" ;;
-                    parada) falha 11 "a sessao principal do agente $SLUG esta parada (ptyVivo falso) depois de ${ESPERA}s. Uma sessao paralela ativa nao a substitui." \
-                        "abra o painel do agente e confira o estado da sessao principal. Se estiver parada: dgclaw agente reiniciar $SLUG" ;;
-                    estado) falha 11 "a sessao principal do agente $SLUG esta com terminal vivo, mas em estado fora do esperado (nem idle, nem working, nem waiting_input)." \
-                        "abra o painel do agente e confira o estado dela. Se estiver parada ou com erro: dgclaw agente reiniciar $SLUG" ;;
-                    *) inconclusivo 11 "o /api/saude respondeu, mas num formato que nao consegui ler." "confira a mao: curl -s http://127.0.0.1:$PORTA/api/saude" ;;
-                esac
-            fi
-        fi
-    fi
 fi
 
 # --- O que nao da para automatizar -----------------------------------------------------------------
@@ -492,6 +435,8 @@ Conferir a mao (detalhes em docs/ENTREGA-CLIENTE.md):
       troca a senha em terminal privado (sudo dgclaw senha trocar) ou pelo painel e confirma que a antiga nao
       entra mais; a equipe nao fica sabendo a senha final.
   10. Skills do cliente na pasta certa, com dono (chown) e CLAUDE_PLUGIN_ROOT resolvido.
+  11. Reparar e conferir a sessao principal: rode dgclaw agente reparar <agente>, confira que termina sem
+      erro e que a conversa principal responde.
   12. Skills com texto do cliente (assinatura, nome do programa, encerramento): sem nome de outro cliente
       nem do modelo.
 
