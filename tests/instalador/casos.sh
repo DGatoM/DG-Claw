@@ -1489,6 +1489,55 @@ caso_caddy_arquivo_personalizado_simples_ganha_so_o_encode() {
     limpar_cenario
 }
 
+caso_caddy_encode_preserva_modo_copia_ao_lado_e_quebras_finais() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado"
+    echo caddy >"$TMP/estado/ativos"
+    local cf="$RAIZ/etc/caddy/Caddyfile"
+    printf '# DG Claw: gerado pelo install.sh.\n%s {\n\theader X-Minha-Linha "do dono"\n\treverse_proxy 127.0.0.1:8300\n}\n\n\n' "$DOM_CADDY" >"$cf"
+    chmod 640 "$cf"
+    cp -p "$cf" "$TMP/caddy-antes"
+    afirma "a atualizacao termina com sucesso" instalacao_basica
+    afirma "ganhou a compressao" tem "$cf" "zstd"
+    igual "$(stat -c %a "$cf")" 640 || { echo "      FALHOU: o modo 0640 do dono nao foi mantido"; FALHAS=$((FALHAS + 1)); }
+    # shellcheck disable=SC2016
+    afirma "o arquivo termina com as 2 linhas em branco de antes" bash -c '[ "$(tail -c 4 "$1" | od -An -tx1 | tr -d " \n")" = 7d0a0a0a ]' _ "$cf"
+    local bak
+    bak="$(find "$RAIZ/etc/caddy" -maxdepth 1 -name 'Caddyfile.antes-encode-*' | head -n 1)"
+    afirma "a copia de antes ficou ao lado" test -n "$bak"
+    afirma "a copia e igual ao arquivo de antes" cmp "$TMP/caddy-antes" "$bak"
+    igual "$(stat -c %a "$bak")" 640 || { echo "      FALHOU: a copia de antes nao tem o modo do original"; FALHAS=$((FALHAS + 1)); }
+    # shellcheck disable=SC2016
+    nega "nenhuma sobra temporaria em /etc/caddy" bash -c 'ls -A "$1" | grep -E "^\.Caddyfile"' _ "$RAIZ/etc/caddy"
+    limpar_cenario
+}
+
+caso_caddy_encode_nao_troca_link_simbolico() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado" "$TMP/real"
+    echo caddy >"$TMP/estado/ativos"
+    printf '# DG Claw: gerado pelo install.sh.\n%s {\n\theader X-Minha-Linha "do dono"\n\treverse_proxy 127.0.0.1:8300\n}\n' "$DOM_CADDY" >"$TMP/real/Caddyfile"
+    ln -s "$TMP/real/Caddyfile" "$RAIZ/etc/caddy/Caddyfile"
+    cp "$TMP/real/Caddyfile" "$TMP/caddy-antes"
+    afirma "a atualizacao termina com sucesso" instalacao_basica
+    afirma "continua sendo link" test -L "$RAIZ/etc/caddy/Caddyfile"
+    afirma "o destino do link ficou intacto" cmp "$TMP/caddy-antes" "$TMP/real/Caddyfile"
+    afirma "avisa o que acrescentar" tem "$SAIDA" "personalizacoes suas"
+    limpar_cenario
+}
+
+caso_caddy_encode_recusa_proxy_aninhado_mesmo_com_indentacao_de_site() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy"
+    printf '# DG Claw: gerado pelo install.sh.\n%s {\n    handle /api/* {\n    reverse_proxy 127.0.0.1:8300\n    }\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    afirma "a atualizacao termina com sucesso" instalacao_basica
+    afirma "arquivo intacto" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    # shellcheck disable=SC2016
+    nega "nenhuma copia criada" bash -c 'ls "$1" | grep -q antes-encode' _ "$RAIZ/etc/caddy"
+    limpar_cenario
+}
+
 caso_caddy_arquivo_personalizado_complexo_e_preservado() {
     novo_cenario
     mkdir -p "$RAIZ/etc/caddy"
