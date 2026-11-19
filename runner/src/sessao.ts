@@ -318,6 +318,11 @@ export class Sessao extends EventEmitter {
     return this.ultimaAtividade;
   }
 
+  /** A fila de texto que ainda não foi entregue ao agente: o item em digitação e os que esperam. */
+  pendentesDaFila(): ItemDaFila[] {
+    return this.itemEmVoo ? [this.itemEmVoo, ...this.filaQuandoIdle] : [...this.filaQuandoIdle];
+  }
+
   tamanhoDaFila(): number {
     return this.filaQuandoIdle.length;
   }
@@ -806,8 +811,8 @@ export class Sessao extends EventEmitter {
   }
 
   /** Guarda um texto para digitar quando o agente ficar ocioso (ver sessao/fila.ts). */
-  enfileirarQuandoOcioso(texto: string): void {
-    enfileirarQuandoOcioso(this, texto);
+  enfileirarQuandoOcioso(texto: string, esperou = false): void {
+    enfileirarQuandoOcioso(this, texto, esperou);
   }
 
   /** Guarda no buffer da tela e entrega a quem ouve (ver sessao/terminal.ts). Os testes de tela chamam por aqui. */

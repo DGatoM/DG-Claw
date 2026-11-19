@@ -7,6 +7,24 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção da fila de mensagens: um "ok" que esperou na fila não é mais lido como aprovação de outra coisa.** Quando você
+escreve enquanto o agente trabalha, a mensagem espera a vez. Se ela esperou mais de 20 segundos, agora chega ao agente
+com um aviso do sistema logo abaixo, dizendo a hora em que foi escrita e que uma resposta curta (ok, sim, pode) não
+autoriza uma ação nova proposta depois. Na tela, o balão "na fila" passa a mostrar há quanto tempo a mensagem espera e
+fica até o agente ler de verdade, mesmo se você recarregar a página ou abrir em outro aparelho (antes ele sumia).
+Vale para os agentes no Claude e no Codex, porque a fila é do runner e não depende do motor. Relatado por aluno da mentoria.
+
+**Correção do botão Baixar no app instalado no iPhone.** Com o painel na Tela de Início, baixar um arquivo levava o app
+inteiro para o arquivo, sem botão de voltar. Agora o app não sai da tela: o arquivo abre na folha de compartilhamento do
+iPhone ("Salvar em Arquivos") ou, se o aparelho não permitir, numa aba do sistema com o botão Concluído. No navegador
+comum nada muda. Relatado por aluno da mentoria.
+
+**Codex CLI da imagem dos agentes passa de 0.162.1 para 0.167.1** (compatível com o modelo GPT-6.1-Sol). A versão fica fixada no `Containerfile`.
+
+### Como atualizar (Codex 0.167.1)
+
+A versão nova do Codex só chega aos seus agentes depois que a imagem deles é reconstruída. O `dgclaw atualizar` já faz isso sozinho (a etapa "reconstruindo a imagem dos agentes", que leva de 10 a 20 minutos), então basta pedir ao Admin, no chat: "atualiza o DG Claw". Quem atualizou só o código e não reconstruiu a imagem continua com o Codex antigo: rode `dgclaw imagem construir --agora` e depois `dgclaw agente recriar <nome>` para cada agente, porque a imagem nova só vale quando o container é recriado. Suas chaves, logins, conversas e agentes continuam como estavam.
+
 - **Novo: o agente abre cards no OpenCode, com modelos do OpenRouter (GLM, Kimi, DeepSeek, Qwen, Gemini e outros).** É
   um terceiro provedor, só para cards: nunca roda a conversa principal. Usa a chave `OPENROUTER_API_KEY`, guardada no
   Cofre do painel, e a cobrança é por token, direto na sua conta do OpenRouter. No painel, em Sessões, "Nova sessão" ganha
@@ -14,7 +32,7 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   --modelo glm`. O card do OpenCode não tem os hooks do Claude Code, os skills do DG Claw, os conectores do claude.ai
   nem o Telegram (registro em `docs/PARIDADE-CODEX.md`).
 
-### Como atualizar
+### Como atualizar (OpenCode)
 
 Esta versão traz um programa novo na imagem dos agentes, o OpenCode. Depois do `dgclaw atualizar`, reconstrua a imagem
 dos agentes para que ele exista dentro deles. Sem isso o painel simplesmente não mostra o OpenCode como opção de card, e

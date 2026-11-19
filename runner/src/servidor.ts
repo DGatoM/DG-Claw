@@ -32,12 +32,24 @@ import { provedorDoVocabulario } from "./provedores/escolha.js";
 /** O estado de uma sessão como o painel e a API o veem. A paralela leva o campo
  *  extra `sessao`; a principal só o leva quando pedido (`?todas=1`), para a
  *  resposta de sempre continuar idêntica. */
+/** O que ainda espera na fila (lista vazia quando nada espera), sem o texto: quando entrou e o id da mensagem (atributo `msg` do envelope do painel,
+ *  se houver). O painel usa isto para manter o aviso "na fila" até o agente ler de verdade, mesmo depois de recarregar. */
+function naFila(s: Sessao): Array<{ em: number; msg: string | null }> {
+  return s.pendentesDaFila().slice(0, 50).map((it) => {
+    const m = /^<dgchat\b[^>]*?\bmsg="([^"]{1,80})"/.exec(it.texto.slice(0, 600));
+    return { em: it.em, msg: m ? m[1]! : null };
+  });
+}
+
 function visao(s: Sessao, comMeta: boolean): Record<string, unknown> {
+  const fila = naFila(s);
+  const extra = { naFila: fila, naFilaTotal: s.tamanhoDaFila() + (s.itemEmVoo ? 1 : 0) };
   // `codexHome` é só leitura: o CODEX_HOME que o último spawn usou, para quem lê o rollout do disco.
-  if (!comMeta && s.papel === "principal") return { ...s.estado, codexHome: s.codexHome() };
+  if (!comMeta && s.papel === "principal") return { ...s.estado, codexHome: s.codexHome(), ...extra };
   return {
     ...s.estado,
     codexHome: s.codexHome(),
+    ...extra,
     sessao: {
       papel: s.papel,
       tipo: s.tipo,
@@ -294,6 +306,9 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           }
           const enviar = (corpo as { submit?: boolean }).submit !== false;
           const quandoOcioso = (corpo as { injectWhenIdle?: boolean }).injectWhenIdle === true;
+          // O painel viu o agente ocupado quando o dono escreveu; no caminho até aqui ele pode ter ficado ocioso, e a
+          // mensagem ainda assim foi escrita antes das falas dele que o dono não viu (ver avisoDeAtraso).
+          const esperouNoPainel = (corpo as { esperou?: boolean }).esperou === true;
           // Um Esc sozinho só vale como tecla imediata (submit false, sem fila): antes de acordar paralela, enfileirar ou checar login.
           if (texto === ESC && (enviar || quandoOcioso)) {
             json(res, { success: false, error: "Um Esc sozinho só vale como tecla imediata.", howToFix: "mandar o Esc com submit:false e sem injectWhenIdle", code: "ESC_SO_IMEDIATO" }, 400);
@@ -361,7 +376,7 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
               else json(res, { success: false, error: r.falha, howToFix: "ver o log do runner e tentar POST /api/agents/:id/resume", code: "NAO_ACORDOU" }, 500);
               return;
             }
-            sessao.enfileirarQuandoOcioso(texto);
+            sessao.enfileirarQuandoOcioso(texto, esperouNoPainel);
             json(res, { success: true, data: { enfileirado: true, acordando: true } }, 202);
             return;
           }
@@ -376,7 +391,7 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           }
 
           if (quandoOcioso) {
-            sessao.enfileirarQuandoOcioso(texto);
+            sessao.enfileirarQuandoOcioso(texto, esperouNoPainel);
             json(res, { success: true, data: { enfileirado: true, aguardando: "idle" } }, 202);
             return;
           }
