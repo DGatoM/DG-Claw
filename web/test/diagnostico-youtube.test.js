@@ -38,13 +38,66 @@ test('o comando de dentro: só valores fixos, baixa pouco e apaga a pasta tempor
   assert.match(SCRIPT, /--no-plugin-dirs/);
   assert.match(SCRIPT, /--js-runtimes node/);
   assert.ok(!SCRIPT.includes('--no-warnings'), 'sem --no-warnings: os avisos de cookie precisam aparecer');
-  assert.match(SCRIPT, /if \[ ! -d \/home\/agente\/\.tela-chrome \]/, 'sem a pasta do Chrome da Tela o script não baixa');
+  assert.match(SCRIPT, /if \[ ! -d \/home\/agente\/\.tela-chrome \]/, 'sem a pasta do Chrome da Tela o script não usa cookies');
   assert.match(SCRIPT, /exit 66/);
   assert.match(SCRIPT, /--cookies-from-browser "chrome\+basictext:\/home\/agente\/\.tela-chrome"/);
-  assert.match(SCRIPT, /-f worst/);
+  assert.match(SCRIPT, /-f "worst\/worstvideo"/);
+  assert.ok(!/-f worst /.test(SCRIPT));
   assert.match(SCRIPT, /--max-filesize 5M/);
   assert.match(SCRIPT, /timeout \d+ yt-dlp/);
   assert.match(SCRIPT, /rm -rf "\$d"/);
+});
+
+test('o comando tenta SEM cookies primeiro e só usa os cookies depois de "sign in to confirm"', () => {
+  const linhas = SCRIPT.split('\n');
+  const ytdlp = linhas.map((l, i) => [l, i]).filter(([l]) => /timeout \d+ yt-dlp/.test(l));
+  assert.equal(ytdlp.length, 2, 'duas tentativas');
+  assert.ok(!ytdlp[0][0].includes('--cookies-from-browser'), 'a primeira é anônima');
+  assert.match(ytdlp[0][0], /2>"\$d\/err"/, 'o stderr da primeira fica em arquivo fora da pasta de download');
+  assert.ok(ytdlp[1][0].includes('--cookies-from-browser'), 'a segunda usa os cookies');
+  const iLogin = linhas.findIndex((l) => /grep -qi "sign in to confirm" "\$d\/err"/.test(l));
+  const iPasta = linhas.findIndex((l) => /if \[ ! -d \/home\/agente\/\.tela-chrome \]/.test(l));
+  assert.ok(iLogin > ytdlp[0][1] && iLogin < iPasta && iPasta < ytdlp[1][1], 'ordem: anônima, checagem anti-robô, pasta, cookies');
+  assert.match(SCRIPT, /head -c 8192 "\$d\/err" >&2/, 'falha por outro motivo repassa o stderr cortado');
+  assert.match(SCRIPT, /find "\$d\/v" -type f -size \+0c/, 'exige arquivo com mais de 0 bytes');
+  assert.match(SCRIPT, /-P "\$d\/v"/);
+});
+
+test('pasta do Chrome ausente com download anônimo ok dá ok (script de verdade, yt-dlp falso)', () => {
+  const { spawnSync } = require('node:child_process');
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-falso-'));
+  const exec = (corpo) => {
+    fs.writeFileSync(path.join(bin, 'yt-dlp'), `#!/bin/sh\n${corpo}\n`, { mode: 0o755 });
+    return spawnSync('sh', ['-c', SCRIPT], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }, encoding: 'utf8' });
+  };
+  // acha o -P do download e grava um arquivo nele
+  const grava = 'while [ $# -gt 0 ]; do if [ "$1" = "-P" ]; then p="$2"; fi; shift; done; echo dado > "$p/v.mp4"';
+  if (fs.existsSync('/home/agente/.tela-chrome')) { fs.rmSync(bin, { recursive: true, force: true }); return; }
+  let r = exec(grava);
+  assert.equal(r.status, 0, r.stderr);
+  r = exec('echo "ERROR: Sign in to confirm you\'re not a bot" >&2; exit 1');
+  assert.equal(r.status, 66, 'pediu login e a pasta não existe');
+  r = exec('echo "ERROR: HTTP Error 429" >&2; exit 3');
+  assert.equal(r.status, 3, 'outro erro: devolve o código dela');
+  assert.match(r.stderr, /429/);
+  r = exec('exit 0');
+  assert.equal(r.status, 65, 'saiu 0 sem arquivo');
+  fs.rmSync(bin, { recursive: true, force: true });
+});
+
+test('ler(): sem identidade de um dos lados ou com instâncias diferentes devolve null', () => {
+  const m = monta([]);
+  const est = require('../lib/diagnostico/youtube').criarEstadoYoutube(m.ctx);
+  est.guardar('tina', { em: AGORA, tipo: 'ok', codigo: null, instancia: 'i:aaa' });
+  assert.equal(est.ler('tina', 'i:aaa').tipo, 'ok');
+  assert.equal(est.ler('tina', 'i:bbb'), null, 'duas instâncias diferentes do mesmo slug');
+  for (const falta of [undefined, null, '']) assert.equal(est.ler('tina', falta), null, 'sem identidade atual');
+  for (const falta of [undefined, null, '']) {
+    est.guardar('tina', { em: AGORA, tipo: 'ok', codigo: null, instancia: falta });
+    assert.equal(est.ler('tina', 'i:aaa'), null, 'sem identidade gravada');
+    assert.equal(est.ler('tina', falta), null, 'sem identidade dos dois lados');
+  }
+  m.limpa();
 });
 
 test('código 66 (Tela ainda não aberta) vira sem_perfil', () => {
@@ -60,7 +113,7 @@ function monta(respostas) {
     config: { dataDir: dir }, log: (n, m) => logs.push([n, m]), agora: () => agora,
     execSolto: async (cmd, args, opcoes) => { chamadas.push({ cmd, args, opcoes }); const r = respostas.shift() || { codigo: 0, stdout: '', stderr: '', erro: null }; if (r.lanca) throw new Error(r.lanca); return r; },
   };
-  const ag = { slug: 'tina', nome: 'Tina', container: 'dgclaw-tina' };
+  const ag = { slug: 'tina', nome: 'Tina', container: 'dgclaw-tina', instancia: 'aaa' };
   // O diagnóstico só LÊ; quem testa é o vigia (aqui, testarYoutube direto).
   const ler = (dep) => tarefaYoutube(ctx, ag, {}).fn(dep || {});
   const testa = async () => testarYoutube(ctx, ag);
@@ -116,11 +169,11 @@ test('sem a pasta da Tela: sem_perfil é atenção e não conta como ok', async 
   ]);
   await m.testa();
   await m.testa();
-  const v = m.ctx.youtube.ler('tina', null);
+  const v = m.ctx.youtube.ler('tina', 'i:aaa');
   assert.equal(v.tipo, 'sem_perfil');
   const r = await m.ler();
   assert.equal(r.estado, 'atencao');
-  assert.match(r.motivo, /ainda não foi aberta/);
+  assert.match(r.motivo, /pediu login .* a Tela deste agente ainda não foi aberta/);
   m.limpa();
 });
 
@@ -162,7 +215,7 @@ test('falha de infraestrutura (container não aceitou, podman ausente, erro inte
   await m.testa();
   m.avanca(MIN);
   assert.equal(await m.testa(), 'nao_medido');
-  let v = m.ctx.youtube.ler('tina');
+  let v = m.ctx.youtube.ler('tina', 'i:aaa');
   assert.equal(v.tipo, 'nao_medido');
   assert.equal(v.em, AGORA + MIN, 'horário da tentativa');
   assert.deepEqual(v.ultimoConcluido, { em: AGORA, tipo: 'ok', codigo: null });
@@ -174,7 +227,7 @@ test('falha de infraestrutura (container não aceitou, podman ausente, erro inte
   await m.testa();
   m.avanca(MIN);
   await m.testa();
-  v = m.ctx.youtube.ler('tina');
+  v = m.ctx.youtube.ler('tina', 'i:aaa');
   assert.equal(v.tipo, 'nao_medido');
   assert.equal(v.ultimoConcluido.tipo, 'ok', 'o último concluído continua o mesmo depois de várias tentativas');
   assert.ok(!JSON.stringify(m.logs).includes('cliente-x') && !JSON.stringify(m.logs).includes('cliente-y'));
@@ -286,7 +339,7 @@ test('código 125 do podman é infraestrutura mesmo com texto de login na saída
   assert.equal(await m.testa(), 'nao_medido');
   m.avanca(MIN);
   assert.equal(await m.testa(), 'nao_medido', '125 vale antes da análise da saída do yt-dlp');
-  const v = m.ctx.youtube.ler('tina', null);
+  const v = m.ctx.youtube.ler('tina', 'i:aaa');
   assert.equal(v.tipo, 'nao_medido');
   assert.deepEqual(v.ultimoConcluido, { em: AGORA, tipo: 'ok', codigo: null });
   const r = await m.ler();

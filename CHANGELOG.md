@@ -32,11 +32,13 @@ bot" para quem não está logado, e a Tela nunca tinha entrado no YouTube. Agora
 0.8.0 (os dois com versão fixa), um link em `/usr/local/bin/yt-dlp` e o arquivo de sistema `/etc/yt-dlp.conf` (root:root, 0644)
 com uma linha só, `--js-runtimes node`, para o node da imagem resolver o desafio. Nenhum cookie fica em configuração global, e o
 DG Claw não grava mais nada de `yt-dlp` na casa do agente. As instruções do agente (`templates/ambiente/agente.md`) dizem
-que, quando o YouTube pedir login, ele usa a chamada isolada `yt-dlp --ignore-config --no-plugin-dirs --js-runtimes node
---cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome"` (só para o YouTube, nunca com `--cookies arquivo`) e, se
-continuar pedindo login, pede ao dono para entrar pela Tela. O diagnóstico ganhou o item `agente.<slug>.youtube`: um download
+que o agente tira do link só o ID do vídeo (11 caracteres, link de youtube.com ou youtu.be) e monta ele mesmo a URL, sem colar o
+link recebido no comando; quando o YouTube pedir login, ele usa a chamada isolada `yt-dlp --ignore-config --no-plugin-dirs
+--js-runtimes node --cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome" --no-playlist --match-filters
+"availability=public & age_limit=0"` (só para o YouTube, só para vídeo público e sem restrição de idade, nunca com `--cookies
+arquivo`) e, se continuar pedindo login, pede ao dono para entrar pela Tela. O diagnóstico ganhou o item `agente.<slug>.youtube`: um download
 real e pequeno (vídeo de 19 s, o formato menor, teto de 5 MB, pasta temporária que é apagada) feito dentro do container como o
-usuário agente, com essa mesma chamada isolada. A tela de diagnóstico só lê o último resultado, guardado com horário em
+usuário agente, primeiro sem cookies e, só se o YouTube pedir login, com a chamada isolada e os cookies da Tela. A tela de diagnóstico só lê o último resultado, guardado com horário em
 `youtube-saude.json`, e nunca dispara o download; quem testa é um vigia que roda a primeira vez 2 minutos depois de o painel
 subir e depois a cada 6 horas. Enquanto não há resultado, o item fica "não medido" e diz que o teste roda sozinho a cada 6
 horas. Se o YouTube pedir login, ou o `yt-dlp` avisar que os cookies deixaram de valer (mesmo com o vídeo baixado), o item vira
