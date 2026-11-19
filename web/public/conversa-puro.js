@@ -112,7 +112,14 @@
         return { via: 'compartilhado' };
       } catch (e) {
         if (e && e.name === 'AbortError') { limpa(); return { via: 'cancelado' }; }
-        if (e && e.name === 'NotAllowedError') { cache.url = url; cache.arq = arq; cache.modo = 'compartilhar'; return { via: 'segundo-toque' }; }
+        if (e && e.name === 'NotAllowedError') {
+          if (cache.url === url && cache.modo === 'compartilhar') {
+            // já era o segundo toque, com o arquivo pronto, e o aparelho recusou de novo: abre a aba, que sempre deixa salvar
+            limpa(); deps.abrir(comAba(url)); return { via: 'aba' };
+          }
+          cache.url = url; cache.arq = arq; cache.modo = 'compartilhar';
+          return { via: 'segundo-toque' };
+        }
         throw e;
       }
     } catch (e) {

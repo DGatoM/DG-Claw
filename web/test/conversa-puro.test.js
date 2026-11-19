@@ -175,3 +175,11 @@ test('baixar no PWA do iPhone: arquivo grande não vira Blob; guarda só o ender
   assert.equal((await P.baixarNoPwaIos('/v', 'v.mp4', deps)).via, 'aba');
   assert.deepEqual(chamadas.abriu, ['/v?baixar=1']);
 });
+
+test('baixar no PWA do iPhone: recusa repetida de compartilhar cai na aba em vez de prender no segundo toque', async () => {
+  const share = async () => { const e = new Error('x'); e.name = 'NotAllowedError'; throw e; };
+  const { deps, chamadas } = depsBaixar({ nav: { canShare: () => true, share } });
+  assert.equal((await P.baixarNoPwaIos('/u', 'a.txt', deps)).via, 'segundo-toque');
+  assert.equal((await P.baixarNoPwaIos('/u', 'a.txt', deps)).via, 'aba');
+  assert.deepEqual(chamadas.abriu, ['/u?baixar=1']);
+});

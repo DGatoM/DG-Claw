@@ -600,7 +600,17 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     // Só esquece o texto de quem sumiu da lista E já tem mais que o cache do estado (TTL_RUNNER_MS) de vida:
     // um retrato do runner anterior ao envio não pode apagar uma mensagem que ainda espera.
     if (guardados) for (const [k, g] of Array.from(guardados.entries())) if (!ids.has(k) && relogio() - g.em > TTL_RUNNER_MS + 3000) guardados.delete(k);
-    return naFilaRunner.filter((x) => x && typeof x.em === 'number').map((x) => {
+    // Defesa contra runner que devolve lista enorme ou repetida: só ids válidos, sem repetir, no máximo MAX_NA_FILA.
+    const vistos = new Set();
+    const validos = [];
+    for (const x of naFilaRunner) {
+      if (!x || typeof x.em !== 'number' || !Number.isFinite(x.em)) continue;
+      const id = typeof x.msg === 'string' && x.msg.length <= 80 ? x.msg : null;
+      if (id) { if (vistos.has(id)) continue; vistos.add(id); }
+      validos.push({ msg: id, em: x.em });
+      if (validos.length >= MAX_NA_FILA) break;
+    }
+    return validos.map((x) => {
       const g = x.msg && guardados ? guardados.get(x.msg) : null;
       const item = { msg: x.msg || null, em: x.em };
       if (g) item.texto = g.texto;
@@ -638,6 +648,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     // O texto é guardado sempre (não só quando o painel viu o agente ocupado): outro aparelho pode ter enviado
     // com o agente ocioso, e a mensagem mesmo assim ficar atrás de outra no runner.
     if (msgId) guardaTextoNaFila(agente.slug, msgId, textoFinal, colaboradorId);
+    if (msgId) corpo.msg = msgId;   // a tela usa o id para casar a resposta HTTP com a lista da fila, em qualquer ordem
     if (motivoFila) {
       corpo.fila = { motivo: motivoFila };
       if (msgId) corpo.fila.msg = msgId;

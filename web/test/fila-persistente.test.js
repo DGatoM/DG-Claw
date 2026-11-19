@@ -74,3 +74,16 @@ test('stream: mudança só na fila muda a chave do evento de atividade', () => {
   const base = { estado: 'trabalhando', acao: 'x', alerta: null, desde: 't', detalhe: null };
   assert.notEqual(chaveAtividade(base), chaveAtividade(Object.assign({}, base, { na_fila: [{ msg: 'w1', em: 1 }] })));
 });
+
+test('fila: lista enorme ou repetida do runner é cortada e deduplicada antes de ir para a tela', async () => {
+  const s = await cenario({ status: 'working' });
+  try {
+    s.runner.opcoes.naFila = Array.from({ length: 5000 }, () => ({ em: 1, msg: 'wrepetido' }));
+    const a = await s.t.web.conversa.atividade(s.t.web.registro.obter('ana'));
+    assert.equal(a.na_fila.length, 1);
+    s.runner.opcoes.naFila = Array.from({ length: 5000 }, (_, i) => ({ em: i, msg: 'w' + i }));
+    await new Promise((r) => setTimeout(r, 2100));
+    const b = await s.t.web.conversa.atividade(s.t.web.registro.obter('ana'));
+    assert.ok(b.na_fila.length <= 50);
+  } finally { await s.fechar(); }
+});

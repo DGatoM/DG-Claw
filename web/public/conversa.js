@@ -1206,16 +1206,26 @@ function filaSincroniza() {
     const antes = pendentes.length;
     pendentes = pendentes.filter(p => !(p.daFila && p.msgId && !ids.has(p.msgId) && atvAgoraMs() - (p.filaEm || 0) > 6000));
     if (pendentes.length !== antes) mudou = true;
+    // o evento da fila chegou antes da resposta do envio: o balão reconstruído cede ao otimista
+    const ids2 = new Set(pendentes.filter(p => !p.daFila && p.msgId).map(p => p.msgId));
+    const antes2 = pendentes.length;
+    pendentes = pendentes.filter(p => !(p.daFila && ids2.has(p.msgId)));
+    if (pendentes.length !== antes2) mudou = true;
     for (const x of lista) {
-      if (!x.msg || !x.texto || pendentes.some(p => p.msgId === x.msg)) continue;
+      if (!x.msg || pendentes.some(p => p.msgId === x.msg)) continue;
       const quando = new Date(x.em);
+      const horaItem = quando.toTimeString().slice(0, 5);
       pendentes.push({
-        n: ++seqPendente, texto: x.texto, estado: 'enviada', erro: null, cid: novoClienteId(),
+        n: ++seqPendente, texto: x.texto || ('Mensagem enviada às ' + horaItem + ' ainda na fila. O texto não está disponível nesta tela agora.'), estado: 'enviada', erro: null, cid: novoClienteId(),
         criadoEm: x.em, epLocal: x.em / 1000, ep: x.em / 1000 - 2, tentativa: 1,
         hhmm: quando.toTimeString().slice(0, 5), dia: quando.toLocaleDateString('pt-BR'),
         fila: 'resposta', filaEm: x.em, msgId: x.msg, daFila: true,
       });
       mudou = true;
+    }
+    // comando sem id (ex.: /context): com a fila vazia, o aviso sai depois da folga
+    if (!lista.length) for (const p of pendentes) {
+      if (p.fila && !p.msgId && atvAgoraMs() - (p.filaEm || 0) > 6000) { p.fila = null; mudou = true; }
     }
     for (const p of pendentes) {
       if (!p.fila || !p.msgId) continue;
@@ -3034,6 +3044,8 @@ document.addEventListener('click', ev => {
   if (u.origin !== location.origin) return;
   ev.preventDefault();
   ev.stopPropagation();
+  // modo escondido ligado: a folha do iPhone mostraria o nome e a prévia do arquivo, que a tela esconde
+  if (document.body.classList.contains('sigilo')) { mostraAviso('Desligue o modo escondido (o olho) para baixar o arquivo.'); return; }
   baixaNoPwaIos(u.href, a.getAttribute('download') || '');
 }, true);
 
@@ -4193,7 +4205,8 @@ async function mandaTexto(pend, semEsperar) {
     pend.casa = d.marca || null;   // o que vai aparecer na thread, para o balão otimista sumir
     pend.anexos = null;
   }
-  if (d && d.fila && d.fila.motivo) { pend.fila = d.fila.motivo; pend.msgId = d.fila.msg || null; pend.filaEm = atvAgoraMs(); }
+  if (d && d.msg) pend.msgId = d.msg;
+  if (d && d.fila && d.fila.motivo) { pend.fila = d.fila.motivo; pend.msgId = d.fila.msg || pend.msgId || null; pend.filaEm = atvAgoraMs(); }
   const ficou = entregue(pend, d);
   avisaEntrega(pend, true);
   if (!ficou) return true;
