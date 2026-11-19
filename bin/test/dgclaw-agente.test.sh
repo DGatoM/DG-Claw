@@ -221,6 +221,38 @@ ok "whatsapp: remover de numero ausente da erro claro" $([ $c = 1 ] && grep -q "
 "$BIN" canal whatsapp remover "+1 415 555 2671" >/dev/null 2>&1
 "$BIN" canal whatsapp remover 11987654321 >"$T/o" 2>&1; ok "whatsapp: remover o ultimo deixa a lista vazia" $(grep -q "Permitidos: nenhum" "$T/o" && echo 0 || echo 1)
 
+# grupo: libera, nao duplica, valida o ID, remove, e arquivo ilegivel nunca vira lista vazia
+GR="$WA/grupos-liberados.json"
+"$BIN" canal whatsapp grupo listar >"$T/o" 2>&1; ok "whatsapp: grupo listar sem arquivo diz nenhum" $(grep -q "Grupos liberados: nenhum" "$T/o" && echo 0 || echo 1)
+"$BIN" canal whatsapp grupo liberar 120363000000000001-group "Turma da tarde" >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: grupo liberar funciona" $([ $c = 0 ] && grep -q "120363000000000001-group  Turma da tarde" "$T/o" && echo 0 || echo 1)
+[ "$(stat -c %a "$GR")" = 600 ]; ok "whatsapp: grupos-liberados.json com 600" $?
+node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1]));const g=d.grupos[0];process.exit(d.versao===1&&d.grupos.length===1&&g.id==="120363000000000001-group"&&g.nome==="Turma da tarde"&&!isNaN(Date.parse(g.liberado_em))?0:1)' "$GR"
+ok "whatsapp: grupo liberado grava id, nome e liberado_em" $?
+"$BIN" canal whatsapp grupo liberar 120363000000000001-group >"$T/o" 2>&1; c=$?
+ok "whatsapp: liberar de novo nao duplica" $([ $c = 0 ] && grep -q "ja estava liberado" "$T/o" && [ "$(grep -c '120363000000000001-group"' "$GR")" = 1 ] && echo 0 || echo 1)
+for ruim in 5511987654321 abc 120363000000000001 "120363-group" "../x-group"; do
+  "$BIN" canal whatsapp grupo liberar "$ruim" >"$T/o" 2>"$T/e"; c=$?
+  ok "whatsapp: grupo liberar recusa o ID '$ruim'" $([ $c = 1 ] && grep -q "ID de grupo invalido" "$T/e" && echo 0 || echo 1)
+done
+"$BIN" canal whatsapp grupo liberar 120363000000000002-group "Nome
+com quebra" >/dev/null 2>&1
+node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1]));process.exit(d.grupos.length===2&&d.grupos[1].nome==="Nome com quebra"?0:1)' "$GR"; ok "whatsapp: nome do grupo sai sem quebra de linha" $?
+"$BIN" canal whatsapp grupo remover 120363000000000002-group >"$T/o" 2>&1; c=$?
+ok "whatsapp: grupo remover funciona" $([ $c = 0 ] && grep -q "removido" "$T/o" && ! grep -q "000002-group" "$GR" && grep -q "000001-group" "$GR" && echo 0 || echo 1)
+"$BIN" canal whatsapp grupo remover 120363000000000009-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: remover grupo ausente da erro claro" $([ $c = 1 ] && grep -q "nao esta na lista" "$T/e" && echo 0 || echo 1)
+echo '{"grupos":' > "$GR"
+for sub in listar "liberar 120363000000000003-group" "remover 120363000000000001-group"; do
+  # shellcheck disable=SC2086
+  "$BIN" canal whatsapp grupo $sub >"$T/o" 2>"$T/e"; c=$?
+  ok "whatsapp: grupo $sub com arquivo ilegivel recusa" $([ $c = 1 ] && grep -q "nao e uma lista valida" "$T/e" && echo 0 || echo 1)
+done
+[ "$(cat "$GR")" = '{"grupos":' ]; ok "whatsapp: arquivo ilegivel de grupos nao e sobrescrito" $?
+"$BIN" canal whatsapp grupo >"$T/o" 2>"$T/e"; ok "whatsapp: grupo sem subcomando mostra o uso" $([ $? = 1 ] && grep -q "listar | liberar" "$T/e" && echo 0 || echo 1)
+DGCLAW_TIPO=admin "$BIN" canal whatsapp grupo listar >/dev/null 2>&1; ok "whatsapp: admin nao mexe nos grupos (codigo 2)" $([ $? = 2 ] && echo 0 || echo 1)
+rm -f "$GR"
+
 # ligar com sessao mas sem lista; depois com tudo
 mkdir -p "$WA/sessao"; echo '{"registered": true}' > "$WA/sessao/creds.json"
 "$BIN" canal whatsapp ligar >"$T/o" 2>"$T/e"; c=$?

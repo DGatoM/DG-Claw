@@ -20,6 +20,12 @@ Os valores vieram de uma pesquisa de recomendações atuais (fontes em `docs/CAN
 novos (`whatsapp-enviar`) para quem usa a Z-API. O comando novo `dgclaw-agente canal whatsapp retomar` libera
 os envios depois de uma trava, e o `canal status` mostra quando há uma.
 
+**Envio para grupo de WhatsApp pela Z-API.** O script de envio da Z-API agora também escreve em grupos, com
+`enviar --grupo <id>`, e o comando `grupos` lista os grupos da conta (ID e nome) para o agente achar o ID pelo
+nome. O agente só escreve nos grupos que você liberou: o comando `dgclaw-agente canal whatsapp grupo liberar <id>`
+libera um, `grupo remover <id>` tira e `grupo listar` mostra os liberados. Um grupo conta como uma mensagem e passa
+pelas mesmas travas do envio para uma pessoa (ritmo, teto por rodada e por dia, texto repetido, trava no primeiro erro).
+
 ### Como atualizar (WhatsApp com travas)
 
 O `dgclaw atualizar` padrão basta, e nada que você configurou muda. Se o seu agente já usa o WhatsApp, ele passa a
@@ -28,6 +34,13 @@ do agente as chaves `ZAPI_INSTANCE`, `ZAPI_TOKEN` e `ZAPI_CLIENT_TOKEN`. Agentes
 ganham a skill `whatsapp-enviar` sozinhos, mas as instruções do ambiente já apontam para o script e o documento.
 Se algum dia um envio vier travado, confira o número no celular e peça ao agente, no chat do DG Claw, para
 rodar `dgclaw-agente canal whatsapp retomar`.
+
+### Como atualizar (envio para grupo pela Z-API)
+
+Nenhum grupo vem liberado: sem a sua liberação o agente recusa o envio para grupo, e é isso que protege você de uma
+mensagem para um grupo errado. Quem quiser que o agente escreva em um grupo precisa liberá-lo uma vez. Peça ao agente
+a lista dos grupos (ele mostra o ID e o nome de cada um) e, no chat do DG Claw, peça para rodar
+`dgclaw-agente canal whatsapp grupo liberar <id> "<nome>"` com o ID do grupo escolhido.
 
 **Correção de segurança e de perda de dados: `dgclaw agente recriar` mostra o que se perde e pede `--forcar`.** Trocar o
 container de um agente (o que a atualização faz com a imagem nova) apaga o que alguém instalou direto dentro dele, fora
