@@ -372,6 +372,25 @@ caso_reinstalar_sem_senha_mantem_a_atual() {
     limpar_cenario
 }
 
+caso_senha_preservada_nao_toca_na_linha_do_hash() {
+    novo_cenario
+    afirma "primeira rodada com senha" instalacao_basica
+    local e="$RAIZ/etc/dgclaw/web.env"
+    # web.env com linha alheia, hash "trocado pelo painel" (com caracteres especiais) e usuario no meio.
+    printf '%s\n' 'ALHEIA=a b # c' 'DGCLAW_PANEL_USER=maria' "DGCLAW_PANEL_PASSWORD_HASH='scrypt\$teste\$p4in3l\$x\\y'" 'FIM=1' >"$e"
+    cp "$e" "$TMP/antes"
+    afirma "rodada sem senha, mesmo usuario" instalar "" --usuario maria --provedor claude
+    afirma "arquivo byte a byte igual" cmp "$TMP/antes" "$e"
+    afirma "rodada sem senha, outro usuario" instalar "" --usuario joana --provedor claude
+    afirma "linha do hash intacta" grep -qxF "DGCLAW_PANEL_PASSWORD_HASH='scrypt\$teste\$p4in3l\$x\\y'" "$e"
+    afirma "linha alheia intacta" grep -qxF 'ALHEIA=a b # c' "$e"
+    afirma "FIM intacta" grep -qxF 'FIM=1' "$e"
+    afirma "usuario trocado" grep -qxF 'DGCLAW_PANEL_USER=joana' "$e"
+    igual "$(sed -n 1p "$e")|$(sed -n 2p "$e")|$(sed -n 4p "$e")" "ALHEIA=a b # c|DGCLAW_PANEL_USER=joana|FIM=1" || { echo "      FALHOU: ordem das linhas mudou"; FALHAS=$((FALHAS + 1)); }
+    afirma "ainda 600" modo_e "$e" 600
+    limpar_cenario
+}
+
 caso_novo_primeiro_acesso_gera_link_e_mantem_hash() {
     novo_cenario
     afirma "primeira rodada com senha" instalacao_basica

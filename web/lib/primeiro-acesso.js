@@ -75,6 +75,18 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy }) {
     gravaAtomico(webEnv, texto);
   }
 
+  /** O web.env existente precisa ser arquivo comum: link simbólico, dispositivo ou FIFO não recebem o hash. */
+  function destinoInvalido() {
+    let st;
+    try { st = fs.lstatSync(webEnv); } catch (e) {
+      if (e.code === 'ENOENT') return null; // ainda não existe: a gravação cria
+      return { motivo: `não pôde ser examinado (${e.code || e.message})` };
+    }
+    if (st.isFile()) return null;
+    const tipo = st.isSymbolicLink() ? 'é um link simbólico' : st.isFIFO() ? 'é um FIFO' : st.isDirectory() ? 'é uma pasta' : 'não é um arquivo comum';
+    return { motivo: tipo };
+  }
+
   const erro = (status, msg, extra) => ({ status, corpo: Object.assign({ ok: false, erro: msg }, extra || {}) });
   let trocandoDono = false;
 
@@ -85,7 +97,8 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy }) {
     if (typeof atual !== 'string' || !atual) return erro(400, 'Digite a senha atual.');
     if (typeof nova !== 'string') return erro(400, 'Digite a senha nova.');
     if (typeof confirmacao !== 'string' || nova.normalize('NFKC') !== confirmacao.normalize('NFKC')) return erro(400, 'As senhas não conferem.');
-    const tamNova = [...nova.normalize('NFKC')].length; // a mesma forma que o scrypt usa, contada em pontos de código
+    // Pontos de código na digitada e na forma que o scrypt usa (NFKC): as duas precisam chegar a 12.
+    const tamNova = Math.min([...nova].length, [...nova.normalize('NFKC')].length);
     if (tamNova < 12) return erro(400, `A senha precisa ter pelo menos 12 caracteres (a sua tem ${tamNova}).`);
     if (nova.toLowerCase() === 'admin') return erro(400, 'Essa senha é fácil demais de adivinhar. Escolha outra.');
     const norm = (v) => String(v).normalize('NFKC'); // a mesma normalização do scrypt em lib/auth.js
@@ -93,6 +106,15 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy }) {
     if (trocandoDono) return erro(409, 'Já há uma troca de senha em andamento. Espere alguns segundos e tente de novo.');
     trocandoDono = true;
     try {
+      if (config.hashPorFora) {
+        log('aviso', `Troca de senha do dono recusada: o hash da senha vem do ambiente do serviço e não do ${webEnv}.`);
+        return erro(409, `A senha deste painel é definida fora do web.env, no ambiente do serviço (por exemplo, uma linha Environment= na unidade do systemd). Trocar por aqui não valeria depois de reiniciar, então nada foi gravado. Faça a troca lá (ou tire essa definição e use o web.env) e reinicie o serviço.`);
+      }
+      const destino = destinoInvalido();
+      if (destino) {
+        log('erro', `Troca de senha do dono recusada: ${webEnv} ${destino.motivo}.`);
+        return erro(409, `Não dá para trocar a senha por aqui: ${webEnv} ${destino.motivo}. Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para deixar o web.env como arquivo comum (ou rode no servidor: sudo dgclaw senha).`);
+      }
       const v = await auth.verificaSenha(auth.usuario, atual, ip);
       if (!v.ok) {
         if (v.limite) { log('aviso', `Troca de senha do dono bloqueada por excesso de tentativas (ip ${ip}).`); return erro(429, v.erro, { retryAfter: v.retryAfter }); }
@@ -172,7 +194,7 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy }) {
 
       if (typeof senha !== 'string') return erro(400, 'Digite a senha.');
       if (typeof confirmacao !== 'string' || senha.normalize('NFKC') !== confirmacao.normalize('NFKC')) return erro(400, 'As senhas não conferem.');
-      const tamSenha = [...senha.normalize('NFKC')].length;
+      const tamSenha = Math.min([...senha].length, [...senha.normalize('NFKC')].length);
       if (tamSenha < 12) return erro(400, `A senha precisa ter pelo menos 12 caracteres (a sua tem ${tamSenha}).`);
       if (senha.toLowerCase() === 'admin') return erro(400, 'Essa senha é fácil demais de adivinhar. Escolha outra.');
 

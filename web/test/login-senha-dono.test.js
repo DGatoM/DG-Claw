@@ -198,10 +198,90 @@ test('troca de senha do dono: web.env com duas definições do hash fica com uma
     assert.equal(linhas.filter((l) => l.includes('DGCLAW_PANEL_PASSWORD_HASH')).length, 1);
     assert.deepEqual(linhas.filter((l) => !l.includes('DGCLAW_PANEL_PASSWORD_HASH')), ['DGCLAW_PANEL_USER=Mariana', 'LINHA_ALHEIA=fica # c', 'FIM=1']);
     assert.ok(linhas[1].startsWith("DGCLAW_PANEL_PASSWORD_HASH='scrypt$"), 'a nova ficou no lugar da primeira');
-    const { lerEnvArquivo } = require('../lib/config');
-    const vars = lerEnvArquivo(webEnv).vars;
-    const t2 = await subirWeb({ agentes: AG, env: { DGCLAW_PANEL_USER: 'Mariana', DGCLAW_PANEL_PASSWORD_HASH: vars.DGCLAW_PANEL_PASSWORD_HASH, DGCLAW_WEB_ENV: webEnv } });
-    try { assert.equal((await login(cliente(t2.porta), 'Mariana', NOVA)).status, 200); } finally { await t2.fechar(); }
+    // Reinício de verdade: a configuração vem do arquivo e do ambiente do processo, que segue com o hash ORIGINAL
+    // (a unidade só carrega o web.env no start). O hash do arquivo é o novo e vence quando o processo não o define por fora.
+    const { criarServidor } = require('../server');
+    const salvo = {};
+    for (const k of ['DGCLAW_WEB_ENV', 'DGCLAW_PANEL_USER', 'DGCLAW_PANEL_PASSWORD_HASH']) salvo[k] = process.env[k];
+    process.env.DGCLAW_WEB_ENV = webEnv; delete process.env.DGCLAW_PANEL_USER; delete process.env.DGCLAW_PANEL_PASSWORD_HASH;
+    let web2;
+    try {
+      web2 = criarServidor({ agentesPath: t.agentesPath, dataDir: path.join(dir, 'dados2'), publicDir: t.publico, log: () => {}, tz: 'America/Sao_Paulo' });
+    } finally { for (const [k, v] of Object.entries(salvo)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } }
+    const addr2 = await web2.ouvir(0, '127.0.0.1');
+    try { assert.equal((await login(cliente(addr2.port), 'Mariana', NOVA)).status, 200); } finally { await web2.fechar(); }
+  } finally { await t.fechar(); }
+});
+
+test('hash administrado fora do web.env: a comparação é a do carregamento', () => {
+  const { hashAdministradoPorFora, carregaConfig } = require('../lib/config');
+  assert.equal(hashAdministradoPorFora({ DGCLAW_PANEL_PASSWORD_HASH: 'a' }, { DGCLAW_PANEL_PASSWORD_HASH: 'a' }), false, 'igual: unidade carrega o web.env');
+  assert.equal(hashAdministradoPorFora({ DGCLAW_PANEL_PASSWORD_HASH: 'a' }, {}), false, 'só no arquivo');
+  assert.equal(hashAdministradoPorFora({ DGCLAW_PANEL_PASSWORD_HASH: 'a' }, { DGCLAW_PANEL_PASSWORD_HASH: '' }), false);
+  assert.equal(hashAdministradoPorFora({ DGCLAW_PANEL_PASSWORD_HASH: 'a' }, { DGCLAW_PANEL_PASSWORD_HASH: 'b' }), true, 'diferente: por fora');
+  assert.equal(hashAdministradoPorFora({}, { DGCLAW_PANEL_PASSWORD_HASH: 'b' }), true, 'só no processo');
+  const dir = pastaTemp('cfg');
+  const webEnv = path.join(dir, 'web.env');
+  fs.writeFileSync(webEnv, "DGCLAW_PANEL_PASSWORD_HASH='igual'\n");
+  const salvo = { e: process.env.DGCLAW_WEB_ENV, h: process.env.DGCLAW_PANEL_PASSWORD_HASH };
+  process.env.DGCLAW_WEB_ENV = webEnv;
+  try {
+    process.env.DGCLAW_PANEL_PASSWORD_HASH = 'igual';
+    assert.equal(carregaConfig({}, () => {}).hashPorFora, false);
+    process.env.DGCLAW_PANEL_PASSWORD_HASH = 'outro';
+    assert.equal(carregaConfig({}, () => {}).hashPorFora, true);
+  } finally {
+    if (salvo.e === undefined) delete process.env.DGCLAW_WEB_ENV; else process.env.DGCLAW_WEB_ENV = salvo.e;
+    if (salvo.h === undefined) delete process.env.DGCLAW_PANEL_PASSWORD_HASH; else process.env.DGCLAW_PANEL_PASSWORD_HASH = salvo.h;
+  }
+});
+
+test('troca de senha do dono: hash administrado fora do web.env responde 409 e não grava nada', async () => {
+  const { t, webEnv } = await comWebEnv({ opcoesServidor: { hashPorFora: true } });
+  try {
+    const antes = fs.readFileSync(webEnv, 'utf8');
+    assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
+    const r = await t.c.post('/api/v1/dono/senha', { json: { atual: t.senha, nova: NOVA, confirmacao: NOVA } });
+    assert.equal(r.status, 409, r.texto);
+    assert.match(r.json.erro, /definida fora do web\.env/);
+    assert.equal(fs.readFileSync(webEnv, 'utf8'), antes);
+    assert.equal((await login(cliente(t.porta), 'Mariana', t.senha)).status, 200, 'a senha antiga segue valendo');
+  } finally { await t.fechar(); }
+});
+
+for (const tipo of ['fifo', 'link']) {
+  test(`troca de senha do dono: web.env que é ${tipo === 'fifo' ? 'um FIFO' : 'um link simbólico'} responde 409 sem gravar nem apagar o link de recuperação`, async () => {
+    const dir = pastaTemp('sd3');
+    const webEnv = path.join(dir, 'web.env');
+    const real = path.join(dir, 'real.env');
+    fs.writeFileSync(real, "DGCLAW_PANEL_USER=Mariana\n", { mode: 0o600 });
+    if (tipo === 'fifo') require('node:child_process').execFileSync('mkfifo', [webEnv]); else fs.symlinkSync(real, webEnv);
+    const pa = path.join(dir, 'primeiro-acesso.json');
+    fs.writeFileSync(pa, '{"versao":1}\n', { mode: 0o600 });
+    const t = await subirWeb({ agentes: AG, env: { DGCLAW_PANEL_USER: 'Mariana', DGCLAW_WEB_ENV: webEnv } });
+    try {
+      assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
+      const r = await t.c.post('/api/v1/dono/senha', { json: { atual: t.senha, nova: NOVA, confirmacao: NOVA } });
+      assert.equal(r.status, 409, r.texto);
+      assert.match(r.json.erro, tipo === 'fifo' ? /FIFO/ : /link simbólico/);
+      assert.ok(fs.existsSync(pa), 'o link de recuperação não foi apagado');
+      assert.equal(fs.readFileSync(real, 'utf8'), "DGCLAW_PANEL_USER=Mariana\n");
+      assert.equal((await login(cliente(t.porta), 'Mariana', t.senha)).status, 200);
+    } finally { await t.fechar(); }
+  });
+}
+
+test('tamanho mínimo da senha: vale na forma digitada e na NFKC (troca de senha)', async () => {
+  const { t } = await comWebEnv();
+  try {
+    assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
+    // U+FDFA tem 1 ponto de código e vira 18 no NFKC: a forma digitada tem 1 e é recusada.
+    const expande = '\uFDFA';
+    assert.ok([...expande.normalize('NFKC')].length >= 12);
+    const r = await t.c.post('/api/v1/dono/senha', { json: { atual: t.senha, nova: expande, confirmacao: expande } });
+    assert.equal(r.status, 400, r.texto); assert.match(r.json.erro, /a sua tem 1\)/);
+    const r2 = await t.c.post('/api/v1/dono/senha', { json: { atual: t.senha, nova: 'abc' + expande, confirmacao: 'abc' + expande } });
+    assert.equal(r2.status, 400, r2.texto);
   } finally { await t.fechar(); }
 });
 

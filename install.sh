@@ -1463,6 +1463,26 @@ gravar_web_env_senha() {
     } | escrever_arquivo "$web_env" 600
 }
 
+# gravar_web_env_usuario <usuario>: troca so a linha DGCLAW_PANEL_USER do web.env, no lugar, e deixa todas as outras
+# (inclusive a do hash) intactas e na mesma ordem. Usado quando a senha atual e preservada: o hash nao e lido nem
+# regravado, para nao desfazer uma troca de senha feita pelo painel entre a leitura e a gravacao.
+gravar_web_env_usuario() {
+    local usuario="$1" web_env="$DG_ETC/web.env" linha="" feito=0 saida=""
+    if [ -f "$web_env" ]; then
+        while IFS= read -r linha || [ -n "$linha" ]; do
+            if [[ "$linha" == DGCLAW_PANEL_USER=* ]]; then
+                [ "$feito" = 1 ] && continue
+                feito=1
+                saida+="DGCLAW_PANEL_USER=${usuario}"$'\n'
+            else
+                saida+="${linha}"$'\n'
+            fi
+        done <"$web_env"
+    fi
+    [ "$feito" = 1 ] || saida+="DGCLAW_PANEL_USER=${usuario}"$'\n'
+    printf '%s' "$saida" | escrever_arquivo "$web_env" 600
+}
+
 configurar_senha() {
     passo "Guardando o usuario e a senha do painel"
     local web_env="$DG_ETC/web.env" hash="" tem=0
@@ -1480,17 +1500,19 @@ configurar_senha() {
         rm -f "$DG_ETC/primeiro-acesso.json"
         ok "senha nova guardada como hash (a senha em si nao e gravada em lugar nenhum)"
     elif [ "$tem" = 1 ] && [ "$ARG_NOVO_PRIMEIRO_ACESSO" != 1 ]; then
-        hash="$(sed -n "s/^DGCLAW_PANEL_PASSWORD_HASH='\(.*\)'$/\1/p;T;q" "$web_env")"
         aviso "nenhuma senha nova chegou; a senha atual do painel continua valendo."
+        gravar_web_env_usuario "$USUARIO"
+        return 0
     else
         if [ "$ENSAIO" = 1 ]; then
             info "[ensaio] gravaria ${web_env#"$R"} e geraria um link de primeiro acesso (uso unico, 30 min)"
             return 0
         fi
         if [ "$tem" = 1 ]; then
-            hash="$(sed -n "s/^DGCLAW_PANEL_PASSWORD_HASH='\(.*\)'$/\1/p;T;q" "$web_env")"
+            gravar_web_env_usuario "$USUARIO"
+        else
+            gravar_web_env_senha "$USUARIO" ""
         fi
-        gravar_web_env_senha "$USUARIO" "$hash"
         PRIMEIRO_ACESSO_TOKEN="$(gerar_primeiro_acesso "$USUARIO")"
         ok "link de primeiro acesso gerado (vale 30 min, uso unico)"
         return 0

@@ -27,6 +27,13 @@ function lerEnvArquivo(caminho) {
   return { vars, erro: null };
 }
 
+/** O hash do processo existe e difere do hash do arquivo? Então ele é administrado fora do web.env. */
+function hashAdministradoPorFora(varsArquivo, envProcesso) {
+  const doProcesso = String((envProcesso || {}).DGCLAW_PANEL_PASSWORD_HASH || '').trim();
+  if (!doProcesso) return false;
+  return doProcesso !== String((varsArquivo || {}).DGCLAW_PANEL_PASSWORD_HASH || '').trim();
+}
+
 /**
  * Monta a configuração. `opcoes.env` (objeto) ignora arquivo e ambiente: é o caminho dos testes.
  * Sem ele: valores do arquivo DGCLAW_WEB_ENV e, por cima, as variáveis do ambiente.
@@ -34,6 +41,7 @@ function lerEnvArquivo(caminho) {
 function carregaConfig(opcoes, log) {
   opcoes = opcoes || {};
   let env;
+  let hashPorFora = !!opcoes.hashPorFora; // só os testes forçam; em produção vem da comparação abaixo
   if (opcoes.env) {
     env = Object.assign({}, opcoes.env);
   } else {
@@ -44,10 +52,15 @@ function carregaConfig(opcoes, log) {
         'se o login ficar trancado, rode o instalador para gerar esse arquivo.');
     }
     env = Object.assign({}, r.vars, process.env);
+    hashPorFora = hashAdministradoPorFora(r.vars, process.env);
   }
   const num = (v, pad) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : pad; };
   return {
     env,
+    // true quando o hash da senha do painel vem do ambiente do processo e é diferente do que está no web.env
+    // (ex.: Environment= na unidade). Medido no carregamento: depois de uma troca pelo painel o processo ainda
+    // tem o hash antigo e o arquivo o novo, e isso não conta como "por fora".
+    hashPorFora,
     host: opcoes.host || env.DGCLAW_WEB_HOST || '127.0.0.1',
     porta: opcoes.porta != null ? opcoes.porta : num(env.DGCLAW_WEB_PORT, 8300),
     agentesPath: opcoes.agentesPath || env.DGCLAW_AGENTES || '/etc/dgclaw/agentes.json',
@@ -73,4 +86,4 @@ function carregaConfig(opcoes, log) {
   };
 }
 
-module.exports = { lerEnvArquivo, carregaConfig };
+module.exports = { lerEnvArquivo, carregaConfig, hashAdministradoPorFora };
