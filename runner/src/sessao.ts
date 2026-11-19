@@ -37,7 +37,7 @@ import { motorDe } from "./provedores/motores.js";
 import { parar, pararEEsperar, recusarPorRestricaoComContencao, reviver, subir, suspender, trocarPorSessaoLimpa } from "./sessao/ciclo.js";
 import { conferirContaComRestricoes } from "./restricoes-conta.js";
 import { ctxLeve, montarAmbienteBase } from "./sessao/configuracao.js";
-import { COMPACT_QUIETO_REDE_MS, COMPACT_SEM_FIM_MS, PAUSA_TECLA_PERGUNTA_MS, QUIETO_PARA_OLHAR_TRANSCRIPT_MS, RECIBO_VIGIA_PASSOS_MS, VIGIA_LOGIN_EXPIRADO_MS } from "./sessao/constantes.js";
+import { PAUSA_TECLA_PERGUNTA_MS, QUIETO_PARA_OLHAR_TRANSCRIPT_MS, RECIBO_VIGIA_PASSOS_MS, VIGIA_LOGIN_EXPIRADO_MS } from "./sessao/constantes.js";
 import { digitarEEnviar, vencerTelaDeConfianca } from "./sessao/digitacao.js";
 import { MedidorDeUso } from "./uso.js";
 import { type PayloadDeHook, receberHook } from "./sessao/eventos.js";
@@ -75,10 +75,6 @@ export interface OpcoesDaSessao {
   quietoParaOlharTranscriptMs?: number;
   /** De quanto em quanto tempo se olha a credencial com o login expirado. Testes usam valor curto. */
   vigiaLoginExpiradoMs?: number;
-  /** Quanto tempo em "hook:PreCompact" sem SessionStart até voltar a idle (Claude). Testes usam valor curto. */
-  compactSemFimMs?: number;
-  /** Quanto o terminal precisa ficar quieto para a rede acima valer. Testes usam valor curto. */
-  compactQuietoRedeMs?: number;
   /** De quanto em quanto tempo a fila tenta de novo depois de uma tela que bloqueia a caixa. Testes usam valor curto. */
   reintentoTelaBloqueadaMs?: number;
   /** Pausa entre as teclas da resposta de uma pergunta de escolha (ver responderPergunta). Testes usam valor curto. */
@@ -121,8 +117,6 @@ export class Sessao extends EventEmitter {
   quietoDeBoot: NodeJS.Timeout | null = null;
   vigiaDoStopPerdido: NodeJS.Timeout | null = null;
   readonly quietoParaOlharTranscriptMs: number;
-  readonly compactSemFimMs: number;
-  readonly compactQuietoRedeMs: number;
   readonly vigiaLoginExpiradoMs: number;
   readonly pausaTeclaPerguntaMs: number;
   /** true enquanto responderPergunta digita: ninguém mais escreve tecla crua nem permissão nesse intervalo. */
@@ -135,8 +129,6 @@ export class Sessao extends EventEmitter {
   compactando: unknown = null;
   /** Quando o último PreCompact chegou (ms); o transcript só vale como recusa do /compact se for mais novo que isto. */
   compactComecouEm = 0;
-  /** O aviso "atividade depois do PreCompact" já saiu neste compact (volta a false a cada PreCompact). */
-  compactAtividadeLogada = false;
   /** O Esc pendente do turno (o PRIMEIRO, de qualquer origem; os seguintes não sobrescrevem): só com ele o transcript prova uma interrupção. Cai quando o turno termina ou outro começa. */
   ultimoEscReal: { em: number; proc: unknown } | null = null;
   /**
@@ -248,8 +240,6 @@ export class Sessao extends EventEmitter {
     this.titulo = opcoes.titulo ?? null;
     this.ociosoMinutos = opcoes.ociosoMinutos ?? null;
     this.quietoParaOlharTranscriptMs = opcoes.quietoParaOlharTranscriptMs ?? QUIETO_PARA_OLHAR_TRANSCRIPT_MS;
-    this.compactSemFimMs = opcoes.compactSemFimMs ?? COMPACT_SEM_FIM_MS;
-    this.compactQuietoRedeMs = opcoes.compactQuietoRedeMs ?? COMPACT_QUIETO_REDE_MS;
     this.vigiaLoginExpiradoMs = opcoes.vigiaLoginExpiradoMs ?? VIGIA_LOGIN_EXPIRADO_MS;
     this.reintentoTelaBloqueadaMs = opcoes.reintentoTelaBloqueadaMs ?? 5_000;
     this.reciboVigiaPassosMs = opcoes.reciboVigiaPassosMs ?? RECIBO_VIGIA_PASSOS_MS;

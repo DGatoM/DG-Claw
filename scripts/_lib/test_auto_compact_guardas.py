@@ -56,6 +56,17 @@ class GuardaDeFilaDoAutoCompact(unittest.TestCase):
     def test_card_idle_e_fila_vazia_segue(self):
         self.assertIsNone(self._motivo({"status": "idle", "naFilaTotal": 0}))
 
+    def test_card_sem_tamanho_de_fila_valido_adia(self):
+        for card in ({"status": "idle"}, {"status": "idle", "naFilaTotal": "abc"},
+                     {"status": "idle", "naFilaTotal": -1}, {"status": "idle", "naFilaTotal": None}):
+            m = self._motivo(card)
+            self.assertIsNotNone(m, card)
+            self.assertIn("adio", m)
+
+    def test_lista_de_fila_nao_vazia_conta_como_ocupado_mesmo_com_total_zero(self):
+        m = self._motivo({"status": "idle", "naFilaTotal": 0, "naFila": [{"em": 1, "msg": None}]})
+        self.assertIn("fila 1", m)
+
     def test_estado_ilegivel_adia_em_vez_de_seguir(self):
         m = self._motivo(None)
         self.assertIn("nao consegui ler o estado do card", m)
@@ -98,6 +109,16 @@ class CompactRecenteERecuo(unittest.TestCase):
             principal.write_text(json.dumps({"type": "assistant", "message": {"content": "ok"}}) + "\n")
             self.assertFalse(guardas.acabou_de_compactar(principal))
             self.assertTrue(guardas.acabou_de_compactar(paralelo))
+
+    def test_marcador_sem_timestamp_nao_conta_mesmo_com_mtime_recente(self):
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d) / "s.jsonl"
+            t.write_text(json.dumps({"type": "system", "subtype": "compact_boundary"}) + "\n")
+            self.assertFalse(guardas.acabou_de_compactar(t))
+
+    def test_teto_do_recuo_nunca_encolhe_um_cooldown_configurado_maior(self):
+        self.assertEqual(guardas.cooldown_com_recuo(480, 5, 2), 480)
+        self.assertEqual(guardas.cooldown_com_recuo(480, 1, 2), 480)
 
     def test_recuo_com_contador_enorme_ou_invalido_nao_estoura(self):
         self.assertEqual(guardas.cooldown_com_recuo(20, 10 ** 9, 2), 240)
@@ -289,7 +310,8 @@ class FilaParadaNoWatchdog(unittest.TestCase):
                  mock.patch.object(wd, "resolve_session_dir", return_value=ws), \
                  mock.patch.object(wd, "resolve_logs_dir", return_value=logs), \
                  mock.patch.object(wd, "service_is_enabled", return_value=True), \
-                 mock.patch.object(wd, "pulso_write"), \
+                 mock.patch.object(wd, "pulso_write") as pulso, \
+                 mock.patch.object(wd, "latest_poke_mtime", return_value=None), \
                  mock.patch.object(wd, "ultimo_turno_epoch", return_value=time.time() - 40 * 60), \
                  mock.patch.object(wd.reinicio, "ler_marca", return_value=None), \
                  mock.patch.object(wd.saude_sessao, "diagnosticar", return_value=(diag, None)), \
@@ -299,8 +321,13 @@ class FilaParadaNoWatchdog(unittest.TestCase):
                  mock.patch.object(wd, "attempt_restart", side_effect=AssertionError("nunca deve reiniciar")), \
                  mock.patch.object(wd, "do_restart", side_effect=AssertionError("nunca deve reiniciar")), \
                  mock.patch.object(wd, "notify_owner", side_effect=lambda m: avisos.append(m) or True):
-                wd.rodada()
-                wd.rodada()
+                v1 = wd.rodada()
+                v2 = wd.rodada()
+            self.assertIn("fila parada", v1)
+            self.assertNotIn("saudavel", v1, "o veredito e o da fila, nao 'viva e saudavel'")
+            self.assertIn("fila parada", v2)
+            self.assertTrue(any(c.args[0] == "saude" and "fila_parada" in c.args[2] for c in pulso.call_args_list),
+                            "o Pulso recebe a conclusao da fila")
             self.assertEqual(len(avisos), 1, "diagnostico ativo limpa saude_avisado, mas nao o campo proprio")
             gravado = json.loads((logs / "saude.json").read_text())
             self.assertEqual(gravado["tipo"], "fila_parada")

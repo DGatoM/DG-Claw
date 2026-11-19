@@ -542,6 +542,22 @@ def main() -> int:
     return 0
 
 
+def _fila_parada_da_rodada(slug, diag, ctx, logs_dir, now):
+    """Checagem de fila parada (so runner). Roda so quando a rodada ia terminar sem acao: se o turno
+    travado ja reiniciou ou observou, a fila nao e checada nessa rodada. Devolve o veredito da fila
+    (com saude.json e Pulso `saude` ja gravados) ou None."""
+    if inject.resolve_mode() != "bunker":
+        return None
+    card = inject._bunker_estado()
+    t_fila = ultimo_turno_epoch(slug)  # None = sem medicao confiavel (nao cai no mtime da pasta)
+    tratado, verdict, diag_fila = cuidar_da_fila_parada(card, diag, ctx, t_fila)
+    if not tratado:
+        return None
+    gravar_saude(logs_dir, diag_fila, verdict, now)
+    pulso_write("saude", "aviso", f"{diag_fila.get('estado')}/{diag_fila.get('tipo')}: {diag_fila.get('frase')}")
+    return verdict
+
+
 def rodada() -> str:
     ws = resolve_workspace()
     slug = resolve_slug(ws)
@@ -627,16 +643,6 @@ def rodada() -> str:
         log(f"sessao '{name}' MORTA, {service} ENABLED -> {verdict}")
         return verdict
 
-    # ── 1.5) FILA PARADA (so runner): mensagens presas com o agente "working" que nao anda ──
-    if inject.resolve_mode() == "bunker":
-        card = inject._bunker_estado()
-        t_fila = ultimo_turno_epoch(slug)  # None = sem medicao confiavel (nao cai no mtime da pasta)
-        tratado, verdict, diag_fila = cuidar_da_fila_parada(card, diag, ctx, t_fila)
-        if tratado:
-            gravar_saude(logs_dir, diag_fila, verdict, now)
-            log(f"sessao '{name}' VIVA mas com a FILA PARADA -> {verdict}")
-            # So avisa: as checagens seguintes (turno travado apos poke) continuam valendo nesta rodada.
-
     # ── 2) TURNO TRAVADO (sessao viva, mas transcript parado apos um poke recente) ──
     # Sessao viva e saudavel -> rearma o aviso de storm E o de auto-recovery=off (normalizou).
     if state.get("storm_notified") or state.get("warned_off"):
@@ -652,6 +658,10 @@ def rodada() -> str:
 
     if t_mtime is None:
         log(f"sessao '{name}' VIVA; sem transcript em {session_dir} — sem heuristica de travamento")
+        v_fila = _fila_parada_da_rodada(slug, diag, ctx, logs_dir, now)
+        if v_fila:
+            log(f"sessao '{name}' VIVA mas com a FILA PARADA -> {v_fila}")
+            return v_fila
         return "ok"
 
     idle_min = (now_epoch - t_mtime) / 60.0
@@ -689,6 +699,10 @@ def rodada() -> str:
             f"{int(poke_age_min)}min, carencia {poke_min_age_min}min) -> {verdict}")
         return verdict
 
+    v_fila = _fila_parada_da_rodada(slug, diag, ctx, logs_dir, now)
+    if v_fila:
+        log(f"sessao '{name}' VIVA mas com a FILA PARADA -> {v_fila}")
+        return v_fila
     log(f"sessao '{name}' VIVA e saudavel (idle={int(idle_min)}min, "
         f"poke_valido={poke_valido}, poke_recente={poke_recent}) — sem acao")
     return f"viva e saudavel ({diag.get('estado')}/{diag.get('tipo')})"

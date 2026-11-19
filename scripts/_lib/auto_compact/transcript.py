@@ -141,8 +141,9 @@ def _cutoff(iso_ts: str):
     return cutoff
 
 
-def _arquivo_tem_compact_desde(p: Path, cutoff) -> bool:
-    """True se o transcript `p` tem um marcador de compactacao posterior a `cutoff`."""
+def _arquivo_tem_compact_desde(p: Path, cutoff, sem_timestamp_conta: bool = True) -> bool:
+    """True se o transcript `p` tem um marcador de compactacao posterior a `cutoff`. Marcador sem
+    timestamp proprio conta (arquivo tocado pos-cutoff) so com `sem_timestamp_conta`."""
     try:
         if datetime.fromtimestamp(p.stat().st_mtime, timezone.utc) < cutoff:
             return False
@@ -165,7 +166,9 @@ def _arquivo_tem_compact_desde(p: Path, cutoff) -> bool:
                     continue
                 ts = o.get("timestamp")
                 if not ts:
-                    return True  # marcador em arquivo tocado pos-cutoff
+                    if sem_timestamp_conta:
+                        return True  # marcador em arquivo tocado pos-cutoff
+                    continue
                 try:
                     t = datetime.fromisoformat(ts.replace("Z", "+00:00"))
                     if t.tzinfo is None:
@@ -194,7 +197,7 @@ def had_compact_since(session_dir: Path, iso_ts: str) -> bool:
     return False
 
 
-def had_compact_since_arquivo(transcript: Path, iso_ts: str) -> bool:
+def had_compact_since_arquivo(transcript: Path, iso_ts: str, sem_timestamp_conta: bool = True) -> bool:
     """Como had_compact_since, mas olhando so este transcript (o da sessao viva)."""
     cutoff = _cutoff(iso_ts)
-    return cutoff is not None and _arquivo_tem_compact_desde(Path(transcript), cutoff)
+    return cutoff is not None and _arquivo_tem_compact_desde(Path(transcript), cutoff, sem_timestamp_conta)

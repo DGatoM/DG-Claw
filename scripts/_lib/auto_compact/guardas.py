@@ -31,12 +31,15 @@ def agente_ocupado_no_bunker():
         return ("nao consegui ler o estado do card (painel fora do ar, cofre trancado ou resposta "
                 "invalida); nao enfileiro /compact as cegas, adio para o proximo ciclo")
     status = card.get("status")
-    try:
-        fila = int(card.get("naFilaTotal") or 0)
-    except (TypeError, ValueError):
-        fila = 0
-    if status != "idle" or fila > 0:
-        return (f"o agente esta {status} (fila {fila}); nao enfileiro /compact, "
+    total = card.get("naFilaTotal")
+    if isinstance(total, bool) or not isinstance(total, int) or total < 0:
+        return (f"o card veio sem um tamanho de fila valido (naFilaTotal={total!r}); "
+                f"nao enfileiro /compact as cegas, adio para o proximo ciclo")
+    lista = card.get("naFila")
+    if isinstance(lista, list) and lista:
+        total = max(total, len(lista))
+    if status != "idle" or total > 0:
+        return (f"o agente esta {status} (fila {total}); nao enfileiro /compact, "
                 f"tento no proximo ciclo")
     return None
 
@@ -45,11 +48,12 @@ def acabou_de_compactar(transcript):
     """True se o transcript da sessao viva tem compact_boundary nos ultimos
     DGCLAW_COMPACT_MIN_INTERVAL_MIN minutos (padrao 10): compactar de novo logo depois so tem o
     que recusar. Olha so o transcript vivo: uma sessao paralela no mesmo workspace compactando
-    nao pode bloquear a principal."""
+    nao pode bloquear a principal. So conta marcador com timestamp proprio valido (o mtime do
+    arquivo nao prova nada: qualquer escrita o renova)."""
     from datetime import datetime, timedelta, timezone
     minutos = _int_env("DGCLAW_COMPACT_MIN_INTERVAL_MIN", 10)
     corte = (datetime.now(timezone.utc) - timedelta(minutes=minutos)).isoformat()
-    return had_compact_since_arquivo(transcript, corte)
+    return had_compact_since_arquivo(transcript, corte, sem_timestamp_conta=False)
 
 
 def cooldown_com_recuo(cooldown_min: int, falhas: int, limite_alerta: int) -> int:
@@ -60,4 +64,5 @@ def cooldown_com_recuo(cooldown_min: int, falhas: int, limite_alerta: int) -> in
         falhas = 0
     if falhas < limite_alerta:
         return cooldown_min
-    return min(RECUO_MAX_MIN, cooldown_min * (2 ** min(falhas, 8)))
+    # O teto so limita o AUMENTO: um cooldown configurado acima dele nunca encolhe.
+    return max(cooldown_min, min(RECUO_MAX_MIN, cooldown_min * (2 ** min(falhas, 8))))

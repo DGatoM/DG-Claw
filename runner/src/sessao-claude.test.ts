@@ -368,7 +368,7 @@ test("PreCompact: recusa seguida de linha assistant (o agente seguiu trabalhando
 });
 
 test("PreCompact: compact bom seguido de ferramenta longa e terminal quieto não solta a fila nem vai para idle", async () => {
-  const { s, hook, transcript } = await novaComRedeCurta(600, { compactSemFimMs: 1_000, compactQuietoRedeMs: 500 });
+  const { s, hook, transcript } = await novaComRedeCurta(600);
   hook("PreCompact");
   hook("SessionStart", { source: "compact" });
   hook("PreToolUse", { toolName: "Bash", toolUseId: "tu-1" });
@@ -379,33 +379,6 @@ test("PreCompact: compact bom seguido de ferramenta longa e terminal quieto não
   await dormir(9_000);
   assert.equal(s.estado.status, "working");
   assert.equal(s.filaQuandoIdle.length, 1);
-});
-
-test("PreCompact: rede dos 15 min não solta a fila se o transcript mostra atividade depois do PreCompact", async () => {
-  const { s, hook, transcript } = await novaComRedeCurta(600, { compactSemFimMs: 1_000, compactQuietoRedeMs: 500 });
-  hook("PreCompact");
-  transcript([[{ type: "assistant", message: { content: [] } }, 100]]);
-  s.enfileirarQuandoOcioso("mensagem que tem que esperar");
-  await dormir(4_000);
-  assert.equal(s.estado.status, "working");
-  assert.equal(s.estado.statusReason, "hook:PreCompact");
-  assert.equal(s.filaQuandoIdle.length, 1);
-  assert.ok(lerTexto(amb.logDoRunner).includes("não soltei a fila"), "o aviso de atividade saiu");
-});
-
-test("PreCompact: rede de segurança, sem SessionStart nem recusa no transcript e terminal quieto, volta a idle e solta a fila", async () => {
-  const { s, hook } = await novaComRedeCurta(600, { compactSemFimMs: 1_000, compactQuietoRedeMs: 500 });
-  hook("PreCompact");
-  const antes = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length;
-  s.enfileirarQuandoOcioso("mensagem atrás do PreCompact sem fim");
-  await esperarAte(() => s.estado.status === "idle", 8_000, "a rede de segurança do PreCompact");
-  assert.equal(s.estado.statusReason, "timeout:PreCompact sem SessionStart");
-  assert.ok(lerTexto(amb.logDoRunner).includes("PreCompact sem SessionStart há"), "o aviso explica o que aconteceu");
-  await esperarAte(
-    () => lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length > antes,
-    12_000,
-    "a fila soltar o texto no CLI",
-  );
 });
 
 test("AskUserQuestion: PreToolUse vira waiting_input/pergunta, a resposta (PostToolUse) volta a working e zera o motivo", async () => {

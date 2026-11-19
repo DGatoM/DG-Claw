@@ -10,12 +10,6 @@ export const STOP_CONFIRM_MS = 6_000;
  *  deixa o PTY sem um byte por 50s com o turno em andamento. */
 export const QUIETO_PARA_OLHAR_TRANSCRIPT_MS = 20_000;
 export const CONFERE_TRANSCRIPT_A_CADA_MS = 5_000;
-/** Rede de segurança do PreCompact sem fim (19/11/2026: o CLI recusou um /compact com "Not enough messages to
- *  compact.", mandou o PreCompact e nunca mandou SessionStart nem Stop; o agente ficou "working" por horas com a
- *  fila presa). Passado este tempo em "hook:PreCompact" com o terminal quieto há COMPACT_QUIETO_REDE_MS, volta para
- *  idle. Só o Claude tem PreCompact; o Codex não passa por aqui. */
-export const COMPACT_SEM_FIM_MS = 15 * 60_000;
-export const COMPACT_QUIETO_REDE_MS = 2 * 60_000;
 /** De quanto em quanto tempo, com o login expirado, olhamos se a credencial foi renovada (um `stat`). */
 export const VIGIA_LOGIN_EXPIRADO_MS = 30_000;
 

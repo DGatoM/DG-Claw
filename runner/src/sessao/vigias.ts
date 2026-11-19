@@ -65,49 +65,26 @@ export function vigiarStopPerdido(s: Sessao, esteProc: pty.IPty): void {
 }
 
 /** Claude: o agente está em "hook:PreCompact" e o terminal calou. O compact de verdade termina em SessionStart
- *  source=compact; se isso não vem, ou o CLI recusou o /compact (o transcript prova) ou algo se perdeu (rede de
- *  tempo). Compact longo não é cortado enquanto o terminal escreve: as duas saídas pedem terminal quieto.
+ *  source=compact; se isso não vem, só a recusa CONFIRMADA no transcript devolve o agente a idle e solta a fila.
+ *  Sem prova (nenhuma recusa no transcript) nada muda por tempo: o aviso de fila parada do watchdog cobre esse caso.
  *  O Codex não tem PreCompact e nunca chega aqui. */
 function conferirCompactSemFim(s: Sessao, quietoHa: number): void {
   const desde = s.compactComecouEm;
   // Qualquer hook depois do PreCompact zera compactComecouEm (eventos.ts), e o PTY do PreCompact tem que ser o de agora:
   // sem isso, uma ferramenta que começou logo depois de um compact bom seria tomada por compact sem fim.
   if (desde <= 0 || s.compactando === null || s.compactando !== s.proc) return;
-  let atividadeDepois = false;
-  if (quietoHa >= s.quietoParaOlharTranscriptMs && s.estado.sessionId) {
-    const r = compactRecusadoNoTranscript(s.estado.sessionId, desde, s.estado.config.envExtra?.CLAUDE_CONFIG_DIR);
-    if (r.recusado) {
-      log.aviso(
-        s.a("estado"),
-        `compact recusado: poucas mensagens. O hook PreCompact chegou, mas o transcript ` +
-          `tem a recusa e nada depois dela, então não virá SessionStart nem Stop. ` +
-          `Marquei como idle e vou soltar a fila; se repetir, o auto-compact está enfileirando /compact em excesso`,
-      );
-      cancelarStopPendente(s);
-      s.mudar({ status: "idle", hookLatched: true, currentTool: null, statusReason: "transcript:compact recusado pelo CLI" });
-      talvezSoltarFila(s);
-      return;
-    }
-    atividadeDepois = r.atividadeDepois;
-  }
-  const emCompactMs = Date.now() - desde;
-  if (emCompactMs > s.compactSemFimMs && quietoHa > s.compactQuietoRedeMs) {
-    if (atividadeDepois) {
-      if (!s.compactAtividadeLogada) {
-        s.compactAtividadeLogada = true;
-        log.aviso(s.a("estado"), "PreCompact sem SessionStart, mas o transcript mostra atividade depois dele: não soltei a fila");
-      }
-      return;
-    }
-    log.aviso(
-      s.a("estado"),
-      `PreCompact sem SessionStart há ${Math.round(emCompactMs / 60_000)} min (terminal quieto há ${Math.round(quietoHa / 1000)}s); ` +
-        `volto para idle para a fila não ficar presa; se repetir, ver o transcript`,
-    );
-    cancelarStopPendente(s);
-    s.mudar({ status: "idle", hookLatched: true, currentTool: null, statusReason: "timeout:PreCompact sem SessionStart" });
-    talvezSoltarFila(s);
-  }
+  if (quietoHa < s.quietoParaOlharTranscriptMs || !s.estado.sessionId) return;
+  const r = compactRecusadoNoTranscript(s.estado.sessionId, desde, s.estado.config.envExtra?.CLAUDE_CONFIG_DIR);
+  if (!r.recusado) return;
+  log.aviso(
+    s.a("estado"),
+    `compact recusado: poucas mensagens. O hook PreCompact chegou, mas o transcript ` +
+      `tem a recusa e nada depois dela, então não virá SessionStart nem Stop. ` +
+      `Marquei como idle e vou soltar a fila; se repetir, o auto-compact está enfileirando /compact em excesso`,
+  );
+  cancelarStopPendente(s);
+  s.mudar({ status: "idle", hookLatched: true, currentTool: null, statusReason: "transcript:compact recusado pelo CLI" });
+  talvezSoltarFila(s);
 }
 
 export function pararVigiaDoStopPerdido(s: Sessao): void {
