@@ -98,7 +98,23 @@
           return { via: 'segundo-toque' };
         }
         const doCab = (/filename\*=UTF-8''([^;]+)/i.exec((r.headers && r.headers.get && r.headers.get('Content-Disposition')) || '') || [])[1];
-        const blob = await r.blob();
+        let blob;
+        if (r.body && typeof r.body.getReader === 'function') {
+          // Content-Length pode faltar (resposta comprimida): conta os bytes lidos e desiste ao passar do limite
+          const leitor = r.body.getReader(); const partes = []; let lidos = 0;
+          for (;;) {
+            const { done, value } = await leitor.read();
+            if (done) break;
+            lidos += value.length;
+            if (lidos > TAMANHO_MAX_BLOB) {
+              try { await leitor.cancel(); } catch (e) { /* já encerrou */ }
+              cache.url = url; cache.arq = null; cache.modo = 'abrir';
+              return { via: 'segundo-toque' };
+            }
+            partes.push(value);
+          }
+          blob = (deps.criarBlob || ((p, t) => new Blob(p, { type: t })))(partes, (r.headers && r.headers.get && r.headers.get('Content-Type')) || 'application/octet-stream');
+        } else blob = await r.blob();
         arq = deps.criarArquivo(blob, nome || (doCab ? decodeURIComponent(doCab) : 'arquivo'), blob.type || 'application/octet-stream');
       }
       if (!nav.canShare({ files: [arq] })) {

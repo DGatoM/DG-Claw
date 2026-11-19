@@ -183,3 +183,18 @@ test('baixar no PWA do iPhone: recusa repetida de compartilhar cai na aba em vez
   assert.equal((await P.baixarNoPwaIos('/u', 'a.txt', deps)).via, 'aba');
   assert.deepEqual(chamadas.abriu, ['/u?baixar=1']);
 });
+
+test('baixar no PWA do iPhone: sem Content-Length, conta os bytes lidos e desiste ao passar do limite', async () => {
+  const pedaco = { length: 30 * 1024 * 1024 };
+  let lidas = 0, cancelou = false;
+  const leitor = { read: async () => { lidas += 1; return lidas > 5 ? { done: true } : { done: false, value: pedaco }; }, cancel: async () => { cancelou = true; } };
+  const { deps, chamadas } = depsBaixar({
+    nav: { canShare: () => true, share: async () => {} },
+    fetch: async () => ({ ok: true, headers: { get: () => null }, body: { getReader: () => leitor } }),
+  });
+  assert.equal((await P.baixarNoPwaIos('/v', 'v.txt', deps)).via, 'segundo-toque');
+  assert.equal(cancelou, true);
+  assert.equal(lidas, 2, 'parou assim que passou de 40 MiB');
+  assert.equal((await P.baixarNoPwaIos('/v', 'v.txt', deps)).via, 'aba');
+  assert.deepEqual(chamadas.abriu, ['/v?baixar=1']);
+});

@@ -32,7 +32,7 @@ import { acharRolloutPorId, mensagensDoRollout } from "./provedores/codex-rollou
 /** O que ainda espera na fila (lista vazia quando nada espera), sem o texto: quando entrou e o id da mensagem (atributo `msg` do envelope do painel,
  *  se houver). O painel usa isto para manter o aviso "na fila" até o agente ler de verdade, mesmo depois de recarregar. */
 function naFila(s: Sessao): Array<{ em: number; msg: string | null }> {
-  return s.pendentesDaFila().map((it) => {
+  return s.pendentesDaFila().slice(0, 50).map((it) => {
     const m = /^<dgchat\b[^>]*?\bmsg="([^"]{1,80})"/.exec(it.texto.slice(0, 600));
     return { em: it.em, msg: m ? m[1]! : null };
   });
@@ -40,7 +40,7 @@ function naFila(s: Sessao): Array<{ em: number; msg: string | null }> {
 
 function visao(s: Sessao, comMeta: boolean): Record<string, unknown> {
   const fila = naFila(s);
-  const extra = { naFila: fila };
+  const extra = { naFila: fila, naFilaTotal: s.tamanhoDaFila() + (s.itemEmVoo ? 1 : 0) };
   // `codexHome` é só leitura: o CODEX_HOME que o último spawn usou, para quem lê o rollout do disco.
   if (!comMeta && s.papel === "principal") return { ...s.estado, codexHome: s.codexHome(), ...extra };
   return {

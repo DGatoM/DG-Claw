@@ -1193,7 +1193,8 @@ async function pqEnvia(perg, cancelar) {
 function filaSincroniza() {
   let mudou = false;
   const est = window.atividadeFoto && window.atividadeFoto.agentes ? window.atividadeFoto.agentes[AGENTE.id] : null;
-  const lista = est && Array.isArray(est.na_fila) ? est.na_fila : null;
+  // lista cortada pelo servidor (muitas mensagens na fila): ausência nela não prova que a mensagem saiu
+  const lista = est && Array.isArray(est.na_fila) && !est.na_fila_parcial ? est.na_fila : null;
   if (lista) {
     const ids = new Set(lista.map(x => x.msg).filter(Boolean));
     for (const p of pendentes) {
@@ -1239,8 +1240,13 @@ function filaSincroniza() {
     if (!lista && est && est.estado === 'ocioso') { p.fila = null; mudou = true; }
     else mudou = true;   // o tempo de espera no balão anda sozinho
   }
+  // balão ainda dentro da folga: olha de novo quando ela acabar (o servidor não repete uma atividade idêntica)
+  if (!filaReavalia && pendentes.some(p => p.fila && p.msgId && atvAgoraMs() - (p.filaEm || 0) <= 6000)) {
+    filaReavalia = setTimeout(() => { filaReavalia = null; filaSincroniza(); }, 6500);
+  }
   if (mudou) render();
 }
+let filaReavalia = null;
 
 /* O estado de descanso da tela depende do stream: sem ele as mensagens novas
    não chegam sozinhas, e a pessoa precisa ler isso (sem animação nenhuma). */
@@ -3025,6 +3031,8 @@ document.addEventListener('click', ev => {
    Aqui o app não navega (ver baixarNoPwaIos em conversa-puro.js). Fora do app instalado nada muda. */
 const baixaCache = {};
 function baixaNoPwaIos(url, nome) {
+  // modo escondido ligado: a folha do iPhone mostraria o nome e a prévia do arquivo, que a tela esconde
+  if (document.body.classList.contains('sigilo')) { mostraAviso('Desligue o modo escondido (o olho) para baixar o arquivo.'); return Promise.resolve({ via: 'bloqueado' }); }
   return PURO.baixarNoPwaIos(url, nome, {
     fetch: (u, o) => fetch(u, o), nav: navigator, cache: baixaCache,
     criarArquivo: (blob, n, tipo) => new File([blob], n, { type: tipo }),
@@ -3044,8 +3052,6 @@ document.addEventListener('click', ev => {
   if (u.origin !== location.origin) return;
   ev.preventDefault();
   ev.stopPropagation();
-  // modo escondido ligado: a folha do iPhone mostraria o nome e a prévia do arquivo, que a tela esconde
-  if (document.body.classList.contains('sigilo')) { mostraAviso('Desligue o modo escondido (o olho) para baixar o arquivo.'); return; }
   baixaNoPwaIos(u.href, a.getAttribute('download') || '');
 }, true);
 

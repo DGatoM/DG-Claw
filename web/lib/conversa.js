@@ -444,7 +444,11 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     atividadeAnterior.set(agente.slug, { chave, desde });
     est.desde = est.estado === 'ocioso' ? null : desde;
     // Só quando o runner informa a fila (runner antigo não informa): a tela usa isto para manter o aviso "na fila".
-    if (r.ok && Array.isArray(r.estado.naFila)) est.na_fila = filaParaTela(agente.slug, r.estado.naFila);
+    if (r.ok && Array.isArray(r.estado.naFila)) {
+      est.na_fila = filaParaTela(agente.slug, r.estado.naFila);
+      // fila maior que a lista devolvida: a tela não pode tratar ausência como "já saiu"
+      if (typeof r.estado.naFilaTotal === 'number' && r.estado.naFilaTotal > est.na_fila.length) est.na_fila_parcial = true;
+    }
     return est;
   }
 
