@@ -180,6 +180,8 @@ nega "nenhum container ou rede foi criado" grep -q '^podman create .*dgclaw-nada
 
 echo "reparar le o dgclaw.env sem executa-lo"
 maquina 8 2
+# O $(...) entre aspas simples é de propósito: o arquivo precisa ter o texto literal.
+# shellcheck disable=SC2016
 printf 'DGCLAW_DOMINIO=teste.exemplo.org\nslug=beta\nX=$(touch %s/pwned)\nDGCLAW_CONTAINER_MEMORIA="3g"\nDGCLAW_CONTAINER_CPUS='"'"'1.5'"'"'\n' "$DGCLAW_RAIZ" >"$ETC/dgclaw.env"
 echo "1073741824 100000 100000 4096 2147483648" >"$STUB_ESTADO/lim-dgclaw-a4"
 : >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
