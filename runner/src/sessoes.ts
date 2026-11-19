@@ -24,7 +24,7 @@ import {
 } from "./config-runner.js";
 import { carregar, validar, ErroCatalogo } from "./provedores/catalogo.js";
 import { gravarJsonAtomico } from "./provedores/arquivos.js";
-import { gravarProvedorJson, provedorDoVocabulario } from "./provedores/escolha.js";
+import { gravarProvedorJson, provedorDoVocabulario, type Escolha } from "./provedores/escolha.js";
 import { calcularCapacidade, descreverMemoria, type Capacidade } from "./capacidade.js";
 import { Sessao } from "./sessao.js";
 import { log } from "./logger.js";
@@ -303,20 +303,25 @@ export class GerenteDeSessoes {
       return falhaDeExtra(400, "ID_INVALIDO", `O campo "id" precisa ser texto (veio ${typeof p.id}).`, "mandar o id como texto, ou omitir para o runner escolher");
     }
     if (typeof p.provedor !== "string" || !p.provedor.trim()) {
-      return falhaDeExtra(400, "PROVEDOR_OBRIGATORIO", 'Falta o campo "provedor" (claude ou codex).', "mandar { provedor, auth, modelo } no corpo");
+      return falhaDeExtra(400, "PROVEDOR_OBRIGATORIO", 'Falta o campo "provedor" (claude, codex ou opencode).', "mandar { provedor, auth, modelo } no corpo");
     }
     const nomeProvedor = provedorDoVocabulario(p.provedor);
     if (!nomeProvedor) {
-      return falhaDeExtra(400, "PROVEDOR_INVALIDO", `O provedor '${p.provedor}' não existe.`, "usar claude ou codex");
+      return falhaDeExtra(400, "PROVEDOR_INVALIDO", `O provedor '${p.provedor}' não existe.`, "usar claude, codex ou opencode");
     }
     let escolha;
     try {
+      const catalogo = carregar();
+      // Provedor com UMA forma de pagar (OpenCode: só a chave do OpenRouter) não obriga a pessoa a dizer qual.
+      const formas = Object.keys(catalogo.provedores[nomeProvedor]?.auth ?? {});
+      const authPadrao = formas.length === 1 ? formas[0] : "assinatura";
       escolha = validar(
-        carregar(),
+        catalogo,
         nomeProvedor,
-        texto(p.auth) ?? "assinatura",
+        texto(p.auth) ?? authPadrao,
         typeof p.modelo === "string" ? p.modelo.trim() : "",
-        { codexHome: this.descritor.config.envExtra?.CODEX_HOME?.trim() || process.env.CODEX_HOME?.trim() || undefined },
+        // Aqui é sempre um card: só nele vale o provedor que abre apenas cards.
+        { codexHome: this.descritor.config.envExtra?.CODEX_HOME?.trim() || process.env.CODEX_HOME?.trim() || undefined, paraCard: true },
       );
     } catch (err) {
       if (err instanceof ErroCatalogo) {
@@ -346,7 +351,7 @@ export class GerenteDeSessoes {
       );
     }
     try {
-      gravarProvedorJson(path.join(this.pastaDeEstado, "sessoes", id, "provedor.json"), escolha as { provedor: "claude" | "codex"; auth: string; modelo: string });
+      gravarProvedorJson(path.join(this.pastaDeEstado, "sessoes", id, "provedor.json"), escolha as Escolha);
     } catch (err) {
       return falhaDeExtra(
         500,

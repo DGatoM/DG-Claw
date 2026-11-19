@@ -74,7 +74,7 @@ test("a pasta de estado recebe tudo e o descritor continua sozinho na pasta dele
 test("GET /api/provedor: formato, conferência sem e-mail nem orgId, login e canais", async () => {
   const r = await req("GET", "/api/provedor");
   assert.equal(r.status, 200);
-  assert.deepEqual(Object.keys(r.corpo).sort(), ["auth", "canais", "conferido", "disponiveis", "login", "modelo", "origem", "provedor", "rotulo", "sessao"]);
+  assert.deepEqual(Object.keys(r.corpo).sort(), ["auth", "canais", "cards", "conferido", "disponiveis", "login", "modelo", "origem", "provedor", "rotulo", "sessao"]);
   assert.equal(r.corpo.sessao, ID);
   assert.equal(r.corpo.provedor, "claude");
   assert.equal(r.corpo.auth, "assinatura");

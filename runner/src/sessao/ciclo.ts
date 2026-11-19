@@ -248,7 +248,7 @@ async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPe
     args = s.motor.argsNova(ctx);
     log.info(
       s.a("pty"),
-      `sessão nova ${novo ?? "(o id será descoberto no rollout do Codex)"}` +
+      `sessão nova ${novo ?? "(o id é descoberto depois do spawn: no rollout do Codex ou pelo plugin do OpenCode)"}` +
         (s.estado.previousSessionId ? ` (anterior guardada: ${s.estado.previousSessionId})` : ""),
     );
   }

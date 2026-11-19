@@ -25,6 +25,9 @@ import { tratarRotasDeProvedor } from "./provedores/rotas.js";
 import { MOTIVO_SEM_MEDICAO, deStatusline, paraResposta } from "./uso.js";
 import { ESC, nonceConfere } from "./sessao/telas.js";
 import { acharRolloutPorId, mensagensDoRollout } from "./provedores/codex-rollout.js";
+import { lerConversaDoOpenCode } from "./provedores/opencode-conversa.js";
+import { garantirCacheOpenRouter } from "./provedores/openrouter-modelos.js";
+import { provedorDoVocabulario } from "./provedores/escolha.js";
 
 /** O estado de uma sessão como o painel e a API o veem. A paralela leva o campo
  *  extra `sessao`; a principal só o leva quando pedido (`?todas=1`), para a
@@ -174,6 +177,10 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           erroHttp(res, 400, "CORPO_INVALIDO", (corpo as { __erro: string }).__erro, "mandar um objeto JSON { provedor, auth, modelo, ... }");
           return;
         }
+        // OpenCode: a lista de modelos do OpenRouter é atualizada antes de validar o modelo pedido (melhor esforço).
+        if (typeof (corpo as { provedor?: unknown }).provedor === "string" && provedorDoVocabulario((corpo as { provedor: string }).provedor) === "opencode") {
+          await garantirCacheOpenRouter("provedor");
+        }
         const r = gerente.criarExtra(corpo);
         if (!r.ok) {
           erroHttp(res, r.status, r.code, r.error, r.howToFix);
@@ -257,11 +264,19 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
         }
 
         if (acao === "/uso" && metodo === "GET") {
-          const uso = sessao.uso.atual(sessao.escolhaAtual().provedor);
+          const provedorDoUso = sessao.escolhaAtual().provedor;
+          const uso = sessao.uso.atual(provedorDoUso);
           json(res, {
             ok: true,
             uso: paraResposta(uso, Date.now()),
-            ...(uso.medido_em === null ? { motivo: MOTIVO_SEM_MEDICAO } : {}),
+            ...(uso.medido_em === null
+              ? {
+                  motivo:
+                    provedorDoUso === "opencode"
+                      ? "O OpenCode é cobrado por token, direto na conta do OpenRouter, e não tem janela de uso para medir. Veja o gasto no painel do OpenRouter."
+                      : MOTIVO_SEM_MEDICAO,
+                }
+              : {}),
           });
           return;
         }
@@ -543,7 +558,17 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           }
           const limite = Number.isFinite(quantas) ? quantas : 6;
           let msgs;
-          if (sessao.escolhaAtual().provedor === "codex") {
+          if (sessao.escolhaAtual().provedor === "opencode") {
+            // O OpenCode guarda a conversa num banco próprio: o caminho suportado é o `opencode export`.
+            const { escolha, catalogo } = sessao.lerEscolha();
+            msgs = await lerConversaDoOpenCode({
+              sessionId: sessao.estado.sessionId,
+              env: sessao.ambienteDaEscolha(escolha, catalogo).env,
+              cwd: sessao.descritor.config.cwd,
+              quantas: limite,
+              segredos: sessao.segredosParaMascara(),
+            });
+          } else if (sessao.escolhaAtual().provedor === "codex") {
             // O Codex grava a conversa no rollout, e não no transcript do Claude.
             const arquivo = acharRolloutPorId(sessao.estado.sessionId, sessao.codexHomeAtual());
             msgs = arquivo ? mensagensDoRollout(arquivo, limite, sessao.segredosParaMascara()) : null;

@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { lerCacheOpenRouter } from "./openrouter-modelos.js";
 
 export class ErroCatalogo extends Error {}
 
@@ -25,6 +26,9 @@ export interface ModeloDoCatalogo {
   id: string;
   nome: string;
   apelidos?: string[];
+  /** Só nos modelos vindos do OpenRouter: preço em dólares por milhão de tokens (null = o OpenRouter não informou). */
+  entradaPorMilhao?: number | null;
+  saidaPorMilhao?: number | null;
 }
 
 export interface ProvedorDoCatalogo {
@@ -38,6 +42,9 @@ export interface ProvedorDoCatalogo {
   modeloPadrao?: string;
   modelosDe?: string;
   modelos?: ModeloDoCatalogo[];
+  /** Provedor que só abre cards (OpenCode): nunca serve de motor da conversa principal. */
+  soCard?: boolean;
+  motivoSoCard?: string;
 }
 
 export interface Catalogo {
@@ -48,6 +55,10 @@ export interface Catalogo {
 export interface OpcoesDeModelos {
   codexHome?: string;
   soApi?: boolean;
+  /** Libera o provedor que só abre cards (a sessão paralela passa true). */
+  paraCard?: boolean;
+  /** Arquivo do cache do OpenRouter (padrão: arquivoCacheOpenRouter()). */
+  cacheOpenRouter?: string;
 }
 
 export interface EscolhaValidada {
@@ -119,6 +130,14 @@ export function provedorDe(cat: Catalogo, id: string): ProvedorDoCatalogo {
  *  vale a lista de reserva do catálogo. */
 export function modelos(cat: Catalogo, id: string, opcoes: OpcoesDeModelos = {}): ModeloDoCatalogo[] {
   const p = provedorDe(cat, id);
+  if (p.modelosDe === "openrouter_api") {
+    const c = lerCacheOpenRouter(opcoes.cacheOpenRouter);
+    if (c) {
+      // Os apelidos (glm, kimi...) vivem na lista de reserva do catálogo e valem também para o cache.
+      const apelidos = new Map((p.modelos ?? []).map((m) => [m.id, m.apelidos ?? []]));
+      return c.modelos.map((m) => ({ ...m, apelidos: apelidos.get(m.id) ?? m.apelidos ?? [] }));
+    }
+  }
   if (p.modelosDe === "codex_models_cache") {
     const home = opcoes.codexHome || process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
     try {
@@ -152,12 +171,24 @@ export function validar(
   if (!p.auth?.[auth]) {
     throw new ErroCatalogo(`Forma de pagar '${auth}' não existe para ${p.nome}. Use: ${listaPt(Object.keys(p.auth))}.`);
   }
+  // Provedor que só abre cards (OpenCode) nunca serve de motor da conversa principal.
+  if (p.soCard && !opcoes.paraCard) {
+    throw new ErroCatalogo(`O ${p.nome} ${p.motivoSoCard || "abre só cards"}. Escolha Claude ou Codex para a conversa principal.`);
+  }
+  // No OpenCode o modelo sempre vai explícito: vazio vira o padrão do catálogo.
+  if (!modelo && p.modelosDe === "openrouter_api") modelo = p.modeloPadrao || "";
   if (!modelo) return { provedor: id, auth, modelo: "" };
   const lista = modelos(cat, id, { ...opcoes, soApi: auth === "api" });
   const m = modelo.toLowerCase();
   const achado = lista.find((x) => x.id.toLowerCase() === m || (x.apelidos ?? []).some((a) => a.toLowerCase() === m));
   if (!achado) {
-    const ids = lista.map((x) => x.id).join(", ") || "(nenhum)";
+    const ids =
+      lista.length > 12
+        ? `${lista
+            .slice(0, 12)
+            .map((x) => x.id)
+            .join(", ")} e mais ${lista.length - 12} (lista completa: catalogo.mjs modelos ${id})`
+        : lista.map((x) => x.id).join(", ") || "(nenhum)";
     throw new ErroCatalogo(`Modelo '${modelo}' não existe para ${p.nome} ${p.auth[auth].nome}. Os válidos: ${ids}.`);
   }
   return { provedor: id, auth, modelo: achado.id };

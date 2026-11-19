@@ -14,7 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { carregar, catalogoDeEmergencia, validar, ErroCatalogo, type Catalogo } from "./catalogo.js";
 
-export type NomeProvedor = "claude" | "codex";
+export type NomeProvedor = "claude" | "codex" | "opencode";
 export type OrigemDaEscolha = "provedor.json" | "descritor" | "padrao";
 
 export interface Escolha {
@@ -51,13 +51,18 @@ export function provedorDoVocabulario(valor: string): NomeProvedor | null {
     case "codex":
     case "codex-cli":
       return "codex";
+    case "opencode":
+    case "opencode-cli":
+      return "opencode";
     default:
       return null;
   }
 }
 
-export function providerDoRunner(p: NomeProvedor): "local-cli" | "codex-cli" {
-  return p === "codex" ? "codex-cli" : "local-cli";
+export function providerDoRunner(p: NomeProvedor): "local-cli" | "codex-cli" | "opencode-cli" {
+  if (p === "codex") return "codex-cli";
+  if (p === "opencode") return "opencode-cli";
+  return "local-cli";
 }
 
 function texto(v: unknown): string | undefined {
@@ -119,6 +124,8 @@ export interface EntradaDaEscolha {
   /** Os campos do `config` do descritor (nível 3). */
   config?: CamposDeEscolha;
   codexHome?: string;
+  /** A sessão é paralela (card): só nela vale o provedor que abre apenas cards (OpenCode). */
+  paraCard?: boolean;
   /** Catálogo já carregado (os testes injetam); senão é lido do disco. */
   catalogo?: Catalogo;
 }
@@ -184,7 +191,7 @@ export function resolverEscolha(ent: EntradaDaEscolha): SaidaDaEscolha {
       continue;
     }
     try {
-      const v = validar(cat, nome, n.auth ?? "assinatura", n.model ?? "", { codexHome: ent.codexHome });
+      const v = validar(cat, nome, n.auth ?? "assinatura", n.model ?? "", { codexHome: ent.codexHome, paraCard: ent.paraCard === true });
       return { escolha: { provedor: nome, auth: v.auth, modelo: v.modelo, origem: n.origem }, problemas, catalogo: cat };
     } catch (err) {
       if (!(err instanceof ErroCatalogo)) throw err;

@@ -34,6 +34,7 @@ export const CHAVES_QUE_NAO_PASSAM = new Set([
   "GEMINI_API_KEY",
   "GOOGLE_API_KEY",
   "GOOGLE_AI_API_KEY",
+  "OPENROUTER_API_KEY",
 ]);
 
 const NOME_DE_VARIAVEL = /^[A-Za-z_][A-Za-z0-9_]*$/;
