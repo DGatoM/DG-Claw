@@ -244,8 +244,29 @@ Sem a chave no Cofre o card não sobe: o comando sai com código 5 e diz como gu
   vira `StopFailure` (só o nome do erro viaja). Nunca lança, envia em ordem e cada POST tem prazo de 1 s.
   O nonce do spawn é apagado do `process.env` logo depois de lido.
 - **Config do spawn aceita pela 1.19.6:** `autoupdate: false`, `share: "disabled"` (a conversa nunca vai
-  para um link do opencode.ai), `instructions` com a identidade do agente e, só no modo `default`,
-  `permission: { edit: "ask", bash: "ask" }`. Ela soma-se ao config global do usuário e não o substitui.
+  para um link do opencode.ai), `instructions` com a identidade do agente e o `AGENTS.md` da pasta de
+  trabalho e, só no modo `default`, `permission: { edit: "ask", bash: "ask" }`.
+- **Isolamento da configuração (medido com plugins marcadores plantados nos quatro lugares).** O OpenCode SOMA
+  `OPENCODE_CONFIG_DIR` à config do usuário (`~/.config/opencode`, `~/.opencode`) e à da pasta do projeto
+  (`.opencode/`, `opencode.json`), e um plugin de qualquer uma delas roda antes de qualquer aprovação, com a chave
+  no processo. Como o agente escreve nesses lugares, o runner deixa o card enxergar só a pasta do spawn:
+  `XDG_CONFIG_HOME` aponta para uma pasta isolada (com links para o resto da config real, como a do `gh`, e SEM
+  a pasta `opencode`), `OPENCODE_TEST_HOME` aponta para uma pasta vazia (só muda onde ele procura `~/.opencode`;
+  as sessões e o login continuam em `~/.local/share`, então retomar com `-s` funciona), e
+  `OPENCODE_DISABLE_PROJECT_CONFIG=1`, `OPENCODE_DISABLE_DEFAULT_PLUGINS=1`, `OPENCODE_DISABLE_CLAUDE_CODE=1` e
+  `OPENCODE_DISABLE_EXTERNAL_SKILLS=1`. Como `OPENCODE_DISABLE_PROJECT_CONFIG` também desliga a leitura do
+  `AGENTS.md` da pasta, o runner o põe na lista `instructions`. A leitura da conversa (`opencode export`) roda no
+  mesmo ambiente isolado.
+- **Variáveis de fora.** Qualquer `OPENCODE_*` e `OPENROUTER_*` (menos a chave) herdada do serviço, do Cofre ou do
+  descritor sai do ambiente do card (`limparPrefixos` do catálogo), porque `OPENCODE_MODELS_URL` e parecidas
+  desviariam o endereço para onde a chave é mandada. O Cofre do painel também recusa nomes que começam com
+  `OPENCODE_`. A chave `OPENROUTER_API_KEY` só vale se estiver no Cofre do agente (`soDoCofre`): uma chave que
+  só esteja no ambiente do serviço não abre card.
+- **O que impede o card.** O OpenCode não aplica `askTools`, `denyTools` nem as restrições do dono (`sem_bash`,
+  `sem_enviar_arquivo`, `escrita_so_em`). Com qualquer uma delas ativa o card não abre (e a mensagem enviada a ele
+  é recusada com 409 `RESTRICAO_CONTA`), com o motivo e o que fazer. Modelo que saiu do catálogo ou do cache
+  mantém o provedor do card e o card para com 409 `MODELO_INDISPONIVEL`, pedindo outro modelo; ele nunca cai em
+  outro provedor.
 - **Sem `--auto`.** O padrão do OpenCode só pede permissão ao sair da pasta de trabalho, e aprovar tudo
   sem olhar seria perigoso numa VPS de quem não é programador.
 - **Digitação:** pausa de 500 ms entre o texto e o Enter (a TUI trata texto e Enter colados como colagem).
@@ -258,10 +279,31 @@ Sem a chave no Cofre o card não sobe: o comando sai com código 5 e diz como gu
   rajada de `plugin.added` e, no `catalog.updated`, a tela pronta). Por isso o plugin só avisa a partida no
   primeiro `catalog.updated` (mais 0,8 s de folga) ou, se ele nunca vier, 8 s depois da carga; avisar na carga fez
   o runner digitar antes da hora e o texto se perder.
-- **Dependência instalada no spawn.** A 1.19.6 instala sozinha o pacote `@opencode-ai/plugin` (versão igual à do
-  programa, 29 pacotes) numa pasta de configuração nova, o que custou cerca de 4 s a mais e exige rede na primeira
-  partida de cada card. Não achei opção para desligar isso, e o nosso plugin não usa o pacote. O runner também
-  define `OPENCODE_DISABLE_LSP_DOWNLOAD=1` para o card não baixar servidores de linguagem durante o trabalho.
+- **Dependência pré-instalada na imagem.** A 1.19.6 instala o pacote `@opencode-ai/plugin` (versão igual à do
+  programa, 26 pacotes, 64 MB) em cada pasta de configuração que lhe falta `node_modules`, o que custava cerca de
+  4 s e exigia rede e o registro npm no ar a cada card. O código (`packages/core/src/npm.ts`) pula a instalação
+  quando existem `node_modules` e um `package-lock.json` que já traz o pacote declarado. Por isso a imagem instala
+  o pacote uma vez, com a trava revisada em `providers/opencode-deps/package-lock.json` (`npm ci --ignore-scripts`,
+  e o build falha se a versão do pacote for diferente da do `OPENCODE_VERSAO`), e o runner copia o `package.json` e a
+  trava e liga o `node_modules` (somente leitura, de root) na pasta do spawn e na `xdg/opencode`. Medido com a rede
+  bloqueada: o card abre e o plugin carrega. Sem a pasta (desenvolvimento), o runner avisa no log e o OpenCode volta a
+  instalar sozinho. Ao atualizar o `OPENCODE_VERSAO`, regerar a trava (`npm install --package-lock-only` na pasta
+  `providers/opencode-deps` com a versão nova). O runner também define `OPENCODE_DISABLE_LSP_DOWNLOAD=1` para o card
+  não baixar servidores de linguagem durante o trabalho.
+- **Pronto da tela vem do plugin.** Com a partida lenta (até ~11 s medidos), a tela fica muda no meio, então o
+  "silêncio vale como pronto" do Codex digitaria o pedido cedo demais. No OpenCode o primeiro pedido espera na fila
+  até o `SessionStart` do plugin e, se ele não vier em 45 s, o card vai para erro (`runner:prontidao-expirou`) em vez
+  de fingir que está ocioso.
+- **Subtarefas.** O plugin liga o card à sessão do primeiro `chat.message` e ignora `session.idle` e `session.error`
+  das sessões filhas (ferramenta `task`); só pedidos de permissão e batimentos delas seguem, sem o id da filha.
+  Trocar de conversa dentro da TUI (`/new`) com o card parado passa a seguir a conversa nova.
+- **Leitura da conversa.** Uma leitura por sessão por vez (as simultâneas compartilham o processo), cache de 2 s,
+  no máximo 2 `opencode export` ao mesmo tempo no runner, e falha ou conversa acima de 32 MiB responde 502
+  `CONVERSA_ILEGIVEL` com o motivo, nunca uma lista vazia.
+- **Lista de modelos.** O corpo da API é lido contando os bytes (teto de 8 MiB, a leitura é cancelada ao passar),
+  uma atualização por vez, no mínimo 5 minutos entre tentativas depois de uma falha. O cache é aberto sem seguir
+  link e sem bloquear (um FIFO no lugar dele não trava o runner), e a gravação usa temporário aleatório de abertura
+  exclusiva.
 
 ### Por que a TUI, e não `opencode run` nem `opencode serve`
 

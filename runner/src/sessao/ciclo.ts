@@ -15,6 +15,9 @@ import { conferirLoginExpiradoNoTranscript, encerrarIncidenteDeLogin } from "./l
 import { aoReceberDados, descarregarMascara } from "./terminal.js";
 import { pararVigiaDoStopPerdido, vigiarRolloutDoCodex, vigiarStopPerdido } from "./vigias.js";
 
+/** Quanto esperar o aviso de "tela pronta" de um motor que o dá por plugin (OpenCode); a partida lenta medida levou ~11 s. */
+const PRAZO_DA_PRONTIDAO_POR_PLUGIN_MS = 45_000;
+
 /**
  * Sobe o agente. `modo`:
  *   "retomar": continua a sessão que já existe (`--resume`). É o caminho de
@@ -183,9 +186,10 @@ async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPe
   // para mostrar, e subir o CLI sem a chave o faria cair na assinatura sem ninguém
   // pedir. Aí o PTY NÃO sobe: a sessão fica `errored` com o motivo.
   const recusa = s.motor.motivoSemLogin(ctx);
-  if (recusa?.tipo === "chave") {
+  if (recusa?.tipo === "chave" || recusa?.tipo === "restricao" || recusa?.tipo === "modelo") {
     // O erro do estado é o que o painel mostra: precisa dizer também o que fazer.
-    s.mudar({ status: "errored", error: `${recusa.mensagem} O que fazer: ${recusa.comoResolver}.`, statusReason: "runner:sem-chave" });
+    const motivoDoEstado = recusa.tipo === "chave" ? "runner:sem-chave" : recusa.tipo === "restricao" ? "runner:restricao-motor" : "runner:modelo-indisponivel";
+    s.mudar({ status: "errored", error: `${recusa.mensagem} O que fazer: ${recusa.comoResolver}.`, statusReason: motivoDoEstado });
     log.erro(s.a("pty"), recusa.mensagem, recusa.comoResolver);
     s.modoDoUltimoSpawn = modo;
     return modo;
@@ -344,6 +348,7 @@ export async function spawn(s: Sessao, ctx: CtxMotor, args: string[]): Promise<v
 
   // Rede de segurança do boot: se nenhum hook chegar (settings recusado, versão
   // do CLI sem hooks), o agente não pode ficar preso em "spawning" para sempre.
+  const prazoDoBoot = s.motor.prontidaoPorPlugin ? PRAZO_DA_PRONTIDAO_POR_PLUGIN_MS : 8_000;
   setTimeout(() => {
     if (s.estado.status !== "spawning" || s.proc !== esteProc) return;
     // Um agente sem credencial não está `idle`: ele está parado numa tela de
@@ -356,8 +361,19 @@ export async function spawn(s: Sessao, ctx: CtxMotor, args: string[]): Promise<v
     // A credencial existe, mas o fim do transcript pode já dizer que ela morreu (runner reiniciado
     // com a conta expirada): idle aqui seria o mesmo silêncio que este incidente nasceu para acabar.
     if (conferirLoginExpiradoNoTranscript(s, 0, "boot-timer")) return;
+    if (s.motor.prontidaoPorPlugin) {
+      // O aviso de "tela pronta" nunca veio: soltar a fila agora digitaria o pedido numa tela que talvez nem
+      // aceite texto. Falha com o motivo, em vez de fingir que está ociosa.
+      const motivo =
+        `o ${s.motor.binario} não avisou que a tela estava pronta em ${prazoDoBoot / 1000} s (o plugin de status do DG Claw não chegou ao runner). ` +
+        "O pedido NÃO foi digitado";
+      const comoResolver = "ver o terminal do card; conferir se a imagem tem o OpenCode instalado e se o card tem rede para o OpenRouter; fechar o card e abrir outro";
+      s.mudar({ status: "errored", error: `${motivo}. O que fazer: ${comoResolver}.`, statusReason: "runner:prontidao-expirou" });
+      log.erro(s.a("pty"), motivo, comoResolver);
+      return;
+    }
     s.mudar({ status: "idle", statusReason: "runner:boot-timer 8s" });
-  }, 8_000).unref();
+  }, prazoDoBoot).unref();
 }
 
 /**

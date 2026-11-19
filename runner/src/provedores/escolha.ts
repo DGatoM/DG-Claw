@@ -201,6 +201,27 @@ export function resolverEscolha(ent: EntradaDaEscolha): SaidaDaEscolha {
       return { escolha: { provedor: nome, auth: v.auth, modelo: v.modelo, origem: n.origem }, problemas, catalogo: cat };
     } catch (err) {
       if (!(err instanceof ErroCatalogo)) throw err;
+      // O OpenCode (só cards) NUNCA cai para outro provedor: se o modelo saiu do catálogo ou do cache, o card
+      // mantém o provedor e o motor recusa o spawn pedindo outro modelo (senão o próximo texto sairia pela
+      // conta de outro serviço, sem o dono ter escolhido). Só vale quando o resto da escolha (provedor e forma
+      // de pagar) é válido: o que falha, então, é só o modelo.
+      if (nome === "opencode" && ent.paraCard === true && n.model) {
+        const auth = n.auth ?? authPadraoDe(cat, nome);
+        let soOModelo = false;
+        try {
+          validar(cat, nome, auth, "", { paraCard: true });
+          soOModelo = true;
+        } catch {
+          /* provedor ou forma de pagar também inválidos: segue o fluxo normal (próximo nível) */
+        }
+        if (soOModelo) {
+          problemas.push({
+            motivo: `${n.nome} tem uma escolha inválida: ${err.message}`,
+            comoResolver: "escolher outro modelo do OpenCode para este card; ele não troca de provedor sozinho",
+          });
+          return { escolha: { provedor: nome, auth, modelo: n.model, origem: n.origem }, problemas, catalogo: cat };
+        }
+      }
       problemas.push({
         motivo: `${n.nome} tem uma escolha inválida: ${err.message}`,
         comoResolver: "corrigir a escolha pelo painel (Provedor do agente); caindo para o próximo nível",

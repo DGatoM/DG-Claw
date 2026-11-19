@@ -46,6 +46,22 @@ function idDe(v) {
   return typeof v === "string" && ID_VALIDO.test(v) ? v : null;
 }
 
+// O card pertence a UMA sessão do OpenCode: a do primeiro chat.message (o pedido da pessoa, ou a retomada com -s).
+// Subtarefas (a ferramenta task) criam sessões filhas que emitem os mesmos eventos; sem este filtro o idle de
+// uma filha anunciaria o fim do turno e trocaria o id da conversa do card. Eventos de outra sessão nunca levam
+// o id dela adiante; os que só dizem "o card trabalha" ou "precisa de você" seguem sem id.
+let sessaoDoCard = null;
+// A sessão do card está no meio de um turno. Um pedido novo de OUTRA sessão com o card parado é a pessoa
+// trocando de conversa dentro da TUI (/new, /sessions): o card passa a seguir essa. Com o card ocupado, é
+// uma subtarefa.
+let cardOcupado = false;
+function doCard(id) {
+  return sessaoDoCard === null || id === sessaoDoCard;
+}
+function idDoCard(id) {
+  return id !== null && id === sessaoDoCard ? id : null;
+}
+
 function postar(corpo) {
   return new Promise((resolve) => {
     try {
@@ -116,38 +132,50 @@ export const DgclawStatus = async () => {
           const agora = Date.now();
           if (status === "busy" && !pendente && agora - ultimoBatimento >= BATIMENTO_MS) {
             ultimoBatimento = agora;
-            avisar("PreToolUse", { sessionId: idDe(props.sessionID) });
+            avisar("PreToolUse", { sessionId: idDoCard(idDe(props.sessionID)) });
           }
         } else if (tipo === "session.idle") {
-          pendente = false;
-          avisar("Stop", { sessionId: idDe(props.sessionID) });
+          // O fim do turno do card é o da sessão do card; o de uma subtarefa não encerra nada.
+          if (doCard(idDe(props.sessionID))) {
+            pendente = false;
+            cardOcupado = false;
+            avisar("Stop", { sessionId: idDe(props.sessionID) });
+          }
         } else if (tipo === "permission.asked") {
+          // Pedido de uma subtarefa também para o card esperando a pessoa: avisa, sem o id da filha.
           pendente = true;
-          avisar("Notification", { sessionId: idDe(props.sessionID) });
+          avisar("Notification", { sessionId: idDoCard(idDe(props.sessionID)) });
         } else if (tipo === "permission.replied") {
           pendente = false;
           ultimoBatimento = Date.now();
-          avisar("PreToolUse", { sessionId: idDe(props.sessionID) });
+          avisar("PreToolUse", { sessionId: idDoCard(idDe(props.sessionID)) });
         } else if (tipo === "session.error") {
-          const nome = props.error && typeof props.error.name === "string" ? props.error.name : "erro";
-          pendente = false;
-          avisar("StopFailure", { sessionId: idDe(props.sessionID), error: nome.slice(0, 60) });
+          if (doCard(idDe(props.sessionID))) {
+            const nome = props.error && typeof props.error.name === "string" ? props.error.name : "erro";
+            pendente = false;
+            cardOcupado = false;
+            avisar("StopFailure", { sessionId: idDe(props.sessionID), error: nome.slice(0, 60) });
+          }
         }
       } catch { /* um evento que o plugin não entende nunca pode atrapalhar o turno */ }
     },
     "chat.message": async (input) => {
       try {
         partida();
+        const id = idDe(input && input.sessionID);
+        if (id && (sessaoDoCard === null || (id !== sessaoDoCard && !cardOcupado))) sessaoDoCard = id;
+        if (!doCard(id)) return; // o prompt de uma subtarefa não é um pedido da pessoa
+        cardOcupado = true;
         pendente = false;
         ultimoBatimento = Date.now();
-        avisar("UserPromptSubmit", { sessionId: idDe(input && input.sessionID) });
+        avisar("UserPromptSubmit", { sessionId: id });
       } catch { /* idem */ }
     },
     "tool.execute.before": async (input) => {
       try {
         ultimoBatimento = Date.now();
         avisar("PreToolUse", {
-          sessionId: idDe(input && input.sessionID),
+          sessionId: idDoCard(idDe(input && input.sessionID)),
           toolName: input && typeof input.tool === "string" ? input.tool.slice(0, 80) : null,
           toolUseId: idDe(input && input.callID),
         });

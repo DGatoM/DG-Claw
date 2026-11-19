@@ -252,6 +252,17 @@ COPY --from=runner-build /build/runner/dist /opt/dgclaw/app/runner/dist
 COPY --from=runner-build /build/runner/node_modules /opt/dgclaw/app/runner/node_modules
 COPY --from=runner-build /build/runner/package.json /opt/dgclaw/app/runner/package.json
 
+# Dependência do OpenCode instalada AQUI, com a trava revisada (providers/opencode-deps/package-lock.json).
+# Sem isto o OpenCode 1.19.6 instala sozinho o @opencode-ai/plugin a cada card (64 MB, precisa de rede e do
+# registro npm no ar). O runner liga esta pasta (somente leitura, de root) na configuração de cada card.
+# A versão do pacote tem que ser a do CLI: se alguém atualizar uma e esquecer a outra, a imagem não sai.
+RUN mkdir -p /opt/dgclaw/opencode-deps \
+ && cp /opt/dgclaw/app/providers/opencode-deps/package.json /opt/dgclaw/app/providers/opencode-deps/package-lock.json /opt/dgclaw/opencode-deps/ \
+ && cd /opt/dgclaw/opencode-deps \
+ && test "$(node -p "require('./package.json').dependencies['@opencode-ai/plugin']")" = "${OPENCODE_VERSAO}" \
+ && npm ci --ignore-scripts --omit=dev \
+ && npm cache clean --force
+
 # CLIs que rodam DENTRO do container (o bin/dgclaw do host não entra no PATH). O link nasce
 # mesmo que o arquivo ainda não exista; fica pendente até o plugin trazer o arquivo.
 # dgclaw-monitor: o vigia sem modelo dos cards (docs/MODO-MONITOR.md); o timer dele nasce no install-timers.sh.

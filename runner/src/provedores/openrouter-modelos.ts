@@ -4,6 +4,7 @@
 // referência: a regra de filtro, o formato do cache e a validade têm que ser os MESMOS nos
 // dois lados. A lista vem da API pública do OpenRouter (sem chave), fica num cache em disco
 // e, sem cache, vale a lista de reserva do catálogo.
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -65,12 +66,29 @@ export function filtrarModelosOpenRouter(json: unknown): ModeloOpenRouter[] {
   return saida;
 }
 
+/**
+ * O cache fica numa pasta que o agente consegue escrever, então o arquivo pode não ser o que parece: um link
+ * para outro arquivo, ou um FIFO que travaria a leitura síncrona (e com ela o runner inteiro). Abre sem seguir
+ * link (O_NOFOLLOW) e sem bloquear (O_NONBLOCK), e confere pelo descritor que é um arquivo comum de tamanho limitado.
+ */
 export function lerCacheOpenRouter(arquivo: string = arquivoCacheOpenRouter()): CacheOpenRouter | null {
+  let fd: number | null = null;
   try {
-    const c = JSON.parse(fs.readFileSync(arquivo, "utf8")) as CacheOpenRouter;
+    fd = fs.openSync(arquivo, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.size > LIMITE_RESPOSTA_OPENROUTER) return null;
+    const c = JSON.parse(fs.readFileSync(fd, "utf8")) as CacheOpenRouter;
     if (Array.isArray(c.modelos) && c.modelos.length) return c;
   } catch {
-    /* sem cache legível: vale a lista de reserva do catálogo, que é o comportamento desenhado */
+    /* sem cache legível (ou que não é arquivo comum): vale a lista de reserva do catálogo, que é o comportamento desenhado */
+  } finally {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* descritor já fechado */
+      }
+    }
   }
   return null;
 }
@@ -88,30 +106,80 @@ export interface OpcoesDeAtualizacao {
   prazoMs?: number;
 }
 
+/** Lê o corpo contando os bytes DURANTE a leitura: passou do teto, cancela e para (sem guardar tudo antes de conferir). */
+async function lerCorpoLimitado(resp: Response): Promise<{ texto: string } | { grande: true }> {
+  const declarado = Number(resp.headers?.get?.("content-length"));
+  if (Number.isFinite(declarado) && declarado > LIMITE_RESPOSTA_OPENROUTER) {
+    await resp.body?.cancel().catch(() => undefined);
+    return { grande: true };
+  }
+  if (!resp.body || typeof resp.body.getReader !== "function") {
+    const texto = await resp.text();
+    return Buffer.byteLength(texto) > LIMITE_RESPOSTA_OPENROUTER ? { grande: true } : { texto };
+  }
+  const leitor = resp.body.getReader();
+  const pedacos: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > LIMITE_RESPOSTA_OPENROUTER) {
+      await leitor.cancel().catch(() => undefined);
+      return { grande: true };
+    }
+    pedacos.push(value);
+  }
+  return { texto: Buffer.concat(pedacos).toString("utf8") };
+}
+
+const emCurso = new Map<string, Promise<ResultadoAtualizacao>>();
+
 /** Busca a lista pública (sem chave) e grava o cache de forma atômica. Nunca lança: devolve
- *  { ok, quantos } ou { ok:false, erro } com o motivo em português, e o cache antigo segue valendo. */
-export async function atualizarCacheOpenRouter(o: OpcoesDeAtualizacao = {}): Promise<ResultadoAtualizacao> {
+ *  { ok, quantos } ou { ok:false, erro } com o motivo em português, e o cache antigo segue valendo.
+ *  Uma atualização por vez por arquivo: quem chega no meio espera a que já está rodando. */
+export function atualizarCacheOpenRouter(o: OpcoesDeAtualizacao = {}): Promise<ResultadoAtualizacao> {
   const arquivo = o.arquivo ?? arquivoCacheOpenRouter();
+  const rodando = emCurso.get(arquivo);
+  if (rodando) return rodando;
+  const p = atualizarDeVerdade({ ...o, arquivo }).finally(() => emCurso.delete(arquivo));
+  emCurso.set(arquivo, p);
+  return p;
+}
+
+async function atualizarDeVerdade(o: OpcoesDeAtualizacao & { arquivo: string }): Promise<ResultadoAtualizacao> {
+  const arquivo = o.arquivo;
   const buscar = o.buscar ?? globalThis.fetch;
   const url = o.url ?? URL_MODELOS_OPENROUTER;
   const prazoMs = o.prazoMs ?? 8000;
+  let tmp: string | null = null;
   try {
     const resp = await buscar(url, { signal: AbortSignal.timeout(prazoMs), headers: { accept: "application/json" } });
     if (!resp.ok) return { ok: false, erro: `o OpenRouter respondeu ${resp.status} ao pedir a lista de modelos` };
-    const texto = await resp.text();
-    if (texto.length > LIMITE_RESPOSTA_OPENROUTER) {
+    const corpo = await lerCorpoLimitado(resp);
+    if ("grande" in corpo) {
       return { ok: false, erro: "a lista de modelos do OpenRouter veio grande demais; mantive a anterior" };
     }
-    const lista = filtrarModelosOpenRouter(JSON.parse(texto));
+    const lista = filtrarModelosOpenRouter(JSON.parse(corpo.texto));
     if (!lista.length) {
       return { ok: false, erro: "a lista de modelos do OpenRouter veio vazia ou em formato novo; mantive a anterior" };
     }
     fs.mkdirSync(path.dirname(arquivo), { recursive: true });
-    const tmp = `${arquivo}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ buscadoEm: new Date().toISOString(), modelos: lista }));
+    // Temporário com nome aleatório e abertura exclusiva ("wx" não segue link nem sobrescreve): um link plantado
+    // no nome previsível não faz a gravação truncar outro arquivo.
+    tmp = `${arquivo}.${randomBytes(8).toString("hex")}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ buscadoEm: new Date().toISOString(), modelos: lista }), { flag: "wx", mode: 0o600 });
     fs.renameSync(tmp, arquivo);
+    tmp = null;
     return { ok: true, quantos: lista.length };
   } catch (err) {
+    if (tmp) {
+      try {
+        fs.rmSync(tmp, { force: true });
+      } catch {
+        /* o temporário não existe mais */
+      }
+    }
     return {
       ok: false,
       erro: `não consegui buscar a lista de modelos do OpenRouter (${err instanceof Error ? err.message : err}); vale a lista guardada ou a de reserva`,
@@ -119,9 +187,26 @@ export async function atualizarCacheOpenRouter(o: OpcoesDeAtualizacao = {}): Pro
   }
 }
 
+/** Depois de uma falha, só tenta de novo daqui a este tempo (a lista é opcional: a reserva do catálogo cobre). */
+export const INTERVALO_APOS_FALHA_MS = 5 * 60 * 1000;
+const ultimaFalha = new Map<string, number>();
+
 /** Melhor esforço: se o cache está velho, busca a lista nova; se falhar, avisa no log e segue com o cache ou a reserva. */
 export async function garantirCacheOpenRouter(area: string, o: OpcoesDeAtualizacao = {}): Promise<void> {
-  if (!cacheOpenRouterVelho(o.arquivo)) return;
-  const r = await atualizarCacheOpenRouter(o);
-  if (!r.ok) log.aviso(area, `${r.erro}. O que fazer: nada, a lista guardada (ou a de reserva do catálogo) continua valendo`);
+  const arquivo = o.arquivo ?? arquivoCacheOpenRouter();
+  if (!cacheOpenRouterVelho(arquivo)) return;
+  const falhouEm = ultimaFalha.get(arquivo);
+  if (falhouEm !== undefined && Date.now() - falhouEm < INTERVALO_APOS_FALHA_MS) return;
+  const r = await atualizarCacheOpenRouter({ ...o, arquivo });
+  if (r.ok) {
+    ultimaFalha.delete(arquivo);
+  } else {
+    ultimaFalha.set(arquivo, Date.now());
+    log.aviso(area, `${r.erro}. O que fazer: nada, a lista guardada (ou a de reserva do catálogo) continua valendo; tento de novo em ${INTERVALO_APOS_FALHA_MS / 60000} min`);
+  }
+}
+
+/** Esquece as falhas guardadas (só os testes). */
+export function zerarFalhasDoOpenRouter(): void {
+  ultimaFalha.clear();
 }

@@ -7,6 +7,7 @@
 //   Em validar e rotulo, --card libera o provedor que so abre cards (opencode).
 //   catalogo.mjs campo   <provedor> <caminho.com.pontos>         valor de um campo (ex.: auth.api.variavel)
 // Como modulo: exporta carregar, validar, rotulo, modelos, campo.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -30,7 +31,7 @@ export function carregar(arquivo = process.env.DGCLAW_CATALOGO || CATALOGO_PADRA
 }
 
 function provedorDe(cat, id) {
-  const p = cat.provedores?.[id];
+  const p = cat.provedores && Object.hasOwn(cat.provedores, id) ? cat.provedores[id] : undefined;
   if (!p) {
     throw new ErroCatalogo(`Provedor '${id}' não existe. Os que existem: ${Object.keys(cat.provedores).join(', ')}.`);
   }
@@ -74,11 +75,19 @@ export function filtrarModelosOpenRouter(json) {
   return saida;
 }
 
+// O cache fica em pasta que o agente escreve: abre sem seguir link (O_NOFOLLOW) e sem bloquear
+// (O_NONBLOCK, para um FIFO nao travar), e confere pelo descritor que e arquivo comum e pequeno.
 export function lerCacheOpenRouter(arquivo = arquivoCacheOpenRouter()) {
+  let fd = null;
   try {
-    const c = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
+    fd = fs.openSync(arquivo, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.size > LIMITE_RESPOSTA_OPENROUTER) return null;
+    const c = JSON.parse(fs.readFileSync(fd, 'utf8'));
     if (Array.isArray(c.modelos) && c.modelos.length) return c;
-  } catch { /* sem cache legivel: vale a reserva do catalogo */ }
+  } catch { /* sem cache legivel: vale a reserva do catalogo */ } finally {
+    if (fd !== null) { try { fs.closeSync(fd); } catch { /* ja fechado */ } }
+  }
   return null;
 }
 
@@ -88,22 +97,62 @@ export function cacheOpenRouterVelho(arquivo = arquivoCacheOpenRouter(), agora =
   return !Number.isFinite(quando) || agora - quando > VALIDADE_CACHE_OPENROUTER_MS;
 }
 
+// Le o corpo contando os bytes DURANTE a leitura: passou do teto, cancela (sem guardar tudo antes de conferir).
+async function lerCorpoLimitado(resp) {
+  const declarado = Number(resp.headers?.get?.('content-length'));
+  if (Number.isFinite(declarado) && declarado > LIMITE_RESPOSTA_OPENROUTER) {
+    await resp.body?.cancel?.().catch(() => {});
+    return { grande: true };
+  }
+  if (!resp.body || typeof resp.body.getReader !== 'function') {
+    const texto = await resp.text();
+    return Buffer.byteLength(texto) > LIMITE_RESPOSTA_OPENROUTER ? { grande: true } : { texto };
+  }
+  const leitor = resp.body.getReader();
+  const pedacos = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > LIMITE_RESPOSTA_OPENROUTER) { await leitor.cancel().catch(() => {}); return { grande: true }; }
+    pedacos.push(value);
+  }
+  return { texto: Buffer.concat(pedacos).toString('utf8') };
+}
+
+const emCurso = new Map();
+
 // Busca a lista publica (sem chave) e grava o cache de forma atomica. Nunca lanca: devolve
 // { ok, quantos } ou { ok:false, erro } com o motivo em portugues, e o cache antigo segue valendo.
-export async function atualizarCacheOpenRouter({ arquivo = arquivoCacheOpenRouter(), buscar = globalThis.fetch, url = URL_MODELOS_OPENROUTER, prazoMs = 8000 } = {}) {
+// Uma atualizacao por vez por arquivo.
+export function atualizarCacheOpenRouter({ arquivo = arquivoCacheOpenRouter(), buscar = globalThis.fetch, url = URL_MODELOS_OPENROUTER, prazoMs = 8000 } = {}) {
+  const rodando = emCurso.get(arquivo);
+  if (rodando) return rodando;
+  const p = atualizarDeVerdade({ arquivo, buscar, url, prazoMs }).finally(() => emCurso.delete(arquivo));
+  emCurso.set(arquivo, p);
+  return p;
+}
+
+async function atualizarDeVerdade({ arquivo, buscar, url, prazoMs }) {
+  let tmp = null;
   try {
     const resp = await buscar(url, { signal: AbortSignal.timeout(prazoMs), headers: { accept: 'application/json' } });
     if (!resp.ok) return { ok: false, erro: `o OpenRouter respondeu ${resp.status} ao pedir a lista de modelos` };
-    const texto = await resp.text();
-    if (texto.length > LIMITE_RESPOSTA_OPENROUTER) return { ok: false, erro: 'a lista de modelos do OpenRouter veio grande demais; mantive a anterior' };
-    const lista = filtrarModelosOpenRouter(JSON.parse(texto));
+    const corpo = await lerCorpoLimitado(resp);
+    if (corpo.grande) return { ok: false, erro: 'a lista de modelos do OpenRouter veio grande demais; mantive a anterior' };
+    const lista = filtrarModelosOpenRouter(JSON.parse(corpo.texto));
     if (!lista.length) return { ok: false, erro: 'a lista de modelos do OpenRouter veio vazia ou em formato novo; mantive a anterior' };
     fs.mkdirSync(path.dirname(arquivo), { recursive: true });
-    const tmp = `${arquivo}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ buscadoEm: new Date().toISOString(), modelos: lista }));
+    // Temporario com nome aleatorio e abertura exclusiva ('wx'): um link plantado no nome previsivel nao
+    // faz a gravacao truncar outro arquivo.
+    tmp = `${arquivo}.${crypto.randomBytes(8).toString('hex')}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ buscadoEm: new Date().toISOString(), modelos: lista }), { flag: 'wx', mode: 0o600 });
     fs.renameSync(tmp, arquivo);
+    tmp = null;
     return { ok: true, quantos: lista.length };
   } catch (e) {
+    if (tmp) { try { fs.rmSync(tmp, { force: true }); } catch { /* ja nao existe */ } }
     return { ok: false, erro: `não consegui buscar a lista de modelos do OpenRouter (${e instanceof Error ? e.message : e}); vale a lista guardada ou a de reserva` };
   }
 }
@@ -141,7 +190,7 @@ export function validar(cat, id, auth, modelo = '', opcoes = {}) {
   if (!p.disponivel) {
     throw new ErroCatalogo(`O provedor ${p.nome} ainda não está disponível: ${p.motivo || 'em preparo'}.`);
   }
-  if (!p.auth?.[auth]) {
+  if (!p.auth || !Object.hasOwn(p.auth, auth)) {
     throw new ErroCatalogo(`Forma de pagar '${auth}' não existe para ${p.nome}. Use: ${listaPt(Object.keys(p.auth))}.`);
   }
   // Provedor que so abre cards (OpenCode) nunca serve de motor da conversa principal.

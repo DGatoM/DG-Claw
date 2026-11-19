@@ -30,13 +30,18 @@ A versão nova do Codex só chega aos seus agentes depois que a imagem deles é 
   Cofre do painel, e a cobrança é por token, direto na sua conta do OpenRouter. No painel, em Sessões, "Nova sessão" ganha
   o motor OpenCode (com o aviso de custo e a lista de modelos); pelo terminal, `dgclaw-card abrir --provedor opencode
   --modelo glm`. O card do OpenCode não tem os hooks do Claude Code, os skills do DG Claw, os conectores do claude.ai
-  nem o Telegram (registro em `docs/PARIDADE-CODEX.md`).
+  nem o Telegram (registro em `docs/PARIDADE-CODEX.md`). Por isso o card do OpenCode não abre em um agente que tenha
+  restrições do dono (sem Bash, sem enviar arquivo, escrita só em certas pastas) ou ferramentas negadas ou com
+  confirmação: nesses agentes o painel e o `dgclaw-card` explicam o motivo e pedem o Claude ou o Codex. O card também
+  enxerga só a configuração que o DG Claw gera para ele (plugins deixados na casa ou na pasta do projeto não rodam).
 
 ### Como atualizar (OpenCode)
 
 Esta versão traz um programa novo na imagem dos agentes, o OpenCode. Depois do `dgclaw atualizar`, reconstrua a imagem
 dos agentes para que ele exista dentro deles. Sem isso o painel simplesmente não mostra o OpenCode como opção de card, e
-nada mais muda. Para usar, guarde a chave `OPENROUTER_API_KEY` no Cofre do painel. Ao criar a chave no OpenRouter, defina o
+nada mais muda. A imagem nova também traz, já instalado, o pacote que o OpenCode usaria para carregar o plugin de
+status, então o card abre sem baixar nada da internet. Para usar, guarde a chave `OPENROUTER_API_KEY` no Cofre do
+painel (uma chave que esteja só no ambiente do servidor não vale, de propósito). Ao criar a chave no OpenRouter, defina o
 limite de gasto dela, porque cada card cobra por token e pode ficar caro. Nenhuma configuração sua é apagada.
 
 ## [1.1.0] - 2026-11-18

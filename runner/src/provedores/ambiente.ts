@@ -98,7 +98,8 @@ export interface ResultadoDoAmbiente {
 }
 
 export function montarAmbiente(ent: EntradaDoAmbiente): ResultadoDoAmbiente {
-  const modo = provedorDe(ent.catalogo, ent.provedor).auth[ent.auth];
+  const auths = provedorDe(ent.catalogo, ent.provedor).auth;
+  const modo = auths && Object.hasOwn(auths, ent.auth) ? auths[ent.auth] : undefined;
   if (!modo) {
     throw new Error(`o modo de pagamento '${ent.auth}' não existe para o provedor '${ent.provedor}' no catálogo`);
   }
@@ -126,6 +127,17 @@ export function montarAmbiente(ent: EntradaDoAmbiente): ResultadoDoAmbiente {
   const porHeranca = new Set([...CHAVES_QUE_NAO_PASSAM].filter((n) => !cofre.has(n)));
   const porModo = new Set(modo.limpar ?? []);
   const removidas: ResultadoDoAmbiente["removidas"] = [];
+  // Por prefixo (ex.: OPENCODE_, OPENROUTER_): qualquer variável do mesmo "sistema" que mude o endereço, a
+  // configuração ou a credencial do CLI sai, mesmo vinda do Cofre, menos a variável do próprio modo.
+  const porPrefixo = (modo.limparPrefixos ?? []).filter((p) => typeof p === "string" && p.length > 0);
+  for (const nome of Object.keys(env)) {
+    if (nome !== variavelDoModo && porPrefixo.some((p) => nome.startsWith(p))) porModo.add(nome);
+  }
+  // Modo que exige a chave no Cofre (soDoCofre): a variável herdada do ambiente do serviço não vale.
+  if (modo.soDoCofre && variavelDoModo && !cofre.has(variavelDoModo) && variavelDoModo in env) {
+    removidas.push({ nome: variavelDoModo, motivo: "herdada, não está no cofre" });
+    delete env[variavelDoModo];
+  }
   for (const nome of new Set([...porHeranca, ...porModo])) {
     if (nome === variavelDoModo || !(nome in env)) continue;
     // As do `limpar` valem mesmo vindas do cofre; as da lista de herança só quando NÃO estão no cofre.

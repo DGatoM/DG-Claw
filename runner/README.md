@@ -131,7 +131,9 @@ de onde, e o que fazer, e cai para a seguinte, sem derrubar a principal):
 paralela o aceita (`Sessao.lerEscolha` passa `paraCard`), só existe a forma `api` e a chave é `OPENROUTER_API_KEY`
 do Cofre. O motor sobe a TUI no PTY com `-m openrouter/<modelo>`; o status vem de um plugin gravado por spawn em
 `OPENCODE_CONFIG_DIR` (sem `--settings` nem `notify`), e a conversa vem de `opencode export`. `GET /api/provedor`
-lista esses provedores em `cards` (aviso de custo e modelos) e os tira de `disponiveis`. Medições e limites em
+lista esses provedores em `cards` (aviso de custo e modelos) e os tira de `disponiveis`. O card enxerga só a
+configuração do spawn (`XDG_CONFIG_HOME` isolado, sem config do projeto), recusa abrir com restrições do dono e usa as
+dependências pré-instaladas na imagem. Medições e limites em
 `docs/PROVEDORES.md`.
 
 **Troca de provedor.** O `runner-state.json` grava `escolha {provedor, auth, modelo}` a cada

@@ -20,6 +20,10 @@ export interface ModoDeAuth {
   variavel?: string;
   ondeCriar?: string;
   limpar?: string[];
+  /** Prefixos de variáveis que saem do ambiente neste modo (exceto a variável do próprio modo). */
+  limparPrefixos?: string[];
+  /** A variável do modo só vale se estiver no Cofre do agente: chave herdada do ambiente do serviço não conta. */
+  soDoCofre?: boolean;
 }
 
 export interface ModeloDoCatalogo {
@@ -119,7 +123,7 @@ export function carregar(arquivo: string = caminhoDoCatalogo()): Catalogo {
 }
 
 export function provedorDe(cat: Catalogo, id: string): ProvedorDoCatalogo {
-  const p = cat.provedores?.[id];
+  const p = cat.provedores && Object.hasOwn(cat.provedores, id) ? cat.provedores[id] : undefined;
   if (!p) {
     throw new ErroCatalogo(`Provedor '${id}' não existe. Os que existem: ${Object.keys(cat.provedores ?? {}).join(", ")}.`);
   }
@@ -168,7 +172,7 @@ export function validar(
   if (!p.disponivel) {
     throw new ErroCatalogo(`O provedor ${p.nome} ainda não está disponível: ${p.motivo || "em preparo"}.`);
   }
-  if (!p.auth?.[auth]) {
+  if (!p.auth || !Object.hasOwn(p.auth, auth)) {
     throw new ErroCatalogo(`Forma de pagar '${auth}' não existe para ${p.nome}. Use: ${listaPt(Object.keys(p.auth))}.`);
   }
   // Provedor que só abre cards (OpenCode) nunca serve de motor da conversa principal.

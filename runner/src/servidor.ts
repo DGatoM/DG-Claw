@@ -25,7 +25,8 @@ import { tratarRotasDeProvedor } from "./provedores/rotas.js";
 import { MOTIVO_SEM_MEDICAO, deStatusline, paraResposta } from "./uso.js";
 import { ESC, nonceConfere } from "./sessao/telas.js";
 import { acharRolloutPorId, mensagensDoRollout } from "./provedores/codex-rollout.js";
-import { lerConversaDoOpenCode } from "./provedores/opencode-conversa.js";
+import { ErroDeConversa, ambienteDeLeitura, lerConversaDoOpenCode } from "./provedores/opencode-conversa.js";
+import { pastaDeDependencias } from "./provedores/opencode.js";
 import { garantirCacheOpenRouter } from "./provedores/openrouter-modelos.js";
 import { provedorDoVocabulario } from "./provedores/escolha.js";
 
@@ -351,14 +352,14 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
                   howToFix:
                     recusa.tipo === "chave"
                       ? `${recusa.comoResolver}. Depois disso a mensagem pode ser reenviada.`
-                      : recusa.tipo === "restricao"
+                      : recusa.tipo === "restricao" || recusa.tipo === "modelo"
                         ? `${recusa.comoResolver}. Depois disso a sessão abre de novo e a mensagem pode ser reenviada.`
                         : recusa.tipo === "login-expirado"
                         ? `${recusa.comoResolver}. Depois disso o runner reinicia a mesma sessão sozinho, e a mensagem pode ser reenviada.`
                         : "Fazer o login da conta deste agente, pelo painel (Provedor do agente), pelo terminal do cartão ou por " +
                           "lib/login-agente.sh. Depois disso o runner troca a sessão do login por uma " +
                           "limpa sozinho, e a mensagem pode ser reenviada.",
-                  code: recusa.tipo === "chave" ? "SEM_CHAVE" : recusa.tipo === "restricao" ? "RESTRICAO_CONTA" : recusa.tipo === "login-expirado" ? "LOGIN_EXPIRADO" : "SEM_LOGIN",
+                  code: recusa.tipo === "chave" ? "SEM_CHAVE" : recusa.tipo === "restricao" ? "RESTRICAO_CONTA" : recusa.tipo === "modelo" ? "MODELO_INDISPONIVEL" : recusa.tipo === "login-expirado" ? "LOGIN_EXPIRADO" : "SEM_LOGIN",
                 },
                 409,
               );
@@ -576,13 +577,19 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           if (sessao.escolhaAtual().provedor === "opencode") {
             // O OpenCode guarda a conversa num banco próprio: o caminho suportado é o `opencode export`.
             const { escolha, catalogo } = sessao.lerEscolha();
-            msgs = await lerConversaDoOpenCode({
-              sessionId: sessao.estado.sessionId,
-              env: sessao.ambienteDaEscolha(escolha, catalogo).env,
-              cwd: sessao.descritor.config.cwd,
-              quantas: limite,
-              segredos: sessao.segredosParaMascara(),
-            });
+            try {
+              msgs = await lerConversaDoOpenCode({
+                sessionId: sessao.estado.sessionId,
+                env: ambienteDeLeitura(sessao.ambienteDaEscolha(escolha, catalogo).env, pastaDeDependencias()),
+                cwd: sessao.descritor.config.cwd,
+                quantas: limite,
+                segredos: sessao.segredosParaMascara(),
+              });
+            } catch (err) {
+              if (!(err instanceof ErroDeConversa)) throw err;
+              json(res, { success: false, error: `Não consegui ler a conversa do card: ${err.message}.`, howToFix: err.comoResolver, code: "CONVERSA_ILEGIVEL" }, 502);
+              return;
+            }
           } else if (sessao.escolhaAtual().provedor === "codex") {
             // O Codex grava a conversa no rollout, e não no transcript do Claude.
             const arquivo = acharRolloutPorId(sessao.estado.sessionId, sessao.codexHomeAtual());

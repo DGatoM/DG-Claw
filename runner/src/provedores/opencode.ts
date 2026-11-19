@@ -21,10 +21,16 @@
 // de trabalho (o OpenCode o lê sozinho), a identidade do agente (via `instructions`), o plugin de status
 // e as ferramentas nativas do OpenCode.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { log } from "../logger.js";
+import { lerRestricoes } from "../restricoes-conta.js";
+import { ErroCatalogo, validar } from "./catalogo.js";
 import { OPENCODE_PLUGIN_NOME, OPENCODE_PLUGIN_SOURCE } from "./opencode-plugin-source.js";
 import { recusaDeChave, ErroDeMotor, type CtxMotor, type Motor, type Recusa } from "./motor.js";
+
+/** Onde a imagem instala o @opencode-ai/plugin (container/Containerfile), com a trava revisada em providers/opencode-deps. */
+const DEPENDENCIAS_PADRAO = "/opt/dgclaw/opencode-deps";
 
 const PREFIXO_DO_MODELO = "openrouter/";
 
@@ -43,7 +49,18 @@ export function configDoSpawn(ctx: CtxMotor): Record<string, unknown> {
     // Nunca publicar a conversa num link do opencode.ai.
     share: "disabled",
   };
-  if (ctx.identidade.arquivo) config.instructions = [ctx.identidade.arquivo];
+  // A config do projeto (.opencode/, opencode.json) fica desligada de propósito (plugin plantado pelo agente na
+  // pasta de trabalho rodaria com a chave no processo), e junto com ela o OpenCode deixa de ler o AGENTS.md da
+  // pasta. O AGENTS.md é só texto de instrução, então entra pela lista `instructions`, que o próprio runner monta.
+  const instrucoes: string[] = [];
+  if (ctx.identidade.arquivo) instrucoes.push(ctx.identidade.arquivo);
+  const agentsMd = path.join(ctx.cwd, "AGENTS.md");
+  try {
+    if (ctx.cwd && fs.statSync(agentsMd).isFile()) instrucoes.push(agentsMd);
+  } catch {
+    /* sem AGENTS.md na pasta de trabalho: nada a acrescentar */
+  }
+  if (instrucoes.length) config.instructions = instrucoes;
   // Autonomia: só o modo "default" do descritor pede confirmação antes de editar e de rodar comando.
   // Os demais usam o padrão do OpenCode (que só pergunta ao sair da pasta de trabalho).
   if (ctx.config.permissionMode === "default") config.permission = { edit: "ask", bash: "ask" };
@@ -71,10 +88,96 @@ function argsComuns(ctx: CtxMotor): string[] {
   return ["-m", modeloDoOpenCode(ctx)];
 }
 
+/** A pasta de dependências pronta (package.json, package-lock.json e node_modules), ou null quando a imagem não a traz (desenvolvimento). */
+export function pastaDeDependencias(): string | null {
+  const dir = process.env.DGCLAW_OPENCODE_DEPS?.trim() || DEPENDENCIAS_PADRAO;
+  const ok = ["package.json", "package-lock.json", "node_modules"].every((f) => fs.existsSync(path.join(dir, f)));
+  return ok ? dir : null;
+}
+
+/**
+ * Faz da pasta `destino` uma pasta de configuração do OpenCode que NÃO precisa instalar nada: copia o
+ * package.json e a trava e liga o node_modules da imagem. O OpenCode 1.19.6 só roda a instalação (rede, 64 MB,
+ * registro npm) quando falta o node_modules ou quando o pacote declarado não está na trava; com os três no
+ * lugar ele pula (medido com a rede bloqueada).
+ */
+function ligarDependencias(destino: string, deps: string): void {
+  fs.mkdirSync(destino, { recursive: true, mode: 0o700 });
+  for (const f of ["package.json", "package-lock.json"]) {
+    fs.copyFileSync(path.join(deps, f), path.join(destino, f));
+    fs.chmodSync(path.join(destino, f), 0o600);
+  }
+  fs.symlinkSync(path.join(deps, "node_modules"), path.join(destino, "node_modules"), "dir");
+}
+
+/**
+ * A pasta XDG_CONFIG_HOME só deste card: tem tudo o que a config real tem (ligado por link, para as outras
+ * ferramentas do card, como o gh, seguirem achando o que é delas), MENOS a pasta `opencode`. É o que impede um
+ * plugin deixado pelo agente em ~/.config/opencode de rodar dentro de outro card.
+ */
+function montarXdgIsolado(xdg: string, configReal: string, deps: string | null, ctx: CtxMotor): void {
+  fs.mkdirSync(xdg, { recursive: true, mode: 0o700 });
+  let entradas: string[] = [];
+  try {
+    entradas = fs.readdirSync(configReal);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      log.aviso(ctx.a("spawn"), `não consegui listar ${configReal} para montar a config isolada do card: ${err instanceof Error ? err.message : err}. As ferramentas do card não verão a configuração delas`);
+    }
+  }
+  for (const nome of entradas) {
+    if (nome === "opencode") continue;
+    try {
+      fs.symlinkSync(path.join(configReal, nome), path.join(xdg, nome));
+    } catch (err) {
+      log.aviso(ctx.a("spawn"), `não consegui ligar ${nome} na config isolada do card: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+  const dirOpencode = path.join(xdg, "opencode");
+  if (deps) ligarDependencias(dirOpencode, deps);
+  else fs.mkdirSync(dirOpencode, { recursive: true, mode: 0o700 });
+}
+
+/** As restrições do dono que o OpenCode não sabe aplicar: se existirem, o card não abre (senão seriam ignoradas em silêncio). */
+function recusaPorRestricao(ctx: CtxMotor): Recusa | null {
+  const cfg = ctx.config;
+  const motivos: string[] = [];
+  if ((cfg.askTools ?? []).length) motivos.push("pedidos de confirmação por ferramenta (askTools)");
+  if ((cfg.denyTools ?? []).length) motivos.push("ferramentas proibidas (denyTools)");
+  const r = lerRestricoes();
+  if (r.ativa) motivos.push(r.erro ? `restrições do dono ilegíveis (${r.erro})` : "restrições do dono (sem Bash, sem enviar arquivo ou escrita só em certas pastas)");
+  if (!motivos.length) return null;
+  return {
+    tipo: "restricao",
+    mensagem:
+      `O card ${ctx.slug} não abre no OpenCode: este agente tem ${motivos.join(" e ")}, e o OpenCode não aplica essas regras ` +
+      "(elas só funcionam no Claude Code). Abrir assim deixaria o card fazer o que o dono proibiu.",
+    comoResolver: "abrir o card no Claude ou no Codex, ou tirar essas restrições do agente (dgclaw agente restricoes)",
+  };
+}
+
+/** O modelo gravado no card tem que existir no catálogo/cache de hoje; senão o card para e pede outro (nunca cai para outro provedor). */
+function recusaPorModelo(ctx: CtxMotor): Recusa | null {
+  const modelo = ctx.escolha.modelo;
+  try {
+    const v = validar(ctx.catalogo, "opencode", "api", modelo, { paraCard: true });
+    if (modelo && v.modelo !== modelo) throw new ErroCatalogo(`o id '${modelo}' não é o id canônico do catálogo (${v.modelo})`);
+    return null;
+  } catch (err) {
+    if (!(err instanceof ErroCatalogo)) throw err;
+    return {
+      tipo: "modelo",
+      mensagem: `O modelo '${modelo}' deste card do OpenCode não está mais disponível: ${err.message}`,
+      comoResolver: "escolher outro modelo para este card (painel Sessões ou dgclaw-card abrir --provedor opencode --modelo <outro>); o card não troca de provedor sozinho",
+    };
+  }
+}
+
 export const motorOpenCode: Motor = {
   provedor: "opencode",
   binario: "opencode",
   usaHooks: false,
+  prontidaoPorPlugin: true,
   pausaAntesDoEnterMs: 500,
   reciboMs: 3_000,
   reciboPorRollout: false,
@@ -90,6 +193,8 @@ export const motorOpenCode: Motor = {
   async preparar(ctx) {
     ctx.extrasDoMotor = [];
     const pasta = path.join(ctx.pastaDeHooks, `opencode-${ctx.nonce.slice(0, 12)}`);
+    const deps = pastaDeDependencias();
+    const configReal = ctx.env.XDG_CONFIG_HOME?.trim() || path.join(ctx.env.HOME?.trim() || os.homedir(), ".config");
     try {
       fs.mkdirSync(path.join(pasta, "plugins"), { recursive: true, mode: 0o700 });
       fs.chmodSync(pasta, 0o700);
@@ -99,6 +204,17 @@ export const motorOpenCode: Motor = {
       const arquivoDeConfig = path.join(pasta, "opencode.json");
       fs.writeFileSync(arquivoDeConfig, JSON.stringify(configDoSpawn(ctx), null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
       fs.chmodSync(arquivoDeConfig, 0o600);
+      if (deps) {
+        ligarDependencias(pasta, deps);
+      } else {
+        log.aviso(
+          ctx.a("spawn"),
+          `a pasta de dependências do OpenCode (${process.env.DGCLAW_OPENCODE_DEPS?.trim() || DEPENDENCIAS_PADRAO}) não existe: o OpenCode vai instalar o @opencode-ai/plugin sozinho, pela internet, a cada card. ` +
+            "Na imagem do agente ela existe (container/Containerfile); reconstruir a imagem resolve",
+        );
+      }
+      fs.mkdirSync(path.join(pasta, "casa-vazia"), { recursive: true, mode: 0o700 });
+      montarXdgIsolado(path.join(pasta, "xdg"), configReal, deps, ctx);
     } catch (err) {
       throw new ErroDeMotor(
         `Não consegui preparar a pasta de configuração do OpenCode em ${pasta}: ${err instanceof Error ? err.message : String(err)}`,
@@ -114,7 +230,22 @@ export const motorOpenCode: Motor = {
       }
     });
 
+    // O OpenCode SOMA a OPENCODE_CONFIG_DIR à config do usuário (~/.config/opencode e ~/.opencode) e à da pasta
+    // do projeto, e plugins de qualquer uma delas rodam antes de qualquer aprovação, com a chave no processo.
+    // Como o agente escreve nessas pastas, o card só enxerga a configuração gerada aqui:
+    //   - XDG_CONFIG_HOME aponta para a pasta isolada (a ~/.config/opencode real fica de fora);
+    //   - OPENCODE_TEST_HOME muda onde o OpenCode procura ~/.opencode (os dados e as sessões continuam em
+    //     ~/.local/share, então retomar com -s segue funcionando);
+    //   - OPENCODE_DISABLE_PROJECT_CONFIG ignora .opencode/ e opencode.json da pasta de trabalho;
+    //   - sem plugins padrão, sem o que o OpenCode importaria do Claude Code.
+    // Medido com o opencode 1.19.6 e plugins marcadores plantados nos quatro lugares: só o do spawn carrega.
     ctx.env.OPENCODE_CONFIG_DIR = pasta;
+    ctx.env.XDG_CONFIG_HOME = path.join(pasta, "xdg");
+    ctx.env.OPENCODE_TEST_HOME = path.join(pasta, "casa-vazia");
+    ctx.env.OPENCODE_DISABLE_PROJECT_CONFIG = "1";
+    ctx.env.OPENCODE_DISABLE_DEFAULT_PLUGINS = "1";
+    ctx.env.OPENCODE_DISABLE_CLAUDE_CODE = "1";
+    ctx.env.OPENCODE_DISABLE_EXTERNAL_SKILLS = "1";
     ctx.env.OPENCODE_DISABLE_AUTOUPDATE = "1";
     // Nada de baixar servidor de linguagem (LSP) no meio do card: o que o card precisa vem na imagem.
     ctx.env.OPENCODE_DISABLE_LSP_DOWNLOAD = "1";
@@ -122,13 +253,26 @@ export const motorOpenCode: Motor = {
     ctx.env.DGCLAW_HOOK_PORT = String(ctx.porta);
     ctx.env.DGCLAW_HOOK_NONCE = ctx.nonce;
     delete ctx.env.DGCLAW_SESSAO_ID;
-    // O que o modo pede para limpar (base do OpenRouter, config e permissão vindos de fora) já saiu do
-    // ambiente em montarAmbiente; o OPENCODE_CONFIG_DIR acima é o do spawn e vem depois dele de propósito.
+    // O que o modo pede para limpar (OPENCODE_*, OPENROUTER_* e a chave herdada) já saiu do ambiente em
+    // montarAmbiente; o que está acima é o do spawn e vem depois dele de propósito.
 
     avisarIgnorados(ctx);
   },
 
   motivoSemLogin(ctx): Recusa | null {
+    const restricao = recusaPorRestricao(ctx);
+    if (restricao) return restricao;
+    // O OpenCode só tem a forma "api" (chave do OpenRouter, do Cofre). Qualquer outro nome vindo de arquivo
+    // de cliente não satisfaz a exigência da chave: recusa em vez de abrir com credencial que o CLI já tenha salva.
+    if (ctx.escolha.auth !== "api") {
+      return {
+        tipo: "chave",
+        mensagem: `O card ${ctx.slug} pede a forma de pagar '${ctx.escolha.auth}' no OpenCode, e ele só funciona na forma 'api' (chave do OpenRouter no Cofre).`,
+        comoResolver: "escolher o OpenCode na API (OpenRouter) ao abrir o card",
+      };
+    }
+    const modelo = recusaPorModelo(ctx);
+    if (modelo) return modelo;
     return ctx.chaveDoModoPresente ? null : recusaDeChave(ctx, "OpenCode");
   },
 };

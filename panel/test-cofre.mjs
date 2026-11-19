@@ -42,6 +42,8 @@ for (const [nome, porque] of [
   ['HOME', 'reservado do provisionamento do runner'],
   ['RUNNER_PORT', 'reservado do provisionamento do runner'],
   ['CLAUDE_CONFIG_DIR', 'reservado: derrubou dois agentes em 28/08'],
+  ['OPENCODE_MODELS_URL', 'desvia o catálogo e o endereço para onde o OpenCode manda a chave do OpenRouter'],
+  ['OPENCODE_CONFIG_CONTENT', 'troca a configuração inteira do OpenCode'],
   ['MINHA_COISA', 'não parece nome de credencial'],
   ['1CHAVE_API_KEY', 'fora do formato: começa com número'],
   ['CHAVE-API-KEY', 'fora do formato: hífen'],

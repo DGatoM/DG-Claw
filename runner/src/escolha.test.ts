@@ -169,3 +169,36 @@ test("opencode: forma de pagar que não existe nele (assinatura) é recusada com
   assert.equal(r.escolha.provedor, "claude");
   assert.equal(r.problemas.length, 1);
 });
+
+test("opencode: modelo que saiu do catálogo mantém o provedor do card (não cai em outro) e avisa", () => {
+  const r = resolverEscolha({
+    arquivoProvedor: arquivoProvedor(),
+    sessao: { provider: "opencode", auth: "api", model: "laboratorio-que-saiu/modelo-velho" },
+    config: { provider: "claude" },
+    catalogo,
+    paraCard: true,
+    cacheOpenRouter: path.join(pastaTemporaria("escolha-sem-cache"), "nao-existe.json"),
+  } as never);
+  assert.equal(r.escolha.provedor, "opencode");
+  assert.equal(r.escolha.modelo, "laboratorio-que-saiu/modelo-velho");
+  assert.equal(r.problemas.length, 1);
+  assert.match(r.problemas[0]!.comoResolver, /outro modelo/);
+});
+
+test("opencode: forma de pagar inexistente ou herdada do protótipo continua caindo no próximo nível", () => {
+  for (const auth of ["inexistente", "constructor"]) {
+    const r = resolverEscolha({
+      arquivoProvedor: arquivoProvedor(),
+      sessao: { provider: "opencode", auth, model: "glm" },
+      catalogo,
+      paraCard: true,
+    });
+    assert.equal(r.escolha.provedor, "claude", `auth ${auth} não pode manter o opencode`);
+  }
+});
+
+test("catálogo: provedor e forma de pagar com nome do protótipo não existem", () => {
+  assert.throws(() => validar(catalogo, "constructor", "api"), /não existe/);
+  assert.throws(() => validar(catalogo, "opencode", "constructor", "", { paraCard: true }), /Forma de pagar/);
+  assert.throws(() => validar(catalogo, "claude", "__proto__"), /Forma de pagar/);
+});

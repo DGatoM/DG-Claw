@@ -4,12 +4,15 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
-import { ctxDeTeste, pastaTemporaria } from "./apoio-teste.js";
+import { execFileSync } from "node:child_process";
+import { ctxDeTeste, pastaTemporaria, prepararAmbiente } from "./apoio-teste.js";
+
+prepararAmbiente("opencode-motor");
 
 const { motorOpenCode, configDoSpawn, modeloDoOpenCode } = await import("./provedores/opencode.js");
 const { OPENCODE_PLUGIN_SOURCE, OPENCODE_PLUGIN_NOME } = await import("./provedores/opencode-plugin-source.js");
-const { mensagensDoExport, lerConversaDoOpenCode } = await import("./provedores/opencode-conversa.js");
-const { filtrarModelosOpenRouter, lerCacheOpenRouter, cacheOpenRouterVelho, atualizarCacheOpenRouter, VALIDADE_CACHE_OPENROUTER_MS } =
+const { mensagensDoExport, lerConversaDoOpenCode, zerarConversaDoOpenCode, ErroDeConversa } = await import("./provedores/opencode-conversa.js");
+const { filtrarModelosOpenRouter, lerCacheOpenRouter, cacheOpenRouterVelho, atualizarCacheOpenRouter, garantirCacheOpenRouter, zerarFalhasDoOpenRouter, VALIDADE_CACHE_OPENROUTER_MS } =
   await import("./provedores/openrouter-modelos.js");
 
 const CHAVE_FALSA = "sk-or-v1-" + "a1b2c3d4e5f6".repeat(5);
@@ -262,8 +265,10 @@ test("conversa: respeita o limite de mensagens e devolve null para JSON quebrado
 });
 
 test("conversa: id de sessão fora da forma ses_ não executa nada", async () => {
-  const r = await lerConversaDoOpenCode({ sessionId: "$(touch /tmp/x)", env: {}, cwd: "/tmp", quantas: 3, binario: "/bin/false" });
-  assert.equal(r, null);
+  await assert.rejects(
+    lerConversaDoOpenCode({ sessionId: "$(touch /tmp/x)", env: {}, cwd: "/tmp", quantas: 3, binario: "/bin/false" }),
+    /não tem a forma de um id do OpenCode/,
+  );
 });
 
 test("conversa: binário falso que imprime o export devolve as mensagens", async () => {
@@ -311,4 +316,150 @@ test("openrouter: atualizar grava o cache, e falha mantém o cache anterior", as
   const rede = (async () => { throw new Error("sem rede"); }) as typeof fetch;
   assert.equal((await atualizarCacheOpenRouter({ arquivo, buscar: rede })).ok, false);
   assert.equal(lerCacheOpenRouter(arquivo)?.modelos[0]?.id, "a/b", "o cache bom sobrevive às falhas");
+});
+
+test("openrouter: corpo grande demais é cortado durante a leitura, sem puxar tudo para a memória", async () => {
+  const arquivo = path.join(pastaTemporaria("oc-grande"), "modelos.json");
+  let enviados = 0;
+  let cancelado = false;
+  const corpo = new ReadableStream<Uint8Array>({
+    pull(ctrl) {
+      enviados += 1;
+      ctrl.enqueue(new Uint8Array(1024 * 1024)); // 1 MiB por pedaço, para sempre
+    },
+    cancel() {
+      cancelado = true;
+    },
+  });
+  const buscar = (async () => new Response(corpo, { status: 200 })) as typeof fetch;
+  const r = await atualizarCacheOpenRouter({ arquivo, buscar });
+  assert.equal(r.ok, false);
+  assert.match((r as { erro: string }).erro, /grande demais/);
+  assert.equal(cancelado, true, "a leitura foi cancelada ao passar do teto");
+  assert.ok(enviados < 20, `parou perto de 8 MiB (puxou ${enviados} MiB)`);
+  assert.equal(fs.existsSync(arquivo), false);
+});
+
+test("openrouter: atualizações simultâneas viram uma busca só, e depois de falhar não repete antes do intervalo", async () => {
+  const arquivo = path.join(pastaTemporaria("oc-unica"), "modelos.json");
+  let buscas = 0;
+  const lento = (async () => {
+    buscas += 1;
+    await new Promise((r) => setTimeout(r, 100));
+    return new Response(JSON.stringify({ data: [{ id: "a/b", supported_parameters: ["tools"] }] }), { status: 200 });
+  }) as typeof fetch;
+  const rs = await Promise.all([1, 2, 3, 4].map(() => atualizarCacheOpenRouter({ arquivo, buscar: lento })));
+  assert.equal(buscas, 1);
+  assert.ok(rs.every((r) => r.ok));
+
+  zerarFalhasDoOpenRouter();
+  const velho = path.join(pastaTemporaria("oc-falha"), "modelos.json");
+  let tentativas = 0;
+  const cai = (async () => {
+    tentativas += 1;
+    throw new Error("sem rede");
+  }) as typeof fetch;
+  await garantirCacheOpenRouter("teste", { arquivo: velho, buscar: cai });
+  await garantirCacheOpenRouter("teste", { arquivo: velho, buscar: cai });
+  assert.equal(tentativas, 1, "a segunda chamada, logo depois da falha, não bate na rede");
+});
+
+test("openrouter: cache que é FIFO ou link simbólico não é lido nem trava o runner", () => {
+  const pasta = pastaTemporaria("oc-especial");
+  const fifo = path.join(pasta, "fifo.json");
+  execFileSync("mkfifo", [fifo]);
+  const t0 = Date.now();
+  assert.equal(lerCacheOpenRouter(fifo), null);
+  assert.ok(Date.now() - t0 < 1000, "a leitura não ficou presa no FIFO");
+  const alvo = path.join(pasta, "real.json");
+  fs.writeFileSync(alvo, JSON.stringify({ buscadoEm: new Date().toISOString(), modelos: [{ id: "a/b", nome: "AB", apelidos: [] }] }));
+  const link = path.join(pasta, "link.json");
+  fs.symlinkSync(alvo, link);
+  assert.equal(lerCacheOpenRouter(link), null, "link simbólico não é seguido");
+  assert.equal(lerCacheOpenRouter(alvo)?.modelos.length, 1, "o arquivo comum continua lido");
+});
+
+test("openrouter: a gravação não segue link plantado no nome temporário antigo e deixa o cache com modo 600", async () => {
+  const pasta = pastaTemporaria("oc-tmp");
+  const arquivo = path.join(pasta, "modelos.json");
+  const vitima = path.join(pasta, "vitima.txt");
+  fs.writeFileSync(vitima, "intacto");
+  fs.symlinkSync(vitima, `${arquivo}.${process.pid}.tmp`);
+  const bom = (async () => new Response(JSON.stringify({ data: [{ id: "a/b", supported_parameters: ["tools"] }] }), { status: 200 })) as typeof fetch;
+  assert.equal((await atualizarCacheOpenRouter({ arquivo, buscar: bom })).ok, true);
+  assert.equal(fs.readFileSync(vitima, "utf8"), "intacto");
+  assert.equal(fs.statSync(arquivo).mode & 0o777, 0o600);
+  assert.equal(fs.readdirSync(pasta).filter((f) => f.endsWith(".tmp") && !f.startsWith("modelos.json." + process.pid)).length, 0, "nenhum temporário aleatório sobrou");
+});
+
+function binarioDeConversa(pasta: string, corpo: string): string {
+  const bin = path.join(pasta, "opencode-falso");
+  fs.writeFileSync(bin, `#!/bin/sh\n${corpo}\n`, { mode: 0o755 });
+  return bin;
+}
+
+test("conversa: leituras simultâneas da mesma sessão compartilham um processo só, e o cache curto evita outro", async () => {
+  zerarConversaDoOpenCode();
+  const pasta = pastaTemporaria("oc-conc");
+  const contagem = path.join(pasta, "contagem");
+  const bin = binarioDeConversa(pasta, `echo x >> "${contagem}"\nsleep 0.4\ncat <<'FIM'\n${EXPORT}\nFIM`);
+  const pedido = { sessionId: "ses_Conc1abc", env: { PATH: process.env.PATH ?? "" }, cwd: pasta, quantas: 5, binario: bin };
+  const rs = await Promise.all([1, 2, 3, 4, 5].map(() => lerConversaDoOpenCode(pedido)));
+  assert.ok(rs.every((r) => r.length === 2));
+  assert.equal(fs.readFileSync(contagem, "utf8").trim().split("\n").length, 1, "um processo para cinco leituras");
+  await lerConversaDoOpenCode(pedido);
+  assert.equal(fs.readFileSync(contagem, "utf8").trim().split("\n").length, 1, "o cache curto atendeu a leitura seguinte");
+});
+
+test("conversa: sessões diferentes passam por no máximo 2 processos ao mesmo tempo", async () => {
+  zerarConversaDoOpenCode();
+  const pasta = pastaTemporaria("oc-vagas");
+  const marcas = path.join(pasta, "marcas");
+  const bin = binarioDeConversa(pasta, `echo "+" >> "${marcas}"\nsleep 0.3\necho "-" >> "${marcas}"\ncat <<'FIM'\n${EXPORT}\nFIM`);
+  const ids = ["ses_Vaga1abc", "ses_Vaga2abc", "ses_Vaga3abc", "ses_Vaga4abc", "ses_Vaga5abc"];
+  await Promise.all(ids.map((sessionId) => lerConversaDoOpenCode({ sessionId, env: { PATH: process.env.PATH ?? "" }, cwd: pasta, quantas: 1, binario: bin })));
+  let ativos = 0;
+  let maximo = 0;
+  for (const l of fs.readFileSync(marcas, "utf8").trim().split("\n")) {
+    ativos += l === "+" ? 1 : -1;
+    maximo = Math.max(maximo, ativos);
+  }
+  assert.ok(maximo <= 2, `no máximo 2 ao mesmo tempo (chegou a ${maximo})`);
+});
+
+test("conversa: falha do export e conversa acima do teto viram erro explícito, não lista vazia", async () => {
+  zerarConversaDoOpenCode();
+  const pasta = pastaTemporaria("oc-erro");
+  const quebra = binarioDeConversa(pasta, "echo 'banco corrompido' >&2\nexit 3");
+  await assert.rejects(
+    lerConversaDoOpenCode({ sessionId: "ses_Erro1abc", env: { PATH: process.env.PATH ?? "" }, cwd: pasta, quantas: 1, binario: quebra }),
+    (e: unknown) => e instanceof ErroDeConversa && /falhou/.test(e.message) && e.comoResolver.length > 0,
+  );
+  zerarConversaDoOpenCode();
+  const enorme = binarioDeConversa(pasta, "head -c 34000000 /dev/zero | tr '\\0' a");
+  await assert.rejects(
+    lerConversaDoOpenCode({ sessionId: "ses_Erro2abc", env: { PATH: process.env.PATH ?? "" }, cwd: pasta, quantas: 1, binario: enorme }),
+    (e: unknown) => e instanceof ErroDeConversa && /32 MiB/.test(e.message),
+  );
+});
+
+test("opencode: forma de pagar herdada do protótipo ('constructor') não vale e restrições do dono recusam o card", () => {
+  const sem = ctxOpenCode({ escolha: { provedor: "opencode", auth: "constructor", modelo: "z-ai/glm-5.3-prime", paraCard: true } });
+  const r = motorOpenCode.motivoSemLogin!(sem)!;
+  assert.equal(r.tipo, "chave");
+  assert.match(r.mensagem, /só funciona na forma 'api'/);
+  const restrito = ctxOpenCode({ config: { name: "x", cwd: "/tmp", initialPrompt: "", provider: "opencode-cli", permissionMode: "auto", denyTools: ["Bash"] } });
+  assert.equal(motorOpenCode.motivoSemLogin!(restrito)!.tipo, "restricao");
+});
+
+test("opencode: o AGENTS.md da pasta de trabalho entra por instructions (a config do projeto fica desligada)", () => {
+  const cwd = pastaTemporaria("oc-agents");
+  assert.equal("instructions" in configDoSpawn(ctxOpenCode({ cwd })), false, "sem AGENTS.md nada entra");
+  fs.writeFileSync(path.join(cwd, "AGENTS.md"), "regras da pasta\n");
+  const cfg = configDoSpawn(ctxOpenCode({ cwd, identidade: { arquivo: "/tmp/identidade.md", texto: "x" } }));
+  assert.deepEqual(cfg.instructions, ["/tmp/identidade.md", path.join(cwd, "AGENTS.md")]);
+  // Uma PASTA chamada AGENTS.md não é arquivo de instrução.
+  const outro = pastaTemporaria("oc-agents2");
+  fs.mkdirSync(path.join(outro, "AGENTS.md"));
+  assert.equal("instructions" in configDoSpawn(ctxOpenCode({ cwd: outro })), false);
 });

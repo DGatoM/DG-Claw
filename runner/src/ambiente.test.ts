@@ -127,3 +127,31 @@ test("claude/assinatura: a chave do OpenRouter HERDADA (fora do cofre) não pass
   const r = montar("claude", "assinatura", { OPENROUTER_API_KEY: OPR });
   assert.equal("OPENROUTER_API_KEY" in r.env, false);
 });
+
+test("opencode/api: qualquer OPENCODE_* e OPENROUTER_* (menos a chave) sai, mesmo vindo do cofre ou do envExtra", () => {
+  const r = montar(
+    "opencode",
+    "api",
+    { OPENROUTER_API_KEY: OPR, OPENCODE_MODELS_URL: "http://desvio.invalido/m", OPENROUTER_HTTP_REFERER_URL: "http://x", OPENCODE_EXPERIMENTAL_X: "1", OUTRA_COISA: "fica" },
+    ["OPENROUTER_API_KEY", "OPENCODE_MODELS_URL"],
+    { OPENCODE_CONFIG_CONTENT: "{}" },
+  );
+  for (const nome of ["OPENCODE_MODELS_URL", "OPENROUTER_HTTP_REFERER_URL", "OPENCODE_EXPERIMENTAL_X", "OPENCODE_CONFIG_CONTENT"]) {
+    assert.equal(nome in r.env, false, `${nome} deveria sair`);
+  }
+  assert.equal(r.env.OPENROUTER_API_KEY, OPR);
+  assert.equal(r.env.OUTRA_COISA, "fica");
+});
+
+test("opencode/api: chave só herdada (fora do cofre) não vale, mesmo estando no ambiente", () => {
+  const r = montar("opencode", "api", { OPENROUTER_API_KEY: OPR }, []);
+  assert.equal("OPENROUTER_API_KEY" in r.env, false);
+  assert.equal(r.chaveDoModoPresente, false);
+  assert.deepEqual(r.removidas, [{ nome: "OPENROUTER_API_KEY", motivo: "herdada, não está no cofre" }]);
+});
+
+test("forma de pagar com nome herdado do protótipo ('constructor', '__proto__') é recusada como inexistente", () => {
+  for (const auth of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+    assert.throws(() => montar("opencode", auth, { OPENROUTER_API_KEY: OPR }, ["OPENROUTER_API_KEY"]), /não existe para o provedor/);
+  }
+});

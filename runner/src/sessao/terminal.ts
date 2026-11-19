@@ -30,7 +30,7 @@ export function aoReceberDados(s: Sessao, dados: string, mascara: MascaraDeFluxo
 
   // Motor sem SessionStart (Codex): a tela quieta por um instante é o "pronto".
   // A recusa de login é checada no boot-timer, não aqui: uma tela de login também fica quieta.
-  if (!s.motor.usaHooks && s.proc) {
+  if (!s.motor.usaHooks && !s.motor.prontidaoPorPlugin && s.proc) {
     const esteProc = s.proc;
     cancelarQuietoDeBoot(s);
     s.quietoDeBoot = setTimeout(() => {

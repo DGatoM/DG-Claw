@@ -245,7 +245,7 @@ export async function tratarRotasDeProvedor(
     try {
       // Os modelos do Codex vêm do models_cache.json do CODEX_HOME DESTA sessão (que na API é outro).
       const codexHome =
-        nomeP === "codex" && catalogo.provedores.codex?.auth[nomeA]
+        nomeP === "codex" && catalogo.provedores.codex?.auth && Object.hasOwn(catalogo.provedores.codex.auth, nomeA)
           ? (s.ambienteDaEscolha({ provedor: "codex", auth: nomeA, modelo: "" }, catalogo).codexHome ?? undefined)
           : undefined;
       valida = validar(catalogo, nomeP, nomeA, (modelo ?? "").trim(), { codexHome });

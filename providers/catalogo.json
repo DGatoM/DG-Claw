@@ -137,6 +137,7 @@
           "explica": "Você paga só pelo que usar, contado em tokens (pedaços de texto), direto na sua conta do OpenRouter, e cada modelo tem um preço diferente. Não existe plano fixo: um card que trabalha muito pode gastar bastante, então defina na chave um limite de gasto em dólares (o OpenRouter oferece isso ao criar a chave). Precisa de uma chave, que fica guardada no Cofre do painel.",
           "variavel": "OPENROUTER_API_KEY",
           "ondeCriar": "https://openrouter.ai/settings/keys",
+          "soDoCofre": true,
           "limpar": [
             "OPENROUTER_BASE_URL",
             "OPENCODE_CONFIG",
@@ -144,6 +145,10 @@
             "OPENCODE_CONFIG_DIR",
             "OPENCODE_PERMISSION",
             "OPENCODE_SERVER_PASSWORD"
+          ],
+          "limparPrefixos": [
+            "OPENCODE_",
+            "OPENROUTER_"
           ]
         }
       },

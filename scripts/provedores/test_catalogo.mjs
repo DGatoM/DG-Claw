@@ -144,3 +144,45 @@ test('CLI opencode: --card libera, e sem ele recusa com exit 2', () => {
   r = spawnSync('node', [CLI, 'validar', 'opencode', 'api', 'kimi'], { encoding: 'utf8', env });
   assert.equal(r.status, 2);
 });
+
+test('opencode: corpo grande é cortado durante a leitura, e atualizações simultâneas viram uma busca só', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgrande-'));
+  const arquivo = path.join(dir, 'c.json');
+  let cancelado = false;
+  const corpo = new ReadableStream({ pull(c) { c.enqueue(new Uint8Array(1024 * 1024)); }, cancel() { cancelado = true; } });
+  const r = await atualizarCacheOpenRouter({ arquivo, buscar: async () => new Response(corpo, { status: 200 }) });
+  assert.equal(r.ok, false);
+  assert.match(r.erro, /grande demais/);
+  assert.equal(cancelado, true);
+
+  let buscas = 0;
+  const lento = async () => { buscas += 1; await new Promise((x) => setTimeout(x, 80)); return { ok: true, status: 200, text: async () => JSON.stringify(API_FALSA) }; };
+  const rs = await Promise.all([1, 2, 3].map(() => atualizarCacheOpenRouter({ arquivo, buscar: lento })));
+  assert.equal(buscas, 1);
+  assert.ok(rs.every((x) => x.ok));
+});
+
+test('opencode: cache FIFO ou link simbólico não é lido; a gravação não segue link no nome temporário antigo', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orfifo-'));
+  const fifo = path.join(dir, 'fifo.json');
+  spawnSync('mkfifo', [fifo]);
+  const t0 = Date.now();
+  assert.equal(lerCacheOpenRouter(fifo), null);
+  assert.ok(Date.now() - t0 < 1000);
+  const arquivo = path.join(dir, 'c.json');
+  const vitima = path.join(dir, 'vitima.txt');
+  fs.writeFileSync(vitima, 'intacto');
+  fs.symlinkSync(vitima, `${arquivo}.${process.pid}.tmp`);
+  const bom = async () => ({ ok: true, status: 200, text: async () => JSON.stringify(API_FALSA) });
+  assert.equal((await atualizarCacheOpenRouter({ arquivo, buscar: bom })).ok, true);
+  assert.equal(fs.readFileSync(vitima, 'utf8'), 'intacto');
+  assert.equal(fs.statSync(arquivo).mode & 0o777, 0o600);
+  const link = path.join(dir, 'link.json');
+  fs.symlinkSync(arquivo, link);
+  assert.equal(lerCacheOpenRouter(link), null);
+});
+
+test('catálogo: provedor e forma de pagar com nome do protótipo não existem', () => {
+  assert.throws(() => validar(cat, 'constructor', 'api'), /não existe/);
+  assert.throws(() => validar(cat, 'opencode', 'constructor', '', { paraCard: true }), /Forma de pagar/);
+});

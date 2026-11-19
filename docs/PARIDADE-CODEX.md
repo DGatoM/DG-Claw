@@ -121,7 +121,9 @@ agente (régua: feature de ~2 mil linhas leva 10 a 30 min).
 O OpenCode (modelos do OpenRouter) é um provedor que só abre cards e nunca é o motor da conversa
 principal, então não entra na paridade completa dos dois motores principais. Não existem nele: os hooks
 e os skills do Claude Code, o Telegram, os conectores do claude.ai, o pedido de permissão pela conversa
-(o padrão dele só pergunta ao sair da pasta de trabalho), o custo por mensagem e o MCP do descritor. O
+(o padrão dele só pergunta ao sair da pasta de trabalho), o custo por mensagem e o MCP do descritor. Também não
+aplica `askTools`, `denyTools` nem as restrições do dono: com qualquer uma ativa o card não abre (recusa com o
+motivo), para não deixar o card fazer o que o dono proibiu. O
 card recebe no lugar o `AGENTS.md` da pasta de trabalho, a identidade do agente por `instructions`, o
 plugin de status (`runner/src/provedores/opencode-plugin-source.ts`) e as ferramentas nativas. Detalhes e
 medições em [PROVEDORES.md](PROVEDORES.md). "Testado no Codex" não se aplica: o OpenCode é provedor novo, e
