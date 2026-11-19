@@ -27,9 +27,8 @@ test('fila: a mensagem entregue enquanto o agente trabalha volta na atividade, c
     assert.equal(a.na_fila.length, 2);
     assert.deepEqual(a.na_fila[0], { msg: r.corpo.fila.msg, em: 1000, texto: 'ok' });
     assert.deepEqual(a.na_fila[1], { msg: 'w-de-outro-aparelho', em: 2000 }, 'sem texto guardado, só id e hora');
-    // saiu da fila: a lista esvazia e o texto guardado é esquecido
-    s.runner.opcoes.naFila = undefined;
-    s.runner.opcoes.status = 'idle';
+    // saiu da fila: a lista esvazia, mesmo com o agente ainda trabalhando
+    s.runner.opcoes.naFila = [];
     await new Promise((r) => setTimeout(r, 2100));   // o estado do runner fica 2 s em cache
     const b = await s.t.web.conversa.atividade(agente);
     assert.deepEqual(b.na_fila, []);
@@ -53,4 +52,25 @@ test('fila: fala de colaborador não guarda texto para a tela', async () => {
     const a = await s.t.web.conversa.atividade(agente);
     assert.equal(a.na_fila[0].texto, undefined);
   } finally { await s.fechar(); }
+});
+
+test('fila: um retrato do runner anterior ao envio não apaga o texto de mensagem que ainda espera', async () => {
+  const s = await cenario({ status: 'working' });
+  try {
+    const agente = s.t.web.registro.obter('ana');
+    const a = await s.t.web.conversa.entregar(agente, 'primeira', { cru: false, from: 'pessoa' });
+    const b = await s.t.web.conversa.entregar(agente, 'segunda', { cru: false, from: 'pessoa' });
+    s.runner.opcoes.naFila = [{ em: 1, msg: a.corpo.fila.msg }];   // retrato velho: só a primeira
+    await s.t.web.conversa.atividade(agente);
+    await new Promise((r) => setTimeout(r, 2100));
+    s.runner.opcoes.naFila = [{ em: 1, msg: a.corpo.fila.msg }, { em: 2, msg: b.corpo.fila.msg }];
+    const x = await s.t.web.conversa.atividade(agente);
+    assert.equal(x.na_fila[1].texto, 'segunda');
+  } finally { await s.fechar(); }
+});
+
+test('stream: mudança só na fila muda a chave do evento de atividade', () => {
+  const { chaveAtividade } = require('../lib/sse');
+  const base = { estado: 'trabalhando', acao: 'x', alerta: null, desde: 't', detalhe: null };
+  assert.notEqual(chaveAtividade(base), chaveAtividade(Object.assign({}, base, { na_fila: [{ msg: 'w1', em: 1 }] })));
 });

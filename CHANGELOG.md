@@ -23,7 +23,7 @@ comum nada muda. Relatado por aluno da mentoria.
 
 ### Como atualizar (Codex 0.167.1)
 
-A versão nova do Codex só chega aos seus agentes depois que a imagem deles é reconstruída. O `dgclaw atualizar` já faz isso sozinho (a etapa "reconstruindo a imagem dos agentes", que leva de 10 a 20 minutos), então basta pedir ao Admin, no chat: "atualiza o DG Claw". Quem atualizou só o código e não reconstruiu a imagem continua com o Codex antigo, e então roda `dgclaw imagem construir --agora`. Suas chaves, logins, conversas e agentes continuam como estavam.
+A versão nova do Codex só chega aos seus agentes depois que a imagem deles é reconstruída. O `dgclaw atualizar` já faz isso sozinho (a etapa "reconstruindo a imagem dos agentes", que leva de 10 a 20 minutos), então basta pedir ao Admin, no chat: "atualiza o DG Claw". Quem atualizou só o código e não reconstruiu a imagem continua com o Codex antigo: rode `dgclaw imagem construir --agora` e depois `dgclaw agente recriar <nome>` para cada agente, porque a imagem nova só vale quando o container é recriado. Suas chaves, logins, conversas e agentes continuam como estavam.
 
 ## [1.1.0] - 2026-11-18
 

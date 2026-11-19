@@ -445,7 +445,6 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     est.desde = est.estado === 'ocioso' ? null : desde;
     // Só quando o runner informa a fila (runner antigo não informa): a tela usa isto para manter o aviso "na fila".
     if (r.ok && Array.isArray(r.estado.naFila)) est.na_fila = filaParaTela(agente.slug, r.estado.naFila);
-    else if (r.ok && r.estado.status === 'idle') est.na_fila = filaParaTela(agente.slug, []);
     return est;
   }
 
@@ -590,7 +589,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     if (colaboradorId) return;   // fala de colaborador não volta para a tela do dono nem de outro colaborador
     let m = textosNaFila.get(slug);
     if (!m) { m = new Map(); textosNaFila.set(slug, m); }
-    m.set(msg, { texto });
+    m.set(msg, { texto, em: relogio() });
     while (m.size > MAX_NA_FILA) m.delete(m.keys().next().value);
   }
   /** A fila do runner no formato da tela: [{ msg, em (ms), texto? }]. O texto só vai se este Web o guardou. */
@@ -598,7 +597,9 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     if (!Array.isArray(naFilaRunner)) return undefined;
     const guardados = textosNaFila.get(slug);
     const ids = new Set(naFilaRunner.map((x) => x && x.msg).filter(Boolean));
-    if (guardados) for (const k of Array.from(guardados.keys())) if (!ids.has(k)) guardados.delete(k);
+    // Só esquece o texto de quem sumiu da lista E já tem mais que o cache do estado (TTL_RUNNER_MS) de vida:
+    // um retrato do runner anterior ao envio não pode apagar uma mensagem que ainda espera.
+    if (guardados) for (const [k, g] of Array.from(guardados.entries())) if (!ids.has(k) && relogio() - g.em > TTL_RUNNER_MS + 3000) guardados.delete(k);
     return naFilaRunner.filter((x) => x && typeof x.em === 'number').map((x) => {
       const g = x.msg && guardados ? guardados.get(x.msg) : null;
       const item = { msg: x.msg || null, em: x.em };

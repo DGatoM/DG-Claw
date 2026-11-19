@@ -130,11 +130,21 @@ test('baixar no PWA do iPhone: compartilha o arquivo e nunca navega a janela do 
   assert.deepEqual(chamadas.abriu, []);
 });
 
-test('baixar no PWA do iPhone: sem compartilhar arquivo abre aba do sistema com baixar=1', async () => {
+test('baixar no PWA do iPhone: aparelho sem compartilhar arquivo abre a aba direto no toque, sem buscar antes', async () => {
   const { deps, chamadas } = depsBaixar({ nav: {} });
   const r = await P.baixarNoPwaIos('/api/v1/media/m1', 'a.pdf', deps);
   assert.equal(r.via, 'aba');
   assert.deepEqual(chamadas.abriu, ['/api/v1/media/m1?baixar=1']);
+  assert.deepEqual(chamadas.buscou, []);
+});
+
+test('baixar no PWA do iPhone: tipo que não compartilha espera o segundo toque para abrir a aba', async () => {
+  const { deps, chamadas } = depsBaixar({ nav: { canShare: () => false, share: async () => {} } });
+  assert.equal((await P.baixarNoPwaIos('/u', 'a.bin', deps)).via, 'segundo-toque');
+  assert.deepEqual(chamadas.abriu, [], 'depois da busca não há mais toque: nada abre sozinho');
+  assert.equal((await P.baixarNoPwaIos('/u', 'a.bin', deps)).via, 'aba');
+  assert.deepEqual(chamadas.abriu, ['/u?baixar=1']);
+  assert.equal(chamadas.buscou.length, 1);
 });
 
 test('baixar no PWA do iPhone: cancelar a folha não é erro; recusa por falta de toque guarda o arquivo para o segundo toque', async () => {
@@ -149,7 +159,7 @@ test('baixar no PWA do iPhone: cancelar a folha não é erro; recusa por falta d
 });
 
 test('baixar no PWA do iPhone: resposta de erro vira motivo, sem lançar', async () => {
-  const { deps } = depsBaixar({ fetch: async () => ({ ok: false, status: 404 }) });
+  const { deps } = depsBaixar({ nav: { canShare: () => true, share: async () => {} }, fetch: async () => ({ ok: false, status: 404 }) });
   const r = await P.baixarNoPwaIos('/u', 'a', deps);
   assert.equal(r.via, 'erro'); assert.match(r.erro, /404/);
 });
