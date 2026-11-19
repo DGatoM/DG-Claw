@@ -149,6 +149,7 @@ case "${1:-}" in
         touch "$est/update-feito"
         read -r mem quota periodo pids swap < "$est/lim-$nome"
         swap="${swap:-$((mem * 2))}"
+        args_update="$*"
         shift   # tira o "update"
         while [ $# -gt 1 ]; do
             # aceita --flag=valor e --flag valor
@@ -166,6 +167,8 @@ case "${1:-}" in
         [ -f "$est/update-cpu-acima" ] && quota=$((quota * 2))
         [ -f "$est/update-pids-acima" ] && pids=$((pids + 500))
         [ -f "$est/update-swap-mais" ] && swap=$((swap + 1073741824))
+        # update-cpu-mexe-mem: quando o update pede CPUs, a memoria (finita) muda de colateral (+1 GiB, com o swap junto).
+        [ -f "$est/update-cpu-mexe-mem" ] && [[ "$args_update" == *--cpus* ]] && { mem=$((mem + 1073741824)); swap=$((swap + 1073741824)); }
         # update-swap-vira-max: o swap finito vira sem limite (-1) depois do update, mesmo sem o reparo ter mexido nele.
         [ -f "$est/update-swap-vira-max" ] && swap=-1
         echo "$mem $quota $periodo $pids $swap" > "$est/lim-$nome" ;;

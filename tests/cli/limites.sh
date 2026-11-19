@@ -312,7 +312,11 @@ nega "a primeira chamada termina com codigo diferente de zero" test "$nao_zero" 
 # shellcheck disable=SC2016 # as crases fazem parte do texto procurado
 afirma "e diz FALHA e qual limite" grep -q 'FALHA: o limite de CPUs do container dgclaw-a4 sumiu' "$TMP/rep.txt"
 # shellcheck disable=SC2016 # as crases fazem parte do texto procurado
-afirma "manda recriar o agente" grep -q 'recrie o agente: `dgclaw agente recriar a4`' "$TMP/rep.txt"
+afirma "manda recriar o agente com --forcar" grep -q 'recrie o agente: `dgclaw agente recriar a4 --forcar`' "$TMP/rep.txt"
+# shellcheck disable=SC2016
+afirma "avisa que o --forcar pula a conferencia de arquivos so do container" grep -q 'O --forcar tambem pula a conferencia de arquivos que so existem dentro do container, entao copie para a casa do agente' "$TMP/rep.txt"
+# shellcheck disable=SC2016
+afirma "e manda conferir o teto com reparar" grep -q 'Depois confira o teto com `dgclaw agente reparar a4`' "$TMP/rep.txt"
 # shellcheck disable=SC2016
 afirma "e diz que repetir o reparo nao devolve o limite" grep -q 'dgclaw agente reparar a4` de novo nao devolve o limite' "$TMP/rep.txt"
 rm -f "$STUB_ESTADO/update-cpu-vira-max"
@@ -320,6 +324,23 @@ rm -f "$STUB_ESTADO/update-cpu-vira-max"
 igual "a segunda chamada termina com 0" "0" "$?"
 nega "e nao converte as CPUs sem limite em teto finito" grep -q '^podman update' "$STUB_LOG"
 afirma "as CPUs continuam sem limite" grep -q '^6442450944 0 ' "$STUB_ESTADO/lim-dgclaw-a4"
+
+echo "mudanca colateral de finito para finito: so CPU pedida, memoria personalizada muda"
+maquina 8 2
+echo "1073741824 100000 100000 4096 2147483648" >"$STUB_ESTADO/lim-dgclaw-a4"   # 1 GB (escolha do dono), CPUs no padrao antigo
+touch "$STUB_ESTADO/update-cpu-mexe-mem"
+: >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
+nega "o reparar termina com codigo diferente de zero" test "$?" -eq 0
+afirma "e diz FALHA com valor anterior e observado" grep -q 'FALHA: a memoria do container dgclaw-a4 mudou sem ter sido pedida depois do podman update: valor anterior 1073741824 bytes, observado 2147483648 bytes' "$TMP/rep.txt"
+rm -f "$STUB_ESTADO/update-cpu-mexe-mem"
+
+echo "CPU: 50000 50000 e escolha do dono (so o par exato 100000 100000 e o padrao antigo)"
+maquina 8 2
+echo "8589934592 50000 50000 4096 17179869184" >"$STUB_ESTADO/lim-dgclaw-a4"
+: >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
+igual "o reparar termina com 0" "0" "$?"
+nega "nao roda o update" grep -q '^podman update' "$STUB_LOG"
+afirma "o cpu.max continua 50000 50000" grep -q '^8589934592 50000 50000 ' "$STUB_ESTADO/lim-dgclaw-a4"
 
 echo "swap finito que vira sem limite depois do update e falha, mesmo sem o reparo ter mexido nele"
 maquina 8 2

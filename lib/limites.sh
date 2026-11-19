@@ -189,7 +189,9 @@ _limites_pids_abaixo() { [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS_ILIM" != 1 ] && 
 # O padrao antigo do DG Claw (antes do calculo pela maquina): 2 GiB, 1.0 CPU e 1024 processos. O reparar so mexe num recurso
 # que ainda esta nesse valor; qualquer outro valor (acima ou abaixo do calculado) conta como escolha do dono.
 _limites_mem_antiga() { [ "$ATU_MEM_ILIM" != 1 ] && [ "$ATU_MEM_B" -eq 2147483648 ]; }
-_limites_cpu_antiga() { [ "$ATU_CPU_ILIM" != 1 ] && [ "$ATU_CPU_QUOTA" -eq "$ATU_CPU_PERIODO" ]; }
+# CPU: o padrao antigo e o par exato quota 100000 e periodo 100000 (o antigo --cpus 1.0). Outro periodo (50000 50000, por
+# exemplo) e escolha do dono.
+_limites_cpu_antiga() { [ "$ATU_CPU_ILIM" != 1 ] && [ "$ATU_CPU_QUOTA" -eq 100000 ] && [ "$ATU_CPU_PERIODO" -eq 100000 ]; }
 _limites_pids_antigo() { [ "$ATU_PIDS_ILIM" != 1 ] && [ "$ATU_PIDS" -eq 1024 ]; }
 
 # limites_ajustar_existente <slug>: poe o container que ja existe no limite calculado, SEM recriar, com
@@ -221,6 +223,7 @@ limites_ajustar_existente() {
     [ "$ATU_CPU_OK" = 1 ] && [ "$ATU_CPU_ILIM" != 1 ] && fin_cpu_antes=1
     [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS_ILIM" != 1 ] && fin_pids_antes=1
     local quer_mem=0 quer_cpu=0 quer_pids=0 mantidos=()
+    local mem_antes_b="$ATU_MEM_B" cpu_quota_antes="$ATU_CPU_QUOTA" cpu_periodo_antes="$ATU_CPU_PERIODO" pids_antes="$ATU_PIDS"
     if _limites_mem_abaixo && ! _limites_mem_antiga; then
         mantidos+=("memoria em $(_limites_mb_texto "$ATU_MEM_MB")")
     elif _limites_mem_abaixo; then
@@ -304,6 +307,17 @@ limites_ajustar_existente() {
         elif [ "$ATU_PIDS" -eq "$LIMITE_PIDS" ]; then subiram+=("processos")
         else abaixo+=("processos"); fi
     fi
+    # Controlador que nao estava no pedido e era finito antes tem que ser relido igual: mudar de um finito para outro e falha.
+    if [ "$quer_mem" != 1 ] && [ "$fin_mem_antes" = 1 ] && [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_ILIM" != 1 ] && [ "$ATU_MEM_B" -ne "$mem_antes_b" ]; then
+        falhas+=("a memoria do container $c mudou sem ter sido pedida depois do podman update: valor anterior $mem_antes_b bytes, observado $ATU_MEM_B bytes")
+    fi
+    if [ "$quer_cpu" != 1 ] && [ "$fin_cpu_antes" = 1 ] && [ "$ATU_CPU_OK" = 1 ] && [ "$ATU_CPU_ILIM" != 1 ] \
+        && { [ "$ATU_CPU_QUOTA" -ne "$cpu_quota_antes" ] || [ "$ATU_CPU_PERIODO" -ne "$cpu_periodo_antes" ]; }; then
+        falhas+=("as CPUs do container $c mudaram sem ter sido pedidas depois do podman update: cpu.max anterior $cpu_quota_antes a cada $cpu_periodo_antes, observado $ATU_CPU_QUOTA a cada $ATU_CPU_PERIODO")
+    fi
+    if [ "$quer_pids" != 1 ] && [ "$fin_pids_antes" = 1 ] && [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS_ILIM" != 1 ] && [ "$ATU_PIDS" -ne "$pids_antes" ]; then
+        falhas+=("o limite de processos do container $c mudou sem ter sido pedido depois do podman update: valor anterior $pids_antes, observado $ATU_PIDS")
+    fi
     local rc=0
     for f in "${falhas[@]}"; do
         aviso "FALHA: $f. Veja com: podman inspect $c"
@@ -311,7 +325,7 @@ limites_ajustar_existente() {
     done
     for f in "${sumiram[@]}"; do
         # shellcheck disable=SC2016 # as crases fazem parte do texto
-        aviso "FALHA: o limite de $f do container $c sumiu. Era finito e, depois do podman update, o cgroup passou a mostrar sem limite (max); isso nao e um aumento. Rodar \`dgclaw agente reparar $1\` de novo nao devolve o limite (ele passaria a tratar o sem limite como escolha sua). Para o teto voltar, recrie o agente: \`dgclaw agente recriar $1\`. Veja com: podman inspect $c"
+        aviso "FALHA: o limite de $f do container $c sumiu. Era finito e, depois do podman update, o cgroup passou a mostrar sem limite (max); isso nao e um aumento. Rodar \`dgclaw agente reparar $1\` de novo nao devolve o limite (ele passaria a tratar o sem limite como escolha sua). Para o teto voltar, recrie o agente: \`dgclaw agente recriar $1 --forcar\` (com a imagem atual, sem o --forcar o recriar responde \"nada a recriar\"). O --forcar tambem pula a conferencia de arquivos que so existem dentro do container, entao copie para a casa do agente antes o que precisar guardar. Depois confira o teto com \`dgclaw agente reparar $1\`. Veja com: podman inspect $c"
         rc=1
     done
     for f in "${abaixo[@]}"; do
