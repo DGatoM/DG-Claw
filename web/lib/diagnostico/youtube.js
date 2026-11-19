@@ -1,12 +1,12 @@
 'use strict';
 // Download do YouTube do agente. Faz um download REAL e pequeno dentro do container, como o usuário agente, e
-// guarda o último resultado com horário. O yt-dlp lê os cookies do navegador da Tela (configuração em
-// ~/.config/yt-dlp/config); quando a conta sai do YouTube, é aqui que o dono fica sabendo, em vez de o agente
-// falhar calado no meio de um pedido. Não depende do motor do agente (Claude ou Codex): roda no container.
+// guarda o último resultado com horário. O teste ignora qualquer configuração do yt-dlp e passa as opções na própria
+// chamada (inclusive os cookies da Tela, quando a pasta do Chrome existe); quando a conta sai do YouTube, é aqui que o
+// dono fica sabendo, em vez de o agente falhar calado no meio de um pedido. Nada do stderr do yt-dlp sai daqui: a
+// classificação devolve só um tipo de uma lista fechada (e o código de saída), e todo texto mostrado é fixo. Não depende do motor do agente (Claude ou Codex): roda no container.
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { higienizar } = require('./higiene');
 const U = require('./util');
 
 const { R, conserta } = U;
@@ -16,8 +16,11 @@ const PRAZO_DOWNLOAD_S = 80;             // teto dentro do container (comando `t
 const PRAZO_EXEC_MS = 100000;            // teto de quem chama, um pouco acima do de dentro
 const VIDEO_TESTE = 'https://www.youtube.com/watch?v=jNQXAC9IJRQ'; // "Me at the zoo": 19 s, o primeiro vídeo do YouTube, estável
 const NOME_ARQUIVO = 'youtube-saude.json';
+const LIMITE_SAIDA = 8192;               // bytes lidos de stderr e de stdout, cortados antes de qualquer regex ou log
+const PASTA_COOKIES = '/home/agente/.tela-chrome';
 
-// Roda dentro do container, sem nenhum valor vindo de fora. A pasta é temporária e some ao final.
+// Roda dentro do container, sem nenhum valor vindo de fora. A pasta é temporária e some ao final. O yt-dlp ignora
+// a configuração do usuário e dos plugins; os cookies da Tela entram só se a pasta do Chrome existir.
 const SCRIPT = [
   'd=$(mktemp -d /tmp/yt-saude.XXXXXX) || exit 70',
   'trap \'rm -rf "$d"\' EXIT',
@@ -26,7 +29,12 @@ const SCRIPT = [
   '  echo "yt-dlp: command not found" >&2',
   '  exit 127',
   'fi',
-  `timeout ${PRAZO_DOWNLOAD_S} yt-dlp --no-playlist --no-warnings --no-progress --socket-timeout 20 -f worst --max-filesize 5M -P "$d" -o '%(id)s.%(ext)s' '${VIDEO_TESTE}' || exit $?`,
+  'set --',
+  `if [ -d ${PASTA_COOKIES} ]`,
+  'then',
+  `  set -- --cookies-from-browser "chrome+basictext:${PASTA_COOKIES}"`,
+  'fi',
+  `timeout ${PRAZO_DOWNLOAD_S} yt-dlp --ignore-config --no-plugin-dirs --js-runtimes node "$@" --no-playlist --no-progress --socket-timeout 20 -f worst --max-filesize 5M -P "$d" -o '%(id)s.%(ext)s' '${VIDEO_TESTE}' || exit $?`,
   'if ! ls "$d" | grep -q .',
   'then',
   '  echo "nenhum arquivo foi baixado" >&2',
@@ -34,32 +42,41 @@ const SCRIPT = [
   'fi',
 ].join('\n');
 
-const RX_LOGIN = /sign in to confirm|cookies are no longer valid|please sign in|login required/i;
-// Cookie e token não podem sair na tela: além da higiene geral, some linha de cabeçalho Cookie, par nome=valor dos
-// cookies do Google e qualquer sequência longa de letras e números (valor de cookie ou token).
-const RX_CABECALHO_COOKIE = /(?:set-)?cookie\s*:.*$/i;
-const RX_PAR_COOKIE = /\b(?:__Secure-\w+|\w*SID\w*|LOGIN_INFO|VISITOR_\w+|YSC|NID)\s*=\s*[^\s;]+/gi;
-const RX_SEQUENCIA_LONGA = /[A-Za-z0-9_%.-]{32,}/g;
-const semCookies = (t) => String(t).replace(RX_CABECALHO_COOKIE, '[oculto]').replace(RX_PAR_COOKIE, '[oculto]').replace(RX_SEQUENCIA_LONGA, '[oculto]');
+// Sinais de que a conta do YouTube não vale mais: o pedido de login, e o aviso de cookies inválidos (que o yt-dlp dá
+// mesmo quando consegue baixar um vídeo público).
+const RX_LOGIN = /sign in to confirm|cookies are no longer valid|cookies.{0,40}(?:invalid|expired)|please sign in|login required/i;
 const RX_AUSENTE = /yt-dlp:? (?:command )?not found|yt-dlp: no such file|executable file .*yt-dlp.* not found/i;
+const RX_CONTAINER = /no such container|cannot (?:exec|find)|container .* (?:is not running|does not exist)/i;
+
+/** Corta stderr e stdout no limite ANTES de qualquer regex, log ou gravação. */
+function cortarSaida(r) {
+  return { codigo: r.codigo, erro: r.erro, stderr: String(r.stderr || '').slice(0, LIMITE_SAIDA), stdout: String(r.stdout || '').slice(0, LIMITE_SAIDA) };
+}
 
 /**
  * Classifica o resultado do comando. `r` é { codigo, stdout, stderr, erro }.
- * Devolve { tipo: 'ok' | 'login' | 'ausente' | 'tempo' | 'outro', detalhe }.
- * `detalhe` só existe em 'outro' e 'tempo': a última linha do stderr, já sem segredo.
+ * Devolve { tipo: 'ok' | 'login' | 'ausente' | 'tempo' | 'outro', codigo? }. `codigo` (número) só existe em 'outro'.
+ * Nunca devolve texto do stderr: o que sai daqui pode ir para log, arquivo e resposta da API.
  */
 function classificarYoutube(r) {
-  const saida = `${String(r.stderr || '').slice(0, 16384)}\n${String(r.stdout || '').slice(0, 16384)}`;
-  if (r.codigo === 0 && !r.erro) return { tipo: 'ok' };
+  const c = cortarSaida(r);
+  const saida = `${c.stderr}\n${c.stdout}`;
   if (RX_LOGIN.test(saida)) return { tipo: 'login' };
-  if (r.codigo === 127 || RX_AUSENTE.test(saida)) return { tipo: 'ausente' };
-  if (r.erro === 'timeout' || r.erro === 'prazo' || r.codigo === 124) return { tipo: 'tempo', detalhe: `passou de ${PRAZO_DOWNLOAD_S} s` };
-  const linhas = String(r.stderr || '').slice(-4096).split('\n').map((l) => l.trim()).filter(Boolean);
-  const ultima = linhas.length ? linhas[linhas.length - 1] : '';
-  return { tipo: 'outro', detalhe: higienizar(semCookies(ultima), 200) || `o comando terminou com código ${r.codigo === null || r.codigo === undefined ? 'desconhecido' : r.codigo}` };
+  if (c.codigo === 0 && !c.erro) return { tipo: 'ok' };
+  if (c.codigo === 127 || RX_AUSENTE.test(saida)) return { tipo: 'ausente' };
+  if (c.erro === 'timeout' || c.erro === 'prazo' || c.codigo === 124) return { tipo: 'tempo' };
+  return { tipo: 'outro', codigo: Number.isInteger(c.codigo) ? c.codigo : null };
 }
 
-/** Estado guardado por agente, em memória e em <dataDir>/youtube-saude.json (só horário, tipo e detalhe higienizado). */
+const TEXTO_TIPO = {
+  login: 'o YouTube pediu login',
+  ausente: 'o yt-dlp não existe no container',
+  tempo: `o download passou de ${PRAZO_DOWNLOAD_S} s`,
+  outro: 'o download terminou com erro',
+};
+const textoFalha = (tipo, codigo) => `${TEXTO_TIPO[tipo] || tipo}${tipo === 'outro' ? ` (código de saída ${codigo === null || codigo === undefined ? 'desconhecido' : codigo})` : ''}`;
+
+/** Estado guardado por agente, em memória e em <dataDir>/youtube-saude.json (só horário, tipo, código de saída e a marca de aviso pendente). */
 function criarEstadoYoutube(ctx) {
   const arquivo = ctx.config && ctx.config.dataDir ? path.join(ctx.config.dataDir, NOME_ARQUIVO) : null;
   let dados = null;
@@ -93,6 +110,9 @@ function criarEstadoYoutube(ctx) {
       return v && typeof v === 'object' && typeof v.em === 'number' && typeof v.tipo === 'string' ? v : null;
     },
     guardar: (slug, v) => { carregar()[slug] = v; gravar(); },
+    /** Slugs com queda ainda não avisada ao dono. */
+    pendentes: () => Object.keys(carregar()).filter((k) => carregar()[k] && carregar()[k].avisoPendente === true),
+    limparAviso: (slug) => { const v = carregar()[slug]; if (v && v.avisoPendente) { v.avisoPendente = false; gravar(); } },
     andando,
   };
 }
@@ -110,15 +130,19 @@ function testarYoutube(ctx, ag) {
   if (est.andando.has(slug)) return est.andando.get(slug);
 
   async function testar() {
-    const r = await ctx.execSolto('podman', ['exec', '--user', 'agente', '-e', 'HOME=/home/agente', ag.container, 'sh', '-c', SCRIPT], { timeout: PRAZO_EXEC_MS });
+    const r = cortarSaida(await ctx.execSolto('podman', ['exec', '--user', 'agente', '-e', 'HOME=/home/agente', ag.container, 'sh', '-c', SCRIPT], { timeout: PRAZO_EXEC_MS }));
     if (r.erro === 'ENOENT') { log('aviso', 'Diagnóstico: o comando podman não foi encontrado; o teste do YouTube não rodou.'); return null; }
     const c = classificarYoutube(r);
-    if (c.tipo === 'outro' && /no such container|cannot (?:exec|find)|container .* (?:is not running|does not exist)/i.test(String(r.stderr).slice(0, 2000))) {
-      log('aviso', `Diagnóstico: o container ${ag.container} não aceitou o teste do YouTube: ${higienizar(semCookies(r.stderr), 200)}`);
+    if (c.tipo === 'outro' && RX_CONTAINER.test(r.stderr)) {
+      log('aviso', `Diagnóstico: o container ${ag.container} não aceitou o teste do YouTube (código de saída ${c.codigo === null ? 'desconhecido' : c.codigo}). Confira com dgclaw status.`);
       return null;
     }
-    if (c.tipo !== 'ok') log('aviso', `Diagnóstico: o teste do YouTube do agente ${slug} falhou (${c.tipo}${c.detalhe ? `: ${c.detalhe}` : ''}).`);
-    est.guardar(slug, { em: agora(), tipo: c.tipo, detalhe: c.detalhe || null });
+    if (c.tipo !== 'ok') log('aviso', `Diagnóstico: o teste do YouTube do agente ${slug} falhou: ${textoFalha(c.tipo, c.codigo)}.`);
+    const antes = est.ler(slug);
+    let avisoPendente = !!(antes && antes.avisoPendente);
+    if (c.tipo === 'login' && !(antes && antes.tipo === 'login')) avisoPendente = true;
+    if (c.tipo === 'ok') avisoPendente = false;
+    est.guardar(slug, { em: agora(), tipo: c.tipo, codigo: c.tipo === 'outro' ? c.codigo : null, avisoPendente });
     return c.tipo;
   }
 
@@ -158,8 +182,8 @@ function tarefaYoutube(ctx, ag, container) {
           conserta(`o yt-dlp não existe no container de o agente ${slug}; a imagem está antiga.`, '`dgclaw status`', `dgclaw agente recriar ${slug}`)));
       }
       const motivo = v.tipo === 'tempo'
-        ? `O download de teste do YouTube demorou demais (${v.detalhe || 'tempo esgotado'}).`
-        : `O download de teste do YouTube falhou: ${protegeDetalhe(v.detalhe)}.`;
+        ? `O download de teste do YouTube demorou demais (passou de ${PRAZO_DOWNLOAD_S} s).`
+        : `O download de teste do YouTube falhou (código de saída ${Number.isInteger(v.codigo) ? v.codigo : 'desconhecido'}).`;
       return R('atencao', motivo, Object.assign(base, {
         o_que_fazer: 'Tente de novo em alguns minutos (o teste se repete sozinho). Se continuar assim, mostre este item ao suporte.',
       }));
@@ -167,6 +191,4 @@ function tarefaYoutube(ctx, ag, container) {
   };
 }
 
-function protegeDetalhe(d) { return higienizar(semCookies(d || 'erro sem mensagem'), 200); }
-
-module.exports = { tarefaYoutube, testarYoutube, criarEstadoYoutube, classificarYoutube, SCRIPT, VIDEO_TESTE };
+module.exports = { tarefaYoutube, testarYoutube, criarEstadoYoutube, classificarYoutube, cortarSaida, LIMITE_SAIDA, SCRIPT, VIDEO_TESTE };

@@ -287,6 +287,7 @@ function criarDiagnostico(deps) {
     let timer = null;
     let emCurso = false;
 
+    /** Devolve true só quando o push chegou a pelo menos um aparelho e sem nenhuma falha. */
     async function avisar(ag) {
       try {
         const r = await push.enviar({
@@ -295,10 +296,22 @@ function criarDiagnostico(deps) {
           tag: `youtube-${ag.slug}`,
           url: `/a/${ag.slug}`,
         });
-        if (r && !r.inscricoes) log('info', `Aviso do YouTube de ${ag.nome}: nenhum aparelho com avisos ativados. Ative em "Ativar avisos neste aparelho", no menu.`);
-        else if (r && r.falhas && r.falhas.length) log('aviso', `Aviso do YouTube de ${ag.nome}: ${r.falhas.length} falha(s) ao entregar: ${r.falhas[0].motivo || 'sem motivo'}.`);
+        if (r && !r.inscricoes) { log('info', `Aviso do YouTube de ${ag.nome}: nenhum aparelho com avisos ativados. Ative em "Ativar avisos neste aparelho", no menu. O aviso continua pendente.`); return false; }
+        if (r && r.falhas && r.falhas.length) { log('aviso', `Aviso do YouTube de ${ag.nome}: ${r.falhas.length} falha(s) ao entregar: ${r.falhas[0].motivo || 'sem motivo'}. O aviso continua pendente e será tentado de novo na próxima rodada.`); return false; }
+        return !!(r && r.inscricoes > 0);
       } catch (e) {
-        log('erro', `Aviso do YouTube de ${ag.nome} não saiu (${e.message}). Confira a tela de avisos do aparelho e o arquivo push/vapid.json na pasta de dados.`);
+        log('erro', `Aviso do YouTube de ${ag.nome} não saiu (${e.message}). Ele continua pendente. Confira a tela de avisos do aparelho e o arquivo push/vapid.json na pasta de dados.`);
+        return false;
+      }
+    }
+
+    // Avisa todo agente com queda pendente e só limpa a marca quando o push chegou a algum aparelho, sem falha.
+    // Se o teste mais recente já não diz "login", a marca fica como está (volta a 'ok' ela é limpa no teste).
+    async function avisarPendentes(agentes) {
+      for (const ag of agentes) {
+        const v = ctx.youtube.ler(ag.slug);
+        if (!v || v.avisoPendente !== true || v.tipo !== 'login') continue;
+        if (await avisar(ag)) ctx.youtube.limparAviso(ag.slug);
       }
     }
 
@@ -309,16 +322,13 @@ function criarDiagnostico(deps) {
         const reg = registro.estado();
         if (!reg.ok) return;
         if (!ctx.youtube) ctx.youtube = criarEstadoYoutube(ctx);
-        for (const ag of reg.agentes) {
-          if (ag.tipo === 'admin' || !ag.container || !U.RX_NOME_SEGURO.test(ag.slug)) continue;
-          try {
-            const antes = ctx.youtube.ler(ag.slug);
-            const tipo = await testarYoutube(ctx, ag);
-            if (tipo === 'login' && !(antes && antes.tipo === 'login')) await avisar(ag);
-          } catch (e) {
+        const agentes = reg.agentes.filter((ag) => ag.tipo !== 'admin' && ag.container && U.RX_NOME_SEGURO.test(ag.slug));
+        for (const ag of agentes) {
+          try { await testarYoutube(ctx, ag); } catch (e) {
             log('erro', `Vigia do YouTube: falha inesperada ao testar ${ag.nome} (${e.message}). Os outros agentes seguem sendo testados.`);
           }
         }
+        await avisarPendentes(agentes);
       } finally { emCurso = false; }
     }
 

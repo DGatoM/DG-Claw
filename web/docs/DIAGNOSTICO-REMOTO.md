@@ -161,7 +161,7 @@ medi" e nunca é zero: `atualizacao_disponivel: null` é diferente de `false`.
 | `agente.<slug>.memoria.injecao` | Falhas das últimas 24 horas ao colocar a memória na conversa |
 | `agente.<slug>.memoria.working_memory` | Se a memória de trabalho existe, cabe no teto e foi remontada hoje |
 | `agente.<slug>.compactacao` | Estado da compactação automática da conversa |
-| `agente.<slug>.youtube` | Download real e pequeno do YouTube feito dentro do container (cookies da Tela). No máximo uma vez por dia; mostra o último resultado com horário. O mesmo teste também roda a cada 6 horas por conta própria e avisa no aparelho do dono quando a conta do YouTube cai. "Atenção" quando o YouTube pede login, quando o `yt-dlp` não existe ou dá outro erro |
+| `agente.<slug>.youtube` | Download real e pequeno do YouTube feito dentro do container, com `--ignore-config` e as opções explícitas (os cookies da Tela entram só se a pasta do Chrome existir). No máximo uma vez por dia; mostra o último resultado com horário. O mesmo teste também roda a cada 6 horas por conta própria e avisa no aparelho do dono quando a conta do YouTube cai (a queda fica como aviso pendente até o push chegar a um aparelho). "Atenção" quando o YouTube pede login ou os cookies deixam de valer, quando o `yt-dlp` não existe ou dá outro erro. A resposta traz só o tipo do problema e, em erro desconhecido, o código de saída: nunca texto do `yt-dlp` |
 
 ## O que NUNCA sai na resposta
 
