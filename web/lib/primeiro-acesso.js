@@ -65,10 +65,11 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy }) {
     if (RX_LINHA_HASH.test(texto)) {
       // Fica uma definição só: a nova entra no lugar da primeira e as outras saem (o dotenv usaria a última).
       let primeira = true;
-      texto = texto.replace(/^(\s*(?:export\s+)?)DGCLAW_PANEL_PASSWORD_HASH\s*=.*(?:\r?\n|$)/gm, (_, pre) => {
+      // A definição que fica é sempre a canônica (início da linha, sem export), que é o que o instalador procura.
+      texto = texto.replace(/^(\s*(?:export\s+)?)DGCLAW_PANEL_PASSWORD_HASH\s*=.*(?:\r?\n|$)/gm, () => {
         if (!primeira) return '';
         primeira = false;
-        return `${pre}${linha}\n`;
+        return `${linha}\n`;
       });
     } else texto = texto + (texto && !texto.endsWith('\n') ? '\n' : '') + `${linha}\n`;
     gravaAtomico(webEnv, texto);
@@ -84,7 +85,8 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy }) {
     if (typeof atual !== 'string' || !atual) return erro(400, 'Digite a senha atual.');
     if (typeof nova !== 'string') return erro(400, 'Digite a senha nova.');
     if (typeof confirmacao !== 'string' || nova.normalize('NFKC') !== confirmacao.normalize('NFKC')) return erro(400, 'As senhas não conferem.');
-    if (nova.length < 12) return erro(400, `A senha precisa ter pelo menos 12 caracteres (a sua tem ${nova.length}).`);
+    const tamNova = [...nova.normalize('NFKC')].length; // a mesma forma que o scrypt usa, contada em pontos de código
+    if (tamNova < 12) return erro(400, `A senha precisa ter pelo menos 12 caracteres (a sua tem ${tamNova}).`);
     if (nova.toLowerCase() === 'admin') return erro(400, 'Essa senha é fácil demais de adivinhar. Escolha outra.');
     const norm = (v) => String(v).normalize('NFKC'); // a mesma normalização do scrypt em lib/auth.js
     if (norm(nova) === norm(atual)) return erro(400, 'A senha nova precisa ser diferente da atual.');
@@ -169,8 +171,9 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy }) {
       if (!(Number(dado.expira) > relogio())) return erro(410, 'Este link expirou. Gere outro com: sudo dgclaw primeiro-acesso');
 
       if (typeof senha !== 'string') return erro(400, 'Digite a senha.');
-      if (senha !== confirmacao) return erro(400, 'As senhas não conferem.');
-      if (senha.length < 12) return erro(400, `A senha precisa ter pelo menos 12 caracteres (a sua tem ${senha.length}).`);
+      if (typeof confirmacao !== 'string' || senha.normalize('NFKC') !== confirmacao.normalize('NFKC')) return erro(400, 'As senhas não conferem.');
+      const tamSenha = [...senha.normalize('NFKC')].length;
+      if (tamSenha < 12) return erro(400, `A senha precisa ter pelo menos 12 caracteres (a sua tem ${tamSenha}).`);
       if (senha.toLowerCase() === 'admin') return erro(400, 'Essa senha é fácil demais de adivinhar. Escolha outra.');
 
       let hash;

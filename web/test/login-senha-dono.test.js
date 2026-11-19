@@ -229,3 +229,34 @@ test('troca de senha do dono: o proxy de WebSocket é revalidado na troca', asyn
     assert.equal(chamadas, 1);
   } finally { await t.fechar(); }
 });
+
+test('troca de senha do dono: /wait aberto por outra sessão do dono termina 401 e sem mensagens quando a senha é trocada', async () => {
+  const { t } = await comWebEnv();
+  try {
+    assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
+    const outra = cliente(t.porta);
+    assert.equal((await login(outra, 'Mariana', t.senha)).status, 200);
+    const espera = outra.get('/api/v1/agents/admin/wait?since=4102444800&timeout=8');
+    await new Promise((r) => setTimeout(r, 300));
+    const r = await t.c.post('/api/v1/dono/senha', { json: { atual: t.senha, nova: NOVA, confirmacao: NOVA } });
+    assert.equal(r.status, 200, r.texto);
+    const w = await espera;
+    assert.equal(w.status, 401, w.texto);
+    assert.match(w.json.erro, /sessão foi encerrada/);
+    assert.doesNotMatch(w.json.erro, /convite/);
+    assert.equal(w.json.msgs, undefined);
+  } finally { await t.fechar(); }
+});
+
+test('troca de senha do dono: senha que só chega a 12 em forma decomposta é recusada', async () => {
+  const { t } = await comWebEnv();
+  try {
+    assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
+    const s = 'ã'.normalize('NFD') + 'xxxxxxxxxx';
+    assert.equal([...s].length, 12);
+    assert.equal([...s.normalize('NFKC')].length, 11);
+    const r = await t.c.post('/api/v1/dono/senha', { json: { atual: t.senha, nova: s, confirmacao: s } });
+    assert.equal(r.status, 400);
+    assert.match(r.json.erro, /a sua tem 11/);
+  } finally { await t.fechar(); }
+});

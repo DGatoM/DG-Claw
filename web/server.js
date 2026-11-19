@@ -1088,12 +1088,21 @@ function criarServidor(opcoes) {
    * reenviado nesse meio tempo não pode concluir o que começou.
    */
   function sessaoAindaVale(req, sessao) {
-    if (!ehColab(sessao)) return true;
+    if (!ehColab(sessao)) {
+      // Caixa do agente e host não têm cookie: não há o que conferir. O dono precisa do cookie do pedido ainda abrindo a mesma sessão.
+      if (!sessao || sessao.via || sessao.papel !== 'dono') return true;
+      const d2 = auth.sessaoDoPedido(req);
+      return !!d2 && d2.papel === 'dono' && d2.usuario === sessao.usuario;
+    }
     const s2 = auth.sessaoDoPedido(req);
     return !!s2 && s2.papel === 'colaborador' && s2.colaborador_id === sessao.colaborador_id
       && s2.senha_versao === sessao.senha_versao && s2.agente === sessao.agente;
   }
   function recusaSessaoVelha(res, sessao) {
+    if (!ehColab(sessao)) {
+      log('aviso', `Pedido do dono ${sessao.usuario} recusado: a sessão deixou de valer enquanto o pedido estava em andamento (senha trocada ou sessão encerrada).`);
+      return H.erroJson(res, 401, 'Sua sessão foi encerrada (a senha do painel foi trocada). Entre de novo.');
+    }
     log('aviso', `Pedido do colaborador ${sessao.usuario} recusado: a sessão deixou de valer enquanto o corpo chegava (acesso revogado ou convite reenviado).`);
     return H.erroJson(res, 401, 'Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente.');
   }

@@ -54,9 +54,10 @@
 
   /* Cada erro diz qual é o problema e o que fazer, antes de ir ao servidor. */
   function confere(nova, conf, atual) {
+    const tam = [...nova.normalize('NFKC')].length; // mesma conta do servidor
     if (!pendente && !atual) return 'Digite a senha atual.';
-    if (nova.length < MIN) return 'A senha nova tem ' + nova.length + ' caracteres e precisa de pelo menos ' + MIN + '. Use uma frase mais longa.';
-    if (nova.length > MAX) return 'A senha nova passa de ' + MAX + ' caracteres. Escolha uma mais curta.';
+    if (tam < MIN) return 'A senha nova tem ' + tam + ' caracteres e precisa de pelo menos ' + MIN + '. Use uma frase mais longa.';
+    if (tam > MAX) return 'A senha nova passa de ' + MAX + ' caracteres. Escolha uma mais curta.';
     if (nova !== conf) return 'A confirmação não é igual à senha nova. Digite as duas de novo.';
     return '';
   }
