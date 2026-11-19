@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { pastaTemp } = require('./ajuda');
 const { lerSeguro } = require('../lib/diagnostico/arquivos');
-const { criarVigiaSaudeRetida, estaRetido, executarComando } = require('../lib/vigia-saude-retida');
+const { criarVigiaSaudeRetida, estaRetido, interpretaConfig, executarComando } = require('../lib/vigia-saude-retida');
 
 const T0 = Date.parse('2026-11-18T12:00:00Z');
 const MIN = 60000;
@@ -66,7 +66,7 @@ test('retido + login caído: exatamente 1 aviso "caiu" (push e comando), com nom
   assert.equal(t.comandos.length, 1);
   assert.equal(t.pushes[0].titulo, 'Agente Exemplo parou de responder');
   const texto = t.comandos[0].texto;
-  for (const trecho of ['Agente Exemplo', 'agente-teste', 'problema de login do Claude', 'desde ', 'há 3 h', 'DGCLAW_AVISOS_RETIDOS=1', 'Conectar conta']) assert.ok(texto.includes(trecho), `faltou "${trecho}" em: ${texto}`);
+  for (const trecho of ['Agente Exemplo', 'agente-teste', 'problema de login da IA', 'desde ', 'há 3 h', 'DGCLAW_AVISOS_RETIDOS=1', 'Conectar conta']) assert.ok(texto.includes(trecho), `faltou "${trecho}" em: ${texto}`);
   assert.equal(t.comandos[0].env.DGCLAW_AVISO_TEXTO, texto);
   assert.equal(t.comandos[0].env.DGCLAW_AVISO_AGENTE, 'agente-teste');
   assert.equal(t.comandos[0].env.DGCLAW_AVISO_TIPO, 'caiu');
@@ -121,7 +121,7 @@ test('saúde volta ao normal: exatamente 1 aviso "voltou", com duração e motiv
   assert.equal(t.pushes[1].titulo, 'Agente Exemplo voltou ao normal');
   const texto = t.comandos[1].texto;
   assert.equal(t.comandos[1].env.DGCLAW_AVISO_TIPO, 'voltou');
-  assert.match(texto, /^Agente Exemplo \(agente-teste\) voltou a responder normalmente às \d{2}h\d{2}\. Ficou fora por 1 h 30 min \(motivo: a sessão parou por problema de login do Claude\)\.$/);
+  assert.match(texto, /^Agente Exemplo \(agente-teste\) voltou a responder normalmente às \d{2}h\d{2}\. Ficou fora por 1 h 30 min \(motivo: a sessão parou por problema de login da IA\)\.$/);
   assert.ok(t.logs.some((l) => l.startsWith('info ') && l.includes('voltou a responder')));
 });
 
@@ -207,7 +207,7 @@ test('"caiu" nunca entregue e volta ao normal: não manda "voltou", só limpa e 
   t.pushResultado = { inscricoes: 0, ok: 0, removidas: 0, falhas: [] };
   const v = t.novo();
   await v.tick();
-  t.ativo(); t.passa(5 * MIN);
+  t.passa(5 * MIN); t.ativo();
   await v.tick();
   assert.equal(t.pushes.length, 1);
   assert.ok(t.logs.some((l) => l.includes('nunca chegou a nenhum canal')));
@@ -226,11 +226,12 @@ test('primeira vez que vê um agente ok: só grava, sem aviso', async () => {
   assert.equal(t.pushes.length, 0);
 });
 
-test('provedor codex: o texto fala Codex, não Claude', async () => {
+test('provedor codex: o texto não nomeia o motor (nem Codex nem Claude)', async () => {
   const t = montar({ agente: { provedor: 'codex' } }); t.retido(); t.caido();
   await t.novo().tick();
   const texto = t.comandos[0].texto;
-  assert.ok(texto.includes('Codex') && !texto.includes('Claude'), texto);
+  assert.ok(!texto.includes('Codex') && !texto.includes('Claude'), texto);
+  assert.ok(texto.includes('refazer o login da conta de IA do agente em Conectar conta'), texto);
 });
 
 test('saude.json ausente, ilegível, indeterminado ou com estado fora do enum: nenhum aviso; "sem leitura" logado uma vez', async () => {
@@ -306,7 +307,7 @@ test('o comando da equipe recebe só o ambiente mínimo (nada do web.env) e o no
     assert.equal(t.comandos.length, 1);
     const env = t.comandos[0].env;
     assert.equal(env.DGCLAW_PANEL_PASSWORD_HASH, undefined, 'o comando não pode ver o hash da senha do painel');
-    for (const k of Object.keys(env)) assert.ok(['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'DGCLAW_AVISO_TEXTO', 'DGCLAW_AVISO_AGENTE', 'DGCLAW_AVISO_TIPO'].includes(k), `variável inesperada no ambiente do comando: ${k}`);
+    for (const k of Object.keys(env)) assert.ok(['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'DGCLAW_AVISO_TEXTO', 'DGCLAW_AVISO_AGENTE', 'DGCLAW_AVISO_TIPO', 'DGCLAW_AVISO_ID'].includes(k), `variável inesperada no ambiente do comando: ${k}`);
     assert.ok(!/[\n\u0007]/.test(t.comandos[0].texto));
     assert.equal(t.pushes[0].titulo, 'Agente Exemplo falso parou de responder');
   } finally {
@@ -385,20 +386,43 @@ test('"voltou" pendente: falha nos dois canais, reenvia na rodada seguinte (e de
   assert.equal(u.comandos[u.comandos.length - 1].env.DGCLAW_AVISO_TIPO, 'caiu', 'queda nova avisada');
 });
 
-test('recomendação do watchdog escolhe uma orientação fixa; valor desconhecido malicioso cai no mapeamento por tipo', async () => {
-  const t = montar(); t.retido(); t.caido({ tipo: 'recusa', recomendacao: 'modo_seguro' });
-  await t.novo().tick();
-  assert.ok(t.comandos[0].texto.includes('modo de segurança') && t.comandos[0].texto.includes('docs/SAUDE-E-MODO-SEGURO.md'));
-  const u = montar(); u.retido(); u.caido({ tipo: 'sobrecarga', recomendacao: 'esperar' });
-  await u.novo().tick();
-  assert.ok(u.comandos[0].texto.includes('esperar alguns minutos'));
+test('orientação fixa por par tipo/recomendação, coerente com o saude_sessao.py (frase completa de ação)', async () => {
+  const MODO = 'colocar o agente em modo de segurança: abra a conversa dele no painel e use o botão de modo de segurança (passo a passo em docs/SAUDE-E-MODO-SEGURO.md). Não reinicie do jeito comum, porque isso faz o agente reler a conversa que causou o problema';
+  const REIN = 'rodar `dgclaw agente reiniciar agente-teste`';
+  const casos = [
+    ['sobrecarga', 'esperar', 'esperar o serviço de IA se normalizar e não reiniciar o agente, porque reiniciar faz ele reler todo o contexto e deixa tudo mais lento e mais caro'],
+    ['recusa', 'esperar', 'esperar e observar por alguns minutos; se a recusa continuar, colocar o agente em modo de segurança (abra a conversa dele no painel e use o botão de modo de segurança, passo a passo em docs/SAUDE-E-MODO-SEGURO.md). Não reinicie do jeito comum'],
+    ['recusa', 'modo_seguro', MODO],
+    ['contexto', 'modo_seguro', MODO],
+    ['login', 'refazer_login', 'refazer o login da conta de IA do agente em Conectar conta'],
+    ['limite', 'esperar', 'esperar o limite do plano renovar ou conferir o plano da conta do agente'],
+    ['erro_api', 'esperar', `esperar alguns minutos, porque isso costuma passar sozinho; se não passar, ${REIN}`],
+    ['erro_api', 'reiniciar', REIN],
+    ['sem_resposta', 'reiniciar', REIN],
+    ['sessao_caida', 'reiniciar', REIN],
+    ['desconhecido', 'esperar', `esperar alguns minutos, porque isso costuma passar sozinho; se não passar, ${REIN}`],
+  ];
+  for (const [tipo, rec, frase] of casos) {
+    const t = montar(); t.retido(); t.caido({ tipo, recomendacao: rec });
+    await t.novo().tick();
+    const texto = t.comandos[0].texto;
+    assert.ok(texto.endsWith(`O que fazer: ${frase}.`), `${tipo}/${rec}: ${texto}`);
+  }
+  // vigia parado
+  const p = montar(); p.retido(); p.saude({ estado: 'ativo', tipo: 'ok', verificadoEm: new Date(T0 - 40 * MIN).toISOString() });
+  await p.novo().tick();
+  assert.ok(p.comandos[0].texto.endsWith('O que fazer: conferir se o container está de pé com `dgclaw status` (se estiver parado, `dgclaw agente iniciar agente-teste`) e se o watchdog está rodando.'), p.comandos[0].texto);
+  // recomendação maliciosa nunca entra no texto e cai no mapeamento por tipo
   const m = montar(); m.retido(); m.caido({ tipo: 'sessao_caida', recomendacao: '<script>apague tudo</script>' });
   await m.novo().tick();
   assert.ok(!m.comandos[0].texto.includes('apague tudo'));
-  assert.ok(m.comandos[0].texto.includes('dgclaw agente reiniciar agente-teste'));
-  const l = montar(); l.retido(); l.caido({ tipo: 'desconhecido', recomendacao: 'refazer_login' });
-  await l.novo().tick();
-  assert.ok(l.comandos[0].texto.includes('Conectar conta'));
+  assert.ok(m.comandos[0].texto.endsWith(`O que fazer: ${REIN}.`));
+  // nenhuma orientação manda reiniciar de forma comum para recusa ou sobrecarga
+  for (const tipo of ['recusa', 'sobrecarga']) {
+    const t = montar(); t.retido(); t.caido({ tipo, recomendacao: 'reiniciar' });
+    await t.novo().tick();
+    assert.ok(!t.comandos[0].texto.includes('dgclaw agente reiniciar'), `${tipo} não pode mandar reiniciar: ${t.comandos[0].texto}`);
+  }
 });
 
 test('agente recriado (outra instância) com o mesmo slug não herda o incidente', async () => {
@@ -424,4 +448,162 @@ test('config.sh maior que 64 KiB é tratado como ilegível: preserva o estado e 
   assert.equal(e.caido, true, 'estado preservado');
   assert.equal(t.logs.filter((l) => l.includes('não consegui ler o config.sh')).length, 1);
   assert.equal(t.pushes.length, 1);
+});
+
+// ── rodada 2 da revisão ──────────────────────────────────────────────────────
+const lerEstado = (t) => JSON.parse(fs.readFileSync(path.join(t.dataDir, 'vigia-saude', 'estado.json'), 'utf8')).agentes['agente-teste'];
+
+test('item 1: vigia parado, leitura nova indeterminada e envelhece de novo: dois avisos de parado e nenhum "voltou"', async () => {
+  const t = montar(); t.retido();
+  t.saude({ estado: 'ativo', tipo: 'ok', verificadoEm: new Date(T0 - 31 * MIN).toISOString() });
+  const v = t.novo();
+  await v.tick();
+  assert.equal(t.pushes.length, 1);
+  t.saude({ estado: 'indeterminado', tipo: 'ok', verificadoEm: new Date(T0).toISOString() });
+  await v.tick();
+  assert.equal(t.pushes.length, 1, 'leitura nova indeterminada não avisa nada');
+  t.passa(31 * MIN);
+  await v.tick(); await v.tick();
+  assert.equal(t.pushes.length, 2, 'segundo aviso de parado');
+  assert.equal(t.comandos.filter((c) => c.env.DGCLAW_AVISO_TIPO === 'voltou').length, 0, 'sem voltou');
+  assert.equal(t.comandos.filter((c) => c.env.DGCLAW_AVISO_TIPO === 'caiu').length, 2);
+  assert.notEqual(t.comandos[0].env.DGCLAW_AVISO_ID, t.comandos[1].env.DGCLAW_AVISO_ID, 'evento novo, id novo');
+  t.ativo(); await v.tick();
+  assert.equal(t.comandos.filter((c) => c.env.DGCLAW_AVISO_TIPO === 'voltou').length, 1, 'o voltou sai quando de fato volta');
+});
+
+test('item 2: exceção do push e motivo da falha nunca vão para o log', async () => {
+  const t = montar();
+  t.retido(); t.caido();
+  const v1 = criarVigiaSaudeRetida({
+    registro: { estado: () => ({ ok: true, agentes: [t.agente] }) }, lerArquivo: lerSeguro,
+    push: { enviar: async () => { throw new Error('SEGREDO123'); } },
+    relogio: () => T0, log: (n, m) => t.logs.push(`${n} ${m}`), dataDir: t.dataDir, tz: 'UTC', comando: '',
+  });
+  await v1.tick();
+  const u = montar(); u.retido(); u.caido();
+  u.pushResultado = { inscricoes: 1, ok: 0, removidas: 0, falhas: [{ id: 'x', servico: 's', status: 403, motivo: 'SEGREDO456' }] };
+  await u.novo().tick();
+  const tudo = `${t.logs.join('\n')}\n${u.logs.join('\n')}`;
+  assert.ok(!tudo.includes('SEGREDO123') && !tudo.includes('SEGREDO456'), tudo);
+  assert.ok(t.logs.some((l) => l.includes('push: exceção')));
+  assert.ok(u.logs.some((l) => l.includes('recusado pelo serviço de push (HTTP 403)')));
+});
+
+test('item 4: leitura "ativo" mais velha que a evidência da queda não encerra; a posterior encerra com 1 "voltou"', async () => {
+  const t = montar(); t.retido(); t.caido(); // evidência 12:00
+  const v = t.novo();
+  await v.tick();
+  t.passa(5 * MIN);
+  t.saude({ estado: 'ativo', tipo: 'ok', desde: null, verificadoEm: new Date(T0 - 5 * MIN).toISOString() }); // 11:55
+  await v.tick();
+  assert.equal(t.pushes.length, 1, 'sem voltou');
+  assert.equal(lerEstado(t).caido, true);
+  t.passa(5 * MIN); t.ativo(); // 12:10
+  await v.tick(); await v.tick();
+  assert.equal(t.comandos.filter((c) => c.env.DGCLAW_AVISO_TIPO === 'voltou').length, 1);
+});
+
+test('item 5: "voltou" pendente é entregue mesmo com leitura indeterminada, com o horário original; queda nova cancela', async () => {
+  const t = montar(); t.retido(); t.caido();
+  const v = t.novo();
+  await v.tick();
+  t.comandoRc = 1; t.pushResultado = { inscricoes: 0, ok: 0, removidas: 0, falhas: [] };
+  t.passa(60 * MIN); t.ativo();
+  await v.tick(); // voltou às 13:00, falha
+  assert.ok(lerEstado(t).voltouPendente);
+  const voltouEm = lerEstado(t).voltouPendente.voltouEm;
+  t.comandoRc = 0; t.passa(120 * MIN);
+  t.saude({ estado: 'indeterminado', tipo: 'ok', verificadoEm: new Date(T0 + 180 * MIN).toISOString() });
+  await v.tick();
+  const volt = t.comandos.filter((c) => c.env.DGCLAW_AVISO_TIPO === 'voltou');
+  assert.equal(volt.length, 2, 'falhou uma vez e entregou depois');
+  assert.ok(volt[1].texto.includes('às 10h00'), `horário original (13:00 UTC = 10h em São Paulo): ${volt[1].texto}`);
+  assert.equal(voltouEm, T0 + 60 * MIN);
+  assert.equal(lerEstado(t).voltouPendente, undefined);
+});
+
+test('item 6: reinício no meio do envio não reenvia o push já entregue; o comando tenta de novo com o mesmo id', async () => {
+  const t = montar(); t.retido(); t.caido();
+  const ids = [];
+  const mk = (executor) => criarVigiaSaudeRetida({
+    registro: { estado: () => ({ ok: true, agentes: [t.agente] }) }, lerArquivo: lerSeguro,
+    push: { enviar: async (a) => { t.pushes.push(a); return t.pushResultado; } },
+    relogio: () => T0, log: (n, m) => t.logs.push(`${n} ${m}`), dataDir: t.dataDir, tz: 'UTC', comando: 'meu-comando', executor,
+  });
+  const v1 = mk(async (x) => { ids.push(x.env.DGCLAW_AVISO_ID); return new Promise(() => {}); }); // o painel "morre" com o comando em andamento
+  v1.tick();
+  for (let i = 0; i < 20; i += 1) await new Promise((r) => setImmediate(r));
+  assert.equal(lerEstado(t).evento.push, 'ok');
+  assert.equal(lerEstado(t).evento.comando, 'pendente');
+  assert.equal(lerEstado(t).caido, true, 'incidente gravado antes/durante o envio');
+  const v2 = mk(async (x) => { ids.push(x.env.DGCLAW_AVISO_ID); return { rc: 0, signal: null, expirou: false }; });
+  await v2.tick(); await v2.tick();
+  assert.equal(t.pushes.length, 1, 'o push não foi reenviado');
+  assert.equal(ids.length, 2);
+  assert.equal(ids[0], ids[1]);
+  assert.match(ids[0], /^agente-teste-caiu-\d+$/);
+  assert.equal(lerEstado(t).evento.comando, 'ok');
+});
+
+test('item 6: comando falhando com o push entregue: o novo vigia tenta só o comando de novo, com o mesmo id', async () => {
+  const t = montar(); t.retido(); t.caido();
+  t.comandoRc = 1;
+  await t.novo().tick();
+  assert.equal(t.pushes.length, 1); assert.equal(t.comandos.length, 1);
+  t.comandoRc = 0; t.passa(5 * MIN); t.caido();
+  await t.novo().tick(); await t.novo().tick();
+  assert.equal(t.pushes.length, 1, 'o push não repete');
+  assert.equal(t.comandos.length, 2);
+  assert.equal(t.comandos[0].env.DGCLAW_AVISO_ID, t.comandos[1].env.DGCLAW_AVISO_ID);
+  assert.ok(t.comandos[0].env.DGCLAW_AVISO_ID);
+});
+
+test('item 7: formas literais da atribuição são entendidas (";" final, comentário, export, aspas)', () => {
+  for (const l of ['export DGCLAW_AVISOS_RETIDOS=1;', 'DGCLAW_AVISOS_RETIDOS="1" # trava', "DGCLAW_AVISOS_RETIDOS='1';", 'export DGCLAW_AVISOS_RETIDOS=1 ; # cliente', 'DGCLAW_AVISOS_RETIDOS=1;#x']) {
+    assert.deepEqual(interpretaConfig(`${l}\n`), { retencao: 'retido', pastaLogs: false }, l);
+  }
+  for (const l of ['DGCLAW_AVISOS_RETIDOS=0;', 'DGCLAW_AVISOS_RETIDOS="0" # x', 'export DGCLAW_AVISOS_RETIDOS=']) assert.equal(interpretaConfig(`${l}\n`).retencao, 'nao', l);
+  for (const l of ['DGCLAW_AVISOS_RETIDOS=$(cat x)', ': ${DGCLAW_AVISOS_RETIDOS:=1}', 'DGCLAW_AVISOS_RETIDOS="$X"', 'DGCLAW_AVISOS_RETIDOS=1 bash x', 'DGCLAW_AVISOS_RETIDOS=1#x', 'echo oi; DGCLAW_AVISOS_RETIDOS=1']) {
+    assert.equal(interpretaConfig(`${l}\n`).retencao, 'inconclusiva', l);
+  }
+  assert.equal(interpretaConfig('# DGCLAW_AVISOS_RETIDOS=$(x)\nDGCLAW_AVISOS_RETIDOS=1\n').retencao, 'retido', 'comentário não conta');
+});
+
+test('item 7: linha não entendida preserva o incidente (não avisa novo, não encerra) e explica no log uma vez', async () => {
+  const t = montar(); t.retido(); t.caido();
+  const v = t.novo();
+  await v.tick();
+  t.retido('DGCLAW_AVISOS_RETIDOS=$(cat /etc/x)');
+  t.passa(5 * MIN); t.ativo();
+  await v.tick(); await v.tick();
+  assert.equal(lerEstado(t).caido, true, 'incidente preservado');
+  assert.equal(t.pushes.length, 1);
+  const logs = t.logs.filter((l) => l.includes('não entendi a linha de DGCLAW_AVISOS_RETIDOS'));
+  assert.equal(logs.length, 1);
+  assert.ok(logs[0].includes('agente-teste') && logs[0].includes('DGCLAW_AVISOS_RETIDOS=1'));
+  t.retido('export DGCLAW_AVISOS_RETIDOS=1;');
+  t.passa(5 * MIN); t.ativo();
+  await v.tick(); await v.tick();
+  assert.equal(t.comandos.filter((c) => c.env.DGCLAW_AVISO_TIPO === 'voltou').length, 1);
+});
+
+test('item 8: config.sh com pasta de logs própria: leitura inconclusiva, estado preservado, explicação no log uma vez por agente', async () => {
+  for (const nome of ['DGCLAW_LOGS_DIR', 'DGCLAW_LOG_DIR']) {
+    const t = montar(); t.retido(); t.caido();
+    const v = t.novo();
+    await v.tick();
+    fs.writeFileSync(path.join(t.home, '.dgclaw', 'config.sh'), `DGCLAW_AVISOS_RETIDOS=1\nexport ${nome}=/var/log/outro\n`);
+    t.passa(5 * MIN); t.ativo();
+    await v.tick(); await v.tick(); await v.tick();
+    assert.equal(lerEstado(t).caido, true, 'estado preservado');
+    assert.equal(t.pushes.length, 1);
+    const logs = t.logs.filter((l) => l.includes('define DGCLAW_LOGS_DIR ou DGCLAW_LOG_DIR'));
+    assert.equal(logs.length, 1, 'uma vez só');
+    assert.ok(logs[0].includes('agente-teste') && logs[0].includes('.dgclaw/logs') && logs[0].includes('não funciona'));
+  }
+  // agente nunca retido com a variável: não loga nada, não avisa
+  const n = montar(); n.retido('DGCLAW_LOGS_DIR=/x'); n.caido();
+  await n.novo().tick();
+  assert.equal(n.pushes.length, 0);
 });

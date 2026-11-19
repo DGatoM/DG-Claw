@@ -34,17 +34,35 @@ const MAX_CONFIG_BYTES = 64 * 1024;
 const TOLERANCIA_FUTURO_MS = 5 * 60000; // relógio do container um pouco adiantado não invalida a conferência
 // Valores que o saude_sessao.py grava em "recomendacao"; qualquer outro é ignorado.
 const RECOMENDACOES = ['nada', 'esperar', 'reiniciar', 'modo_seguro', 'refazer_login'];
-const RX_RETIDO = /^\s*(export\s+)?DGCLAW_AVISOS_RETIDOS=["']?1["']?\s*(#.*)?$/;
-const RX_ATRIBUICAO = /^\s*(export\s+)?DGCLAW_AVISOS_RETIDOS=/;
+const RX_MENCAO = /(?<![A-Za-z0-9_])DGCLAW_AVISOS_RETIDOS(?![A-Za-z0-9_])/;
+// Atribuição literal, com ou sem export, aspas simples ou duplas (sem expansão), ";" final e comentário depois do valor.
+const RX_ATRIBUICAO = /^\s*(?:export\s+)?DGCLAW_AVISOS_RETIDOS=(?:"([^"$`\\]*)"|'([^']*)'|([A-Za-z0-9_.-]*))(?=[\s;]|$)\s*;?\s*(?:#.*)?$/;
+const RX_PASTA_LOGS = /(?<![A-Za-z0-9_])DGCLAW_LOGS?_DIR(?![A-Za-z0-9_])/;
 
 const AVISO_RETIDO = 'Os avisos deste agente ao dono estão retidos (DGCLAW_AVISOS_RETIDOS=1), então ninguém do lado do cliente foi avisado e quem escreve para ele fica sem resposta.';
 
-/** Quando o config.sh tem a retenção ligada. Nunca executa o arquivo: só procura a linha. A última atribuição vale, como num `source`. */
-function estaRetido(texto) {
-  let ultima = null;
-  for (const linha of String(texto).split('\n')) if (RX_ATRIBUICAO.test(linha)) ultima = linha;
-  return ultima !== null && RX_RETIDO.test(ultima);
+/**
+ * Lê o texto do config.sh SEM executá-lo. Devolve { retencao: 'retido' | 'nao' | 'inconclusiva', pastaLogs }.
+ * A última linha que menciona DGCLAW_AVISOS_RETIDOS vale, como num `source`. Se ela não for uma atribuição literal
+ * que este leitor entende (substituição de comando, ${VAR:=1}, vários comandos na linha), a leitura é inconclusiva.
+ */
+function interpretaConfig(texto) {
+  let retencao = 'nao'; let pastaLogs = false;
+  for (const bruta of String(texto).split('\n')) {
+    const linha = bruta.replace(/\r$/, '');
+    if (/^\s*#/.test(linha)) continue;
+    if (RX_PASTA_LOGS.test(linha)) pastaLogs = true;
+    if (!RX_MENCAO.test(linha)) continue;
+    const m = RX_ATRIBUICAO.exec(linha);
+    if (!m) { retencao = 'inconclusiva'; continue; }
+    const valor = m[1] !== undefined ? m[1] : (m[2] !== undefined ? m[2] : m[3]);
+    retencao = valor === '1' ? 'retido' : 'nao';
+  }
+  return { retencao, pastaLogs };
 }
+
+/** Quando o config.sh tem a retenção ligada. Nunca executa o arquivo: só procura a linha. A última atribuição vale, como num `source`. */
+function estaRetido(texto) { return interpretaConfig(texto).retencao === 'retido'; }
 
 /**
  * Executor padrão: bash -c com o texto no stdin. Nada é interpolado na string do comando. Nunca rejeita.
@@ -84,9 +102,9 @@ function criarVigiaSaudeRetida({ registro, lerArquivo, push, relogio, log, inter
   let carregado = false;
   let soMemoria = false; // arquivo de estado ilegível: não sobrescrever às cegas
   const semLeituraAvisado = new Set(); // slug: já registrei "sem leitura" nesta sequência
-  const falhaLogada = new Set(); // slug: já registrei a falha completa de entrega do "caiu"
-  const voltouFalhaLogada = new Set(); // slug: já registrei a falha completa de entrega do "voltou"
-  const configAvisado = new Set();
+  const configAvisado = new Set(); // slug: já registrei que não consegui ler o config.sh
+  const linhaAvisada = new Set(); // slug: já registrei que não entendi a linha da retenção
+  const pastaLogsAvisada = new Set(); // slug: já registrei que o config.sh define a pasta de logs
   let timerInicial = null;
   let timer = null;
   let emCurso = false;
@@ -126,11 +144,34 @@ function criarVigiaSaudeRetida({ registro, lerArquivo, push, relogio, log, inter
   }
 
   // ── leitura do agente ─────────────────────────────────────────────────────
-  /** 'retido' | 'nao' | 'ilegivel'. */
+  function limpaAvisosDeConfig(slug) { configAvisado.delete(slug); linhaAvisada.delete(slug); pastaLogsAvisada.delete(slug); }
+
+  /** 'retido' | 'nao' | 'ilegivel' (ilegível ou inconclusiva: o estado do agente fica como está). */
   function lerRetencao(ag) {
     const r = lerArquivo(ag.home_host, '.dgclaw/config.sh', { max: MAX_CONFIG_BYTES });
-    if (r.estado === 'ok' && r.tamanho <= MAX_CONFIG_BYTES) { configAvisado.delete(ag.slug); return estaRetido(r.texto) ? 'retido' : 'nao'; }
-    if (r.estado === 'ausente') return 'nao';
+    if (r.estado === 'ok' && r.tamanho <= MAX_CONFIG_BYTES) {
+      configAvisado.delete(ag.slug);
+      const c = interpretaConfig(r.texto);
+      if (c.retencao === 'nao') { linhaAvisada.delete(ag.slug); pastaLogsAvisada.delete(ag.slug); return 'nao'; }
+      if (c.pastaLogs) {
+        if (!pastaLogsAvisada.has(ag.slug)) {
+          pastaLogsAvisada.add(ag.slug);
+          log('aviso', `Vigia de saúde retida: o config.sh de ${ag.slug} define DGCLAW_LOGS_DIR ou DGCLAW_LOG_DIR. O vigia do painel só lê a pasta padrão .dgclaw/logs da casa do agente, então o aviso da equipe não funciona para este agente enquanto essa variável estiver definida, e não mexi no estado dele. Para voltar a ter o aviso, remova essa variável do config.sh.`);
+        }
+        return 'ilegivel';
+      }
+      pastaLogsAvisada.delete(ag.slug);
+      if (c.retencao === 'inconclusiva') {
+        if (!linhaAvisada.has(ag.slug)) {
+          linhaAvisada.add(ag.slug);
+          log('aviso', `Vigia de saúde retida: não entendi a linha de DGCLAW_AVISOS_RETIDOS no config.sh de ${ag.slug} (o painel só lê atribuição simples e nunca executa o arquivo). Não avisei nada novo e não encerrei nenhum aviso dele. Para o vigia entender, use uma linha simples: DGCLAW_AVISOS_RETIDOS=1.`);
+        }
+        return 'ilegivel';
+      }
+      linhaAvisada.delete(ag.slug);
+      return 'retido';
+    }
+    if (r.estado === 'ausente') { limpaAvisosDeConfig(ag.slug); return 'nao'; }
     const motivoLeitura = r.estado === 'ok' ? `o arquivo tem ${r.tamanho} bytes e o leitor só olha os últimos ${MAX_CONFIG_BYTES}` : r.motivo;
     if (!configAvisado.has(ag.slug)) {
       configAvisado.add(ag.slug);
@@ -166,7 +207,7 @@ function criarVigiaSaudeRetida({ registro, lerArquivo, push, relogio, log, inter
     if (est === 'indeterminado') return semLeitura('o vigia não conseguiu avaliar a sessão na última conferência');
     if (est === 'ativo' && verificadoMs === null) return semLeitura('o horário da conferência está ausente, inválido ou no futuro, então não dá para afirmar que o agente voltou');
     semLeituraAvisado.delete(ag.slug);
-    if (est === 'ativo') return { caido: false };
+    if (est === 'ativo') return { caido: false, verificadoMs };
     const tipo = U.dentro(d.tipo, U.ENUMS.tipoSaude) || 'desconhecido';
     const desdeMs = Date.parse(d.desde);
     return { caido: true, tipo, desdeMs: Number.isFinite(desdeMs) ? desdeMs : null, desdeAproximado: !Number.isFinite(desdeMs), verificadoMs, recomendacao: U.dentro(d.recomendacao, RECOMENDACOES) };
@@ -176,27 +217,31 @@ function criarVigiaSaudeRetida({ registro, lerArquivo, push, relogio, log, inter
   // O nome vem do registro (texto livre do dono): sem caractere de controle e curto, para não quebrar a linha do log
   // nem o título do aviso no aparelho.
   const nomeLimpo = (ag) => String(ag.nome || ag.slug).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || ag.slug;
-  const nomeMotor = (ag) => (ag.provedor === 'codex' ? 'Codex' : 'Claude');
   const minuscula = (t) => t.charAt(0).toLowerCase() + t.slice(1);
 
-  /** Motivo em uma frase, em português, sem ponto final. Só usa texto fixo deste código. */
-  function motivo(ag, tipo, verificadoMs) {
+  /** Motivo em uma frase, em português, sem ponto final. Só usa texto fixo deste código; não nomeia o motor de IA. */
+  function motivo(tipo, verificadoMs) {
     if (tipo === 'vigia_parado') {
       const ha = Number.isFinite(verificadoMs) ? ` há ${U.duracaoCurta(agora() - verificadoMs)}` : '';
       return `o vigia da sessão dentro do container não confere${ha}, o container pode estar parado`;
     }
     const f = FRASES_SAUDE[tipo];
     const frase = f ? f[0] : (tipo === 'desconhecido' ? 'O vigia da sessão apontou um problema que ele mesmo não soube classificar.' : 'O vigia da sessão apontou um problema.');
-    return minuscula(frase.replace(/\.$/, '').replace(/Claude/g, nomeMotor(ag)));
+    return minuscula(frase.replace(/\.$/, '').replace(/\bdo Claude\b/g, 'da IA').replace(/\bO Claude\b/g, 'A IA').replace(/\bpara o Claude\b/g, 'para a IA').replace(/\bClaude\b/g, 'IA'));
   }
 
-  // Orientação fixa escrita aqui: a recomendação do arquivo só escolhe qual frase usar, nunca entra no texto.
+  // Orientação fixa por par tipo/recomendação, coerente com o scripts/_lib/saude_sessao.py. A recomendação do arquivo
+  // só escolhe a frase, nunca entra no texto.
   function oQueFazer(ag, tipo, rec) {
     const reiniciar = `rodar \`dgclaw agente reiniciar ${ag.slug}\``;
-    if (tipo === 'vigia_parado') return `rodar \`dgclaw status\` e, se o container estiver parado, \`dgclaw agente iniciar ${ag.slug}\``;
-    if (rec === 'modo_seguro') return 'colocar o agente em modo de segurança: abra a conversa dele no painel e use o botão de modo de segurança (passo a passo em docs/SAUDE-E-MODO-SEGURO.md)';
-    if (rec === 'refazer_login' || tipo === 'login') return `refazer o login da conta do ${nomeMotor(ag)} deste agente, pela página Conectar conta do painel (menu, Conectar conta)`;
+    const modoSeguro = 'colocar o agente em modo de segurança: abra a conversa dele no painel e use o botão de modo de segurança (passo a passo em docs/SAUDE-E-MODO-SEGURO.md). Não reinicie do jeito comum, porque isso faz o agente reler a conversa que causou o problema';
+    if (tipo === 'vigia_parado') return `conferir se o container está de pé com \`dgclaw status\` (se estiver parado, \`dgclaw agente iniciar ${ag.slug}\`) e se o watchdog está rodando`;
+    if (tipo === 'sobrecarga') return 'esperar o serviço de IA se normalizar e não reiniciar o agente, porque reiniciar faz ele reler todo o contexto e deixa tudo mais lento e mais caro';
+    if (tipo === 'recusa') return rec === 'modo_seguro' ? modoSeguro : 'esperar e observar por alguns minutos; se a recusa continuar, colocar o agente em modo de segurança (abra a conversa dele no painel e use o botão de modo de segurança, passo a passo em docs/SAUDE-E-MODO-SEGURO.md). Não reinicie do jeito comum';
+    if (tipo === 'contexto') return modoSeguro;
+    if (tipo === 'login' || rec === 'refazer_login') return 'refazer o login da conta de IA do agente em Conectar conta';
     if (tipo === 'limite') return 'esperar o limite do plano renovar ou conferir o plano da conta do agente';
+    if (rec === 'modo_seguro') return modoSeguro;
     if (rec === 'esperar') return `esperar alguns minutos, porque isso costuma passar sozinho; se não passar, ${reiniciar}`;
     return reiniciar;
   }
@@ -205,67 +250,107 @@ function criarVigiaSaudeRetida({ registro, lerArquivo, push, relogio, log, inter
     const quando = U.quando(reg.desdeMs, tz);
     const desde = reg.desdeAproximado ? `pelo menos desde ${quando}` : `desde ${quando}`;
     const ha = U.duracaoCurta(agora() - reg.desdeMs);
-    return `O agente ${nomeLimpo(ag)} (${ag.slug}) parou de responder: ${motivo(ag, reg.tipo, reg.verificadoMs)}. Está assim ${desde} (há ${ha}). ${AVISO_RETIDO} O que fazer: ${oQueFazer(ag, reg.tipo, reg.recomendacao)}.`;
+    return `O agente ${nomeLimpo(ag)} (${ag.slug}) parou de responder: ${motivo(reg.tipo, reg.verificadoMs)}. Está assim ${desde} (há ${ha}). ${AVISO_RETIDO} O que fazer: ${oQueFazer(ag, reg.tipo, reg.recomendacao)}.`;
   }
 
   function textoVoltou(ag, reg) {
     const hora = U.quando(reg.voltouEm, tz).replace(/^.* às /, '');
     const fora = U.duracaoCurta(reg.voltouEm - reg.desdeMs);
-    return `${nomeLimpo(ag)} (${ag.slug}) voltou a responder normalmente às ${hora}. Ficou fora por ${fora} (motivo: ${motivo(ag, reg.tipo, null)}).`;
+    return `${nomeLimpo(ag)} (${ag.slug}) voltou a responder normalmente às ${hora}. Ficou fora por ${fora} (motivo: ${motivo(reg.tipo, null)}).`;
   }
 
-  // ── canais ────────────────────────────────────────────────────────────────
-  /** Devolve { entregue, canais:[...], falhas:[...] }. O aviso conta como entregue se qualquer canal entregou. */
-  async function entrega(ag, tipoAviso, texto, titulo, corpoPush) {
-    const canais = []; const falhas = [];
-    try {
-      const r = await push.enviar({ titulo, corpo: corpoPush, tag: `saude-retida-${ag.slug}`, url: `/a/${ag.slug}`, exigir_interacao: tipoAviso === 'caiu' });
-      if (r && r.ok > 0) canais.push('push');
-      else if (!r || !r.inscricoes) falhas.push('push: nenhum aparelho com avisos ativados');
-      else falhas.push(`push: ${r.falhas && r.falhas.length ? (r.falhas[0].motivo || 'falha ao entregar') : 'não entregou a nenhum aparelho'}`);
-    } catch (e) { falhas.push(`push: ${e.message}`); }
+  // ── eventos e canais ──────────────────────────────────────────────────────
+  // Cada aviso (caiu, voltou) é um EVENTO com id estável e o resultado de cada canal gravado em disco assim que
+  // termina: 'pendente' (não tentou, ou foi interrompido), 'ok', 'falhou' ou 'na' (canal não configurado).
+  // Um reinício do painel no meio não reenvia o que já foi entregue e não perde o que não foi.
+  const novoEvento = (slug, tipoAviso, ts) => ({ id: `${slug}-${tipoAviso}-${ts}`, push: 'pendente', comando: comando ? 'pendente' : 'na', falhaLogada: false });
+  const algumOk = (ev) => ev.push === 'ok' || ev.comando === 'ok';
+  const comandoAindaPorFazer = (ev) => ev.comando === 'pendente' || (ev.comando === 'falhou' && !!comando);
+  const concluido = (ev) => !!ev && algumOk(ev) && ev.push !== 'pendente' && !comandoAindaPorFazer(ev);
 
-    if (comando) {
-      if (!U.RX_NOME_SEGURO.test(ag.slug)) falhas.push('comando da equipe: o nome do agente não é seguro para passar ao comando, então não executei');
-      else {
+  /** Estados antigos (sem evento) ganham um evento: entregue se o aviso já constava como entregue. */
+  function garanteEventos(slug, prev) {
+    if (prev.caido && !prev.evento) {
+      const ev = novoEvento(slug, 'caiu', prev.evidenciaMs != null ? prev.evidenciaMs : (prev.desdeMs || 0));
+      if (prev.avisoCaiuEntregue) { ev.push = 'ok'; ev.comando = comando ? 'ok' : 'na'; }
+      prev.evento = ev;
+    }
+    if (prev.voltouPendente && !prev.voltouPendente.evento) prev.voltouPendente.evento = novoEvento(slug, 'voltou', prev.voltouPendente.voltouEm || 0);
+  }
+
+  /** Tenta os canais que ainda faltam deste evento. Devolve { canais, falhas, tentou }. */
+  async function entrega(ag, tipoAviso, ev, texto, titulo, corpoPush) {
+    const canais = []; const falhas = []; let tentou = false;
+    const tenta = (c) => ev[c] === 'pendente' || (ev[c] === 'falhou' && (!algumOk(ev) || c === 'comando'));
+
+    if (tenta('push')) {
+      tentou = true;
+      let resultado = 'falhou';
+      try {
+        const r = await push.enviar({ titulo, corpo: corpoPush, tag: `saude-retida-${ag.slug}`, url: `/a/${ag.slug}`, exigir_interacao: tipoAviso === 'caiu' });
+        if (r && r.ok > 0) { resultado = 'ok'; canais.push('push'); }
+        else if (!r || !r.inscricoes) falhas.push('push: nenhum aparelho com avisos ativados');
+        else {
+          // Só categoria fixa e o status numérico: o motivo vindo do serviço de push pode ter trecho de chave ou corpo de resposta.
+          const status = r.falhas && r.falhas[0] ? r.falhas[0].status : null;
+          falhas.push(Number.isInteger(status) ? `push: recusado pelo serviço de push (HTTP ${status})` : 'push: não entregou a nenhum aparelho (sem status HTTP)');
+        }
+      } catch (_) { falhas.push('push: exceção ao enviar (o detalhe não é registrado aqui)'); }
+      ev.push = resultado; salva();
+    }
+
+    if (comando && tenta('comando')) {
+      tentou = true;
+      if (!U.RX_NOME_SEGURO.test(ag.slug)) {
+        ev.comando = 'na'; salva();
+        falhas.push('comando da equipe: o nome do agente não é seguro para passar ao comando, então não executei');
+      } else {
         // Ambiente mínimo de propósito: o painel carrega o web.env inteiro (hash da senha, SMTP e o que mais o dono
         // puser lá), e o comando da equipe não precisa enxergar nada disso. Credencial do canal fica num arquivo do
         // próprio script (docs/AVISO-DA-EQUIPE.md).
-        const env = { DGCLAW_AVISO_TEXTO: texto, DGCLAW_AVISO_AGENTE: ag.slug, DGCLAW_AVISO_TIPO: tipoAviso };
+        const env = { DGCLAW_AVISO_TEXTO: texto, DGCLAW_AVISO_AGENTE: ag.slug, DGCLAW_AVISO_TIPO: tipoAviso, DGCLAW_AVISO_ID: ev.id };
         for (const k of ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ']) if (process.env[k]) env[k] = process.env[k];
         let r;
         try { r = await executa({ cmd: comando, texto, env, timeoutMs: timeoutComandoMs || TIMEOUT_COMANDO_MS, log }); } catch (e) { r = { rc: null, signal: null, expirou: false, erroInicio: e.message }; }
-        if (r.rc === 0) canais.push('comando da equipe');
-        else {
+        if (r.rc === 0) { ev.comando = 'ok'; canais.push('comando da equipe'); } else {
+          ev.comando = 'falhou';
           // O erro do comando não é registrado: pode conter a URL de um webhook com credencial.
           const como = r.erroInicio ? r.erroInicio : (r.expirou ? `passou de ${(timeoutComandoMs || TIMEOUT_COMANDO_MS) / 1000} s e foi encerrado` : `saiu com código ${r.rc === null ? 'desconhecido' : r.rc}${r.signal ? ` (sinal ${r.signal})` : ''}`);
           falhas.push(`comando da equipe: ${como}; rode o comando à mão como root para ver o erro`);
         }
+        salva();
       }
     }
-    return { entregue: canais.length > 0, canais, falhas };
+    return { canais, falhas, tentou };
   }
 
-  function registraLog(ag, tipoAviso, texto, r, repetido) {
-    if (repetido && !r.entregue) return; // a falha completa já foi registrada na primeira tentativa
-    const via = r.entregue ? `entregue por: ${r.canais.join(' e ')}` : `NÃO entregue a nenhum canal: ${r.falhas.join('; ')}. Tento de novo na próxima rodada`;
-    log(tipoAviso === 'caiu' ? 'aviso' : 'info', `Vigia de saúde retida, aviso "${tipoAviso}" de ${ag.slug}: ${texto} [${via}]`);
+  function registraLog(ag, tipoAviso, texto, ev, r) {
+    if (!r.tentou) return;
+    if (ev.falhaLogada && r.canais.length === 0) return; // a falha completa já foi registrada numa tentativa anterior
+    const entregue = algumOk(ev);
+    const via = entregue
+      ? `entregue por: ${r.canais.length ? r.canais.join(' e ') : 'tentativa anterior'}${r.falhas.length ? `; falhou: ${r.falhas.join('; ')}` : ''}`
+      : `NÃO entregue a nenhum canal: ${r.falhas.join('; ')}. Tento de novo na próxima rodada`;
+    log(tipoAviso === 'caiu' ? 'aviso' : 'info', `Vigia de saúde retida, aviso "${tipoAviso}" de ${ag.slug} (id ${ev.id}): ${texto} [${via}]`);
+    if (r.falhas.length) { ev.falhaLogada = true; salva(); }
   }
 
   async function avisaCaiu(ag, reg) {
     const texto = textoCaiu(ag, reg);
-    const r = await entrega(ag, 'caiu', texto, `${nomeLimpo(ag)} parou de responder`, motivo(ag, reg.tipo, reg.verificadoMs).replace(/^./, (c) => c.toUpperCase()));
-    registraLog(ag, 'caiu', texto, r, falhaLogada.has(ag.slug));
-    if (r.entregue) { reg.avisoCaiuEntregue = true; reg.avisadoEm = agora(); falhaLogada.delete(ag.slug); } else falhaLogada.add(ag.slug);
+    const r = await entrega(ag, 'caiu', reg.evento, texto, `${nomeLimpo(ag)} parou de responder`, motivo(reg.tipo, reg.verificadoMs).replace(/^./, (c) => c.toUpperCase()));
+    registraLog(ag, 'caiu', texto, reg.evento, r);
+    if (algumOk(reg.evento)) { reg.avisoCaiuEntregue = true; if (!reg.avisadoEm || r.canais.length) reg.avisadoEm = agora(); }
+    salva();
   }
 
-  /** Devolve true se algum canal entregou. */
-  async function avisaVoltou(ag, reg) {
+  /** Tenta o "voltou" pendente; quando concluído, apaga o pendente. */
+  async function avisaVoltou(ag, prev) {
+    const reg = prev.voltouPendente;
     const texto = textoVoltou(ag, reg);
-    const r = await entrega(ag, 'voltou', texto, `${nomeLimpo(ag)} voltou ao normal`, 'Voltou a responder normalmente.');
-    registraLog(ag, 'voltou', texto, r, voltouFalhaLogada.has(ag.slug));
-    if (r.entregue) voltouFalhaLogada.delete(ag.slug); else voltouFalhaLogada.add(ag.slug);
-    return r.entregue;
+    const r = await entrega(ag, 'voltou', reg.evento, texto, `${nomeLimpo(ag)} voltou ao normal`, 'Voltou a responder normalmente.');
+    registraLog(ag, 'voltou', texto, reg.evento, r);
+    if (concluido(reg.evento)) delete prev.voltouPendente;
+    salva();
   }
 
   const registroLimpo = (ag) => ({ caido: false, tipo: null, desdeMs: null, avisoCaiuEntregue: false, avisadoEm: null, instancia: ag.instancia || null });
@@ -276,27 +361,34 @@ function criarVigiaSaudeRetida({ registro, lerArquivo, push, relogio, log, inter
     if (retencao === 'ilegivel') return;
     if (retencao === 'nao') {
       if (estado.agentes[ag.slug]) { delete estado.agentes[ag.slug]; salva(); }
-      semLeituraAvisado.delete(ag.slug); falhaLogada.delete(ag.slug); voltouFalhaLogada.delete(ag.slug);
+      semLeituraAvisado.delete(ag.slug);
       return;
     }
-    const cls = classificar(ag);
-    if (!cls) return;
     let prev = estado.agentes[ag.slug];
     // Agente recriado com o mesmo nome curto é outro agente: não herda o incidente do anterior.
     if (prev && (prev.instancia || null) !== (ag.instancia || null)) {
       log('info', `Vigia de saúde retida: ${ag.slug} tem outra instância no registro (foi recriado), então descartei o estado anterior dele e trato como a primeira vez.`);
-      delete estado.agentes[ag.slug]; falhaLogada.delete(ag.slug); voltouFalhaLogada.delete(ag.slug);
+      delete estado.agentes[ag.slug];
       prev = undefined;
+    }
+    if (prev) garanteEventos(ag.slug, prev);
+    const cls = classificar(ag);
+    if (!cls) {
+      // Sem leitura utilizável agora: o "voltou" pendente (já decidido antes) continua sendo entregue.
+      if (prev && prev.voltouPendente) await avisaVoltou(ag, prev);
+      return;
     }
     if (!cls.caido) {
       if (prev && prev.caido) {
+        // Só uma leitura posterior à última evidência de queda aceita encerra o incidente.
+        if (Number.isFinite(prev.evidenciaMs) && !(cls.verificadoMs > prev.evidenciaMs)) return;
         const entregueAntes = prev.avisoCaiuEntregue;
         estado.agentes[ag.slug] = Object.assign(registroLimpo(ag), { tipo: prev.tipo, avisadoEm: prev.avisadoEm || null });
         if (entregueAntes) {
-          // A recuperação fica pendente em disco até algum canal entregar o "voltou" (inclusive depois de um reinício).
-          estado.agentes[ag.slug].voltouPendente = { tipo: prev.tipo, desdeMs: prev.desdeMs, recomendacao: prev.recomendacao || null, voltouEm: agora() };
+          // A recuperação fica pendente em disco até os canais entregarem o "voltou" (inclusive depois de um reinício).
+          const voltouEm = agora();
+          estado.agentes[ag.slug].voltouPendente = { tipo: prev.tipo, desdeMs: prev.desdeMs, recomendacao: prev.recomendacao || null, voltouEm, evento: novoEvento(ag.slug, 'voltou', voltouEm) };
         } else log('info', `Vigia de saúde retida: ${ag.slug} voltou ao normal, mas o aviso de que tinha caído nunca chegou a nenhum canal, então não mandei o "voltou". Estado limpo.`);
-        falhaLogada.delete(ag.slug);
         salva();
         prev = estado.agentes[ag.slug];
       } else if (!prev) {
@@ -304,30 +396,40 @@ function criarVigiaSaudeRetida({ registro, lerArquivo, push, relogio, log, inter
         salva();
         return;
       }
-      if (prev.voltouPendente) {
-        if (await avisaVoltou(ag, prev.voltouPendente)) { delete prev.voltouPendente; salva(); }
-      }
+      if (prev.voltouPendente) await avisaVoltou(ag, prev);
       return;
     }
     if (prev && prev.voltouPendente) {
       log('info', `Vigia de saúde retida: ${ag.slug} caiu de novo antes de o aviso "voltou" ser entregue. Descartei o "voltou" pendente e trato como uma queda nova.`);
-      voltouFalhaLogada.delete(ag.slug);
       prev = undefined;
     }
     if (!prev || !prev.caido) {
-      const reg = { caido: true, tipo: cls.tipo, desdeMs: cls.desdeMs !== null ? cls.desdeMs : agora(), desdeAproximado: cls.desdeAproximado, verificadoMs: cls.verificadoMs, recomendacao: cls.recomendacao, avisoCaiuEntregue: false, avisadoEm: null, instancia: ag.instancia || null };
+      const desdeMs = cls.desdeMs !== null ? cls.desdeMs : agora();
+      const evidenciaMs = cls.verificadoMs !== null ? cls.verificadoMs : null;
+      const reg = { caido: true, tipo: cls.tipo, desdeMs, desdeAproximado: cls.desdeAproximado, verificadoMs: cls.verificadoMs, evidenciaMs, recomendacao: cls.recomendacao, avisoCaiuEntregue: false, avisadoEm: null, instancia: ag.instancia || null, evento: novoEvento(ag.slug, 'caiu', evidenciaMs !== null ? evidenciaMs : desdeMs) };
       estado.agentes[ag.slug] = reg;
+      salva(); // o incidente fica em disco ANTES do primeiro envio
       await avisaCaiu(ag, reg);
-      salva();
       return;
     }
-    // caído -> caído: só atualiza tipo e recomendação; reenvia se o "caiu" nunca foi entregue a nenhum canal.
+    // caído -> caído.
     let mudou = false;
+    if (cls.tipo === 'vigia_parado' && prev.tipo === 'vigia_parado' && cls.verificadoMs > (Number.isFinite(prev.evidenciaMs) ? prev.evidenciaMs : -Infinity)) {
+      // O watchdog conferiu de novo depois do último aviso de parado e voltou a ficar velho: é um alerta novo,
+      // sem "voltou" no meio (o "voltou" só sai quando a saúde de fato se recupera para ativo).
+      prev.desdeMs = cls.desdeMs; prev.verificadoMs = cls.verificadoMs; prev.evidenciaMs = cls.verificadoMs;
+      prev.evento = novoEvento(ag.slug, 'caiu', cls.verificadoMs);
+      mudou = true;
+      salva();
+      await avisaCaiu(ag, prev);
+      return;
+    }
     if (prev.tipo !== cls.tipo) { prev.tipo = cls.tipo; mudou = true; }
     if ((prev.recomendacao || null) !== cls.recomendacao) { prev.recomendacao = cls.recomendacao; mudou = true; }
     if (cls.verificadoMs !== null && prev.verificadoMs !== cls.verificadoMs && cls.tipo === 'vigia_parado') { prev.verificadoMs = cls.verificadoMs; mudou = true; }
-    if (!prev.avisoCaiuEntregue) { await avisaCaiu(ag, prev); mudou = true; }
+    if (cls.verificadoMs !== null && !(cls.verificadoMs <= (Number.isFinite(prev.evidenciaMs) ? prev.evidenciaMs : -Infinity))) { prev.evidenciaMs = cls.verificadoMs; mudou = true; }
     if (mudou) salva();
+    if (!concluido(prev.evento)) await avisaCaiu(ag, prev);
   }
 
   async function tick() {
@@ -365,4 +467,4 @@ function criarVigiaSaudeRetida({ registro, lerArquivo, push, relogio, log, inter
   return { tick, iniciar, parar };
 }
 
-module.exports = { criarVigiaSaudeRetida, estaRetido, executarComando, INTERVALO_MS, PRIMEIRA_RODADA_MS, VIGIA_PARADO_MS, TIMEOUT_COMANDO_MS };
+module.exports = { criarVigiaSaudeRetida, estaRetido, interpretaConfig, executarComando, INTERVALO_MS, PRIMEIRA_RODADA_MS, VIGIA_PARADO_MS, TIMEOUT_COMANDO_MS };
