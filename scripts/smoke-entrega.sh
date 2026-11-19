@@ -66,16 +66,38 @@ ca() { timeout "${PRAZO:-60}" podman exec --user agente "$C" "$@"; }
 # capt <comando...>: roda o comando e devolve a saida, no maximo CAPLIM bytes (padrao 4096). Devolve o codigo do
 # comando; se a saida passar do limite, devolve 99 e nada (o chamador trata como INCONCLUSIVO).
 capt() {
-    local o rc rc_
-    # O "x" e o codigo de saida vao colados no fim para o $(...) nao comer as quebras de linha finais antes da
-    # contagem de bytes (senao 4097 bytes de "2400" e quebras passariam por 4 bytes).
-    o="$(LC_ALL=C; "$@" 2>/dev/null | LC_ALL=C head -c "$(( ${CAPLIM:-4096} + 1 ))"; rc_=${PIPESTATUS[0]}; printf 'x%s' "$rc_")"
-    rc="${o##*x}"; o="${o%x*}"
-    so_digitos "$rc" 3 || return 99
-    [ "$(printf '%s' "$o" | LC_ALL=C wc -c)" -le "${CAPLIM:-4096}" ] || return 99
+    local t rc raw limpo o
+    # A saida vai para um arquivo temporario antes de virar variavel: a variavel do Bash descarta bytes NUL, e uma
+    # resposta binaria ou acima do limite viraria um valor curto aceito. Contamos os bytes brutos e os sem NUL.
+    t="$(mktemp)" || return 99
+    "$@" 2>/dev/null | LC_ALL=C head -c "$(( ${CAPLIM:-4096} + 1 ))" >"$t"
+    rc="${PIPESTATUS[0]}"
+    raw="$(LC_ALL=C wc -c <"$t" | tr -d ' ')"
+    limpo="$(LC_ALL=C tr -d '\0' <"$t" | LC_ALL=C wc -c | tr -d ' ')"
+    if ! so_digitos "$rc" 3 || ! so_digitos "$raw" 9 || [ "$raw" -gt "${CAPLIM:-4096}" ] || [ "$raw" != "$limpo" ]; then
+        rm -f "$t"; return 99
+    fi
+    # O "x" no fim evita que o $(...) coma as quebras de linha finais.
+    o="$(cat "$t"; printf x)"; o="${o%x}"
+    rm -f "$t"
     printf '%s' "$o"
     return "$rc"
 }
+# uma_linha <texto>: tira uma quebra de linha final e so devolve o texto se sobrar uma linha so (linha extra e erro,
+# nao se corta).
+uma_linha() { local v="${1%$'\n'}"; case "$v" in *$'\n'*) return 1 ;; esac; printf '%s' "$v"; }
+# dias_cobertos <comando...>: ha quantos dias esta a entrada mais antiga que o journal devolve (o comando precisa
+# imprimir "-o short-unix"). Sem entrada ou com erro, sai com 1 e nada.
+dias_cobertos() {
+    local p ts d
+    p="$("$@" 2>/dev/null | head -n 1 | head -c 64)"
+    ts="${p%%.*}"; ts="${ts%% *}"
+    so_digitos "$ts" 12 || return 1
+    d=$(( ($(date +%s) - ts) / 86400 )); [ "$d" -ge 0 ] || d=0
+    printf '%s' "$d"
+}
+# desc_dias <dias>: "7 dias", "menos de 1 dia" ou "N dia(s)".
+desc_dias() { if [ "$1" -ge 6 ]; then printf '7 dias'; elif [ "$1" -eq 0 ]; then printf 'menos de 1 dia'; else printf '%s dia(s)' "$1"; fi; }
 # so_digitos <texto> <maximo de caracteres>: verdadeiro se for um numero curto.
 so_digitos() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "${#1}" -le "$2" ]; }
 # contar_oom <comando...>: quantas linhas de falta de memoria o comando mostra (so o numero fica guardado, o
@@ -227,7 +249,7 @@ else
     fi
 
     tasks="$(capt cx systemctl show -p TasksMax --value dgclaw-runner)"; rc_t=$?
-    tasks="${tasks%%$'\n'*}"
+    tasks="$(uma_linha "$tasks")" || tasks=""
     case "$tasks" in infinity) ;; *) so_digitos "$tasks" 12 || tasks="" ;; esac
     if [ "$rc_t" -ne 0 ]; then
         inconclusivo 3 "o systemctl do TasksMax do dgclaw-runner dentro do container saiu com codigo $rc_t (99 = resposta grande demais), entao nao interpretei a saida." "confira: podman exec $C systemctl show -p TasksMax dgclaw-runner"
@@ -241,7 +263,7 @@ else
     fi
 
     oom_pol="$(capt cx systemctl show -p OOMPolicy --value dgclaw-runner)"; rc_o=$?
-    oom_pol="${oom_pol%%$'\n'*}"
+    oom_pol="$(uma_linha "$oom_pol")" || oom_pol=""
     [ "$rc_o" -eq 0 ] || oom_pol="#rc"
     case "$oom_pol" in
         "#rc") inconclusivo 3 "o systemctl do OOMPolicy do dgclaw-runner dentro do container saiu com codigo $rc_o (99 = resposta grande demais), entao nao interpretei a saida." "confira: podman exec $C systemctl show -p OOMPolicy dgclaw-runner" ;;
@@ -254,7 +276,7 @@ else
     esac
 
     nrest="$(capt cx systemctl show -p NRestarts --value dgclaw-runner)"; rc_n=$?
-    nrest="${nrest%%$'\n'*}"
+    nrest="$(uma_linha "$nrest")" || nrest=""
     so_digitos "$nrest" 9 || nrest=""
     if [ "$rc_n" -ne 0 ]; then
         inconclusivo 3 "o systemctl do NRestarts do dgclaw-runner dentro do container saiu com codigo $rc_n (99 = resposta grande demais), entao nao interpretei a saida." "confira: podman exec $C systemctl show -p NRestarts dgclaw-runner"
@@ -274,15 +296,10 @@ else
     parcial=""
     if [ "$rc_c" -eq 97 ]; then rc_c=0; parcial="o journal do runner"; fi
     if [ "$rc_h" -eq 97 ]; then rc_h=0; parcial="${parcial:+$parcial e }o journal do kernel do servidor"; fi
-    primeira="$(timeout 60 journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o short-unix 2>/dev/null | head -n 1 | head -c 64)"
-    ts_ini="${primeira%%.*}"; ts_ini="${ts_ini%% *}"
-    cobertura=""
-    if so_digitos "$ts_ini" 12; then
-        dias_k=$(( ($(date +%s) - ts_ini) / 86400 )); [ "$dias_k" -ge 0 ] || dias_k=0
-        if [ "$dias_k" -ge 6 ]; then cobertura="7 dias"
-        elif [ "$dias_k" -eq 0 ]; then cobertura="menos de 1 dia, porque e o que o journal do kernel guarda"
-        else cobertura="$dias_k dia(s), porque e o que o journal do kernel guarda"; fi
-    fi
+    # Cobertura medida por fonte: cada journal diz ha quantos dias guarda entradas.
+    cob_c=""; cob_h=""
+    if [ "$rc_c" -eq 0 ]; then dias_c="$(dias_cobertos cx journalctl -u dgclaw-runner --since '7 days ago' --no-pager -q -o short-unix)" && cob_c="$(desc_dias "$dias_c")"; fi
+    if [ "$rc_h" -eq 0 ]; then dias_k="$(dias_cobertos timeout 60 journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o short-unix)" && cob_h="$(desc_dias "$dias_k")"; fi
     fonte_ruim=""
     [ "$rc_c" -eq 0 ] || fonte_ruim="o journal do runner"
     if [ "$rc_h" -ne 0 ]; then
@@ -295,11 +312,14 @@ else
         inconclusivo 3 "nao consegui ler $fonte_ruim dos ultimos 7 dias (erro, prazo ou saida cortada em 1 MiB). Isso nao quer dizer zero eventos de falta de memoria." \
             "leia a mao: podman exec $C journalctl -u dgclaw-runner --since '7 days ago' --no-pager | grep -i 'out of memory' e journalctl _TRANSPORT=kernel --since '7 days ago' | grep -i 'out of memory'"
     elif [ "$oom_c" -eq 0 ] && [ "$oom_h" -eq 0 ]; then
-        if [ -n "$cobertura" ]; then
-            ok 3 "nenhum OOM no journal do runner (7 dias) nem no do kernel do servidor (cobertura do kernel: $cobertura)"
+        sem_hist=""
+        [ -n "$cob_c" ] || sem_hist="o journal do runner"
+        [ -n "$cob_h" ] || sem_hist="${sem_hist:+$sem_hist e }o journal do kernel do servidor"
+        if [ -z "$sem_hist" ]; then
+            ok 3 "nenhum OOM no journal do runner (cobertura do runner: $cob_c) nem no do kernel do servidor (cobertura do kernel: $cob_h)"
         else
-            inconclusivo 3 "nenhum OOM achado, mas o journal do kernel do servidor nao mostrou nenhuma entrada nos ultimos 7 dias, entao nao sei o que ele cobre." \
-                "confira a mao: journalctl _TRANSPORT=kernel --since '7 days ago' | head e se o journal e persistente (ls /var/log/journal)"
+            inconclusivo 3 "nenhum OOM achado, mas $sem_hist nao mostrou nenhuma entrada nos ultimos 7 dias, entao nao sei o que cobre." \
+                "confira a mao: podman exec $C journalctl -u dgclaw-runner --since '7 days ago' --no-pager | head e journalctl _TRANSPORT=kernel --since '7 days ago' | head, e se o journal e persistente (ls /var/log/journal)"
         fi
     fi
 fi
@@ -340,13 +360,18 @@ else
             gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
             if (v ~ /^".*"$/ || v ~ /^\047.*\047$/) { v = substr(v, 2, length(v) - 2); gsub(/^[[:space:]]+|[[:space:]]+$/, "", v) }
             tem[k] = (length(v) > 0) ? 1 : 0
+            cont[k]++
         }
         END {
             n = split("ELEVENLABS_API_KEY GROQ_API_KEY OPENAI_API_KEY", ordem, " ")
+            for (i = 1; i <= n; i++) if (cont[ordem[i]] > 1) dup = dup (dup == "" ? "" : ", ") ordem[i]
+            if (dup != "") { print "DUPLICADA " dup; exit }
             for (i = 1; i <= n; i++) if (tem[ordem[i]] == 1) lista = lista (lista == "" ? "" : ", ") ordem[i]
             print (lista == "" ? "NENHUMA" : lista)
         }' 2>/dev/null)"
     case "$mic" in
+        DUPLICADA\ *) inconclusivo 5 "o web.env tem mais de uma atribuicao da mesma chave de microfone (${mic#DUPLICADA }), com ou sem export. O servico carrega o arquivo de dois jeitos, entao qual linha ele usa fica ambigua e nao sei qual chave esta valendo." \
+            "deixe uma unica linha simples NOME=valor para cada chave no web.env (sem mostrar o valor), reinicie o Web (sudo systemctl restart dgclaw-web) e rode o smoke de novo" ;;
         NENHUMA) falha 5 "o web.env nao tem ELEVENLABS_API_KEY, GROQ_API_KEY nem OPENAI_API_KEY com valor (ausentes, vazias ou com uma atribuicao vazia por ultimo). Sem uma delas o microfone do chat e a transcricao de audio nao funcionam." \
             "ponha a chave do cliente no web.env (sem mostrar o valor) e reinicie o Web: sudo systemctl restart dgclaw-web" ;;
         ELEVENLABS_API_KEY|GROQ_API_KEY|OPENAI_API_KEY|*", "*) 
@@ -357,9 +382,12 @@ else
 fi
 
 # Cofre: so os NOMES das chaves ativas. Cruzar com o que as skills do cliente citam e passo a mao (item 5 do guia).
-cofre_json="$("$CLI" agente cofre "$SLUG" listar --json 2>/dev/null | head -c 1048576)"
-if ! printf '%s' "$cofre_json" | jq -e '.chaves' >/dev/null 2>&1; then
-    falha 5 "nao consegui listar o cofre do agente $SLUG." "rode a mao e leia a mensagem: dgclaw agente cofre $SLUG listar"
+cofre_saida="$("$CLI" agente cofre "$SLUG" listar --json 2>/dev/null | head -c 1048577; printf 'rc=%s' "${PIPESTATUS[0]}")"
+cofre_rc="${cofre_saida##*rc=}"; cofre_json="${cofre_saida%rc=*}"
+if ! so_digitos "$cofre_rc" 3 || [ "$cofre_rc" -ne 0 ] || [ "${#cofre_json}" -gt 1048576 ] || [ -z "${cofre_json//[[:space:]]/}" ]; then
+    inconclusivo 5 "a consulta ao cofre do agente $SLUG nao devolveu uma resposta valida (CLI com erro, sem saida ou saida grande demais). Isso nao quer dizer cofre vazio." "rode a mao e leia a mensagem: dgclaw agente cofre $SLUG listar"
+elif ! printf '%s' "$cofre_json" | jq -s -e 'length==1 and (.[0] | type=="object" and .ok==true and (.chaves|type=="array"))' >/dev/null 2>&1; then
+    inconclusivo 5 "a resposta da consulta ao cofre do agente $SLUG nao veio no formato esperado (um objeto com ok verdadeiro e a lista de chaves)." "rode a mao e leia a mensagem: dgclaw agente cofre $SLUG listar"
 else
     NOMES="$(printf '%s' "$cofre_json" | jq -r '.chaves[] | select((.revogadaEm // "") == "") | .envName' | sort -u)"
     total="$(printf '%s\n' "$NOMES" | sed '/^$/d' | wc -l | tr -d ' ')"
@@ -372,7 +400,7 @@ if [ "$CONTAINER_OK" != 1 ]; then
     aviso 6 "yt-dlp nao conferido: o container nao esta de pe." "resolva o item 3 e rode de novo."
 else
     ytpath="$(capt ca sh -c 'command -v yt-dlp')"; rc=$?
-    ytpath="${ytpath%%$'\n'*}"
+    ytpath="$(uma_linha "$ytpath")" || rc=99
     if [ "$rc" -eq 1 ] && [ -z "$ytpath" ]; then
         falha 6 "o yt-dlp nao esta no PATH do agente." "a imagem esta velha: dgclaw imagem construir --agora (confira que terminou com sucesso), depois $RECRIAR_DICA"
     elif [ "$rc" -ne 0 ]; then
@@ -419,21 +447,23 @@ elif ! ca sh -c 'command -v google-chrome-stable' >/dev/null 2>&1; then
         "teste um render curto a mao, no card de teste, e confira o Chrome depois (item 7 do checklist)."
 else
     # Perfil descartavel numa pasta privada desta execucao, criada dentro do container; so ela e apagada.
-    dir_ch="$(PRAZO=30 capt ca mktemp -d /tmp/smoke-entrega.XXXXXX | head -n 1)"
-    case "$dir_ch" in
-        /tmp/smoke-entrega.??????)
-            PRAZO=90 ca google-chrome-stable --headless=new --no-sandbox --disable-gpu --user-data-dir="$dir_ch/perfil" --dump-dom about:blank >/dev/null 2>&1
-            rc=$?
-            PRAZO=30 ca rm -rf -- "$dir_ch" >/dev/null 2>&1
-            if [ "$rc" -ne 0 ]; then
-                falha 7 "o Chrome headless nao rodou (codigo $rc). Render de carrossel e video nao vai funcionar." \
-                    "rode a mao e leia o erro: podman exec --user agente $C google-chrome-stable --headless=new --no-sandbox --dump-dom about:blank"
-            else
-                ok 7 "o Chrome headless rodou e terminou sem erro"
-            fi ;;
-        *)
-            inconclusivo 7 "nao consegui criar a pasta privada do render de teste dentro do container." "confira: podman exec --user agente $C mktemp -d /tmp/smoke-entrega.XXXXXX" ;;
-    esac
+    # O status do mktemp nao pode se perder no pipeline, e o caminho devolvido so vale se for exatamente uma pasta
+    # direto sob /tmp, com o prefixo fixo e sufixo alfanumerico (sem barra nem ".."). Antes disso nada roda nem apaga.
+    dir_ch="$(PRAZO=30 capt ca mktemp -d /tmp/smoke-entrega.XXXXXX)"; rc_m=$?
+    dir_ch="$(uma_linha "$dir_ch")" || rc_m=99
+    if [ "$rc_m" -eq 0 ] && [[ "$dir_ch" =~ ^/tmp/smoke-entrega\.[A-Za-z0-9]{6,}$ ]]; then
+        PRAZO=90 ca google-chrome-stable --headless=new --no-sandbox --disable-gpu --user-data-dir="$dir_ch/perfil" --dump-dom about:blank >/dev/null 2>&1
+        rc=$?
+        PRAZO=30 ca rm -rf -- "$dir_ch" >/dev/null 2>&1
+        if [ "$rc" -ne 0 ]; then
+            falha 7 "o Chrome headless nao rodou (codigo $rc). Render de carrossel e video nao vai funcionar." \
+                "rode a mao e leia o erro: podman exec --user agente $C google-chrome-stable --headless=new --no-sandbox --dump-dom about:blank"
+        else
+            ok 7 "o Chrome headless rodou e terminou sem erro"
+        fi
+    else
+        inconclusivo 7 "nao consegui criar a pasta privada do render de teste dentro do container (o mktemp falhou ou devolveu um caminho fora do formato esperado). Nada foi rodado nem apagado." "confira: podman exec --user agente $C mktemp -d /tmp/smoke-entrega.XXXXXX"
+    fi
 fi
 
 # --- O que nao da para automatizar -----------------------------------------------------------------

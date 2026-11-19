@@ -3,6 +3,9 @@
 est="${STUB_ESTADO:?}"
 echo "dgclaw $*" >> "${STUB_LOG:?}"
 if [ "$1 $2 $4" = "agente cofre listar" ]; then
+    [ -f "$est/cofre-erro" ] && exit 1
+    [ -f "$est/cofre-sem-saida" ] && exit 0
+    [ -f "$est/cofre-ok-falso" ] && { echo '{"ok":false,"chaves":[]}'; exit 0; }
     cat "$est/cofre.json"; exit 0
 fi
 if [ "$1 $2" = "agente reparar" ]; then

@@ -41,7 +41,7 @@ afirma "item 3 OK no OOMPolicy" grep -q 'OK     \[3\] OOMPolicy=continue' "$TMP/
 afirma "item 3 OK sem OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
 afirma "item 5 OK no microfone (web.env)" grep -q 'OK     \[5\] o servico Web tem chave para o microfone e o audio (a ultima atribuicao tem valor): GROQ_API_KEY' "$TMP/s.txt"
 afirma "item 3 OK na CPU (sem limite)" grep -q 'OK     \[3\] CPU do container: sem limite' "$TMP/s.txt"
-afirma "item 3 OK no kernel com a cobertura" grep -q 'OK     \[3\] nenhum OOM no journal do runner (7 dias) nem no do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
+afirma "item 3 OK no kernel com a cobertura" grep -q 'OK     \[3\] nenhum OOM no journal do runner (cobertura do runner: 7 dias) nem no do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
 afirma "o kernel e lido sem -k (todo o periodo, nao so o boot)" grep -q 'journalctl _TRANSPORT=kernel --since 7 days ago' "$STUB_LOG"
 nega "nao usa journalctl -k" grep -qE 'journalctl -k' "$STUB_LOG"
 nega "nao mostra o valor da chave do web.env" grep -q 'gsk_segredo' "$TMP/s.txt"
@@ -141,6 +141,16 @@ limpar_estado
 : >"$STUB_ESTADO/mktemp-erro"
 smoke ana
 afirma "sem pasta privada: INCONCLUSIVO no render" grep -q 'INCONCLUSIVO \[7\] nao consegui criar a pasta privada' "$TMP/s.txt"
+limpar_estado
+: >"$STUB_ESTADO/mktemp-barra"
+smoke ana
+afirma "caminho com barra no sufixo: INCONCLUSIVO, sem render nem remocao" grep -q 'INCONCLUSIVO \[7\] nao consegui criar a pasta privada' "$TMP/s.txt"
+nega "caminho invalido nao chega ao Chrome" grep -q 'google-chrome-stable --headless' "$STUB_LOG"
+nega "caminho invalido nao chega ao rm" grep -q 'rm -rf' "$STUB_LOG"
+limpar_estado
+: >"$STUB_ESTADO/mktemp-casa"
+smoke ana
+nega "caminho fora do /tmp nao e apagado" grep -q 'rm -rf' "$STUB_LOG"
 smoke ana --video https://exemplo.com/video
 igual "--video nao existe mais: sai com 2" "2" "$?"
 
@@ -196,21 +206,41 @@ smoke ana
 afirma "GROQ_API_KEY com aspas simples vazias: FALHA" grep -q 'FALHA  \[5\] o web.env nao tem ELEVENLABS_API_KEY, GROQ_API_KEY nem OPENAI_API_KEY com valor' "$TMP/s.txt"
 printf 'GROQ_API_KEY=gsk_antiga_segredo\nOUTRA=1\nGROQ_API_KEY=\n' >"$ETC/web.env"
 smoke ana
-afirma "atribuicao antiga seguida de uma vazia: FALHA" grep -q 'FALHA  \[5\] o web.env nao tem ELEVENLABS_API_KEY, GROQ_API_KEY nem OPENAI_API_KEY com valor' "$TMP/s.txt"
+afirma "atribuicao antiga seguida de uma vazia (duplicata): INCONCLUSIVO" grep -q 'INCONCLUSIVO \[5\] o web.env tem mais de uma atribuicao da mesma chave de microfone (GROQ_API_KEY)' "$TMP/s.txt"
 nega "nao mostra o valor antigo" grep -q 'gsk_antiga' "$TMP/s.txt"
 printf 'GROQ_API_KEY=\nexport GROQ_API_KEY="gsk_nova_segredo"\n' >"$ETC/web.env"
 smoke ana
-afirma "vazia seguida de uma com valor: OK" grep -q 'OK     \[5\] o servico Web tem chave para o microfone e o audio (a ultima atribuicao tem valor): GROQ_API_KEY' "$TMP/s.txt"
+afirma "vazia e depois com export (duplicata): INCONCLUSIVO, linha ambigua" grep -q 'INCONCLUSIVO \[5\] o web.env tem mais de uma atribuicao da mesma chave de microfone (GROQ_API_KEY)' "$TMP/s.txt"
+nega "duplicata nao vira OK" grep -q 'OK     \[5\] o servico Web' "$TMP/s.txt"
 nega "nao mostra o valor novo" grep -q 'gsk_nova' "$TMP/s.txt"
+printf 'GROQ_API_KEY=gsk_a\nOPENAI_API_KEY=sk_b\nGROQ_API_KEY=gsk_c\n' >"$ETC/web.env"
+smoke ana
+afirma "duas GROQ com valor: INCONCLUSIVO mesmo havendo outra chave" grep -q 'INCONCLUSIVO \[5\] o web.env tem mais de uma atribuicao' "$TMP/s.txt"
+printf 'export GROQ_API_KEY=gsk_nova_segredo\n' >"$ETC/web.env"
+smoke ana
+afirma "uma so atribuicao com export e valor: OK" grep -q 'OK     \[5\] o servico Web tem chave para o microfone e o audio (a ultima atribuicao tem valor): GROQ_API_KEY' "$TMP/s.txt"
 printf 'OPENAI_API_KEY=sk_x\n' >"$ETC/web.env"
 smoke ana
 afirma "so OPENAI_API_KEY com valor: OK" grep -q 'OK     \[5\] o servico Web tem chave para o microfone e o audio (a ultima atribuicao tem valor): OPENAI_API_KEY' "$TMP/s.txt"
 printf 'GROQ_API_KEY=gsk_x\nGROQ_API_KEY=""\n' >"$ETC/web.env"
 smoke ana
-afirma "GROQ vazia por ultimo e nenhuma outra: FALHA" grep -q 'FALHA  \[5\] o web.env nao tem ELEVENLABS_API_KEY, GROQ_API_KEY nem OPENAI_API_KEY com valor' "$TMP/s.txt"
+afirma "GROQ com valor e depois vazia (duplicata): INCONCLUSIVO" grep -q 'INCONCLUSIVO \[5\] o web.env tem mais de uma atribuicao da mesma chave de microfone (GROQ_API_KEY)' "$TMP/s.txt"
 printf '%s\nGROQ_API_KEY=gsk_x\n' "\$(touch $TMP/executou)" >"$ETC/web.env"
 smoke ana
 nega "o web.env e lido como texto, nunca executado" test -e "$TMP/executou"
+
+echo "smoke-entrega: cobertura por fonte (runner e kernel separados)"
+limpar_estado
+: >"$STUB_ESTADO/runner-vazio"
+smoke ana
+igual "runner vazio com kernel com historico: sai com 0" "0" "$?"
+afirma "runner vazio: INCONCLUSIVO so do runner" grep -q 'INCONCLUSIVO \[3\] nenhum OOM achado, mas o journal do runner nao mostrou nenhuma entrada' "$TMP/s.txt"
+nega "runner vazio nao imprime OK de OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
+nega "o INCONCLUSIVO nao acusa o kernel" grep -q 'mas o journal do runner e o journal do kernel' "$TMP/s.txt"
+limpar_estado
+echo 2 >"$STUB_ESTADO/runner-dias"
+smoke ana
+afirma "runner com 2 dias: diz a cobertura de cada fonte" grep -q 'cobertura do runner: 2 dia(s)) nem no do kernel do servidor (cobertura do kernel: 9 dias\|cobertura do kernel: 7 dias' "$TMP/s.txt"
 
 echo "smoke-entrega: OOM num journal com o outro ilegivel, saida cortada e systemctl com erro"
 limpar_estado
@@ -257,6 +287,34 @@ igual "systemctl com erro: sai com 0" "0" "$?"
 afirma "TasksMax com systemctl em erro: INCONCLUSIVO com o codigo" grep -q 'INCONCLUSIVO \[3\] o systemctl do TasksMax.*codigo 3' "$TMP/s.txt"
 afirma "NRestarts com systemctl em erro: INCONCLUSIVO com o codigo" grep -q 'INCONCLUSIVO \[3\] o systemctl do NRestarts.*codigo 3' "$TMP/s.txt"
 nega "TasksMax com erro nao vira OK" grep -q 'OK     \[3\] TasksMax' "$TMP/s.txt"
+
+echo "smoke-entrega: resposta com NUL ou linha extra do systemctl"
+limpar_estado
+: >"$STUB_ESTADO/tasks-nul"
+smoke ana
+afirma "TasksMax com byte NUL: INCONCLUSIVO (codigo 99)" grep -q 'INCONCLUSIVO \[3\] o systemctl do TasksMax.*codigo 99' "$TMP/s.txt"
+nega "NUL nao vira OK" grep -q 'OK     \[3\] TasksMax' "$TMP/s.txt"
+limpar_estado
+: >"$STUB_ESTADO/tasks-duas-linhas"
+smoke ana
+afirma "TasksMax com linha extra: INCONCLUSIVO, nao corta" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o TasksMax' "$TMP/s.txt"
+nega "linha extra nao vira OK" grep -q 'OK     \[3\] TasksMax' "$TMP/s.txt"
+
+echo "smoke-entrega: consulta ao cofre sem resposta valida"
+limpar_estado
+: >"$STUB_ESTADO/cofre-sem-saida"
+smoke ana
+igual "CLI do cofre sem saida: sai com 0" "0" "$?"
+afirma "CLI sem saida: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[5\] a consulta ao cofre' "$TMP/s.txt"
+nega "CLI sem saida nao diz que o cofre tem chaves" grep -q 'OK     \[5\] o cofre' "$TMP/s.txt"
+limpar_estado
+: >"$STUB_ESTADO/cofre-erro"
+smoke ana
+afirma "CLI com codigo de erro: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[5\] a consulta ao cofre' "$TMP/s.txt"
+limpar_estado
+: >"$STUB_ESTADO/cofre-ok-falso"
+smoke ana
+afirma "ok falso: INCONCLUSIVO de formato" grep -q 'INCONCLUSIVO \[5\] a resposta da consulta ao cofre' "$TMP/s.txt"
 
 echo "smoke-entrega: web.env ausente"
 limpar_estado

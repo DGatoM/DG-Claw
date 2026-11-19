@@ -52,11 +52,14 @@ Os números abaixo são os mesmos que o script imprime entre colchetes.
 - **Se a chave permanente da equipe não funcionar:** não recrie a VPS. Entre pelo acesso temporário do
   suporte (`dgclaw suporte ligar`, veja o [projeto de cliente](PROJETO-DE-CLIENTE.md#2-o-fluxo-passo-a-passo)).
 - **Na entrega, confira as duas saídas:** (1) o suporte temporário foi revogado: `sudo dgclaw suporte status`
-  diz "suporte: desligado"; (2) a chave permanente da equipe **não** autoriza mais o root. Confira a impressão digital dela
-  em todas as fontes que o `sshd` aceita: `sshd -T | grep -i authorizedkeys` mostra os arquivos
-  (`authorizedkeysfile` e, se houver, `authorizedkeyscommand`), e `ssh-keygen -lf <arquivo>` lista as
-  impressões de cada um. Se ela aparecer em algum, remova a linha, porque o `desligar` não mexe nas
-  chaves que não são do suporte. Depois teste uma conexão nova usando só essa chave
+  diz "suporte: desligado"; (2) a chave permanente da equipe **não** autoriza mais o root. Confira a
+  configuração efetiva do `sshd` para o root e para a origem de suporte, com
+  `sudo sshd -T -C user=root,host=<host>,addr=<ip de suporte> | grep -iE 'authorizedkeys|permitrootlogin'`,
+  porque o `sshd -T` sem `-C` não aplica as regras `Match`. Para cada arquivo listado, `ssh-keygen -lf <arquivo>`
+  mostra as impressões digitais. Se houver `authorizedkeyscommand`, confira a chave também na fonte que ele
+  consulta (o `ssh-keygen` não o lê). Se ela aparecer em algum lugar, remova a linha, porque o `desligar` não
+  mexe nas chaves que não são do suporte. Por fim, teste de uma conexão nova, a partir da origem de suporte que
+  antes era aceita, só com essa chave
   (`ssh -o IdentitiesOnly=yes -o IdentityAgent=none -i <chave da equipe> root@<servidor>`): ela precisa
   ser recusada.
 
@@ -107,8 +110,10 @@ sucesso antes de recriar.
   nome de cada chave ativa. Ele não afirma que as chaves das skills estão lá.
 - **Skills contra o cofre (à mão):** liste os nomes com `dgclaw agente cofre <agente> listar` e confira contra
   o que as skills do cliente citam. Para ver o que uma skill cita, como o usuário `agente`:
-  `podman exec --user agente dgclaw-<agente> grep -rhoE '\b[A-Z][A-Z0-9_]*_(API_KEY|TOKEN)\b' /home/agente/.claude/skills/<skill> /home/agente/.agents/skills/<skill>`
-  (a segunda pasta pode não existir). Os nomes aceitam sublinhados internos (por exemplo `TELEGRAM_BOT_TOKEN`).
+  `podman exec --user agente dgclaw-<agente> grep -rhoE '\b[A-Z][A-Z0-9_]*_(API_KEY|TOKEN)\b' <pasta de skills>/<skill>`,
+  com a pasta efetiva identificada no [passo 10](#10-skills-do-cliente-na-pasta-certa-à-mão)
+  (`/home/agente/.claude/skills`, `/home/agente/.agents/skills` ou `/home/agente/.codex/skills`). Só marque a
+  conferência se o `grep` leu a pasta com sucesso (código de saída 0 ou 1; 2 é pasta ilegível ou inexistente). Os nomes aceitam sublinhados internos (por exemplo `TELEGRAM_BOT_TOKEN`).
 - **Esperado:** toda chave que uma skill do cliente cita (por exemplo `ELEVENLABS_API_KEY` ou
   `GEMINI_API_KEY`) está no cofre. O WhatsApp não usa chave no cofre: o pareamento é feito no painel,
   confira à mão.
@@ -119,7 +124,9 @@ sucesso antes de recriar.
   O painel usa uma cópia da mesma credencial em `/etc/dgclaw/web.env`, que o cofre não atualiza. Troque
   ou remova nesse arquivo só a linha da chave provisória (`ELEVENLABS_API_KEY`, `GROQ_API_KEY` ou
   `OPENAI_API_KEY`), preservando as outras, rode `sudo systemctl restart dgclaw-web` e teste o microfone
-  do chat com a credencial do cliente.
+  do chat com a credencial do cliente. A credencial provisória é exclusiva desta instalação, e o item só
+  fecha depois de você revogá-la no provedor: trocar no cofre e no `web.env` não invalida cópias que o agente
+  ou um backup anterior à entrega ainda guardem.
 
 ### 6. YouTube e yt-dlp (login à mão)
 
@@ -131,10 +138,13 @@ sucesso antes de recriar.
    (o vídeo público baixa mesmo com a sessão expirada, então o download sozinho não prova o login). Depois
    faça à mão um download curto de verdade, numa pasta privada nova dentro do container, com a mesma chamada
    isolada que o agente usa, como usuário `agente`:
-   `D="$(podman exec --user agente dgclaw-<agente> mktemp -d)"` e
+   `D="$(podman exec --user agente dgclaw-<agente> mktemp -d /tmp/yt-entrega.XXXXXX)"` e, antes de usar `$D`,
+   confira que o `mktemp` terminou com sucesso e que o caminho é exatamente uma pasta direto sob `/tmp`, com o
+   prefixo fixo e sufixo só de letras e números: `[[ "$D" =~ ^/tmp/yt-entrega\.[A-Za-z0-9]{6,}$ ]]`. Se a
+   conferência falhar, pare: não baixe, não renderize e não apague nada.
    `podman exec --user agente dgclaw-<agente> yt-dlp --ignore-config --no-plugin-dirs --js-runtimes node --cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome/Default" --no-playlist -f "worst/worstvideo" --max-filesize 5M -P "$D" -- 'https://www.youtube.com/watch?v=jNQXAC9IJRQ'`.
    Esperado: um arquivo com conteúdo na pasta (`podman exec --user agente dgclaw-<agente> ls -l "$D"`).
-   Depois apague só essa pasta: `podman exec --user agente dgclaw-<agente> rm -rf -- "$D"`.
+   Depois apague só essa pasta, já validada: `podman exec --user agente dgclaw-<agente> rm -rf -- "$D"`.
 - **Esperado:** `yt-dlp` no PATH em `/usr/local/bin` (a partir da 1.1.1; antes, em `/opt/venv/bin`, e o
   script avisa sem repetir o caminho). Não existe mais configuração global de cookies. O script confere:
   (a) que o `/etc/yt-dlp.conf` do container tem a diretiva ativa (não comentada) `--js-runtimes node`;
@@ -209,8 +219,11 @@ Hoje é passo manual. Para cada skill do cliente:
 
 - **Conferir:** abra as skills que levam texto do cliente (assinatura, nome do programa, encerramento fixo)
   e procure o que não pertence a ele, dentro do container e sem trazer o texto das linhas para o terminal:
-  `podman exec --user agente dgclaw-<agente> grep -rlE '<nome de outro cliente>|<nome do modelo>' /home/agente/.claude/skills/<skill>`
-  (lista só os arquivos com ocorrência) ou, com `-rc`, a contagem por arquivo. Para ver a linha, abra o
+  `podman exec --user agente dgclaw-<agente> grep -rlE '<nome de outro cliente>|<nome do modelo>' <pasta de skills>/<skill>`,
+  com a pasta efetiva identificada no [passo 10](#10-skills-do-cliente-na-pasta-certa-à-mão)
+  (`.claude/skills`, `.agents/skills` ou `.codex/skills`, dentro de `/home/agente`). Só marque a conferência se
+  o `grep` leu a pasta com sucesso (código de saída 0 ou 1; 2 é pasta ilegível ou inexistente). O comando lista
+  só os arquivos com ocorrência; com `-rc`, a contagem por arquivo. Para ver a linha, abra o
   arquivo achado.
 - **Esperado:** nenhum nome de outro cliente e nenhum nome do modelo de onde a skill foi copiada. Leia a
   assinatura e o encerramento com o olho: o `grep` só acha o que você lembrou de procurar.
