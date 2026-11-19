@@ -1465,14 +1465,37 @@ caso_caddy_arquivo_antigo_identico_e_atualizado() {
     limpar_cenario
 }
 
-caso_caddy_arquivo_personalizado_e_preservado() {
+caso_caddy_arquivo_personalizado_simples_ganha_so_o_encode() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado"
+    echo caddy >"$TMP/estado/ativos" # o Caddy ja esta no ar, como numa atualizacao de verdade
+    printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n%s {\n\theader X-Minha-Linha "do dono"\n\treverse_proxy 127.0.0.1:8300\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    afirma "a atualizacao termina com sucesso" instalacao_basica
+    afirma "a linha do dono continua la" tem "$RAIZ/etc/caddy/Caddyfile" 'header X-Minha-Linha "do dono"'
+    afirma "ganhou a compressao" tem "$RAIZ/etc/caddy/Caddyfile" "zstd"
+    nega "o stream da conversa nao entra" tem "$RAIZ/etc/caddy/Caddyfile" "event-stream"
+    nega "nada de text/* generico" grep -qE 'Content-Type text/\*' "$RAIZ/etc/caddy/Caddyfile"
+    igual "$(contar "$RAIZ/etc/caddy/Caddyfile" reverse_proxy)" 1 || { echo "      FALHOU: reverse_proxy duplicado"; FALHAS=$((FALHAS + 1)); }
+    # shellcheck disable=SC2016
+    afirma "so linhas novas foram acrescentadas" bash -c 'diff "$1" "$2" | grep -c "^<" | grep -qx 0' _ "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    afirma "caddy validado" tem "$STUB_LOG" "caddy validate --config $RAIZ/etc/caddy/Caddyfile"
+    afirma "caddy recarregado" tem "$STUB_LOG" "systemctl reload caddy"
+    afirma "avisa o que fez" tem "$SAIDA" "acrescentei so o bloco de compressao"
+    # Segunda rodada: ja tem encode, nao duplica.
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-depois"
+    afirma "segunda rodada termina com sucesso" instalacao_basica
+    afirma "arquivo igual ao da primeira rodada" cmp "$TMP/caddy-depois" "$RAIZ/etc/caddy/Caddyfile"
+    limpar_cenario
+}
+
+caso_caddy_arquivo_personalizado_complexo_e_preservado() {
     novo_cenario
     mkdir -p "$RAIZ/etc/caddy"
-    printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n%s {\n\treverse_proxy 127.0.0.1:8300\n\theader X-Minha-Linha "do dono"\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n%s {\n\thandle /api/* {\n\t\treverse_proxy 127.0.0.1:8300\n\t}\n\theader X-Minha-Linha "do dono"\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
     cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
     afirma "a atualizacao termina com sucesso" instalacao_basica
     afirma "arquivo personalizado intacto" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
-    afirma "a linha do dono continua la" tem "$RAIZ/etc/caddy/Caddyfile" 'header X-Minha-Linha "do dono"'
     afirma "avisa o que acrescentar" tem "$SAIDA" "personalizacoes suas"
     afirma "o aviso explica o perigo do text/*" tem "$SAIDA" "event-stream"
     limpar_cenario

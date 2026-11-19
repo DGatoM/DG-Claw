@@ -585,12 +585,37 @@ caddy_restaurar_site() {
     fi
 }
 
+# caddy_com_encode <arquivo> <porta>: imprime o Caddyfile do dono com o bloco encode acrescentado logo antes do
+# reverse_proxy, ou sai com 1 sem imprimir nada quando nao da para ter certeza de onde ele entra. So aceita o
+# caso simples: nenhum "encode" no arquivo e um unico reverse_proxy, na linha "reverse_proxy 127.0.0.1:<porta>"
+# no primeiro nivel do bloco do site (um tab ou 4 espacos). Qualquer outra forma (handle, route, varios
+# reverse_proxy, outro destino) continua sendo do dono e recebe so o aviso. O resto do arquivo sai identico.
+caddy_com_encode() {
+    local arq="$1" porta="$2" tipos="" tipo
+    for tipo in "${CADDY_TIPOS_COMPRIMIDOS[@]}"; do tipos="$tipos $tipo"; done
+    grep -Eq '^[[:space:]]*encode([[:space:]{]|$)' "$arq" && return 1
+    [ "$(grep -c 'reverse_proxy' "$arq" || true)" = 1 ] || return 1
+    grep -Eq "^($(printf '\t')|    )reverse_proxy 127\\.0\\.0\\.1:${porta}[[:space:]]*\$" "$arq" || return 1
+    awk -v porta="$porta" -v tipos="$tipos" '
+        $0 ~ "^(\t|    )reverse_proxy 127\\.0\\.0\\.1:" porta "[ \t]*$" && !feito {
+            match($0, /^[ \t]+/); i = substr($0, RSTART, RLENGTH)
+            print i "encode {"; print i i "zstd"; print i i "gzip"; print i i "match {"
+            n = split(tipos, t, " ")
+            for (k = 1; k <= n; k++) print i i i "header Content-Type " t[k] "*"
+            print i i "}"; print i "}"
+            feito = 1
+        }
+        { print }
+        END { exit feito ? 0 : 1 }
+    ' "$arq"
+}
+
 # escrever_site_caddy <dominio> [trocar] [porta]: grava o site do DG Claw no Caddyfile proprio (quando e dele ou
 # padrao) ou em conf.d/dgclaw.caddy (quando o Caddyfile tem sites de outros). Nao valida nem recarrega.
 # Arquivo que ja existe e foi personalizado (diferente do que o instalador gera) nao e tocado: avisa o
 # que acrescentar. Com "trocar" (dgclaw dominio), o arquivo personalizado vira copia ao lado e o bloco gerado entra no lugar.
 escrever_site_caddy() {
-    local copia dominio="$1" modo="${2:-}" porta="${3:-$DG_PORTA_PAINEL_PADRAO}" cf="$R/etc/caddy/Caddyfile" confd="$R/etc/caddy/conf.d/dgclaw.caddy" alvo
+    local copia novo dominio="$1" modo="${2:-}" porta="${3:-$DG_PORTA_PAINEL_PADRAO}" cf="$R/etc/caddy/Caddyfile" confd="$R/etc/caddy/conf.d/dgclaw.caddy" alvo
     CADDY_SITE_MUDOU=0
     CADDY_SITE_ARQUIVO=""
     CADDY_SITE_COPIA=""
@@ -631,6 +656,17 @@ escrever_site_caddy() {
                 if modo_tunel; then
                     falha "o site do DG Claw em ${alvo#"$R"} tem personalizacoes suas, e no modo tunel o instalador so aceita o site que ele mesmo gera: ele precisa garantir que o Caddy escute apenas em 127.0.0.1 e que o IP real de cada visitante (Cf-Connecting-IP) chegue ao painel, senao qualquer um alcanca o painel por fora do tunel ou bloqueia o seu login com 5 tentativas erradas." \
                         "guarde uma copia do arquivo (sudo cp ${alvo#"$R"} /root/caddy-site-antes-do-tunel), apague o original (sudo rm ${alvo#"$R"}) e rode ./install.sh de novo: ele gera o site padrao do modo tunel. Depois, se quiser, leve para dentro do bloco gerado as linhas suas que nao mexem em bind, endereco do site nem reverse_proxy, e rode caddy validate --config ${cf#"$R"} --adapter caddyfile && sudo systemctl reload caddy."
+                fi
+                # Site personalizado so na forma simples (um reverse_proxy, sem encode): acrescenta apenas o bloco
+                # encode e mantem o resto como esta. Validado pelo caller; se o Caddy recusar, caddy_restaurar_site volta a copia.
+                if novo="$(caddy_com_encode "$alvo" "$porta")" && [ -n "$novo" ]; then
+                    CADDY_SITE_COPIA="$(mktemp)"
+                    cp -p "$alvo" "$CADDY_SITE_COPIA"
+                    printf '%s\n' "$novo" | escrever_arquivo "$alvo" 644
+                    CADDY_SITE_MUDOU=1
+                    CADDY_SITE_ARQUIVO="$alvo"
+                    info "${alvo#"$R"} tem personalizacoes suas: acrescentei so o bloco de compressao (encode) e mantive o resto como estava"
+                    return 0
                 fi
                 aviso "${alvo#"$R"} tem personalizacoes suas e nao foi alterado, entao o site continua sem a compressao nova (a conversa e o painel ficam mais lentos no celular). Para ligar, acrescente dentro do bloco do site, antes do reverse_proxy: encode { zstd gzip match { header Content-Type text/html* header Content-Type text/css* header Content-Type text/plain* header Content-Type text/javascript* header Content-Type application/javascript* header Content-Type application/json* header Content-Type application/manifest+json* header Content-Type application/xml* header Content-Type image/svg+xml* } } (nao use 'text/*': ele comprimiria o stream da conversa, text/event-stream, e as mensagens deixariam de chegar na hora). Depois rode: caddy validate --config ${cf#"$R"} --adapter caddyfile && sudo systemctl reload caddy"
                 return 0
