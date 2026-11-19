@@ -139,13 +139,18 @@ class CompactRecenteERecuo(unittest.TestCase):
 class MainDoAutoCompactNoRunner(unittest.TestCase):
     """O main inteiro, com o card falso: a guarda sai 0 sem injetar nem gravar estado."""
 
-    def _rodar(self, card, state=None, ao_injetar=None):
+    def _rodar(self, card, state=None, ao_injetar=None, boundary_ts=None):
         with tempfile.TemporaryDirectory() as d:
             ws = Path(d)
             transcript = ws / "t.jsonl"
-            transcript.write_text(json.dumps({"type": "assistant", "message": {
+            linhas = []
+            if boundary_ts:
+                # o recibo vale so no transcript vivo (nao em outro arquivo da pasta)
+                linhas.append(json.dumps({"type": "system", "subtype": "compact_boundary", "timestamp": boundary_ts}))
+            linhas.append(json.dumps({"type": "assistant", "message": {
                 "role": "assistant", "content": "ok",
-                "usage": {"input_tokens": 10, "cache_read_input_tokens": 900_000}}}) + "\n")
+                "usage": {"input_tokens": 10, "cache_read_input_tokens": 900_000}}}))
+            transcript.write_text("\n".join(linhas) + "\n")
             state_file = ws / "estado.json"
             if state is not None:
                 state_file.write_text(json.dumps(state))
@@ -192,6 +197,18 @@ class MainDoAutoCompactNoRunner(unittest.TestCase):
         since = datetime.fromisoformat(gravado["last_compact_ts"])
         self.assertLessEqual(since, envios[0])
         self.assertEqual(gravado["pending_resume_poke"]["since"], gravado["last_compact_ts"])
+
+    def test_compact_bem_sucedido_zera_o_contador_e_o_cooldown_volta_ao_normal(self):
+        # last_compact_ts de 30 min atras, compact_boundary depois dele: com 4 falhas o recuo seria 240 min
+        # (nao injetaria); zerado, o cooldown normal de 20 min ja passou e o /compact segue.
+        antes = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+        boundary = (datetime.now(timezone.utc) - timedelta(minutes=25)).isoformat()
+        rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0},
+                                           state={"consecutive_fail": 4, "last_compact_ts": antes},
+                                           boundary_ts=boundary)
+        self.assertEqual(rc, 0)
+        self.assertEqual(gravado["consecutive_fail"], 0)
+        self.assertEqual(len(injetou), 1)
 
     def test_leitura_do_card_falhou_nao_envia(self):
         rc, injetou, gravado = self._rodar(None)

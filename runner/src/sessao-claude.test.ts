@@ -358,6 +358,17 @@ test("PreCompact: recusa com conteúdo vazio ou desconhecido não conta, e o tex
   assert.equal(lerTexto(amb.logDoRunner).includes(marca), false);
 });
 
+test("PreCompact: recusa com timestamp numérico ou objeto não lança e não conta", async () => {
+  const { s, hook, arquivo } = await novaComRedeCurta(600);
+  hook("PreCompact");
+  for (const ts of [Date.now() + 100, { a: 1 }]) {
+    fs.writeFileSync(arquivo, JSON.stringify({ ...RECUSA_DO_COMPACT, timestamp: ts }) + "\n");
+    await dormir(1_500);
+    assert.equal(s.estado.status, "working");
+    assert.equal(s.estado.statusReason, "hook:PreCompact");
+  }
+});
+
 test("PreCompact: recusa seguida de linha assistant (o agente seguiu trabalhando) não conta", async () => {
   const { s, hook, transcript } = await novaComRedeCurta(600);
   hook("PreCompact");

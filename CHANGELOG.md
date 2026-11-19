@@ -20,8 +20,10 @@ falhas seguidas (`DGCLAW_COMPACT_FAIL_ALERT`) ele espera o dobro do cooldown a c
 passa a reconhecer fila parada (mensagens esperando há mais de `DGCLAW_FILA_PARADA_MIN`, 15 minutos, com o agente em working
 e o card sem mudar de estado; com o Claude, o transcript também precisa estar mudo). Ele não reinicia o agente: avisa o dono
 uma vez por ocorrência, dizendo quantas mensagens esperam, há quanto tempo e que dá para reiniciar pelo botão Reiniciar do
-painel, e registra no `saude.json` que apenas observou. O aviso de fila parada vale nos dois motores e com o auto-recovery desligado. O PreCompact é do Claude Code; o
-Codex não passa pela correção do runner.
+painel, e registra no `saude.json` que apenas observou. O aviso de fila parada atende os dois motores enquanto o vigia (watchdog) estiver rodando. Numa instalação nova com
+`DGCLAW_AUTO_RECOVERY=off` o vigia nem é instalado, e então não há aviso; numa instalação que já tinha o vigia, com essa
+opção desligada ele continua avisando. A compactação automática depende do transcript do Claude. O PreCompact é do
+Claude Code; o Codex não passa pela correção do runner.
 
 **Correção da fila de mensagens: um "ok" que esperou na fila não é mais lido como aprovação de outra coisa.** Quando você
 escreve enquanto o agente trabalha, a mensagem espera a vez. Se ela esperou mais de 20 segundos, agora chega ao agente

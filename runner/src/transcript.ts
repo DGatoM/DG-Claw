@@ -243,7 +243,8 @@ export function compactRecusadoNoTranscript(
     }
     if (o.type !== "system") continue;
     if (o.subtype !== "local_command" || o.commandRun?.command !== "compact") continue;
-    const quando = o.timestamp ? Date.parse(o.timestamp) : NaN;
+    if (typeof o.timestamp !== "string") continue;
+    const quando = Date.parse(o.timestamp);
     if (!Number.isFinite(quando) || quando < desdeMs) continue;
     const texto = typeof o.content === "string" ? o.content.replace(/<\/?local-command-(?:stdout|stderr)>/g, "").replace(/\s+/g, " ").trim() : "";
     recusado = RX_RECUSA_DO_COMPACT.test(texto);

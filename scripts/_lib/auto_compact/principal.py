@@ -14,7 +14,7 @@ from .injecao import inject_compact
 from .modo_restart import do_restart_compact
 from .poke import resume_poke_enabled, write_resume_poke
 from .tarefas import _resumo_bg, background_tasks, turn_snapshot
-from .transcript import context_tokens, had_compact_since, looks_idle, resolve_live_transcript
+from .transcript import context_tokens, had_compact_since, had_compact_since_arquivo, looks_idle, resolve_live_transcript
 
 
 def main():
@@ -121,6 +121,16 @@ def main():
         elif not fechar_ciclo_pendente(st, state_file, session_dir, slug, channel,
                                        workspace, idle_sec):
             log("poke de retomada pendente: compactacao ainda nao assentou — espero o proximo ciclo")
+
+    # 2.6) recibo da tentativa anterior: se o compact_boundary apareceu depois do ultimo /compact,
+    # a compactacao deu certo e o contador de falhas zera JA, antes do cooldown com recuo e do teto
+    # (sem isto o recuo seguia dobrando o cooldown depois de um compact bem-sucedido). So o transcript
+    # vivo conta: compactacao de uma sessao paralela no mesmo workspace nao e recibo desta.
+    prev_ok = st.get("last_compact_ts")
+    if prev_ok and st.get("consecutive_fail") and not args.dry_run and transcript \
+            and had_compact_since_arquivo(transcript, prev_ok, sem_timestamp_conta=False):
+        st["consecutive_fail"] = 0
+        save_state(state_file, st)
 
     ctx = context_tokens(transcript)
     if ctx == 0:
