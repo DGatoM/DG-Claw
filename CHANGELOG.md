@@ -7,6 +7,18 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+- **Novo: checklist de entrega de cliente e smoke test da VPS.** O `docs/ENTREGA-CLIENTE.md` reúne, para a equipe
+  que entrega uma VPS pronta, os doze passos a conferir antes de passar o servidor ao cliente (versão do Ubuntu,
+  limites do container e do runner, cofre, YouTube, Chrome headless, ffmpeg, login pelo celular e outros),
+  cada um com o comando e o resultado esperado. O `scripts/smoke-entrega.sh <agente>` roda no servidor, como root, e
+  automatiza o que dá, imprimindo OK, AVISO, FALHA ou INCONCLUSIVO com a causa e o que fazer. Os limites de
+  processos, memória e CPU saem do cgroup do container, a falta de memória é procurada no journal do kernel dos
+  últimos 7 dias (com a cobertura real dita no relatório) e o microfone só passa se a última atribuição de
+  `ELEVENLABS_API_KEY`, `GROQ_API_KEY` ou `OPENAI_API_KEY` do `web.env` tiver valor. O relatório não repete nenhum texto vindo de dentro do container, e toda leitura de lá
+  tem limite de bytes. Ele nunca mostra o valor das chaves do cofre, só os nomes. O que não dá para automatizar
+  (cruzar as skills com o cofre, o login e o download do YouTube, a troca de senha pelo cliente) fica à mão, com
+  os comandos no guia. Não muda o comportamento de quem já usa o DG Claw.
+
 **Correção da fila de mensagens: um "ok" que esperou na fila não é mais lido como aprovação de outra coisa.** Quando você
 escreve enquanto o agente trabalha, a mensagem espera a vez. Se ela esperou mais de 20 segundos, agora chega ao agente
 com um aviso do sistema logo abaixo, dizendo a hora em que foi escrita e que uma resposta curta (ok, sim, pode) não
