@@ -344,6 +344,10 @@ esperar_primeiro_turno() { # $1 id ; $2 segundos
     fi
     if [ $((SECONDS - inicio)) -ge "$2" ]; then
       [ -z "$falha" ] || sem_confirmacao "$1" "$falha"
+      # Claude sem nenhum hook recebido: o contador de turnos nao enxerga o aceite, entao 9 seria um palpite.
+      if [ "${provedor:-}" = claude ] && [ "$(campo .data.hookActive)" != true ]; then
+        sem_confirmacao "$1" "o runner ainda nao recebeu nenhum hook do Claude neste card, entao o contador de turnos nao consegue ver se o pedido foi aceito"
+      fi
       avisar_monitor
       CODIGO=9 die "o card $1 foi criado, mas o pedido ainda nao virou turno em $2 segundos: ele NAO esta trabalhando agora. O pedido pode ainda entrar sozinho: nao feche o card e nao reenvie por conta propria (isso pode duplicar o pedido). Confira com 'dgclaw-card estado $1' e 'dgclaw-card ler $1' depois de um tempo; se continuar sem turno, avise o dono. Nao diga ao dono que o card esta trabalhando antes de ver o primeiro turno."
     fi

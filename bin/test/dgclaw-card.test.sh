@@ -86,6 +86,18 @@ ok "pedido que nao vira turno sai com 9" $([ $c = 9 ] && echo 0 || echo 1)
 grep -q "card card-abc123 foi criado" "$T/e" && grep -q "NAO esta trabalhando" "$T/e" && grep -q "dgclaw-card estado card-abc123" "$T/e" && grep -q "nao reenvie por conta propria" "$T/e" && ! grep -q "reenvie com" "$T/e"; ok "a mensagem diz o id, que nao esta trabalhando, e manda conferir sem reenviar" $?
 ! grep -q "Card aberto" "$T/o"; ok "sem turno nao imprime 'Card aberto'" $?
 [ "$(head -1 "$T/o")" = "card-abc123" ] && [ "$(grep -c "card-abc123" "$T/o")" = 1 ]; ok "no 9 o id sai uma vez so, na primeira linha do stdout" $?
+subir sem-turno
+"$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 2 >/dev/null 2>"$T/e2"; c=$?
+ok "Claude com hook ativo e sem turno continua saindo com 9" $([ $c = 9 ] && echo 0 || echo 1)
+subir sem-hook
+"$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 2 >/dev/null 2>"$T/e2"; c=$?
+ok "Claude sem nenhum hook recebido sai com 11, nao 9" $([ $c = 11 ] && echo 0 || echo 1)
+grep -q "nenhum hook do Claude" "$T/e2"; ok "o 11 sem hook explica o motivo" $?
+subir sem-hook
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >/dev/null 2>"$T/e2"; c=$?
+ok "Codex nao depende de hook: sem turno continua 9" $([ $c = 9 ] && echo 0 || echo 1)
+subir sem-turno
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >/dev/null 2>&1
 "$BIN" estado card-abc123 >"$T/o" 2>"$T/e"; grep -q "sem primeiro turno ainda" "$T/o"; ok "estado de card sem turno diz 'sem primeiro turno ainda'" $?
 "$BIN" ler card-abc123 >"$T/o" 2>"$T/e"; grep -q "ainda nao virou turno" "$T/o" && grep -q "NAO esta trabalhando" "$T/o"; ok "ler de card sem turno diz o motivo (e nao so 'sem mensagens')" $?
 "$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?

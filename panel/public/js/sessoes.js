@@ -946,6 +946,7 @@
   async function pollDetalhe() {
     const d = det;
     if (!d || !cfg || !cfg.ligado) return;
+    const estadoAntes = d.item && d.item.estado;
     try {
       const res = await chama(`/api/sessoes/${encodeURIComponent(d.id)}`);
       if (det !== d) return;
@@ -968,7 +969,10 @@
       return;
     }
     renderDetalhe();
-    if (d.item && d.item.grupo === 'trabalhando') carregaConversa('poll');
+    // Saiu de "esperando o primeiro turno" (inclusive direto para concluído ou erro): a conversa e o motivo de
+    // conversa vazia mudaram, então recarrega mesmo fora do grupo trabalhando.
+    const saiuDaEspera = estadoAntes === 'esperando_primeiro_turno' && d.item && d.item.estado !== estadoAntes;
+    if (d.item && (d.item.grupo === 'trabalhando' || saiuDaEspera)) carregaConversa('poll');
   }
 
   // ─── Conversa ─────────────────────────────────────────────────
