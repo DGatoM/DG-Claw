@@ -26,7 +26,7 @@ Nenhum compilador fica na imagem final: o `node-pty` do runner compila num está
 
 ### Versões fixadas
 
-Claude Code 2.1.296, Codex CLI 0.162.1, Bun 1.4.3 (todos por `ARG`, no topo do estágio `base`).
+Claude Code 2.1.296, Codex CLI 0.167.1, Bun 1.4.3 (todos por `ARG`, no topo do estágio `base`).
 Python: Pillow 12.3.0, requests 2.34.2, numpy 2.5.4, pyyaml 6.0.3, openpyxl 3.1.5, pymupdf 1.28.2,
 playwright 1.63.0, yt-dlp 2026.10.26 (yt-dlp-ejs 0.8.0). Node 22 e o gh seguem o repositório oficial no dia do build.
 

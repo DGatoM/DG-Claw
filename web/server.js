@@ -975,6 +975,7 @@ function criarServidor(opcoes) {
   async function atividadePara(sessao, agente, ativ) {
     if (!ehColab(sessao)) return ativ;
     const copia = Object.assign({}, ativ);
+    delete copia.na_fila;   // o colaborador não vê a fila de mensagens do dono
     vinculaPendencia(agente.slug, sessao, ativ);
     const id = (ativ.permissao && ativ.permissao.id) || (ativ.pergunta && ativ.pergunta.id) || null;
     if (!(await pendenciaEhDele(agente, sessao, id))) { delete copia.permissao; delete copia.pergunta; copia.detalhe = null; }
