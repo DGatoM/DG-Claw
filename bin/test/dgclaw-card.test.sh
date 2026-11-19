@@ -3,9 +3,9 @@
 set -uo pipefail
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$AQUI/../dgclaw-card"
-T="$(mktemp -d)"
+T="$(mktemp -d)" || exit 1
 SRV=""
-trap '[ -z "$SRV" ] || kill $SRV 2>/dev/null; rm -rf "$T"' EXIT
+trap '[ -z "$SRV" ] || kill $SRV 2>/dev/null; rm -rf "${T:?}"' EXIT
 FALHAS=0; N=0
 ok() { N=$((N+1)); if [ "$2" = 0 ]; then echo "ok   $1"; else echo "FALHOU $1"; FALHAS=$((FALHAS+1)); fi; }
 
@@ -126,7 +126,7 @@ CARD_MAX_TEMPO=08 "$BIN" listar >/dev/null 2>"$T/e"; c=$?; ok "CARD_MAX_TEMPO=08
 # bateria chama o monitor: so os que passam --monitor, todos abaixo desta linha).
 export DGCLAW_MONITOR_ESTADO="$T/monitor/estado.json" DGCLAW_MONITOR_LOG="$T/monitor/log"
 subir sem-turno
-rm -rf "$T/monitor"
+rm -rf "${T:?}/monitor"
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 1 --monitor --entregue "relatorio salvo" >"$T/o" 2>"$T/e"; c=$?
 ok "9 com --monitor sai com 9" $([ $c = 9 ] && echo 0 || echo 1)
 grep -q "card-abc123" "$DGCLAW_MONITOR_ESTADO" 2>/dev/null; ok "o monitor ficou cadastrado mesmo no caminho do 9" $?
@@ -134,7 +134,7 @@ grep -q "Monitorando o card card-abc123" "$T/e"; ok "o caminho do 9 diz que o mo
 
 # --- falha ao cadastrar o monitor: erro explicito (8) com o que fazer ------------------------------
 subir normal
-rm -rf "$T/monitor"
+rm -rf "${T:?}/monitor"
 DGCLAW_MONITOR_DONO=card-abc123 "$BIN" abrir --provedor codex --titulo x --pedido oi --monitor --entregue "feito" >"$T/o" 2>"$T/e"; c=$?
 ok "monitor que nao liga sai com 8" $([ $c = 8 ] && echo 0 || echo 1)
 grep -q "monitor NAO ligou" "$T/e" && grep -q "dgclaw-monitor add card-abc123" "$T/e"; ok "a falha do monitor diz o motivo e o comando para ligar a mao" $?
@@ -237,6 +237,39 @@ subir input-perdido
 ok "resposta do input perdida sai com 2" $([ $c = 2 ] && echo 0 || echo 1)
 grep -q "entrega incerta: o card card-abc123" "$T/e" && grep -q "NAO reenvie" "$T/e" && ! grep -q "nao foi entregue\|tente de novo" "$T/e"; ok "resposta perdida: 'entrega incerta', sem mandar tentar de novo" $?
 [ "$(head -1 "$T/o")" = "card-abc123" ]; ok "resposta perdida: o id sai na primeira linha" $?
+
+# --- recusas anteriores a fila: capacidade e NAO_ACORDOU ----------------------------------------------------
+for modo in input-sem-capacidade input-nao-acordou; do
+  subir "$modo"
+  "$BIN" abrir --provedor claude --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
+  ok "$modo sai com 6" $([ $c = 6 ] && echo 0 || echo 1)
+  grep -q "o pedido nao foi entregue (" "$T/e" && grep -q "pode tentar de novo quando" "$T/e" && ! grep -q "entrega incerta" "$T/e"; ok "$modo diz 'nao foi entregue' e nao 'entrega incerta'" $?
+  [ "$(head -1 "$T/o")" = "card-abc123" ]; ok "$modo: o id sai na primeira linha" $?
+done
+
+# --- working sozinho nao confirma: so o contador ---------------------------------------------------------------
+subir working-sem-turno
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 1 >"$T/o" 2>"$T/e"; c=$?
+ok "working com contador 0 e hook:PreCompact nao confirma: sai com 9" $([ $c = 9 ] && echo 0 || echo 1)
+! grep -q "Card aberto" "$T/o"; ok "working sem contador nao imprime 'Card aberto'" $?
+
+# --- StopFailure no statusReason e falha de turno --------------------------------------------------------------
+subir stop-failure
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
+ok "statusReason hook:StopFailure sai com 12" $([ $c = 12 ] && echo 0 || echo 1)
+grep -q "StopFailure rate_limit" "$T/e"; ok "o 12 do StopFailure traz o motivo" $?
+
+# --- limpeza apos SEM_LOGIN: DELETE que falha informa o id ----------------------------------------------------
+subir sem-login-delete-falha
+"$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
+ok "sem login com DELETE falho ainda sai com 5" $([ $c = 5 ] && echo 0 || echo 1)
+grep -q "nao confirmei a remocao do card card-abc123" "$T/e" && [ "$(head -1 "$T/o")" = "card-abc123" ]; ok "DELETE nao 2xx informa o id e a remocao nao confirmada" $?
+
+# --- ler: pedido guardado na fila de card parado -> Retomar ----------------------------------------------------
+subir fila-parada
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 0 >/dev/null 2>&1
+"$BIN" ler card-abc123 >"$T/o" 2>"$T/e"
+grep -q "pedido guardado" "$T/o" && grep -q "Retomar" "$T/o" && ! grep -q "Espere com" "$T/o"; ok "ler de card parado com fila manda usar Retomar, sem mandar esperar" $?
 
 # --- Bearer errado (401) e arquivo ausente --------------------------------------------------------
 subir normal

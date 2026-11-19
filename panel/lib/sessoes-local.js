@@ -266,9 +266,10 @@ function registrar(router, { CONFIG }) {
     const ferramenta = ag.currentTool ? ` (${ag.currentTool})` : '';
     // Card que nunca teve turno não "terminou": o pedido ainda não foi aceito. Fica em "parado", que a lista
     // "Ativas" mostra, e nunca em "concluído" nem em "fechado" (onde sumiria do filtro padrão).
-    if (semPrimeiroTurno(ag, fala) && (st === 'idle' || st === 'completed' || st === 'resumable')) {
-      const dorme = st === 'resumable';
-      const fila = ag.sessao && ag.sessao.fila > 0;
+    const filaPositiva = !!(ag.sessao && ag.sessao.fila > 0);
+    if (semPrimeiroTurno(ag, fala) && (st === 'idle' || st === 'completed' || st === 'resumable' || (st === 'stopped' && filaPositiva))) {
+      const dorme = st === 'resumable' || st === 'stopped';
+      const fila = filaPositiva;
       return {
         grupo: 'parado', estado: 'esperando_primeiro_turno', tem_terminal: !dorme,
         motivo: fila ? 'esperando o primeiro turno: o pedido está na fila' : dorme

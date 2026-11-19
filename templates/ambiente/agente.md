@@ -165,12 +165,16 @@ ou para tarefa em paralelo. Para o que você resolve em um minuto, não abra.
 ```bash
 saida="$(dgclaw-card abrir --provedor claude --titulo "Revisão do contrato" --pedido-arquivo /tmp/pedido.md --monitor --entregue "contrato revisado e resumo das mudanças entregue")"; cod=$?
 id="$(printf '%s\n' "$saida" | head -1)"
-[ "$cod" = 0 ] || echo "abrir saiu com $cod: não anuncie; confira com dgclaw-card estado \"$id\", sem repetir o pedido"
-dgclaw-card mandar "$id" "texto"     # recado novo no mesmo card
-dgclaw-card esperar "$id" --max 900  # volta quando o card termina o turno
-dgclaw-card ler "$id" --n 2          # as últimas respostas
-dgclaw-card listar                   # os cards abertos
-dgclaw-card fechar "$id"             # fecha (a conversa fica guardada); card que nunca teve turno pede --forcar
+if [ "$cod" != 0 ]; then
+  # Só consulte e avise. Não use mandar, esperar nem fechar neste ramo, e não repita o pedido.
+  echo "abrir saiu com $cod: não anuncie"; [ -z "$id" ] || dgclaw-card estado "$id"
+else
+  dgclaw-card mandar "$id" "texto"     # recado novo no mesmo card
+  dgclaw-card esperar "$id" --max 900  # volta quando o card termina o turno
+  dgclaw-card ler "$id" --n 2          # as últimas respostas
+  dgclaw-card listar                   # os cards abertos
+  dgclaw-card fechar "$id"             # fecha (a conversa fica guardada); card que nunca teve turno pede --forcar
+fi
 ```
 
 O pedido é autossuficiente: o card não viu a conversa. Traga objetivo, caminhos completos, o que

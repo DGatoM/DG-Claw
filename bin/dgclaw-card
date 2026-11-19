@@ -246,12 +246,26 @@ cmd_abrir() {
       local http_input="$HTTP" resp_input="$RESP" code
       code="$(campo .code)"
       if [ "$code" = "SEM_LOGIN" ] || [ "$code" = "SEM_CHAVE" ]; then
-        chamar DELETE "/api/sessoes/$id" || { echo "$id"; erro "aviso: o card $id ficou aberto porque o runner nao respondeu ao pedido de fechamento. Feche com: dgclaw-card fechar $id --forcar."; }
+        if ! chamar DELETE "/api/sessoes/$id"; then
+          echo "$id"; erro "aviso: o card $id ficou aberto porque o runner nao respondeu ao pedido de fechamento. Feche com: dgclaw-card fechar $id --forcar."
+        else
+          case "$HTTP" in
+            2??) ;;
+            *) echo "$id"; erro "aviso: nao confirmei a remocao do card $id (o runner respondeu HTTP $HTTP ao pedido de fechamento). O card pode ter ficado aberto. Confira com 'dgclaw-card listar' e feche com: dgclaw-card fechar $id --forcar." ;;
+          esac
+        fi
         HTTP="$http_input"; RESP="$resp_input"
         falha_geral
       fi
       # O id sai uma vez no stdout assim que o card existe e nao foi fechado por nos.
       echo "$id"
+      case "$http_input:$code" in
+        503:SEM_CAPACIDADE|500:NAO_ACORDOU)
+          # Recusa do runner por falta de capacidade ou por nao conseguir acordar a sessao: veio antes da fila.
+          erro "o card $id foi criado, mas o pedido nao foi entregue ($(campo .error)); pode tentar de novo quando houver capacidade, com: dgclaw-card mandar $id --arquivo <arquivo do pedido>, ou feche com: dgclaw-card fechar $id --forcar."
+          HTTP="$http_input"; RESP="$resp_input"
+          falha_geral ;;
+      esac
       case "$http_input" in
         4??)
           # Recusa do runner (4xx): so aqui se prova que o texto nao entrou na fila.
@@ -304,7 +318,7 @@ esperar_primeiro_turno() { # $1 id ; $2 segundos
       # Falha de turno conhecida: estado errored, campo de erro preenchido (inclusive em card dormindo/resumable)
       # ou statusReason de falha. Nenhuma delas conta como sucesso, mesmo que haja turno ou o status seja working.
       erro_turno="$(campo .data.error)"; razao="$(campo .data.statusReason)"
-      if [ "$status" = errored ] || [ -n "$erro_turno" ] || printf '%s' "$razao" | grep -qiE 'falh|erro|error|sem-login|sem-chave|login-expirado|identidade-grande'; then
+      if [ "$status" = errored ] || [ -n "$erro_turno" ] || printf '%s' "$razao" | grep -qiE 'falh|erro|error|sem-login|sem-chave|login-expirado|identidade-grande|StopFailure'; then
         avisar_monitor
         erro_turno="${erro_turno:-${razao:-sem detalhe}}"
         if [ "$turnos" != 0 ]; then
@@ -312,7 +326,8 @@ esperar_primeiro_turno() { # $1 id ; $2 segundos
         fi
         CODIGO=6 die "o card $1 foi criado, mas esta com erro antes de o pedido virar turno: $erro_turno. Veja 'dgclaw-card estado $1'. Nao diga ao dono que ele esta trabalhando."
       fi
-      if [ "$turnos" != 0 ] || [ "$status" = working ]; then return 0; fi
+      # So o contador confirma o turno: working sozinho pode ser outra coisa (ex.: compactacao, hook:PreCompact).
+      if [ "$turnos" != 0 ]; then return 0; fi
     fi
     if [ $((SECONDS - inicio)) -ge "$2" ]; then
       [ -z "$falha" ] || sem_confirmacao "$1" "$falha"
@@ -471,7 +486,9 @@ explicar_conversa_vazia() { # $1 id
   local id="$1" status fila turnos
   if chamar GET "/api/agents/$id" && [[ "$HTTP" == 2* ]]; then
     status="$(campo .data.status)"; fila="$(campo .data.sessao.fila)"; fila="${fila:-0}"; turnos="$(campo .data.turnosAceitosSessao)"
-    if [ "$fila" != 0 ]; then
+    if [ "$fila" != 0 ] && { [ "$status" = stopped ] || [ "$status" = resumable ]; }; then
+      echo "O card $id ainda nao tem mensagens: ha um pedido guardado na fila ($fila), mas a sessao esta sem terminal aberto. Retomar no painel (aba Sessoes) processa o pedido, sem reenviar o texto."
+    elif [ "$fila" != 0 ]; then
       echo "O card $id ainda nao tem mensagens: o pedido esta na fila ($fila) e ainda nao virou turno. Espere com: dgclaw-card esperar $id"
     elif [ "$status" = resumable ]; then
       echo "O card $id ainda nao tem mensagens: a sessao esta dormindo (sem terminal aberto). Ela acorda quando voce manda um recado: dgclaw-card mandar $id \"...\""

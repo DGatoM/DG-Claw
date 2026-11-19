@@ -75,7 +75,10 @@ ligue o modo monitor no mesmo comando que abre o card, com `--monitor` e o crit�
 saida="$(dgclaw-card abrir --provedor codex --titulo "Relatório de vendas" --pedido-arquivo /tmp/pedido.md \
   --monitor --entregue "o arquivo /home/agente/relatorio.md existe e tem as três seções")"; cod=$?
 id="$(printf '%s\n' "$saida" | head -1)"
-[ "$cod" = 0 ] || echo "o abrir saiu com $cod: não anuncie o acompanhamento; confira com dgclaw-card estado \"$id\""
+if [ "$cod" != 0 ]; then
+  # Só consulte e avise: nada de mandar, esperar ou fechar neste ramo, e não repita o pedido.
+  echo "o abrir saiu com $cod: não anuncie o acompanhamento"; [ -z "$id" ] || dgclaw-card estado "$id"
+fi
 ```
 
 O `--entregue` diz como saber que terminou (obrigatório com `--monitor`); `--cada MIN` muda o

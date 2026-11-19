@@ -116,8 +116,12 @@ aba Sessões do painel. Os comandos `dgclaw-card` e `dgclaw-monitor` já falam c
 ```bash
 saida="$(dgclaw-card abrir --provedor claude --titulo "Atualização do servidor" --pedido-arquivo /tmp/pedido.md --monitor --entregue "atualização feita e dgclaw status sem falhas")"; cod=$?
 id="$(printf '%s\n' "$saida" | head -1)"
-[ "$cod" = 0 ] || echo "abrir saiu com $cod: não anuncie; confira com dgclaw-card estado \"$id\", sem repetir o pedido"
-dgclaw-card mandar|esperar|ler|listar|fechar ...
+if [ "$cod" != 0 ]; then
+  # Só consulte e avise. Não use mandar, esperar nem fechar neste ramo, e não repita o pedido.
+  echo "abrir saiu com $cod: não anuncie"; [ -z "$id" ] || dgclaw-card estado "$id"
+else
+  dgclaw-card mandar|esperar|ler|listar|fechar ...
+fi
 ```
 
 Card de tarefa longa nasce SEMPRE com `--monitor --entregue "<critério>"`, no mesmo turno. Só diga ao

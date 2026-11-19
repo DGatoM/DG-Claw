@@ -236,6 +236,7 @@ try {
     nova('card-tr', { status: 'idle', turnosAceitos: 0, msgs: [{ role: 'user', text: 'pedido antigo' }, { role: 'assistant', text: 'Já respondi isto antes do reinício.' }] });
     // Runner que manda turnosAceitosSessao: vale o da conversa atual, não o total do processo.
     nova('card-ts', { status: 'idle', turnosAceitos: 5, turnosAceitosSessao: 0, msgs: [] });
+    nova('card-tp', { status: 'stopped', turnosAceitos: 0, msgs: [], sessionId: null, sessao: { papel: 'paralela', tipo: 'card', chat: 'c_tp', titulo: 'Fila parada', fila: 1 } });
     nova('card-sp', { status: 'spawning', turnosAceitos: 0, turnosAceitosSessao: 0, msgs: [] });
     nova('card-tu', { status: 'idle', turnosAceitos: 0, msgs: [{ role: 'user', text: 'só o pedido, sem resposta' }] });
     const todos = await lerJson(await p.pedir('/api/sessoes?grupo=todos'));
@@ -261,9 +262,12 @@ try {
     ok(/dormindo/.test(vd.json.motivo_vazio), 'conversa vazia de sessão dormindo: motivo');
     const vq = await lerJson(await p.pedir('/api/sessoes/card-tq/conversa'));
     ok(/pedido guardado/.test(vq.json.motivo_vazio) && /Retomar/.test(vq.json.motivo_vazio) && !/Aguarde/.test(vq.json.motivo_vazio) && /sem reenviar/.test(vq.json.motivo_vazio), 'pedido na fila e sessão sem terminal: manda usar Retomar, sem aguardar nem reenviar');
+    ok(por['card-tp'].estado === 'esperando_primeiro_turno' && por['card-tp'].tem_terminal === false, 'status stopped com fila positiva vale como esperando o primeiro turno, sem terminal');
+    const vtp = await lerJson(await p.pedir('/api/sessoes/card-tp/conversa'));
+    ok(/pedido guardado/.test(vtp.json.motivo_vazio) && /Retomar/.test(vtp.json.motivo_vazio) && !/Aguarde/.test(vtp.json.motivo_vazio), 'stopped com fila: manda usar Retomar');
     const vf1 = await lerJson(await p.pedir('/api/sessoes/card-f1/conversa'));
     ok(vf1.json.mensagens.length === 1 && vf1.json.motivo_vazio === undefined, 'conversa com mensagens não traz motivo');
-    for (const id of ['card-t0', 'card-t1', 'card-tf', 'card-td', 'card-tq', 'card-tr', 'card-tu', 'card-ts', 'card-sp']) sessoes.delete(id);
+    for (const id of ['card-t0', 'card-t1', 'card-tf', 'card-td', 'card-tq', 'card-tr', 'card-tu', 'card-ts', 'card-tp', 'card-sp']) sessoes.delete(id);
   }
 
   console.log('\n4. Criar');
