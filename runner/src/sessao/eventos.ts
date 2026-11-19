@@ -49,7 +49,10 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
     });
   }
 
-  if (["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "StopBloqueado", "StopFailure", "PreCompact"].includes(payload.event ?? "")) s.marcarAtividade();
+  if (["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "StopBloqueado", "StopFailure", "PreCompact"].includes(payload.event ?? "")) {
+    s.marcarAtividade();
+    s.ultimoEventoEm = Date.now();
+  }
   s.hooksVivos = true;
   if (!s.estado.hookActive) s.estado.hookActive = true;
 

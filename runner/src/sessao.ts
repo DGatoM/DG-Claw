@@ -185,6 +185,9 @@ export class Sessao extends EventEmitter {
   vigiaDoRecibo: NodeJS.Timeout | null = null;
   readonly reciboVigiaPassosMs: number[];
   ultimaAtividade = Date.now();
+  /** Quando o último evento do agente chegou (hook do Claude ou evento do rollout do Codex), em ms. Não conta input nem fila:
+   *  é o sinal de que o agente anda, e o watchdog o usa para não tomar um turno longo por fila parada. */
+  ultimoEventoEm = 0;
   /** Quando o spawn atual foi uma RETOMADA, e quando ele começou. É o que
    *  permite separar "a sessão não abre" de "o agente trabalhou e saiu". */
   retomando: { sessionId: string; em: number } | null = null;

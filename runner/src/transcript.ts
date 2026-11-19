@@ -206,8 +206,9 @@ const RX_RECUSA_DO_COMPACT = /^Not enough messages to compact\.?$/;
  * Claude Code dispara o hook PreCompact, grava uma linha `system/local_command` com `commandRun.command` "compact"
  * e NÃO dispara SessionStart nem Stop. A recusa é a linha mais recente desse tipo, mais nova que `desdeMs` (o
  * instante do PreCompact), cujo texto (sem as tags local-command) é exatamente a mensagem de recusa, e depois da
- * qual não veio nenhuma linha de conversa (user, assistant, ferramenta) nem `compact_boundary`: se veio, o agente
- * seguiu trabalhando ou o compact aconteceu, e a recusa já não explica o estado.
+ * qual só vieram metadados conhecidos (outro local_command, turn_duration, linha sem type): qualquer outra linha
+ * (conversa, ferramenta, fila, anexo, resumo, `compact_boundary`) mostra que o agente seguiu ou o compact aconteceu,
+ * e a recusa já não explica o estado.
  * Devolve só o veredito: o texto cru do transcript nunca sai daqui, para não ir parar no log.
  * Sem arquivo ou sem a linha, não afirma nada.
  */
@@ -236,13 +237,14 @@ export function compactRecusadoNoTranscript(
     } catch {
       continue;
     }
-    const atividade = o.type === "user" || o.type === "assistant" || o.type === "tool_use" || o.type === "tool_result" || (o.type === "system" && o.subtype === "compact_boundary");
-    if (atividade) {
-      recusado = false;
+    const ehRecusaCandidata = o.type === "system" && o.subtype === "local_command" && o.commandRun?.command === "compact";
+    if (!ehRecusaCandidata) {
+      // Depois da recusa só valem metadados conhecidos (outro local_command, turn_duration, linha sem type). Qualquer
+      // outra coisa (conversa, ferramenta, fila, anexo, resumo, fronteira de compact) mostra que o agente seguiu.
+      const metadado = o.type === undefined || (o.type === "system" && (o.subtype === "local_command" || o.subtype === "turn_duration"));
+      if (!metadado) recusado = false;
       continue;
     }
-    if (o.type !== "system") continue;
-    if (o.subtype !== "local_command" || o.commandRun?.command !== "compact") continue;
     if (typeof o.timestamp !== "string") continue;
     const quando = Date.parse(o.timestamp);
     if (!Number.isFinite(quando) || quando < desdeMs) continue;

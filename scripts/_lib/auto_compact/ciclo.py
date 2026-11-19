@@ -6,7 +6,7 @@ from pathlib import Path
 from .ambiente import env, log
 from .estado import _antes, _modo_seguro, notify_owner, save_state
 from .poke import send_resume_poke
-from .transcript import had_compact_since, looks_idle, resolve_live_transcript
+from .transcript import had_compact_since_arquivo, looks_idle, resolve_live_transcript
 
 
 # ─── fechamento do ciclo "ja volto" -> "voltei" (modo inject) ─────────────────
@@ -25,7 +25,10 @@ def fechar_ciclo_pendente(st: dict, state_file: Path, session_dir: Path, slug: s
     pend = st.get("pending_resume_poke")
     if not pend:
         return True
-    if not had_compact_since(session_dir, pend.get("since") or ""):
+    # O recibo decide sobre ESTA sessao: so o transcript vivo conta, e marcador sem timestamp proprio nao.
+    transcript_vivo = resolve_live_transcript(session_dir, slug, channel)
+    if not transcript_vivo or not had_compact_since_arquivo(
+            transcript_vivo, pend.get("since") or "", sem_timestamp_conta=False):
         return False
     nome = env("DGCLAW_NAME") or slug
     arquivo = pend.get("file")

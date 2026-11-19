@@ -118,6 +118,7 @@ class FechamentoNoMesmoRun(unittest.TestCase):
         with mock.patch.dict(os.environ, {"DGCLAW_COMPACT_SETTLE_WAIT_S": str(limite),
                                           "DGCLAW_NAME": "Luna"}), \
              mock.patch.object(time, "sleep", side_effect=sono), \
+             mock.patch.object(ciclo, "resolve_live_transcript", return_value=self.tr), \
              mock.patch.object(ciclo, "notify_owner", side_effect=self.avisos.append), \
              mock.patch.object(poke, "notify_owner", side_effect=self.avisos.append):
             ac.esperar_assentar_e_fechar(self.st, self.state, self.dir, "luna", "dgclaw-luna",

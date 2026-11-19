@@ -342,6 +342,7 @@ test('saude.json com tipo fila_parada: frase fixa em português para o dono', as
   assert.equal(s.estado, 'atencao');
   assert.match(s.motivo, /mensagens esperando na fila/);
   assert.match(s.motivo, /botão Reiniciar/);
+  assert.ok(!/avisou/.test(s.motivo), 'a frase não afirma que o aviso foi entregue');
   assert.ok(!JSON.stringify(r).includes('texto livre do vigia'));
   m.casa.limpa();
 });

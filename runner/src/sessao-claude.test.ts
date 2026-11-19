@@ -369,6 +369,28 @@ test("PreCompact: recusa com timestamp numérico ou objeto não lança e não co
   }
 });
 
+test("PreCompact: recusa seguida de linha de fila ou anexo (metadado desconhecido) não conta", async () => {
+  for (const extra of [{ type: "queue-operation", operation: "enqueue" }, { type: "attachment", attachment: { type: "queued_command" } }]) {
+    const { s, hook, transcript } = await novaComRedeCurta(600);
+    hook("PreCompact");
+    transcript([[RECUSA_DO_COMPACT, 100], [extra, 200]]);
+    await dormir(1_500);
+    assert.equal(s.estado.status, "working");
+    assert.equal(s.estado.statusReason, "hook:PreCompact");
+  }
+});
+
+test("ultimoEventoEm anda num PreToolUse repetido da mesma ferramenta, sem mexer no updatedAt", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("PreToolUse", { toolName: "Bash", toolUseId: "tu-1" });
+  const evento1 = s.ultimoEventoEm;
+  const atualizado1 = s.estado.updatedAt;
+  await dormir(50);
+  hook("PreToolUse", { toolName: "Bash", toolUseId: "tu-2" });
+  assert.ok(s.ultimoEventoEm > evento1);
+  assert.equal(s.estado.updatedAt, atualizado1);
+});
+
 test("PreCompact: recusa seguida de linha assistant (o agente seguiu trabalhando) não conta", async () => {
   const { s, hook, transcript } = await novaComRedeCurta(600);
   hook("PreCompact");

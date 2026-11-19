@@ -363,12 +363,36 @@ def gravar_saude(logs_dir: Path, diag: dict, acao: str, now) -> None:
         FALHAS.append(f"nao consegui gravar saude.json em {logs_dir}: {e}")
 
 
+# Listas fechadas: o card do runner traz texto livre (statusReason leva ate nome de ferramenta), e isso nunca
+# pode ir para aviso ao dono, saude.json nem Pulso. So estas frases saem.
+_STATUS_FRASES = {"spawning": "iniciando", "working": "trabalhando", "waiting_input": "esperando voce",
+                  "idle": "parado", "completed": "concluido", "errored": "com erro",
+                  "stopped": "desligado", "resumable": "retomavel"}
+_MOTIVO_PREFIXOS = (("hook:PreCompact", "compactando a conversa"),
+                    ("hook:PreToolUse", "usando uma ferramenta"),
+                    ("hook:UserPromptSubmit", "processando uma mensagem"),
+                    ("transcript:", "conferindo o transcript"))
+
+
+def _frase_status(status) -> str:
+    return _STATUS_FRASES.get(status, "em outro estado") if isinstance(status, str) else "em outro estado"
+
+
+def _frase_motivo(motivo) -> str:
+    if isinstance(motivo, str):
+        for prefixo, frase in _MOTIVO_PREFIXOS:
+            if motivo.startswith(prefixo):
+                return frase
+    return "em andamento"
+
+
 def fila_parada(card, now_ms: float, limite_min: int):
     """O card do runner esta com a fila presa? Devolve {n, idade_min, status, motivo, mais_antigo_em} ou None.
 
     Presa = tem item na fila E o agente nao esta idle (vai soltar sozinho) nem waiting_input (quem
     espera ali e a pessoa) E a mensagem mais antiga espera ha mais de `limite_min` E o card nao muda de
-    estado (updatedAt, epoch ms) ha mais de `limite_min`. So olha o card; a confirmacao pelo transcript
+    estado (updatedAt, epoch ms) E sem evento do agente (ultimoEventoEm, epoch ms; um PreToolUse repetido nao
+    muda o updatedAt) ha mais de `limite_min`. So olha o card; a confirmacao pelo transcript
     (uma ferramenta longa nao muda o card, mas o turno vivo escreve nele) e de quem chama. Sem `em`
     legivel nao afirma nada."""
     if not card:
@@ -386,11 +410,14 @@ def fila_parada(card, now_ms: float, limite_min: int):
     if not ems or not isinstance(atualizado, (int, float)):
         return None
     idade_fila = (now_ms - min(ems)) / 60000.0
+    evento = card.get("ultimoEventoEm")
+    if isinstance(evento, (int, float)) and not isinstance(evento, bool):
+        atualizado = max(atualizado, evento)
     parado_ha = (now_ms - atualizado) / 60000.0
     if idade_fila <= limite_min or parado_ha <= limite_min:
         return None
-    return {"n": total, "idade_min": int(idade_fila), "status": status,
-            "motivo": card.get("statusReason") or "sem motivo", "mais_antigo_em": min(ems)}
+    return {"n": total, "idade_min": int(idade_fila), "status": _frase_status(status),
+            "motivo": _frase_motivo(card.get("statusReason")), "mais_antigo_em": min(ems)}
 
 
 def cuidar_da_fila_parada(card, diag, ctx, transcript_epoch=None):
@@ -414,7 +441,7 @@ def cuidar_da_fila_parada(card, diag, ctx, transcript_epoch=None):
     medido = transcript_epoch is not None and not codex
     if medido and (now_ms / 1000.0 - transcript_epoch) / 60.0 <= limite:
         return False, "", diag  # o transcript ainda anda: ferramenta longa, nao fila presa
-    resumo = (f"{f['n']} mensagem(ns) esperando ha {f['idade_min']} min com o agente em "
+    resumo = (f"{f['n']} mensagem(ns) esperando ha {f['idade_min']} min com o agente "
               f"{f['status']} ({f['motivo']})")
     diag = dict(diag, estado="atencao", tipo="fila_parada", so_observou=True,
                 frase=f"A fila esta parada: {resumo}.")

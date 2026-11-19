@@ -139,7 +139,8 @@ class CompactRecenteERecuo(unittest.TestCase):
 class MainDoAutoCompactNoRunner(unittest.TestCase):
     """O main inteiro, com o card falso: a guarda sai 0 sem injetar nem gravar estado."""
 
-    def _rodar(self, card, state=None, ao_injetar=None, boundary_ts=None):
+    def _rodar(self, card, state=None, ao_injetar=None, boundary_ts=None, boundary_paralelo_ts=None,
+               prender_trava=False, eventos=None):
         with tempfile.TemporaryDirectory() as d:
             ws = Path(d)
             transcript = ws / "t.jsonl"
@@ -151,7 +152,15 @@ class MainDoAutoCompactNoRunner(unittest.TestCase):
                 "role": "assistant", "content": "ok",
                 "usage": {"input_tokens": 10, "cache_read_input_tokens": 900_000}}}))
             transcript.write_text("\n".join(linhas) + "\n")
+            if boundary_paralelo_ts:
+                (ws / "paralelo.jsonl").write_text(json.dumps(
+                    {"type": "system", "subtype": "compact_boundary", "timestamp": boundary_paralelo_ts}) + "\n")
             state_file = ws / "estado.json"
+            trava_fd = None
+            if prender_trava:
+                import fcntl
+                trava_fd = open(str(state_file) + ".lock", "w")
+                fcntl.flock(trava_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             if state is not None:
                 state_file.write_text(json.dumps(state))
             amb = {"DGCLAW_WORKSPACE": str(ws), "DGCLAW_SLUG": "teste", "DGCLAW_SESSION_DIR": str(ws),
@@ -162,16 +171,21 @@ class MainDoAutoCompactNoRunner(unittest.TestCase):
                  mock.patch.object(sys, "argv", ["auto-compact.py"]), \
                  mock.patch.object(principal.inj, "resolve_mode", return_value="bunker"), \
                  mock.patch.object(guardas.inj, "resolve_mode", return_value="bunker"), \
-                 mock.patch.object(guardas.inj, "_bunker_estado", return_value=card), \
+                 mock.patch.object(guardas.inj, "_bunker_estado",
+                                   **({"side_effect": card} if isinstance(card, list) else {"return_value": card})), \
                  mock.patch.object(principal.inj, "is_session_alive", return_value=True), \
                  mock.patch.object(principal, "resolve_live_transcript", return_value=transcript), \
                  mock.patch.object(principal, "resolve_state_file", return_value=state_file), \
                  mock.patch.object(principal, "looks_idle", return_value=True), \
-                 mock.patch.object(principal, "notify_owner"), \
+                 mock.patch.object(principal, "notify_owner",
+                                   side_effect=lambda *a: eventos.append("aviso") if eventos is not None else None), \
                  mock.patch.object(principal, "esperar_assentar_e_fechar"), \
                  mock.patch.object(principal, "inject_compact",
-                                   side_effect=lambda *a: (ao_injetar() if ao_injetar else None, injetou.append(a), 0)[2]):
+                                   side_effect=lambda *a: (ao_injetar() if ao_injetar else None, injetou.append(a),
+                                                           eventos.append("envio") if eventos is not None else None, 0)[3]):
                 rc = principal.main()
+            if trava_fd:
+                trava_fd.close()
             gravado = json.loads(state_file.read_text()) if state_file.exists() else {}
             return rc, injetou, gravado
 
@@ -209,6 +223,34 @@ class MainDoAutoCompactNoRunner(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(gravado["consecutive_fail"], 0)
         self.assertEqual(len(injetou), 1)
+
+    def test_boundary_so_no_transcript_paralelo_nao_zera_o_contador_e_o_4_5_conta_falha(self):
+        antes = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+        boundary = (datetime.now(timezone.utc) - timedelta(minutes=25)).isoformat()
+        rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0},
+                                           state={"consecutive_fail": 1, "last_compact_ts": antes},
+                                           boundary_paralelo_ts=boundary)
+        self.assertEqual(rc, 0)
+        self.assertEqual(gravado["consecutive_fail"], 2)
+
+    def test_aviso_ao_dono_sai_depois_do_envio_aceito(self):
+        eventos = []
+        self._rodar({"status": "idle", "naFilaTotal": 0}, eventos=eventos)
+        self.assertEqual(eventos, ["envio", "aviso"])
+
+    def test_agente_que_ficou_ocupado_antes_do_envio_adia_sem_gravar(self):
+        # 1a leitura (guarda do passo 4.2): livre; 2a (logo antes do envio): ocupado.
+        cards = [{"status": "idle", "naFilaTotal": 0}, {"status": "working", "naFilaTotal": 1}]
+        rc, injetou, gravado = self._rodar(cards)
+        self.assertEqual(rc, 0)
+        self.assertEqual(injetou, [])
+        self.assertNotIn("last_compact_ts", gravado)
+
+    def test_trava_ja_tomada_sai_0_sem_injetar(self):
+        rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0}, prender_trava=True)
+        self.assertEqual(rc, 0)
+        self.assertEqual(injetou, [])
+        self.assertNotIn("last_compact_ts", gravado)
 
     def test_leitura_do_card_falhou_nao_envia(self):
         rc, injetou, gravado = self._rodar(None)
@@ -261,10 +303,27 @@ class FilaParadaNoWatchdog(unittest.TestCase):
         self.assertIn("so observei", verdict)
         self.assertEqual(len(avisos), 1)
         self.assertIn("2 mensagem", avisos[0])
-        self.assertIn("working", avisos[0])
+        self.assertIn("trabalhando", avisos[0])
         self.assertIn("Reiniciar", avisos[0])
         self.assertEqual(diag["tipo"], "fila_parada")
         self.assertTrue(diag["so_observou"])
+
+    def test_atividade_recente_do_runner_com_updatedat_velho_nao_e_fila_parada(self):
+        (tratado, _v, _d), avisos = self._cuidar(self._card(ultimoEventoEm=_agora_ms(-2)))
+        self.assertFalse(tratado)
+        self.assertEqual(avisos, [])
+
+    def test_status_reason_arbitrario_nao_vai_para_aviso_nem_saude(self):
+        card = self._card(statusReason="hook:PreToolUse mcp__x__segredo", status="working")
+        (tratado, verdict, diag), avisos = self._cuidar(card)
+        self.assertTrue(tratado)
+        tudo = json.dumps(diag) + verdict + " ".join(avisos)
+        self.assertNotIn("segredo", tudo)
+        self.assertNotIn("mcp__", tudo)
+        self.assertIn("usando uma ferramenta", avisos[0])
+        (_t, _v, diag2), avisos2 = self._cuidar(self._card(statusReason="texto livre qualquer", status="algo-novo"))
+        self.assertNotIn("texto livre", json.dumps(diag2) + " ".join(avisos2))
+        self.assertIn("em andamento", avisos2[0])
 
     def test_fila_com_agente_idle_ou_waiting_input_nao_avisa(self):
         for st in ("idle", "waiting_input"):

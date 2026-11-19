@@ -14,10 +14,10 @@ from .injecao import inject_compact
 from .modo_restart import do_restart_compact
 from .poke import resume_poke_enabled, write_resume_poke
 from .tarefas import _resumo_bg, background_tasks, turn_snapshot
-from .transcript import context_tokens, had_compact_since, had_compact_since_arquivo, looks_idle, resolve_live_transcript
+from .transcript import context_tokens, had_compact_since_arquivo, looks_idle, resolve_live_transcript
 
 
-def main():
+def _main():
     ap = argparse.ArgumentParser(description="Auto-compacta a sessao viva da persona DG Claw.")
     ap.add_argument("--threshold", default=None,
                     help="override do teto: fracao (<=1) do limite ou tokens absolutos (>1)")
@@ -223,7 +223,7 @@ def main():
             fail_k = max(1, int(float(env("DGCLAW_COMPACT_FAIL_ALERT", "2"))))
         except (TypeError, ValueError):
             fail_k = 2
-        if had_compact_since(session_dir, prev):
+        if had_compact_since_arquivo(transcript, prev, sem_timestamp_conta=False):
             st["consecutive_fail"] = 0
         else:
             st["consecutive_fail"] = st.get("consecutive_fail", 0) + 1
@@ -239,20 +239,25 @@ def main():
 
     # 5) injeta /compact
     log(f"{ctx // 1000}k > teto -> injetando /compact na sessao viva")
-    # AVISO ANTES: a sumarizacao segura a persona por minutos. Sem isto a pessoa fala com
-    # ela e nao recebe nada, sem saber por que.
-    # O instante do recibo (since) sai ANTES do aviso e do envio: um compact_boundary que chegue logo
+    # O instante do recibo (since) sai ANTES do envio: um compact_boundary que chegue logo
     # depois do envio tem timestamp >= este instante e conta como recibo.
     agora = datetime.now(timezone.utc).isoformat()
-    if not args.dry_run:
-        notify_owner(f"Compactando nossa conversa pra rodar leve... ja volto. "
-                     f"— {env('DGCLAW_NAME') or slug}")
+    # Ultima conferencia antes do envio. A checagem e o POST continuam separados; a janela que sobra sao
+    # milissegundos, e o runner trata a recusa (vigias.ts).
+    if not args.force and not args.dry_run:
+        motivo = agente_ocupado_no_bunker()
+        if motivo:
+            log(motivo)
+            return 0
     rc = inject_compact(slug, channel, args.dry_run)
 
     if args.dry_run:
         return 0
 
     if rc == 0:
+        # O aviso sai DEPOIS do envio aceito: sem isso o dono leria "compactando" de um /compact que nao saiu.
+        notify_owner(f"Compactando nossa conversa pra rodar leve... ja volto. "
+                     f"— {env('DGCLAW_NAME') or slug}")
         st["last_compact_ts"] = agora
         st["ctx_at_compact"] = ctx
         mid_task = bool(snap.get("busy")) and resume_poke_enabled()
@@ -280,3 +285,31 @@ def main():
         return 4
     log(f"falha ao injetar (rc={rc})")
     return rc
+
+
+def main():
+    """Uma execucao por vez: duas rodadas do timer sobrepostas (compact lento, timer atrasado) poderiam
+    checar a fila ao mesmo tempo e enfileirar dois /compact. Trava exclusiva nao bloqueante ao lado do
+    state file; quem nao pega a trava sai 0."""
+    import fcntl
+    import os
+    try:
+        workspace = resolve_workspace()
+        state_file = resolve_state_file(workspace, resolve_slug())
+        trava = Path(str(state_file) + ".lock")
+        trava.parent.mkdir(parents=True, exist_ok=True)
+        # O_NOFOLLOW e sem truncar: um symlink plantado no lugar da trava nao vira escrita em outro arquivo.
+        fd = os.fdopen(os.open(trava, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600), "w")
+    except OSError as e:
+        log(f"nao consegui criar a trava de execucao ({e}); sigo sem ela")
+        return _main()
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        log("outra execucao do auto-compact em andamento — saindo sem fazer nada")
+        fd.close()
+        return 0
+    try:
+        return _main()
+    finally:
+        fd.close()
