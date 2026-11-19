@@ -9,11 +9,11 @@ const MOTIVOS_DE_TELA_BLOQUEADA = ["runner:dialogo-auto-mode", "runner:tela-de-c
 /** Guarda um texto para digitar assim que o agente ficar ocioso. É como uma
  *  rotina agendada (ou o cliente, numa sessão que estava dormindo) fala com ele
  *  sem atropelar o turno em andamento. A fila é FIFO: nenhum texto apaga outro. */
-export function enfileirarQuandoOcioso(s: Sessao, texto: string): void {
+export function enfileirarQuandoOcioso(s: Sessao, texto: string, esperouNoPainel = false): void {
   s.marcarAtividade();
   // Entrou com o agente ocupado, com outra na frente ou com um item sendo digitado: vai ser lida depois de falas
   // dele que quem escreveu ainda não viu (ver avisoDeAtraso).
-  const esperou = s.estado.status !== "idle" || s.filaQuandoIdle.length > 0 || s.soltandoFila;
+  const esperou = esperouNoPainel || s.estado.status !== "idle" || s.filaQuandoIdle.length > 0 || s.soltandoFila;
   s.filaQuandoIdle.push({ texto, em: Date.now(), ...(esperou ? { esperou: true } : {}) });
   espelharFila(s);
   log.info(

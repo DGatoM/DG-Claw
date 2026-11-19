@@ -1197,12 +1197,14 @@ function filaSincroniza() {
   if (lista) {
     const ids = new Set(lista.map(x => x.msg).filter(Boolean));
     for (const p of pendentes) {
-      if (p.fila && p.msgId && !ids.has(p.msgId)) { p.fila = null; mudou = true; }
+      // lista atrasada (o runner ainda não tinha a mensagem quando foi consultado) não apaga o aviso: 6 s de folga
+      if (p.fila && p.msgId && !ids.has(p.msgId) && atvAgoraMs() - (p.filaEm || 0) > 6000) { p.fila = null; mudou = true; }
+      else if (!p.fila && p.msgId && ids.has(p.msgId) && p.estado === 'enviada') { p.fila = 'resposta'; mudou = true; }
     }
     // balão que só existia por causa da fila (reconstruído do servidor) sai quando a mensagem sai dela: a cópia
     // de verdade já está chegando na thread
     const antes = pendentes.length;
-    pendentes = pendentes.filter(p => !(p.daFila && p.msgId && !ids.has(p.msgId)));
+    pendentes = pendentes.filter(p => !(p.daFila && p.msgId && !ids.has(p.msgId) && atvAgoraMs() - (p.filaEm || 0) > 6000));
     if (pendentes.length !== antes) mudou = true;
     for (const x of lista) {
       if (!x.msg || !x.texto || pendentes.some(p => p.msgId === x.msg)) continue;
@@ -4838,183 +4840,6 @@ wrap.addEventListener('click', async ev => {
     const nome = (/filename\*=UTF-8''([^;]+)/i.exec(r.headers.get('Content-Disposition') || '') || [])[1];
     const blob = await r.blob();
     const nomeFinal = nome ? decodeURIComponent(nome) : 'versao-final';
-    const url = URL.createObjectURL(blob);
-    let pronto = false;
-    const fim = (tocou = true) => {
-      if (pronto) return;
-      pronto = true;
-      fimToque = null;
-      URL.revokeObjectURL(url);
-      resolve(tocou);
-    };
-    fimToque = fim;
-    player.onended = fim;
-    player.onerror = () => {
-      mostraAviso('O iPhone não tocou o áudio da resposta. O texto está na tela.');
-      fim(false);
-    };
-    player.src = url;
-    // o iOS ignora currentTime antes do metadata: posiciona só depois dele
-    if (inicio > 0) {
-      player.addEventListener('loadedmetadata', () => {
-        try {
-          player.currentTime = inicio;
-        } catch (e) {
-          console.warn('retomada: não consegui posicionar o áudio em ' + inicio +
-                       's (' + e.message + '); o pedaço começa do início.');
-        }
-      }, { once: true });
-    }
-    const p = player.play();
-    if (p && p.catch) {
-      p.catch(e => {
-        mostraAviso('O iPhone bloqueou o som (' + e.message + '). Toque no ' +
-                    'microfone uma vez para liberar o áudio e tente de novo.');
-        fim(false);
-      });
-    }
-  });
-}
-
-/* Pedaço já gerado, sem esperar nada: a retomada depois da gravação chama
-   player.play() colada no toque, sem await no caminho (o iPhone exige). */
-function pedacoEmCache(texto, i) {
-  const c = vozCache.get(texto);
-  return c && c.blobs[i] ? { blob: c.blobs[i], partes: c.partes } : null;
-}
-
-/* Microfone abrindo ou gravando: tocar agora faria o alto-falante entrar na gravação, e a fala
-   do agente voltaria a ele como se fosse da pessoa. */
-function microfoneOcupado() {
-  return !!(gravando || pedindoMic || gravacao);
-}
-
-/* Toca UMA mensagem, a partir do pedaço `desde.parte` e do segundo `desde.tempo`, sem
-   interromper ninguém (quem decide a ordem é a fila). Lê a resposta INTEIRA: toca o pedaço
-   inicial assim que chega e já pede o seguinte enquanto ele toca. `item.parte` acompanha o
-   pedaço em curso (a pausa da gravação lê). Resolve false se o aparelho NÃO tocou. */
-async function tocarMensagemNaFila(item, desde) {
-  const texto = item.texto;
-  const minha = ++faloGeracao;
-  const viva = () => minha === faloGeracao;
-  const ctl = new AbortController();
-  faloAbort = ctl;
-  let i = desde.parte || 0;
-  let atual = pedacoEmCache(texto, i);
-  if (!atual) {
-    setEstado('preparando a voz…');
-    try {
-      atual = await pegaPedacoVoz(texto, i, ctl.signal);
-    } catch (e) {
-      if (!viva()) return;
-      // a resposta JÁ está na tela: isto é aviso, não é falha do ciclo
-      mostraAviso(e.name === 'TypeError' ? 'A resposta está na tela, mas não consegui gerar a voz: ' + e.message : e.message);
-      setEstado('resposta só em texto');
-      return;
-    }
-    if (!viva()) return;
-  }
-
-  falando = true;
-  btnParar.style.display = '';
-  btnParar.textContent = 'parar de falar';
-  setEstado('falando…');
-  const total = atual.partes;
-  let inicio = desde.tempo || 0;
-  for (; i < total && viva(); i++) {
-    item.parte = i;
-    // pré-gera o próximo enquanto o atual toca
-    const proximo = i + 1 < total ? pegaPedacoVoz(texto, i + 1, ctl.signal) : null;
-    if (proximo) proximo.catch(() => {});   // o erro é tratado quando a vez dele chega
-    if (microfoneOcupado()) {
-      // o microfone abriu enquanto a voz era gerada: guarda este pedaço para a retomada
-      pausaPelaGravacao({ tempo: inicio, duracao: 0 });
-      return;
-    }
-    // aparelho que não toca não gasta mais cota: avisa a fila, que para e cancela o próximo já pedido
-    item.tocando = true;
-    const tocou = await tocaPedaco(atual.blob, inicio);
-    item.tocando = false;
-    if (!tocou) {
-      if (!viva()) return;
-      pararSomAtual();
-      return false;
-    }
-    inicio = 0;
-    if (!viva() || !proximo) break;
-    try {
-      atual = await proximo;
-    } catch (e) {
-      if (!viva()) return;
-      mostraAviso('A voz parou no pedaço ' + (i + 2) + ' de ' + total + ': ' + e.message +
-                  ' O texto completo está na tela.');
-      break;
-    }
-  }
-  if (!viva()) return;               // pararam ou pausaram: quem fez isso arrumou a tela
-  faloAbort = null;
-  falando = false;
-  btnParar.style.display = 'none';
-  estadoOcioso();
-}
-
-/* Fone no balão: pula para esta mensagem e segue dali pelas seguintes. */
-wrap.addEventListener('click', ev => {
-  const bt = ev.target.closest ? ev.target.closest('button[data-fone]') : null;
-  if (!bt) return;
-  const m = msgs.find(x => String(x.id) === bt.getAttribute('data-fone'));
-  const texto = m && legendaUtil(m);
-  if (!texto) {
-    mostraAviso('Não achei o texto desta mensagem para ler de novo. Recarregue a conversa.');
-    return;
-  }
-  destravarAudio();
-  // pula para esta mensagem e segue pelas seguintes; recusa com o microfone aberto
-  ouvirAPartirDe({ id: m.id, texto: texto });
-});
-
-/* Anonimizar: "Ver com dados reais" troca o texto da mensagem pelo texto revertido (entra pelo mesmo
-   caminho de sempre, paragrafos(), que escapa tudo) e "Baixar versão final" baixa o arquivo com os dados reais. */
-wrap.addEventListener('click', async ev => {
-  const ver = ev.target.closest ? ev.target.closest('button[data-anon-ver]') : null;
-  const fin = ev.target.closest ? ev.target.closest('button[data-anon-final]') : null;
-  if (!ver && !fin) return;
-  const bt = ver || fin;
-  if (bt.disabled) return;
-  bt.disabled = true;
-  try {
-    if (ver) {
-      const id = ver.getAttribute('data-anon-ver');
-      if (anonVistos.has(id)) { anonVistos.delete(id); render({ semRolar: true }); return; }
-      const m = msgs.find(x => String(x.id) === id);
-      if (!m || !m.text) { mostraAviso('Não achei o texto desta mensagem. Recarregue a conversa.'); return; }
-      const r = await fetch(API_ANON + '/reverter-texto', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ texto: m.text }) });
-      const d = await r.json().catch(() => null);
-      if (!r.ok || !d || d.ok === false || typeof d.texto !== 'string') { mostraAviso('Não consegui mostrar os dados reais: ' + ((d && d.erro) || ('o app respondeu ' + r.status)) + '.'); return; }
-      anonVistos.set(id, d.texto);
-      render({ semRolar: true });
-      return;
-    }
-    const r = await fetch(API_ANON + '/final/' + encodeURIComponent(fin.getAttribute('data-anon-final')), { credentials: 'same-origin', cache: 'no-store' });
-    if (!r.ok) {
-      const d = await r.json().catch(() => null);
-      mostraAviso('Não consegui gerar a versão final: ' + ((d && d.erro) || ('o app respondeu ' + r.status)));
-      return;
-    }
-    const nome = (/filename\*=UTF-8''([^;]+)/i.exec(r.headers.get('Content-Disposition') || '') || [])[1];
-    const blob = await r.blob();
-    const nomeFinal = nome ? decodeURIComponent(nome) : 'versao-final';
-    if (IOS && document.documentElement.classList.contains('pwa')) {
-      // app instalado no iPhone: compartilha o arquivo em vez de navegar a janela do app
-      const f = new File([blob], nomeFinal, { type: blob.type || 'application/octet-stream' });
-      try {
-        if (navigator.canShare && navigator.canShare({ files: [f] })) await navigator.share({ files: [f] });
-        else mostraAviso('Este aparelho não consegue salvar o arquivo de dentro do app. Abra o painel no Safari para baixar.');
-      } catch (e) {
-        if (!e || e.name !== 'AbortError') mostraAviso('Não consegui salvar o arquivo (' + (e && e.message ? e.message : 'o aparelho recusou') + ').');
-      }
-      return;
-    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = nomeFinal;

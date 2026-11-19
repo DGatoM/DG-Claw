@@ -76,6 +76,8 @@
    * `deps`: { fetch, nav, criarArquivo(blob, nome, tipo), abrir(url), cache: {} }.
    * Devolve { via: 'compartilhado' | 'aba' | 'cancelado' | 'segundo-toque' | 'erro', erro? }.
    */
+  const TAMANHO_MAX_BLOB = 40 * 1024 * 1024;
+
   async function baixarNoPwaIos(url, nome, deps) {
     const { nav, cache } = deps;
     const comAba = u => u + (u.includes('?') ? '&' : '?') + 'baixar=1';
@@ -88,13 +90,20 @@
       if (!arq) {
         const r = await deps.fetch(url, { credentials: 'same-origin' });
         if (!r.ok) return { via: 'erro', erro: 'o app respondeu ' + r.status };
+        const tam = Number(r.headers && r.headers.get && r.headers.get('Content-Length'));
+        if (tam > TAMANHO_MAX_BLOB) {
+          // arquivo grande (vídeo): não vai para a memória do app. Guarda só o endereço e abre a aba no toque seguinte.
+          if (r.body && typeof r.body.cancel === 'function') r.body.cancel();
+          cache.url = url; cache.arq = null; cache.modo = 'abrir';
+          return { via: 'segundo-toque' };
+        }
         const doCab = (/filename\*=UTF-8''([^;]+)/i.exec((r.headers && r.headers.get && r.headers.get('Content-Disposition')) || '') || [])[1];
         const blob = await r.blob();
         arq = deps.criarArquivo(blob, nome || (doCab ? decodeURIComponent(doCab) : 'arquivo'), blob.type || 'application/octet-stream');
       }
       if (!nav.canShare({ files: [arq] })) {
         // o aparelho não compartilha este tipo: a aba só abre num toque novo, então o arquivo já baixado espera por ele
-        cache.url = url; cache.arq = arq; cache.modo = 'abrir';
+        cache.url = url; cache.arq = null; cache.modo = 'abrir';   // só o endereço: a aba busca o arquivo por conta própria
         return { via: 'segundo-toque' };
       }
       try {

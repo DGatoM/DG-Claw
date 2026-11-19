@@ -291,6 +291,9 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           }
           const enviar = (corpo as { submit?: boolean }).submit !== false;
           const quandoOcioso = (corpo as { injectWhenIdle?: boolean }).injectWhenIdle === true;
+          // O painel viu o agente ocupado quando o dono escreveu; no caminho até aqui ele pode ter ficado ocioso, e a
+          // mensagem ainda assim foi escrita antes das falas dele que o dono não viu (ver avisoDeAtraso).
+          const esperouNoPainel = (corpo as { esperou?: boolean }).esperou === true;
           // Um Esc sozinho só vale como tecla imediata (submit false, sem fila): antes de acordar paralela, enfileirar ou checar login.
           if (texto === ESC && (enviar || quandoOcioso)) {
             json(res, { success: false, error: "Um Esc sozinho só vale como tecla imediata.", howToFix: "mandar o Esc com submit:false e sem injectWhenIdle", code: "ESC_SO_IMEDIATO" }, 400);
@@ -358,7 +361,7 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
               else json(res, { success: false, error: r.falha, howToFix: "ver o log do runner e tentar POST /api/agents/:id/resume", code: "NAO_ACORDOU" }, 500);
               return;
             }
-            sessao.enfileirarQuandoOcioso(texto);
+            sessao.enfileirarQuandoOcioso(texto, esperouNoPainel);
             json(res, { success: true, data: { enfileirado: true, acordando: true } }, 202);
             return;
           }
@@ -373,7 +376,7 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           }
 
           if (quandoOcioso) {
-            sessao.enfileirarQuandoOcioso(texto);
+            sessao.enfileirarQuandoOcioso(texto, esperouNoPainel);
             json(res, { success: true, data: { enfileirado: true, aguardando: "idle" } }, 202);
             return;
           }

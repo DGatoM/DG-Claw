@@ -163,3 +163,15 @@ test('baixar no PWA do iPhone: resposta de erro vira motivo, sem lançar', async
   const r = await P.baixarNoPwaIos('/u', 'a', deps);
   assert.equal(r.via, 'erro'); assert.match(r.erro, /404/);
 });
+
+test('baixar no PWA do iPhone: arquivo grande não vira Blob; guarda só o endereço e abre a aba no segundo toque', async () => {
+  let leu = false;
+  const { deps, chamadas } = depsBaixar({
+    nav: { canShare: () => true, share: async () => {} },
+    fetch: async () => ({ ok: true, headers: { get: (k) => (k === 'Content-Length' ? String(200 * 1024 * 1024) : null) }, blob: async () => { leu = true; return {}; }, body: { cancel() {} } }),
+  });
+  assert.equal((await P.baixarNoPwaIos('/v', 'v.mp4', deps)).via, 'segundo-toque');
+  assert.equal(leu, false);
+  assert.equal((await P.baixarNoPwaIos('/v', 'v.mp4', deps)).via, 'aba');
+  assert.deepEqual(chamadas.abriu, ['/v?baixar=1']);
+});

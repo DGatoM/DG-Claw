@@ -627,7 +627,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     }
     const motivoFila = antes.ok && antes.estado.status === 'waiting_input' ? (antes.estado.motivo === 'pergunta' ? 'pergunta' : 'permissao')
       : antes.ok && antes.estado.status === 'working' ? 'resposta' : null;
-    const r = await runner.input(agente, { text: payload, submit: true, injectWhenIdle: true });
+    const r = await runner.input(agente, { text: payload, submit: true, injectWhenIdle: true, ...(motivoFila ? { esperou: true } : {}) });
     if (!r.ok) {
       log('erro', `Envio para ${agente.slug} não entregue (${cru ? 'comando cru' : `${textoFinal.length} caracteres`}): ${r.erro}`);
       // O código do runner (LOGIN_EXPIRADO) segue até a tela, que abre o pop-up de reconectar em vez de só dar erro.
@@ -635,12 +635,12 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     }
     log('info', `Mensagem entregue a ${agente.slug} (${cru ? 'comando cru' : `${textoFinal.length} caracteres`}).`);
     const corpo = { ok: true, ep_enviado: epEnviado, agente: agente.slug };
+    // O texto é guardado sempre (não só quando o painel viu o agente ocupado): outro aparelho pode ter enviado
+    // com o agente ocioso, e a mensagem mesmo assim ficar atrás de outra no runner.
+    if (msgId) guardaTextoNaFila(agente.slug, msgId, textoFinal, colaboradorId);
     if (motivoFila) {
       corpo.fila = { motivo: motivoFila };
-      if (msgId) {
-        corpo.fila.msg = msgId;
-        guardaTextoNaFila(agente.slug, msgId, textoFinal, colaboradorId);
-      }
+      if (msgId) corpo.fila.msg = msgId;
     }
     return { status: 200, corpo };
   }
