@@ -43,6 +43,7 @@ for (const [nome, porque] of [
   ['RUNNER_PORT', 'reservado do provisionamento do runner'],
   ['CLAUDE_CONFIG_DIR', 'reservado: derrubou dois agentes em 28/08'],
   ['MINHA_COISA', 'não parece nome de credencial'],
+  ['CLOUDSDK_SPANNER_INSTANCE', 'só ZAPI_INSTANCE é liberado, não o sufixo _INSTANCE (mudaria o alvo do gcloud)'],
   ['1CHAVE_API_KEY', 'fora do formato: começa com número'],
   ['CHAVE-API-KEY', 'fora do formato: hífen'],
   ['../ESCAPE', 'fora do formato'],

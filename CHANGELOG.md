@@ -7,10 +7,11 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
-**Correção: o cofre do agente aceita nomes terminados em `_INSTANCE`.** A Z-API identifica a conexão de WhatsApp por um
-ID de instância, e o nome de mercado dessa credencial é `ZAPI_INSTANCE`. O cofre recusava esse nome porque `_INSTANCE`
-não estava entre os sufixos aceitos, ao lado de `_ID` e `_SID`. Agora está, e o teste do cofre ganhou o caso. Nada muda
-para quem já usa o cofre: os nomes que entravam continuam entrando e os prefixos proibidos continuam recusados.
+**Correção: o cofre do agente aceita `ZAPI_INSTANCE`.** A Z-API identifica a conexão de WhatsApp por um ID de
+instância, e o nome de mercado dessa credencial é `ZAPI_INSTANCE`. O cofre recusava esse nome. Agora ele entra pelo nome
+exato, e não por qualquer nome terminado em `_INSTANCE`, porque outras variáveis com esse final mudam o alvo de
+ferramentas (a instância padrão do gcloud, por exemplo). A trilha do painel também passa a esconder o valor quando ele
+aparece como `ZAPI_INSTANCE=...`. Nada muda para quem já usa o cofre.
 
 **Correção da fila de mensagens: um "ok" que esperou na fila não é mais lido como aprovação de outra coisa.** Quando você
 escreve enquanto o agente trabalha, a mensagem espera a vez. Se ela esperou mais de 20 segundos, agora chega ao agente

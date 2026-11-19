@@ -43,7 +43,7 @@ const PADROES_DADOS = [
 // Cabeçalho Cookie/Set-Cookie: o nome fica, o valor inteiro (vários pares separados por ';') sai escondido.
 const COOKIE = /\b((?:Set-)?Cookie[ \t]{0,20}:[ \t]{0,20})[^\r\n]+/gi;
 
-const ATRIBUICAO = /((?:api[_-]?key|secret|token|passw(?:or)?d|senha|credential|auth)[A-Za-z0-9_.-]*["']?\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s"'&;|]+)/gi;
+const ATRIBUICAO = /((?:api[_-]?key|secret|token|passw(?:or)?d|senha|credential|auth|zapi[_-]?instance)[A-Za-z0-9_.-]*["']?\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s"'&;|]+)/gi;
 
 function mascarar(texto) {
   if (texto == null) return '';
