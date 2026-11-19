@@ -97,31 +97,45 @@ function criarEstadoYoutube(ctx) {
   };
 }
 
-function tarefaYoutube(ctx, ag, container) {
+/**
+ * Roda o teste do YouTube do agente e grava o resultado no estado (ctx.youtube). Não dispara dois testes do mesmo
+ * slug ao mesmo tempo: se já há um rodando, espera esse e devolve o tipo que ele gravou. Devolve o tipo gravado, ou
+ * null quando o teste não rodou (podman ausente, container que não aceitou o comando ou erro interno).
+ */
+function testarYoutube(ctx, ag) {
   const { agora, log } = ctx;
   const { slug } = ag;
   if (!ctx.youtube) ctx.youtube = criarEstadoYoutube(ctx);
   const est = ctx.youtube;
+  if (est.andando.has(slug)) return est.andando.get(slug);
 
   async function testar() {
     const r = await ctx.execSolto('podman', ['exec', '--user', 'agente', '-e', 'HOME=/home/agente', ag.container, 'sh', '-c', SCRIPT], { timeout: PRAZO_EXEC_MS });
-    if (r.erro === 'ENOENT') { log('aviso', 'Diagnóstico: o comando podman não foi encontrado; o teste do YouTube não rodou.'); return; }
+    if (r.erro === 'ENOENT') { log('aviso', 'Diagnóstico: o comando podman não foi encontrado; o teste do YouTube não rodou.'); return null; }
     const c = classificarYoutube(r);
     if (c.tipo === 'outro' && /no such container|cannot (?:exec|find)|container .* (?:is not running|does not exist)/i.test(String(r.stderr).slice(0, 2000))) {
       log('aviso', `Diagnóstico: o container ${ag.container} não aceitou o teste do YouTube: ${higienizar(semCookies(r.stderr), 200)}`);
-      return;
+      return null;
     }
     if (c.tipo !== 'ok') log('aviso', `Diagnóstico: o teste do YouTube do agente ${slug} falhou (${c.tipo}${c.detalhe ? `: ${c.detalhe}` : ''}).`);
     est.guardar(slug, { em: agora(), tipo: c.tipo, detalhe: c.detalhe || null });
+    return c.tipo;
   }
 
+  const p = testar().catch((e) => { log('erro', `Diagnóstico: o teste do YouTube do agente ${slug} falhou por erro interno: ${e && e.stack ? e.stack : e}`); return null; })
+    .finally(() => est.andando.delete(slug));
+  est.andando.set(slug, p);
+  return p;
+}
+
+function tarefaYoutube(ctx, ag, container) {
+  const { agora } = ctx;
+  const { slug } = ag;
+  if (!ctx.youtube) ctx.youtube = criarEstadoYoutube(ctx);
+  const est = ctx.youtube;
+
   /** Dispara o teste em segundo plano (a verificação tem poucos segundos; o download pode levar mais). */
-  function disparar() {
-    if (est.andando.has(slug)) return;
-    const p = testar().catch((e) => log('erro', `Diagnóstico: o teste do YouTube do agente ${slug} falhou por erro interno: ${e && e.stack ? e.stack : e}`))
-      .finally(() => est.andando.delete(slug));
-    est.andando.set(slug, p);
-  }
+  function disparar() { testarYoutube(ctx, ag); }
 
   return {
     sufixo: 'youtube', nome: `Download do YouTube - ${ag.nome}`, depende: container,
@@ -155,4 +169,4 @@ function tarefaYoutube(ctx, ag, container) {
 
 function protegeDetalhe(d) { return higienizar(semCookies(d || 'erro sem mensagem'), 200); }
 
-module.exports = { tarefaYoutube, classificarYoutube, SCRIPT, VIDEO_TESTE };
+module.exports = { tarefaYoutube, testarYoutube, criarEstadoYoutube, classificarYoutube, SCRIPT, VIDEO_TESTE };

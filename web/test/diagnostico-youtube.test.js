@@ -128,3 +128,65 @@ test('o último resultado sobrevive a reinício do painel (arquivo) e container 
   assert.equal(m.chamadas.length, 1);
   m.limpa();
 });
+
+// Vigia periódico: avisa no aparelho só quando a conta cai (transição para login).
+const { criarDiagnostico } = require('../lib/diagnostico');
+const LOGIN = { codigo: 1, stdout: '', stderr: 'ERROR: Sign in to confirm you\'re not a bot', erro: null };
+const BOM = { codigo: 0, stdout: '', stderr: '', erro: null };
+
+function montaVigia(respostas, agentes, pushImpl) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diag-vigia-'));
+  const chamadas = [];
+  const logs = [];
+  const pushes = [];
+  const push = { enviar: async (aviso) => { pushes.push(aviso); if (pushImpl) return pushImpl(aviso); return { inscricoes: 1, falhas: [] }; } };
+  const diag = criarDiagnostico({
+    config: { tz: 'America/Sao_Paulo', dataDir: dir },
+    registro: { estado: () => ({ ok: true, erro: null, agentes: agentes || [{ slug: 'tina', nome: 'Tina', tipo: 'agente', container: 'dgclaw-tina' }] }) },
+    runner: {}, log: (n, m) => logs.push([n, m]),
+    exec: async (cmd, args) => { chamadas.push(args[5]); return respostas.shift() || BOM; },
+  });
+  const vigia = diag.vigiarYoutube({ push, intervaloMs: 1000000 });
+  return { vigia, pushes, logs, chamadas, limpa: () => fs.rmSync(dir, { recursive: true, force: true }) };
+}
+
+test('vigia: transição ok -> login manda um push com a tag do agente', async () => {
+  const m = montaVigia([BOM, LOGIN]);
+  await m.vigia.rodada();
+  assert.equal(m.pushes.length, 0);
+  await m.vigia.rodada();
+  assert.equal(m.pushes.length, 1);
+  assert.equal(m.pushes[0].tag, 'youtube-tina');
+  assert.equal(m.pushes[0].titulo, 'Tina saiu do YouTube');
+  assert.equal(m.pushes[0].url, '/a/tina');
+  m.limpa();
+});
+
+test('vigia: login -> login não avisa de novo', async () => {
+  const m = montaVigia([LOGIN, LOGIN, LOGIN]);
+  await m.vigia.rodada();
+  await m.vigia.rodada();
+  await m.vigia.rodada();
+  assert.equal(m.pushes.length, 1, 'só o primeiro login avisa');
+  m.limpa();
+});
+
+test('vigia: primeiro teste já em login (sem resultado anterior) avisa', async () => {
+  const m = montaVigia([LOGIN]);
+  await m.vigia.rodada();
+  assert.equal(m.pushes.length, 1);
+  m.limpa();
+});
+
+test('vigia: push que lança erro não derruba a rodada e o próximo agente é testado', async () => {
+  const agentes = [
+    { slug: 'tina', nome: 'Tina', tipo: 'agente', container: 'dgclaw-tina' },
+    { slug: 'rui', nome: 'Rui', tipo: 'agente', container: 'dgclaw-rui' },
+  ];
+  const m = montaVigia([LOGIN, LOGIN], agentes, async () => { throw new Error('sem rede'); });
+  await m.vigia.rodada();
+  assert.deepEqual(m.chamadas, ['dgclaw-tina', 'dgclaw-rui']);
+  assert.equal(m.pushes.length, 2);
+  assert.ok(m.logs.some(([n, t]) => n === 'erro' && /Tina não saiu \(sem rede\)/.test(t)), JSON.stringify(m.logs));
+  m.limpa();
+});

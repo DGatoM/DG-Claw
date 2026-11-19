@@ -16,6 +16,7 @@ const { sanearOcorrencias } = require('./classificar');
 const { tarefasDaMaquina } = require('./maquina');
 const { tarefaDeVersao } = require('./versao');
 const { tarefasDoAgente } = require('./agente');
+const { testarYoutube, criarEstadoYoutube } = require('./youtube');
 const { analisaLogin, analisaSessao } = require('./sessao');
 const U = require('./util');
 
@@ -27,6 +28,7 @@ const PRAZO_COLETA_MS = 12000;     // a coleta inteira
 const GRACA_MS = 3000;             // depois do prazo da coleta, quanto esperar o que ficou pendente antes de liberar
 const IDADE_MAXIMA_CACHE_MS = 120000; // além disso o último resultado não é devolvido no lugar de uma coleta nova
 const SCHEMA = 1;
+const INTERVALO_YOUTUBE_MS = 6 * 3600 * 1000;
 const GRAVIDADE = { ok: 0, nao_medido: 1, atencao: 2, quebrado: 3 };
 
 function criarDiagnostico(deps) {
@@ -277,7 +279,59 @@ function criarDiagnostico(deps) {
   /** Espera os testes em segundo plano (o do YouTube) que ainda estiverem rodando. Usado pelos testes. */
   const aguardarSegundoPlano = () => Promise.all(ctx.youtube ? [...ctx.youtube.andando.values()] : []);
 
-  return { responder, coletar, aguardarSegundoPlano };
+  /**
+   * Vigia periódico do YouTube: testa o download de cada agente e avisa no aparelho do dono quando a conta cai
+   * (a transição para "login"). `push` é o mesmo do vigia de atenção: push.enviar({ titulo, corpo, tag, url }).
+   */
+  function vigiarYoutube({ push, intervaloMs } = {}) {
+    let timer = null;
+    let emCurso = false;
+
+    async function avisar(ag) {
+      try {
+        const r = await push.enviar({
+          titulo: `${ag.nome} saiu do YouTube`,
+          corpo: 'A conta do YouTube na Tela dele caiu, e ele não consegue baixar vídeos. Abra a Tela e entre de novo em youtube.com.',
+          tag: `youtube-${ag.slug}`,
+          url: `/a/${ag.slug}`,
+        });
+        if (r && !r.inscricoes) log('info', `Aviso do YouTube de ${ag.nome}: nenhum aparelho com avisos ativados. Ative em "Ativar avisos neste aparelho", no menu.`);
+        else if (r && r.falhas && r.falhas.length) log('aviso', `Aviso do YouTube de ${ag.nome}: ${r.falhas.length} falha(s) ao entregar: ${r.falhas[0].motivo || 'sem motivo'}.`);
+      } catch (e) {
+        log('erro', `Aviso do YouTube de ${ag.nome} não saiu (${e.message}). Confira a tela de avisos do aparelho e o arquivo push/vapid.json na pasta de dados.`);
+      }
+    }
+
+    async function rodada() {
+      if (emCurso) return;
+      emCurso = true;
+      try {
+        const reg = registro.estado();
+        if (!reg.ok) return;
+        if (!ctx.youtube) ctx.youtube = criarEstadoYoutube(ctx);
+        for (const ag of reg.agentes) {
+          if (ag.tipo === 'admin' || !ag.container || !U.RX_NOME_SEGURO.test(ag.slug)) continue;
+          try {
+            const antes = ctx.youtube.ler(ag.slug);
+            const tipo = await testarYoutube(ctx, ag);
+            if (tipo === 'login' && !(antes && antes.tipo === 'login')) await avisar(ag);
+          } catch (e) {
+            log('erro', `Vigia do YouTube: falha inesperada ao testar ${ag.nome} (${e.message}). Os outros agentes seguem sendo testados.`);
+          }
+        }
+      } finally { emCurso = false; }
+    }
+
+    function iniciar() {
+      if (timer) return;
+      timer = setInterval(() => { rodada().catch((e) => log('erro', `Vigia do YouTube: ${e.message}`)); }, intervaloMs || INTERVALO_YOUTUBE_MS);
+      timer.unref();
+    }
+    function parar() { if (timer) { clearInterval(timer); timer = null; } }
+    return { iniciar, parar, rodada };
+  }
+
+  return { responder, coletar, aguardarSegundoPlano, vigiarYoutube };
 }
 
 module.exports = { criarDiagnostico, BASE };

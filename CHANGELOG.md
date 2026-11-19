@@ -24,6 +24,8 @@ YouTube conferir). Se o YouTube pedir login, o item vira "atenção" e diz para 
 não depende do motor do agente: vale igual no Claude e no Codex. As instruções do agente (`templates/ambiente/agente.md`)
 passaram a dizer que o `yt-dlp` já lê os cookies da Tela e que, se o YouTube pedir login, ele deve pedir ao dono para entrar
 pela Tela, em vez de instalar outro `yt-dlp`.
+O mesmo teste do YouTube agora também roda sozinho a cada 6 horas e, quando a conta do YouTube do agente cai, o DG Claw avisa no
+aparelho do dono (o aviso sai uma vez por queda, não se repete enquanto a conta continuar fora), sem precisar abrir o diagnóstico.
 
 ### Como atualizar (download do YouTube)
 
