@@ -121,11 +121,16 @@ O comando já escreve a frase pronta. Repasse ao dono em linguagem simples:
   `dgclaw-card fechar <id>` e tente de novo. Se o dono quiser mais vagas, o limite sobe em
   `RUNNER_MAX_SESSOES_EXTRAS` (quem mantém a máquina ajusta).
 - Código 9 (o pedido não virou turno): o card foi criado e o texto entrou na fila, mas o card NÃO está
-  trabalhando. Não diga ao dono que ele está trabalhando e não feche o card. Espere com
-  `dgclaw-card esperar <id>` ou reenvie com `dgclaw-card mandar <id> --arquivo ...`, e conte ao dono o que
-  aconteceu. O `abrir` espera 60 segundos por isso; `--espera-turno SEG` muda o prazo (0 desliga).
-- Código 10 (`fechar` recusado): o card nunca teve turno, e fechar agora joga o pedido fora. Só use
-  `dgclaw-card fechar <id> --forcar` depois de avisar o dono.
+  trabalhando agora. Não diga ao dono que ele está trabalhando, não feche o card e NÃO reenvie o pedido
+  por conta própria (o pedido pode ainda entrar sozinho, e reenviar o duplicaria). Confira com
+  `dgclaw-card estado <id>` e `dgclaw-card ler <id>` depois de um tempo; se continuar sem turno, avise o dono.
+  O `abrir` espera 60 segundos por isso; `--espera-turno SEG` muda o prazo (0 desliga).
+- Código 10 (`fechar` recusado): não deu para comprovar que o card já trabalhou (ele nunca teve turno, ou a
+  consulta falhou), e fechar agora pode jogar o pedido fora. Só use `dgclaw-card fechar <id> --forcar`
+  depois de avisar o dono.
+- Código 11 (não deu para confirmar): o card foi criado e o pedido entregue, mas o `abrir` não conseguiu
+  ler o estado dele (recusa, erro do runner ou resposta sem o contador de turnos). Não diga ao dono que o
+  card está trabalhando, não feche e não reenvie. Rode `dgclaw-card estado <id>` e conte ao dono o que viu.
 - Código 5 (sem login): o provedor ainda não está conectado. Peça ao dono para abrir o painel,
   aba Status, cartão Modelo e autenticação, e usar Entrar com a assinatura (ou colar a chave de
   API). Depois repita o pedido.

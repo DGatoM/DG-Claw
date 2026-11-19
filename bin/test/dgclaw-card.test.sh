@@ -83,13 +83,13 @@ grep -q "segue trabalhando" "$T/e"; ok "esperar diz que a sessao segue trabalhan
 subir sem-turno
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
 ok "pedido que nao vira turno sai com 9" $([ $c = 9 ] && echo 0 || echo 1)
-grep -q "card card-abc123 foi criado" "$T/e" && grep -q "NAO esta trabalhando" "$T/e" && grep -q "dgclaw-card esperar card-abc123" "$T/e" && grep -q "dgclaw-card mandar card-abc123" "$T/e"; ok "a mensagem diz o id, que nao esta trabalhando e como esperar ou reenviar" $?
+grep -q "card card-abc123 foi criado" "$T/e" && grep -q "NAO esta trabalhando" "$T/e" && grep -q "dgclaw-card estado card-abc123" "$T/e" && grep -q "nao reenvie por conta propria" "$T/e" && ! grep -q "reenvie com" "$T/e"; ok "a mensagem diz o id, que nao esta trabalhando, e manda conferir sem reenviar" $?
 ! grep -q "Card aberto" "$T/o"; ok "sem turno nao imprime 'Card aberto'" $?
 "$BIN" estado card-abc123 >"$T/o" 2>"$T/e"; grep -q "sem primeiro turno ainda" "$T/o"; ok "estado de card sem turno diz 'sem primeiro turno ainda'" $?
 "$BIN" ler card-abc123 >"$T/o" 2>"$T/e"; grep -q "ainda nao virou turno" "$T/o" && grep -q "NAO esta trabalhando" "$T/o"; ok "ler de card sem turno diz o motivo (e nao so 'sem mensagens')" $?
 "$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
 ok "fechar card sem turno recusa com 10" $([ $c = 10 ] && echo 0 || echo 1)
-grep -q -- "--forcar" "$T/e" && grep -q "joga o pedido fora" "$T/e"; ok "a recusa explica e pede --forcar" $?
+grep -q -- "--forcar" "$T/e" && grep -q "jogar o pedido fora" "$T/e"; ok "a recusa explica e pede --forcar" $?
 ! grep -q '"metodo":"DELETE"' "$LOG"; ok "a recusa nao chamou o DELETE" $?
 "$BIN" fechar card-abc123 --forcar >"$T/o" 2>"$T/e"; c=$?
 ok "fechar --forcar fecha" $([ $c = 0 ] && echo 0 || echo 1)
@@ -104,6 +104,58 @@ subir sem-turno
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 0 >"$T/o" 2>"$T/e"; c=$?
 ok "--espera-turno 0 desliga a espera (saida 0 mesmo sem turno)" $([ $c = 0 ] && echo 0 || echo 1)
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno abc >/dev/null 2>&1; ok "--espera-turno invalido recusado" $([ $? = 1 ] && echo 0 || echo 1)
+
+# --- 9 com --monitor: o monitor ja foi cadastrado antes da espera -----------------------------------
+subir sem-turno
+rm -rf "$HOME/.dgclaw"
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 1 --monitor --entregue "relatorio salvo" >"$T/o" 2>"$T/e"; c=$?
+ok "9 com --monitor sai com 9" $([ $c = 9 ] && echo 0 || echo 1)
+grep -q "card-abc123" "$HOME/.dgclaw/estado/modo-monitor.json" 2>/dev/null; ok "o monitor ficou cadastrado mesmo no caminho do 9" $?
+grep -q "Monitorando o card card-abc123" "$T/e"; ok "o caminho do 9 diz que o monitor esta ligado" $?
+
+# --- falha ao cadastrar o monitor: erro explicito (8) com o que fazer ------------------------------
+subir normal
+rm -rf "$HOME/.dgclaw"
+DGCLAW_MONITOR_DONO=card-abc123 "$BIN" abrir --provedor codex --titulo x --pedido oi --monitor --entregue "feito" >"$T/o" 2>"$T/e"; c=$?
+ok "monitor que nao liga sai com 8" $([ $c = 8 ] && echo 0 || echo 1)
+grep -q "monitor NAO ligou" "$T/e" && grep -q "dgclaw-monitor add card-abc123" "$T/e"; ok "a falha do monitor diz o motivo e o comando para ligar a mao" $?
+! grep -q "Card aberto" "$T/o"; ok "monitor que falhou nao imprime 'Card aberto'" $?
+
+# --- nao deu para observar o estado: 11, nunca 9 nem 0 ---------------------------------------------
+subir leitura-403
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 1 >"$T/o" 2>"$T/e"; c=$?
+ok "estado recusado (403) sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+grep -q "nao consegui confirmar se o card card-abc123 aceitou o pedido" "$T/e" && grep -q "HTTP 403" "$T/e" && grep -q "dgclaw-card estado card-abc123" "$T/e"; ok "a mensagem do 11 traz o motivo e o que fazer" $?
+! grep -q "Card aberto" "$T/o"; ok "11 nao imprime 'Card aberto'" $?
+subir leitura-503
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 1 >"$T/o" 2>"$T/e"; c=$?
+ok "estado com erro 503 sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+subir sem-contador
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 5 >"$T/o" 2>"$T/e"; c=$?
+ok "200 sem o contador turnosAceitos sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+grep -q "turnosAceitos" "$T/e"; ok "o 11 sem contador cita o contador" $?
+subir leitura-403
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 1 --monitor --entregue "feito" >"$T/o" 2>"$T/e"; c=$?
+ok "11 com --monitor sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+grep -q "card-abc123" "$HOME/.dgclaw/estado/modo-monitor.json" 2>/dev/null; ok "o monitor tambem ficou cadastrado no caminho do 11" $?
+
+# --- fechar sem prova de turno: consulta falhou ou sem contador -> 10 ----------------------------------
+subir leitura-503
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 0 >/dev/null 2>&1
+"$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
+ok "fechar com a leitura em 503 recusa com 10" $([ $c = 10 ] && echo 0 || echo 1)
+grep -q -- "--forcar" "$T/e" && grep -q "HTTP 503" "$T/e"; ok "a recusa por 503 diz o motivo e pede --forcar" $?
+! grep -q '"metodo":"DELETE"' "$LOG"; ok "recusa por 503 nao chamou o DELETE" $?
+"$BIN" fechar card-abc123 --forcar >/dev/null 2>&1; ok "--forcar fecha mesmo sem conseguir ler" $?
+subir sem-contador
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 0 >/dev/null 2>&1
+"$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
+ok "fechar com resposta sem contador recusa com 10" $([ $c = 10 ] && echo 0 || echo 1)
+grep -q "turnosAceitos" "$T/e"; ok "a recusa sem contador cita o contador" $?
+subir normal
+"$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
+"$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
+ok "fechar card que teve turno fecha sem --forcar" $([ $c = 0 ] && echo 0 || echo 1)
 
 # --- limite (429) ---------------------------------------------------------------------------------
 subir limite

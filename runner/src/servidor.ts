@@ -15,6 +15,7 @@ import http from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { Sessao } from "./sessao.js";
 import type { GerenteDeSessoes, Recusa } from "./sessoes.js";
+import { ultimasMensagens } from "./transcript.js";
 import { log } from "./logger.js";
 import { carregarTokenDoRunner, exigirTokenDoRunner, verificarClienteWs } from "./autenticacao.js";
 import { erro as erroHttp, json, lerCorpo } from "./http-util.js";
@@ -23,7 +24,7 @@ import { LoginAssistido } from "./provedores/login.js";
 import { tratarRotasDeProvedor } from "./provedores/rotas.js";
 import { MOTIVO_SEM_MEDICAO, deStatusline, paraResposta } from "./uso.js";
 import { ESC, nonceConfere } from "./sessao/telas.js";
-import { lerConversa } from "./conversa.js";
+import { acharRolloutPorId, mensagensDoRollout } from "./provedores/codex-rollout.js";
 
 /** O estado de uma sessão como o painel e a API o veem. A paralela leva o campo
  *  extra `sessao`; a principal só o leva quando pedido (`?todas=1`), para a
@@ -544,18 +545,15 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             return;
           }
           const limite = Number.isFinite(quantas) ? quantas : 6;
-          // O Claude grava a conversa no transcript e o Codex no rollout; lerConversa() escolhe e, se a
-          // sessão atual ainda não gravou nada, cai na anterior e avisa.
-          const conversa = lerConversa({
-            provedor: sessao.escolhaAtual().provedor === "codex" ? "codex" : "claude",
-            sessionId: sessao.estado.sessionId,
-            previousSessionId: sessao.estado.previousSessionId,
-            limite,
-            configDir: sessao.estado.config.envExtra?.CLAUDE_CONFIG_DIR,
-            codexHome: sessao.codexHomeAtual(),
-            segredos: sessao.segredosParaMascara(),
-          });
-          json(res, conversa.aviso ? { success: true, data: conversa.msgs, aviso: conversa.aviso } : { success: true, data: conversa.msgs });
+          let msgs;
+          if (sessao.escolhaAtual().provedor === "codex") {
+            // O Codex grava a conversa no rollout, e não no transcript do Claude.
+            const arquivo = acharRolloutPorId(sessao.estado.sessionId, sessao.codexHomeAtual());
+            msgs = arquivo ? mensagensDoRollout(arquivo, limite, sessao.segredosParaMascara()) : null;
+          } else {
+            msgs = ultimasMensagens(sessao.estado.sessionId, limite, sessao.estado.config.envExtra?.CLAUDE_CONFIG_DIR, sessao.segredosParaMascara());
+          }
+          json(res, { success: true, data: msgs ?? [] });
           return;
         }
 

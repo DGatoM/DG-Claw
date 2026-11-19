@@ -251,18 +251,21 @@ function registrar(router, { CONFIG }) {
   }
 
   /** O pedido de um card que nunca virou turno: o runner conta `turnosAceitos` (0 = nenhum pedido foi aceito
-   *  pelo CLI) e a conversa não tem nada. Runner antigo não manda o campo: aí não dá para afirmar nada. */
-  function semPrimeiroTurno(ag) {
+   *  pelo CLI) e a conversa não tem nada. Runner antigo não manda o campo: aí não dá para afirmar nada.
+   *  O contador volta a zero quando o runner reinicia: se a sessão atual já tem resposta do agente no disco
+   *  (`fala`, lida do transcript em falaDe), o card trabalhou e não está esperando o primeiro turno. */
+  function semPrimeiroTurno(ag, fala) {
+    if (fala && fala.fonte === 'transcript') return false;
     return papelDe(ag) === 'card' && ag.turnosAceitos === 0 && !espacos(ag.lastMessage);
   }
 
   /** {grupo, estado, motivo, tem_terminal} a partir do status do runner. */
-  function estadoDe(ag) {
+  function estadoDe(ag, fala) {
     const st = ag.status;
     const ferramenta = ag.currentTool ? ` (${ag.currentTool})` : '';
     // Card que nunca teve turno não "terminou": o pedido ainda não foi aceito. Fica em "parado", que a lista
     // "Ativas" mostra, e nunca em "concluído" nem em "fechado" (onde sumiria do filtro padrão).
-    if (semPrimeiroTurno(ag) && (st === 'idle' || st === 'completed' || st === 'resumable')) {
+    if (semPrimeiroTurno(ag, fala) && (st === 'idle' || st === 'completed' || st === 'resumable')) {
       const dorme = st === 'resumable';
       const fila = ag.sessao && ag.sessao.fila > 0;
       return {
@@ -294,7 +297,7 @@ function registrar(router, { CONFIG }) {
   }
 
   function montarItem(ag, reg, fala) {
-    const e = estadoDe(ag);
+    const e = estadoDe(ag, fala);
     const cfg = ag.config || {};
     const papel = papelDe(ag);
     const nome = reg.nome || (ag.sessao && ag.sessao.titulo) || cfg.name || ag.id;
@@ -513,8 +516,6 @@ function registrar(router, { CONFIG }) {
       ok: true, mensagens, antes: entregues,
       truncado: msgs.length >= pedir && pedir < CONVERSA_BUSCA_MAX,
     };
-    // O runner avisa quando as mensagens são da sessão anterior (a atual ainda não gravou nada).
-    if (typeof (r.json && r.json.aviso) === 'string' && msgs.length) corpo.aviso = r.json.aviso.slice(0, 300);
     // Conversa vazia: diz por quê, conforme o estado, em vez de deixar a tela sem explicação.
     if (!mensagens.length) corpo.motivo_vazio = motivoDaConversaVazia(it);
     enviarJson(res, 200, corpo);

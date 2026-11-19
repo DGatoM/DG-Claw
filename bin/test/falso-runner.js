@@ -1,7 +1,7 @@
 // Runner falso para o teste do dgclaw-card. Grava cada requisicao em $LOG (uma linha JSON com
 // metodo, url, corpo e o cabecalho Authorization) e simula o ciclo de um card:
 // criado dormindo -> /input -> working -> idle com resposta do assistente.
-// Chaves de ambiente: RUNNER_BEARER (token esperado), MODO (normal|limite|sem-login|input-falha|nunca-termina|sem-turno|turno-lento).
+// Chaves de ambiente: RUNNER_BEARER (token esperado), MODO (normal|limite|sem-login|input-falha|nunca-termina|sem-turno|turno-lento|leitura-403|leitura-503|sem-contador).
 const http = require("http");
 const fs = require("fs");
 const LOG = process.env.LOG;
@@ -23,6 +23,8 @@ http.createServer((req, res) => {
       const c = cards.get(id);
       // turno-lento: o pedido so vira turno ~2 s depois do /input (o 202 sai antes, como no runner de verdade).
       if (c.viraEm && Date.now() >= c.viraEm) { c.viraEm = 0; c.status = "working"; c.turnos = 1; c.polls = 0; }
+      // sem-contador: runner que nao informa turnosAceitos.
+      if (MODO === "sem-contador") return { id, status: c.status, sessao: { tipo: "card", titulo: c.titulo, fila: 0 } };
       return { id, status: c.status, turnosAceitos: c.turnos, sessao: { tipo: "card", titulo: c.titulo, fila: 0 } };
     };
     let m;
@@ -64,6 +66,9 @@ http.createServer((req, res) => {
       }
       if (m[2] === "/conversation") return j(200, { success: true, data: c.msgs.slice(-Number(u.searchParams.get("limit") || 6)) });
       if (!m[2]) {
+        // leitura-403/503: so a leitura do estado de UM card falha; criar, enviar e apagar seguem normais.
+        if (MODO === "leitura-403") return j(403, { success: false, error: "sem permissao para ler este card", code: "PROIBIDO" });
+        if (MODO === "leitura-503") return j(503, { success: false, error: "runner ocupado", code: "INDISPONIVEL" });
         if (c.status === "working" && MODO !== "nunca-termina" && ++c.polls >= 2) { c.status = "idle"; c.msgs.push({ role: "assistant", text: "Resposta do card sobre: " + c.msgs[0].text }); }
         return j(200, { success: true, data: visao(m[1]) });
       }

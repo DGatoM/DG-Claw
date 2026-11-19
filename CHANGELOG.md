@@ -16,26 +16,33 @@ pedido se perdeu. O que mudou:
 - O runner passou a informar `turnosAceitos` no estado de cada sessão (quantos pedidos o CLI já aceitou como turno
   desde que o runner subiu). É só leitura: a lógica de envio e de recibo não mudou.
 - `dgclaw-card abrir` espera até 60 s (`--espera-turno SEG`, 0 desliga) o primeiro turno. Sem turno, sai com o código
-  novo 9 e diz que o card existe, que não está trabalhando e como esperar ou reenviar. Com turno, a saída é a de sempre.
+  novo 9 e diz que o card existe e que não está trabalhando agora. O pedido ainda pode entrar sozinho: o agente
+  confere depois de um tempo, avisa o dono se continuar sem turno e não reenvia por conta própria. Com `--monitor`, o
+  monitor é ligado logo depois de entregar o pedido, antes dessa espera, então o card do código 9 também fica vigiado
+  (se o monitor não ligar, a saída é 8, com o motivo e o comando para ligar à mão). Se o `abrir` não conseguir ler o
+  estado do card (recusa 401 ou 403, erro 5xx, falha de rede, resposta inválida ou sem o contador `turnosAceitos`),
+  sai com o código novo 11, "não consegui confirmar se o card aceitou o pedido", e nunca com 9 nem 0.
 - `dgclaw-card estado` diz "sem primeiro turno ainda" e `dgclaw-card ler` diz o motivo da conversa vazia (na fila,
-  digitado e sem turno, ou dormindo). `dgclaw-card fechar` recusa um card que nunca teve turno (código 10) e pede
-  `--forcar`.
+  digitado e sem turno, ou dormindo). `dgclaw-card fechar` só fecha sem `--forcar` quando comprova que o card já
+  trabalhou. Se o card nunca teve turno, ou se a consulta falhar (erro de rede, HTTP diferente de 200, resposta sem o
+  contador), recusa com o código 10 e pede `--forcar`.
 - Na aba Sessões, um card sem primeiro turno aparece como "esperando o primeiro turno" (grupo Paradas, visível em
-  "Ativas"), nunca como concluído. A conversa vazia mostra o motivo no lugar de "Esta sessão ainda não tem mensagens".
-- `GET /conversation` do runner, quando a sessão atual ainda não gravou nada e existe uma sessão anterior, devolve as
-  mensagens da anterior com um `aviso` no corpo (Claude pelo transcript, Codex pelo rollout). A tela mostra o aviso.
+  "Ativas"), nunca como concluído. A conversa vazia mostra o motivo no lugar de "Esta sessão ainda não tem mensagens". Se o runner
+  reiniciou (o contador voltou a zero) mas a conversa da sessão atual já tem resposta do agente no disco, o card
+  aparece como concluído, e não como esperando o primeiro turno.
 
-No Codex vale igual: o contador `turnosAceitos` conta o `task_started` e o nascimento do rollout, o `dgclaw-card` é o
-mesmo comando e a busca da conversa anterior usa o rollout.
+No Codex vale igual: o contador `turnosAceitos` conta o `task_started` e o nascimento do rollout, e o `dgclaw-card` é o
+mesmo comando.
 
 ### Como atualizar (primeiro turno do card)
 
 Nesta versão há uma instrução nova para o seu agente entender quando um card realmente começou: só avisar você que o card
-está trabalhando depois que o `dgclaw-card abrir` terminar bem, e nunca fechar um card que não respondeu sem contar a
+está trabalhando depois que o `dgclaw-card abrir` terminar bem, e nunca fechar nem reenviar por conta própria um card que não respondeu, sem contar a
 você. O `dgclaw atualizar` padrão já recria os agentes com o comando novo. Se você personalizou as instruções do agente,
 peça ao Admin para juntar a instrução nova a elas, sem apagar o que você escreveu. O `turnosAceitos` volta a zero quando o
 runner reinicia, então depois de uma reinicialização um card antigo e ocioso pode pedir `--forcar` para fechar, caso a
 conversa dele também esteja vazia.
+
 ## [1.1.0] - 2026-11-18
 
 - **Correção no aviso de versão nova: o número agora sobe a cada release e, quando é igual, o aviso mostra o commit.** O

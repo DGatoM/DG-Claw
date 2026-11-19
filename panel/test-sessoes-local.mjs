@@ -105,7 +105,7 @@ async function subirRunner() {
       if (m) {
         const s = sessoes.get(m[1]);
         if (!s) return json(404, { success: false, error: 'outro runner', code: 'AGENTE_DE_OUTRO_RUNNER' });
-        if (m[2] === 'conversation') return json(200, { success: true, data: s.msgs.slice(-Number(url.searchParams.get('limit') || 6)), ...(s.aviso ? { aviso: s.aviso } : {}) });
+        if (m[2] === 'conversation') return json(200, { success: true, data: s.msgs.slice(-Number(url.searchParams.get('limit') || 6)) });
         if (m[2] === 'input') {
           if (flags.semLogin) return json(409, { success: false, error: 'sem login', howToFix: 'entrar', code: 'SEM_LOGIN' });
           if (!corpo.injectWhenIdle && corpo.submit !== false && s.status === 'resumable') return json(202, { success: true, data: { enfileirado: true, acordando: true } });
@@ -231,12 +231,16 @@ try {
     nova('card-t1', { status: 'idle', turnosAceitos: 3, msgs: [{ role: 'assistant', text: 'Pronto.' }] });
     nova('card-tf', { status: 'idle', turnosAceitos: 0, msgs: [], sessao: { papel: 'paralela', tipo: 'card', chat: 'c_tf', titulo: 'Na fila', fila: 1 } });
     nova('card-td', { status: 'resumable', turnosAceitos: 0, msgs: [], sessionId: null });
-    nova('card-ta', { status: 'idle', turnosAceitos: 0, msgs: [{ role: 'user', text: 'pedido do turno anterior' }], aviso: 'A sessão atual ainda não gravou nenhuma mensagem. O que aparece aqui é a conversa da sessão anterior.' });
+    // Card restaurado depois de reiniciar o runner: o contador voltou a zero, mas a conversa da sessão atual tem resposta no disco.
+    nova('card-tr', { status: 'idle', turnosAceitos: 0, msgs: [{ role: 'user', text: 'pedido antigo' }, { role: 'assistant', text: 'Já respondi isto antes do reinício.' }] });
+    nova('card-tu', { status: 'idle', turnosAceitos: 0, msgs: [{ role: 'user', text: 'só o pedido, sem resposta' }] });
     const todos = await lerJson(await p.pedir('/api/sessoes?grupo=todos'));
     const por = Object.fromEntries(todos.json.itens.map((i) => [i.id, i]));
     ok(por['card-t0'].estado === 'esperando_primeiro_turno' && por['card-t0'].grupo !== 'concluido' && /esperando o primeiro turno/.test(por['card-t0'].motivo), 'idle com turnosAceitos 0 vira "esperando o primeiro turno", nunca concluído');
     ok(por['card-t1'].grupo === 'concluido', 'idle com turnosAceitos > 0 continua concluído');
     ok(por['card-i1'].grupo === 'concluido', 'runner que não manda turnosAceitos continua como antes');
+    ok(por['card-tr'].estado !== 'esperando_primeiro_turno' && por['card-tr'].grupo === 'concluido', 'card restaurado (turnosAceitos 0) com resposta do agente no disco NÃO aparece como esperando o primeiro turno');
+    ok(por['card-tu'].estado === 'esperando_primeiro_turno', 'só o pedido do usuário no disco, sem resposta do agente, continua esperando o primeiro turno');
     ok(/na fila/.test(por['card-tf'].motivo) && /dormindo/.test(por['card-td'].motivo), 'o motivo distingue fila e dormindo');
     const ativos = await lerJson(await p.pedir('/api/sessoes'));
     ok(['card-t0', 'card-tf', 'card-td'].every((id) => ativos.json.itens.some((i) => i.id === id)), 'o filtro padrão "Ativas" mostra o card sem primeiro turno, inclusive o dormindo');
@@ -247,10 +251,8 @@ try {
     const vd = await lerJson(await p.pedir('/api/sessoes/card-td/conversa'));
     ok(/dormindo/.test(vd.json.motivo_vazio), 'conversa vazia de sessão dormindo: motivo');
     const vf1 = await lerJson(await p.pedir('/api/sessoes/card-f1/conversa'));
-    ok(vf1.json.mensagens.length === 1 && vf1.json.motivo_vazio === undefined && vf1.json.aviso === undefined, 'conversa com mensagens não traz motivo nem aviso');
-    const va = await lerJson(await p.pedir('/api/sessoes/card-ta/conversa'));
-    ok(va.json.mensagens.length === 1 && /sessão anterior/.test(va.json.aviso), 'o aviso do runner (conversa da sessão anterior) chega à tela');
-    for (const id of ['card-t0', 'card-t1', 'card-tf', 'card-td', 'card-ta']) sessoes.delete(id);
+    ok(vf1.json.mensagens.length === 1 && vf1.json.motivo_vazio === undefined, 'conversa com mensagens não traz motivo');
+    for (const id of ['card-t0', 'card-t1', 'card-tf', 'card-td', 'card-tr', 'card-tu']) sessoes.delete(id);
   }
 
   console.log('\n4. Criar');
