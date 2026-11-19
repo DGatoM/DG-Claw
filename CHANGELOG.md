@@ -28,19 +28,23 @@ container que não aceitou o comando, erro interno), a tentativa é guardada com
 concluído fica preservado à parte. Nada do texto de erro do `yt-dlp` vai para a tela, o log ou o arquivo: só o tipo do problema
 (login, Tela não aberta, ausente, tempo ou outro, este com o código de saída), e a saída lida é limitada a 8 KB antes de
 qualquer análise. A checagem roda no container e não depende do motor do agente: vale igual no Claude e no Codex.
-Quando o download cai por pedido de login, o DG Claw avisa no aparelho do dono ("<agente>: o download do YouTube parou"). A queda
-fica marcada como aviso pendente (no mesmo `youtube-saude.json`), e a marca só sai quando o aviso é entregue a pelo menos um
-aparelho sem falha; se o envio falhar, a rodada seguinte tenta de novo. A marca também sai quando o download volta a funcionar.
+O resultado guardado leva a identidade da instância do agente: se o agente for removido e criado de novo com o mesmo nome, o
+resultado antigo é descartado. Ele vale por 13 horas (duas rodadas e uma margem); depois disso o item volta a "não medido" e diz o
+horário do último teste. O código 125 do podman (por exemplo, container parado) conta como falha de infraestrutura, não como
+problema do YouTube. As instruções do agente limitam a chamada com cookies à checagem anti-robô: vídeo privado, de membros ou com
+restrição de idade não é tentado com os cookies, e o agente avisa que o vídeo não é público.
 
 ### Como atualizar (download do YouTube)
 
 1. **Atualize a imagem dos agentes.** A versão nova do `yt-dlp`, o link do comando e o arquivo `/etc/yt-dlp.conf` vêm na
    imagem, então só entram depois que ela for reconstruída e os agentes recriados. O `dgclaw atualizar` padrão já faz isso.
    Sem a imagem nova o `yt-dlp` do agente continua sem o runtime de JavaScript.
-2. **Entre no YouTube pela Tela, uma vez por agente.** Abra a Tela do agente (menu do agente, grupo Conexões, "Navegador"),
-   entre em youtube.com com a sua conta e pronto: quando o YouTube pedir login, o agente usa essa sessão. Sem isso o YouTube
-   continua recusando o download, e a tela de diagnóstico mostra o aviso "O YouTube pediu login". Quando o problema voltar, o
-   aviso volta e o caminho é o mesmo.
+2. **Entre no YouTube pela Tela, uma vez por agente, com uma conta do Google dedicada àquele agente.** Abra a Tela do agente
+   (menu do agente, grupo Conexões, "Navegador") e entre em youtube.com. Use uma conta criada só para esse agente, não a sua
+   conta pessoal, porque o perfil do navegador vai junto se o agente for entregue a um cliente. Quando o YouTube pedir login, o
+   agente usa essa sessão. Sem isso o YouTube continua recusando o download, e a tela de diagnóstico mostra o aviso "O YouTube
+   pediu login". Se você já entrou com a conta pessoal em um agente que vai ser entregue, saia da conta pela Tela antes da
+   entrega.
 
 ## [1.1.0] - 2026-11-18
 

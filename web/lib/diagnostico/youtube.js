@@ -9,6 +9,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const U = require('./util');
+const { instanciaDe } = require('../instancia');
 
 const { R, conserta } = U;
 const PRAZO_DOWNLOAD_S = 80;             // teto dentro do container (comando `timeout`)
@@ -17,6 +18,8 @@ const VIDEO_TESTE = 'https://www.youtube.com/watch?v=jNQXAC9IJRQ'; // "Me at the
 const NOME_ARQUIVO = 'youtube-saude.json';
 const LIMITE_SAIDA = 8192;               // bytes lidos de stderr e de stdout, cortados antes de qualquer regex ou log
 const PASTA_COOKIES = '/home/agente/.tela-chrome';
+const VALIDADE_MS = 13 * 3600 * 1000;    // duas rodadas de 6 horas e uma margem: resultado mais velho que isso não é mais medida
+const SAIDA_PODMAN_FALHOU = 125;         // o próprio podman não conseguiu executar o comando (ex.: container parado)
 const SAIDA_SEM_PERFIL = 66;             // código próprio do script: a pasta do Chrome da Tela não existe
 
 // Roda dentro do container, sem nenhum valor vindo de fora. A pasta é temporária e some ao final. O yt-dlp ignora
@@ -79,7 +82,7 @@ const TEXTO_TIPO = {
 };
 const textoFalha = (tipo, codigo) => `${TEXTO_TIPO[tipo] || tipo}${tipo === 'outro' ? ` (código de saída ${codigo === null || codigo === undefined ? 'desconhecido' : codigo})` : ''}`;
 
-/** Estado guardado por agente, em memória e em <dataDir>/youtube-saude.json (só horário, tipo, código de saída, a marca de aviso pendente e, quando a última tentativa não rodou, o último resultado concluído). */
+/** Estado guardado por agente, em memória e em <dataDir>/youtube-saude.json (só horário, tipo, código de saída, a identidade da instância do agente e, quando a última tentativa não rodou, o último resultado concluído). */
 function criarEstadoYoutube(ctx) {
   const arquivo = ctx.config && ctx.config.dataDir ? path.join(ctx.config.dataDir, NOME_ARQUIVO) : null;
   let dados = null;
@@ -108,12 +111,13 @@ function criarEstadoYoutube(ctx) {
     }
   }
   return {
-    ler: (slug) => {
+    // O resultado pertence a uma instância do agente: se o agente foi removido e criado de novo com o mesmo nome, o antigo não vale.
+    ler: (slug, instancia) => {
       const v = carregar()[slug];
-      return v && typeof v === 'object' && typeof v.em === 'number' && typeof v.tipo === 'string' ? v : null;
+      if (!(v && typeof v === 'object' && typeof v.em === 'number' && typeof v.tipo === 'string')) return null;
+      return (v.instancia === undefined ? null : v.instancia) === (instancia === undefined ? null : instancia) ? v : null;
     },
     guardar: (slug, v) => { carregar()[slug] = v; gravar(); },
-    limparAviso: (slug) => { const v = carregar()[slug]; if (v && v.avisoPendente) { v.avisoPendente = false; gravar(); } },
     andando,
   };
 }
@@ -136,16 +140,24 @@ function testarYoutube(ctx, ag) {
   }
   if (est.andando.has(slug)) return est.andando.get(slug);
 
+  const instancia = instanciaDe(ag);
+
   /** Falha de infraestrutura: guarda a tentativa (tipo nao_medido) e preserva o último resultado concluído. */
   function registrarTentativa() {
-    const antes = est.ler(slug);
+    const antes = est.ler(slug, instancia);
     const concluido = antes ? (antes.tipo === 'nao_medido' ? antes.ultimoConcluido : { em: antes.em, tipo: antes.tipo, codigo: antes.codigo === undefined ? null : antes.codigo }) : null;
-    est.guardar(slug, { em: agora(), tipo: 'nao_medido', codigo: null, avisoPendente: !!(antes && antes.avisoPendente), ultimoConcluido: concluido || null });
+    est.guardar(slug, { em: agora(), tipo: 'nao_medido', codigo: null, instancia, ultimoConcluido: concluido || null });
   }
 
   async function testar() {
     const r = cortarSaida(await ctx.execSolto('podman', ['exec', '--user', 'agente', '-e', 'HOME=/home/agente', '--', ag.container, 'sh', '-c', SCRIPT], { timeout: PRAZO_EXEC_MS }));
     if (r.erro === 'ENOENT') { log('aviso', 'Diagnóstico: o comando podman não foi encontrado; o teste do YouTube não rodou.'); registrarTentativa(); return 'nao_medido'; }
+    // Código 125 é do podman (ex.: "can only create exec sessions on running containers"): infraestrutura, e vale antes de qualquer análise do que o yt-dlp disse.
+    if (r.codigo === SAIDA_PODMAN_FALHOU) {
+      log('aviso', `Diagnóstico: o container ${ag.container} não aceitou o teste do YouTube (código de saída 125, falha do podman). Confira com dgclaw status.`);
+      registrarTentativa();
+      return 'nao_medido';
+    }
     const c = classificarYoutube(r);
     if (c.tipo === 'outro' && RX_CONTAINER.test(r.stderr)) {
       log('aviso', `Diagnóstico: o container ${ag.container} não aceitou o teste do YouTube (código de saída ${c.codigo === null ? 'desconhecido' : c.codigo}). Confira com dgclaw status.`);
@@ -153,12 +165,7 @@ function testarYoutube(ctx, ag) {
       return 'nao_medido';
     }
     if (c.tipo !== 'ok') log('aviso', `Diagnóstico: o teste do YouTube do agente ${slug} falhou: ${textoFalha(c.tipo, c.codigo)}.`);
-    const antes = est.ler(slug);
-    const anterior = antes && (antes.tipo === 'nao_medido' ? antes.ultimoConcluido : antes);
-    let avisoPendente = !!(antes && antes.avisoPendente);
-    if (c.tipo === 'login' && !(anterior && anterior.tipo === 'login')) avisoPendente = true;
-    if (c.tipo === 'ok') avisoPendente = false; // só o 'ok' limpa; 'sem_perfil' e os demais não
-    est.guardar(slug, { em: agora(), tipo: c.tipo, codigo: c.tipo === 'outro' ? c.codigo : null, avisoPendente });
+    est.guardar(slug, { em: agora(), tipo: c.tipo, codigo: c.tipo === 'outro' ? c.codigo : null, instancia });
     return c.tipo;
   }
 
@@ -180,9 +187,12 @@ function tarefaYoutube(ctx, ag, container) {
     sufixo: 'youtube', nome: `Download do YouTube - ${ag.nome}`, depende: container,
     async fn(dep) {
       if (dep && dep.parado === true) return R('nao_medido', 'O container está parado, então não deu para testar o download do YouTube.');
-      const v = est.ler(slug);
+      const v = est.ler(slug, instanciaDe(ag));
       if (!v) return R('nao_medido', 'Ainda não há resultado do teste do download do YouTube. O teste roda sozinho a cada 6 horas.');
       const horario = U.iso(v.em);
+      if (v.tipo !== 'nao_medido' && ctx.agora() - v.em > VALIDADE_MS) {
+        return R('nao_medido', `O último teste do download do YouTube foi em ${horario}, faz mais de 13 horas, e não vale mais como medida. O teste roda sozinho a cada 6 horas.`, { ultimo_sinal: horario, evidencia: { horario, codigo_saida: null, sinal: 'teste do YouTube: resultado antigo' } });
+      }
       const base = { ultimo_sinal: horario, evidencia: { horario, codigo_saida: null, sinal: `teste do YouTube: ${v.tipo}` } };
       if (v.tipo === 'ok') return R('ok', null, base);
       if (v.tipo === 'nao_medido') return R('nao_medido', `A última tentativa de testar o download do YouTube (${horario}) não chegou a rodar. O teste roda sozinho a cada 6 horas.`, base);

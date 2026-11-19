@@ -84,9 +84,14 @@ test('resultado gravado pelo teste aparece no diagnóstico, com podman exec e --
   assert.equal(c.cmd, 'podman');
   assert.deepEqual(c.args.slice(0, 7), ['exec', '--user', 'agente', '-e', 'HOME=/home/agente', '--', 'dgclaw-tina']);
   assert.ok(c.opcoes.timeout >= 60000, 'o download tem prazo próprio, maior que o da verificação');
-  m.avanca(30 * H);
-  assert.equal((await m.ler()).estado, 'ok');
-  assert.equal(m.chamadas.length, 1, 'mesmo 30 h depois, ler não baixa de novo');
+  m.avanca(12 * H);
+  assert.equal((await m.ler()).estado, 'ok', 'dentro da validade (13 h)');
+  m.avanca(2 * H);
+  const velho = await m.ler();
+  assert.equal(velho.estado, 'nao_medido', 'passou de 13 h: o resultado não vale mais');
+  assert.match(velho.motivo, /faz mais de 13 horas/);
+  assert.equal(velho.ultimo_sinal, require('../lib/diagnostico/util').iso(AGORA), 'diz o horário do último teste');
+  assert.equal(m.chamadas.length, 1, 'ler nunca baixa de novo');
   m.limpa();
 });
 
@@ -104,17 +109,15 @@ test('pediu login vira atenção com o passo a passo em português, sem falar de
   m.limpa();
 });
 
-test('sem a pasta da Tela: sem_perfil é atenção, não conta como ok e não limpa o aviso pendente', async () => {
+test('sem a pasta da Tela: sem_perfil é atenção e não conta como ok', async () => {
   const m = monta([
     { codigo: 1, stdout: '', stderr: 'Sign in to confirm you\'re not a bot', erro: null },
     { codigo: 66, stdout: '', stderr: 'perfil da Tela ausente', erro: null },
   ]);
   await m.testa();
-  assert.equal(m.ctx.youtube.ler('tina').avisoPendente, true);
   await m.testa();
-  const v = m.ctx.youtube.ler('tina');
+  const v = m.ctx.youtube.ler('tina', null);
   assert.equal(v.tipo, 'sem_perfil');
-  assert.equal(v.avisoPendente, true);
   const r = await m.ler();
   assert.equal(r.estado, 'atencao');
   assert.match(r.motivo, /ainda não foi aberta/);
@@ -210,17 +213,15 @@ test('o último resultado sobrevive a reinício do painel (arquivo) e container 
   m.limpa();
 });
 
-// Vigia periódico: avisa no aparelho só quando o download cai (transição para login).
+// Vigia periódico: só testa; não avisa ninguém no aparelho.
 const { criarDiagnostico } = require('../lib/diagnostico');
 const LOGIN = { codigo: 1, stdout: '', stderr: 'ERROR: Sign in to confirm you\'re not a bot', erro: null };
 const BOM = { codigo: 0, stdout: '', stderr: '', erro: null };
 
-function montaVigia(respostas, agentes, pushImpl) {
+function montaVigia(respostas, agentes) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diag-vigia-'));
   const chamadas = [];
   const logs = [];
-  const pushes = [];
-  const push = { enviar: async (aviso) => { pushes.push(aviso); if (pushImpl) return pushImpl(aviso); return { inscricoes: 1, ok: 1, falhas: [] }; } };
   const diag = criarDiagnostico({
     config: { tz: 'America/Sao_Paulo', dataDir: dir },
     registro: { estado: () => ({ ok: true, erro: null, agentes: agentes || [{ slug: 'tina', nome: 'Tina', tipo: 'agente', container: 'dgclaw-tina' }] }) },
@@ -231,87 +232,66 @@ function montaVigia(respostas, agentes, pushImpl) {
     },
     agora: () => AGORA,
   });
-  const vigia = diag.vigiarYoutube({ push, intervaloMs: 1000000 });
-  return { dir, diag, vigia, pushes, logs, chamadas, limpa: () => fs.rmSync(dir, { recursive: true, force: true }) };
+  const vigia = diag.vigiarYoutube({ intervaloMs: 1000000 });
+  return { dir, diag, vigia, logs, chamadas, limpa: () => fs.rmSync(dir, { recursive: true, force: true }) };
 }
 
-test('vigia: transição ok -> login manda um push com a tag do agente', async () => {
-  const m = montaVigia([BOM, LOGIN]);
-  await m.vigia.rodada();
-  assert.equal(m.pushes.length, 0);
-  await m.vigia.rodada();
-  assert.equal(m.pushes.length, 1);
-  assert.equal(m.pushes[0].tag, 'youtube-tina');
-  assert.equal(m.pushes[0].titulo, 'Tina: o download do YouTube parou');
-  assert.equal(m.pushes[0].url, '/a/tina');
-  assert.match(m.pushes[0].corpo, /O YouTube pediu login ao baixar o vídeo de teste/);
-  assert.ok(!/conta/i.test(m.pushes[0].titulo + m.pushes[0].corpo), 'não afirma o estado da conta');
-  m.limpa();
-});
-
-test('vigia: login -> login não avisa de novo', async () => {
-  const m = montaVigia([LOGIN, LOGIN, LOGIN]);
-  await m.vigia.rodada();
-  await m.vigia.rodada();
-  await m.vigia.rodada();
-  assert.equal(m.pushes.length, 1, 'só o primeiro login avisa');
-  m.limpa();
-});
-
-test('vigia: primeiro teste já em login (sem resultado anterior) avisa', async () => {
-  const m = montaVigia([LOGIN]);
-  await m.vigia.rodada();
-  assert.equal(m.pushes.length, 1);
-  m.limpa();
-});
-
-test('vigia: push que lança erro não derruba a rodada e o próximo agente é testado', async () => {
+test('vigia: testa cada agente, e um que falha não impede o seguinte', async () => {
   const agentes = [
     { slug: 'tina', nome: 'Tina', tipo: 'agente', container: 'dgclaw-tina' },
     { slug: 'rui', nome: 'Rui', tipo: 'agente', container: 'dgclaw-rui' },
   ];
-  const m = montaVigia([LOGIN, LOGIN], agentes, async () => { throw new Error('sem rede'); });
+  const m = montaVigia([LOGIN, BOM], agentes);
   await m.vigia.rodada();
   assert.deepEqual(m.chamadas, ['dgclaw-tina', 'dgclaw-rui']);
-  assert.equal(m.pushes.length, 2);
-  assert.ok(m.logs.some(([n, t]) => n === 'erro' && /Tina não saiu \(sem rede\)/.test(t)), JSON.stringify(m.logs));
+  const arq = JSON.parse(fs.readFileSync(path.join(m.dir, 'youtube-saude.json'), 'utf8'));
+  assert.equal(arq.tina.tipo, 'login');
+  assert.equal(arq.rui.tipo, 'ok');
+  assert.ok(!('avisoPendente' in arq.tina), 'não existe mais marca de aviso pendente');
   m.limpa();
 });
 
-test('a coleta do diagnóstico não dispara o teste; a queda é detectada e avisada pelo vigia, um push só', async () => {
-  const m = montaVigia([LOGIN, LOGIN, LOGIN]);
+test('a coleta do diagnóstico não dispara o teste; só o vigia testa', async () => {
+  const m = montaVigia([LOGIN]);
   await m.diag.coletar();
   await m.diag.aguardarSegundoPlano();
   assert.equal(m.chamadas.length, 0, 'abrir o diagnóstico não baixa nada');
   await m.vigia.rodada();
   assert.equal(m.chamadas.length, 1);
-  assert.equal(m.pushes.length, 1);
-  const arq = path.join(m.dir, 'youtube-saude.json');
-  assert.equal(JSON.parse(fs.readFileSync(arq, 'utf8')).tina.avisoPendente, false);
-  await m.vigia.rodada();
-  assert.equal(m.pushes.length, 1, 'aviso entregue, não repete');
   m.limpa();
 });
 
-test('vigia: push com ok 0 (só removeu inscrição morta) mantém o aviso pendente', async () => {
-  let n = 0;
-  const m = montaVigia([LOGIN, LOGIN, LOGIN], null, async () => { n += 1; return n === 1 ? { inscricoes: 1, ok: 0, removidas: 1, falhas: [] } : { inscricoes: 1, ok: 1, removidas: 0, falhas: [] }; });
-  await m.vigia.rodada();
-  assert.equal(JSON.parse(fs.readFileSync(path.join(m.dir, 'youtube-saude.json'), 'utf8')).tina.avisoPendente, true);
-  await m.vigia.rodada();
-  assert.equal(m.pushes.length, 2, 'tentou de novo');
-  await m.vigia.rodada();
-  assert.equal(m.pushes.length, 2);
+test('resultado de outra instância do agente é descartado: o item fica não medido', async () => {
+  const m = monta([BOM]);
+  const ag = { slug: 'tina', nome: 'Tina', container: 'dgclaw-tina', instancia: 'aaa' };
+  await testarYoutube(m.ctx, ag);
+  assert.equal(m.ctx.youtube.ler('tina', 'i:aaa').tipo, 'ok');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(m.dir, 'youtube-saude.json'), 'utf8')).tina.instancia, 'i:aaa');
+  assert.equal((await tarefaYoutube(m.ctx, ag, {}).fn({})).estado, 'ok', 'mesma instância: vale');
+  const recriado = { ...ag, instancia: 'bbb' };
+  const r = await tarefaYoutube(m.ctx, recriado, {}).fn({});
+  assert.equal(r.estado, 'nao_medido');
+  assert.match(r.motivo, /Ainda não há resultado/);
   m.limpa();
 });
 
-test('vigia: sem_perfil não limpa o aviso pendente nem dispara push novo', async () => {
-  const m = montaVigia([LOGIN, { codigo: 66, stdout: '', stderr: '', erro: null }], null, async () => ({ inscricoes: 0, ok: 0, falhas: [] }));
-  await m.vigia.rodada();
-  assert.equal(m.pushes.length, 1);
-  await m.vigia.rodada();
-  assert.equal(m.pushes.length, 1, 'o tipo atual não é login: não avisa');
-  assert.equal(JSON.parse(fs.readFileSync(path.join(m.dir, 'youtube-saude.json'), 'utf8')).tina.avisoPendente, true);
+test('código 125 do podman é infraestrutura mesmo com texto de login na saída e preserva o último resultado concluído', async () => {
+  const m = monta([
+    BOM,
+    { codigo: 125, stdout: '', stderr: 'Error: can only create exec sessions on running containers: container state improper', erro: null },
+    { codigo: 125, stdout: '', stderr: "Sign in to confirm you're not a bot", erro: null },
+  ]);
+  await m.testa();
+  m.avanca(MIN);
+  assert.equal(await m.testa(), 'nao_medido');
+  m.avanca(MIN);
+  assert.equal(await m.testa(), 'nao_medido', '125 vale antes da análise da saída do yt-dlp');
+  const v = m.ctx.youtube.ler('tina', null);
+  assert.equal(v.tipo, 'nao_medido');
+  assert.deepEqual(v.ultimoConcluido, { em: AGORA, tipo: 'ok', codigo: null });
+  const r = await m.ler();
+  assert.equal(r.estado, 'nao_medido');
+  assert.ok(!JSON.stringify(m.logs).includes('exec sessions'), 'o texto do podman não vai para o log');
   m.limpa();
 });
 
@@ -325,7 +305,7 @@ test('vigia: primeira rodada 2 minutos depois de iniciar (aqui encurtada) e depo
     exec: async (cmd, args) => { if (args.includes('sh')) testes += 1; return BOM; },
     agora: () => AGORA,
   });
-  const vigia = diag.vigiarYoutube({ push: { enviar: async () => ({ inscricoes: 1, ok: 1, falhas: [] }) }, intervaloMs: 60000, primeiraMs: 20 });
+  const vigia = diag.vigiarYoutube({ intervaloMs: 60000, primeiraMs: 20 });
   vigia.iniciar();
   assert.equal(testes, 0, 'nada na hora de iniciar');
   await new Promise((r) => setTimeout(r, 120));
@@ -334,24 +314,3 @@ test('vigia: primeira rodada 2 minutos depois de iniciar (aqui encurtada) e depo
   m_limpa(dir);
 });
 function m_limpa(dir) { fs.rmSync(dir, { recursive: true, force: true }); }
-
-test('push que falha mantém o aviso pendente e a rodada seguinte tenta de novo', async () => {
-  let n = 0;
-  const m = montaVigia([LOGIN, LOGIN, LOGIN], null, async () => { n += 1; return n === 1 ? { inscricoes: 1, ok: 0, falhas: [{ motivo: 'HTTP 500' }] } : { inscricoes: 1, ok: 1, falhas: [] }; });
-  await m.vigia.rodada();
-  assert.equal(m.pushes.length, 1);
-  await m.vigia.rodada();
-  assert.equal(m.pushes.length, 2, 'tentou de novo');
-  await m.vigia.rodada();
-  assert.equal(m.pushes.length, 2, 'entregue: não tenta mais');
-  m.limpa();
-});
-
-test('push sem aparelho inscrito mantém o aviso pendente; voltar a ok limpa a marca', async () => {
-  const m = montaVigia([LOGIN, BOM], null, async () => ({ inscricoes: 0, falhas: [] }));
-  await m.vigia.rodada();
-  assert.equal(m.pushes.length, 1);
-  await m.vigia.rodada();
-  assert.equal(m.pushes.length, 1, 'a conta voltou: não avisa mais');
-  m.limpa();
-});
