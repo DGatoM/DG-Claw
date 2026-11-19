@@ -21,3 +21,24 @@ test('atribuição vazia não expõe o segredo da atribuição seguinte (mesma l
     assert.ok(!uso.comando.includes(segredo), `vazou no comando: ${uso.comando}`);
   }
 });
+
+test('a máscara mantém o que a base já escondia e não esconde o segundo comando', () => {
+  const { descreveUso } = require('../lib/trilha');
+  const senha = 'amostra-local';
+  for (const description of [`{"credentials": {"password": "${senha}"}}`, `{\n  "password":\n    "${senha}"\n}`]) {
+    const uso = descreveUso('Bash', { command: 'true', description });
+    assert.ok(!uso.titulo.includes(senha), `vazou no título: ${uso.titulo}`);
+  }
+  const uso = descreveUso('Bash', { command: `echo "token=a" && rm -rf "pasta"` });
+  assert.ok(uso.comando.includes('&& rm -rf'), `o segundo comando sumiu: ${uso.comando}`);
+  assert.ok(uso.titulo.includes('&& rm -rf'), `o segundo comando sumiu do título: ${uso.titulo}`);
+});
+
+test('valor com : ou = depois de espaço continua escondido (YAML, base64)', () => {
+  for (const [linha, segredo] of [['token: abc:def', 'abc:def'], ['token: dGVzdA==', 'dGVzdA'], ['password: dGVzdA=', 'dGVzdA'], ['TOKEN=abc==', 'abc']]) {
+    const r = mascarar(linha);
+    assert.ok(!r.includes(segredo), `vazou em: ${r}`);
+  }
+  const yaml = mascarar('zapi_instance:\nzapi_token: segredo-yaml');
+  assert.ok(!yaml.includes('segredo-yaml'), `vazou em: ${yaml}`);
+});
