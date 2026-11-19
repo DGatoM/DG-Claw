@@ -9,15 +9,15 @@ import inject as inj  # _lib já está no sys.path (ver auto-compact.py)
 from .ambiente import env, escalation_marks, log, resolve_compact_mode, resolve_session_dir, resolve_slug, resolve_state_file, resolve_threshold, resolve_workspace
 from .ciclo import esperar_assentar_e_fechar, fechar_ciclo_pendente
 from .estado import _antes, _modo_seguro, cooldown_remaining, load_state, notify_owner, save_state
-from .guardas import acabou_de_compactar, agente_ocupado_no_bunker, cooldown_com_recuo
+from .guardas import acabou_de_compactar, agente_ocupado_no_bunker
 from .injecao import inject_compact
 from .modo_restart import do_restart_compact
 from .poke import resume_poke_enabled, write_resume_poke
 from .tarefas import _resumo_bg, background_tasks, turn_snapshot
-from .transcript import context_tokens, had_compact_since_arquivo, looks_idle, resolve_live_transcript
+from .transcript import context_tokens, had_compact_since, looks_idle, resolve_live_transcript
 
 
-def _main():
+def main():
     ap = argparse.ArgumentParser(description="Auto-compacta a sessao viva da persona DG Claw.")
     ap.add_argument("--threshold", default=None,
                     help="override do teto: fracao (<=1) do limite ou tokens absolutos (>1)")
@@ -122,16 +122,6 @@ def _main():
                                        workspace, idle_sec):
             log("poke de retomada pendente: compactacao ainda nao assentou — espero o proximo ciclo")
 
-    # 2.6) recibo da tentativa anterior: se o compact_boundary apareceu depois do ultimo /compact,
-    # a compactacao deu certo e o contador de falhas zera JA, antes do cooldown com recuo e do teto
-    # (sem isto o recuo seguia dobrando o cooldown depois de um compact bem-sucedido). So o transcript
-    # vivo conta: compactacao de uma sessao paralela no mesmo workspace nao e recibo desta.
-    prev_ok = st.get("last_compact_ts")
-    if prev_ok and st.get("consecutive_fail") and not args.dry_run and transcript \
-            and had_compact_since_arquivo(transcript, prev_ok, sem_timestamp_conta=False):
-        st["consecutive_fail"] = 0
-        save_state(state_file, st)
-
     ctx = context_tokens(transcript)
     if ctx == 0:
         log("sem usage no transcript ainda — no-op")
@@ -145,20 +135,11 @@ def _main():
         log("abaixo do teto — nada a fazer")
         return 0
 
-    # 3) cooldown (--ignore-cooldown fura so o cooldown; a checagem de ociosidade fica).
-    # Depois de DGCLAW_COMPACT_FAIL_ALERT falhas seguidas o cooldown dobra a cada falha (teto 4 h):
-    # insistir a cada ciclo numa sessao que nao compacta so empilha /compact.
+    # 3) cooldown (--ignore-cooldown fura so o cooldown; a checagem de ociosidade fica)
     if not (args.force or args.ignore_cooldown):
-        try:
-            fail_k = max(1, int(float(env("DGCLAW_COMPACT_FAIL_ALERT", "2"))))
-        except (TypeError, ValueError):
-            fail_k = 2
-        falhas = st.get("consecutive_fail", 0)  # cooldown_com_recuo valida o valor
-        cd = cooldown_com_recuo(cooldown_min, falhas, fail_k)
-        rem = cooldown_remaining(st, cd)
+        rem = cooldown_remaining(st, cooldown_min)
         if rem > 0:
-            extra = f" (recuo depois de {falhas} falha(s) seguidas)" if cd != cooldown_min else ""
-            log(f"acima do teto, mas em cooldown ({rem:.0f}min restantes{extra}) — pulando")
+            log(f"acima do teto, mas em cooldown ({rem:.0f}min restantes) — pulando")
             return 0
 
     # 4) ociosidade COM ESCALADA. Antes a checagem era binaria: se a sessao parecia
@@ -223,7 +204,7 @@ def _main():
             fail_k = max(1, int(float(env("DGCLAW_COMPACT_FAIL_ALERT", "2"))))
         except (TypeError, ValueError):
             fail_k = 2
-        if had_compact_since_arquivo(transcript, prev, sem_timestamp_conta=False):
+        if had_compact_since(session_dir, prev):
             st["consecutive_fail"] = 0
         else:
             st["consecutive_fail"] = st.get("consecutive_fail", 0) + 1
@@ -239,18 +220,18 @@ def _main():
 
     # 5) injeta /compact
     log(f"{ctx // 1000}k > teto -> injetando /compact na sessao viva")
-    # O instante do recibo (since) sai ANTES do envio: um compact_boundary que chegue logo
-    # depois do envio tem timestamp >= este instante e conta como recibo.
-    agora = datetime.now(timezone.utc).isoformat()
+    # AVISO ANTES: a sumarizacao segura a persona por minutos. Sem isto a pessoa fala com
+    # ela e nao recebe nada, sem saber por que.
+    if not args.dry_run:
+        notify_owner(f"Compactando nossa conversa pra rodar leve... ja volto. "
+                     f"— {env('DGCLAW_NAME') or slug}")
     rc = inject_compact(slug, channel, args.dry_run)
 
     if args.dry_run:
         return 0
 
     if rc == 0:
-        # O aviso sai DEPOIS do envio aceito: sem isso o dono leria "compactando" de um /compact que nao saiu.
-        notify_owner(f"Compactando nossa conversa pra rodar leve... ja volto. "
-                     f"— {env('DGCLAW_NAME') or slug}")
+        agora = datetime.now(timezone.utc).isoformat()
         st["last_compact_ts"] = agora
         st["ctx_at_compact"] = ctx
         mid_task = bool(snap.get("busy")) and resume_poke_enabled()
@@ -261,9 +242,7 @@ def _main():
         # "voltei", pra fechar o ciclo do "ja volto".
         pk = write_resume_poke(workspace, slug, snap, ctx, args.dry_run) if mid_task else None
         st["pending_resume_poke"] = {"file": str(pk) if pk else None, "ts": agora,
-                                     "since": agora, "ctx": ctx,
-                                     "transcript": str(transcript),
-                                     "session_id": Path(str(transcript)).stem}
+                                     "since": agora, "ctx": ctx}
         save_state(state_file, st)
         log("/compact injetado — o motor vai sumarizar (demora ~min)")
         esperar_assentar_e_fechar(st, state_file, session_dir, slug, channel, workspace,
@@ -280,41 +259,3 @@ def _main():
         return 4
     log(f"falha ao injetar (rc={rc})")
     return rc
-
-
-def main():
-    """Uma execucao por vez: duas rodadas do timer sobrepostas (compact lento, timer atrasado) poderiam
-    checar a fila ao mesmo tempo e enfileirar dois /compact. Trava exclusiva nao bloqueante ao lado do
-    state file; quem nao pega a trava sai 0. Se a trava nao puder ser aberta ou validada, NAO segue sem ela:
-    sai 1 explicando o que fazer."""
-    import fcntl
-    import os
-    import stat
-    trava = "(caminho ainda nao resolvido)"
-    fd = None
-    try:
-        workspace = resolve_workspace()
-        state_file = resolve_state_file(workspace, resolve_slug())
-        trava = str(state_file) + ".lock"
-        Path(trava).parent.mkdir(parents=True, exist_ok=True)
-        # O_NOFOLLOW e sem truncar: um symlink plantado no lugar da trava nao vira escrita em outro arquivo.
-        # O_NONBLOCK: uma FIFO no lugar dela nao pode travar a abertura.
-        fd = os.open(trava, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, 0o600)
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise OSError("nao e um arquivo comum")
-    except OSError as e:
-        if fd is not None:
-            os.close(fd)
-        log(f"nao consegui abrir a trava de execucao {trava}: {e}. O auto-compact nao roda sem ela. "
-            f"Apague o arquivo {trava} se ele nao for um arquivo comum")
-        return 1
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        log("outra execucao do auto-compact em andamento — saindo sem fazer nada")
-        os.close(fd)
-        return 0
-    try:
-        return _main()
-    finally:
-        os.close(fd)

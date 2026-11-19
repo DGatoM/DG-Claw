@@ -78,7 +78,7 @@ class GuardaDeFilaDoAutoCompact(unittest.TestCase):
             self.assertIsNone(guardas.agente_ocupado_no_bunker())
 
 
-class CompactRecenteERecuo(unittest.TestCase):
+class CompactRecente(unittest.TestCase):
     def _transcript(self, d, minutos_atras):
         ts = (datetime.now(timezone.utc) - timedelta(minutes=minutos_atras)).isoformat()
         (Path(d) / "s.jsonl").write_text(json.dumps(
@@ -116,57 +116,22 @@ class CompactRecenteERecuo(unittest.TestCase):
             t.write_text(json.dumps({"type": "system", "subtype": "compact_boundary"}) + "\n")
             self.assertFalse(guardas.acabou_de_compactar(t))
 
-    def test_teto_do_recuo_nunca_encolhe_um_cooldown_configurado_maior(self):
-        self.assertEqual(guardas.cooldown_com_recuo(480, 5, 2), 480)
-        self.assertEqual(guardas.cooldown_com_recuo(480, 1, 2), 480)
-
-    def test_recuo_com_contador_enorme_ou_invalido_nao_estoura(self):
-        self.assertEqual(guardas.cooldown_com_recuo(20, 10 ** 9, 2), 240)
-        self.assertEqual(guardas.cooldown_com_recuo(20, "abc", 2), 20)
-        self.assertEqual(guardas.cooldown_com_recuo(20, -5, 2), 20)
-        self.assertEqual(guardas.cooldown_com_recuo(20, None, 2), 20)
-        self.assertEqual(guardas.cooldown_com_recuo(20, 2.5, 2), 20)
-
-    def test_recuo_dobra_por_falha_e_tem_teto_de_4h(self):
-        self.assertEqual(guardas.cooldown_com_recuo(20, 0, 2), 20)
-        self.assertEqual(guardas.cooldown_com_recuo(20, 1, 2), 20)
-        self.assertEqual(guardas.cooldown_com_recuo(20, 2, 2), 80)
-        self.assertEqual(guardas.cooldown_com_recuo(20, 3, 2), 160)
-        self.assertEqual(guardas.cooldown_com_recuo(20, 4, 2), 240)
-        self.assertEqual(guardas.cooldown_com_recuo(20, 9, 2), 240)
-
 
 class MainDoAutoCompactNoRunner(unittest.TestCase):
     """O main inteiro, com o card falso: a guarda sai 0 sem injetar nem gravar estado."""
 
-    def _rodar(self, card, state=None, ao_injetar=None, boundary_ts=None, boundary_paralelo_ts=None,
-               prender_trava=False, eventos=None, trava_tipo=None):
+    def _rodar(self, card, state=None, boundary_ts=None):
         with tempfile.TemporaryDirectory() as d:
             ws = Path(d)
             transcript = ws / "t.jsonl"
             linhas = []
             if boundary_ts:
-                # o recibo vale so no transcript vivo (nao em outro arquivo da pasta)
                 linhas.append(json.dumps({"type": "system", "subtype": "compact_boundary", "timestamp": boundary_ts}))
             linhas.append(json.dumps({"type": "assistant", "message": {
                 "role": "assistant", "content": "ok",
                 "usage": {"input_tokens": 10, "cache_read_input_tokens": 900_000}}}))
             transcript.write_text("\n".join(linhas) + "\n")
-            if boundary_paralelo_ts:
-                (ws / "paralelo.jsonl").write_text(json.dumps(
-                    {"type": "system", "subtype": "compact_boundary", "timestamp": boundary_paralelo_ts}) + "\n")
             state_file = ws / "estado.json"
-            trava_fd = None
-            if prender_trava:
-                import fcntl
-                trava_fd = open(str(state_file) + ".lock", "w")
-                fcntl.flock(trava_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            if trava_tipo == "symlink":
-                alvo = ws / "alvo-da-trava"
-                alvo.write_text("nao pode ser tocado")
-                os.symlink(alvo, str(state_file) + ".lock")
-            elif trava_tipo == "fifo":
-                os.mkfifo(str(state_file) + ".lock")
             if state is not None:
                 state_file.write_text(json.dumps(state))
             amb = {"DGCLAW_WORKSPACE": str(ws), "DGCLAW_SLUG": "teste", "DGCLAW_SESSION_DIR": str(ws),
@@ -183,15 +148,11 @@ class MainDoAutoCompactNoRunner(unittest.TestCase):
                  mock.patch.object(principal, "resolve_live_transcript", return_value=transcript), \
                  mock.patch.object(principal, "resolve_state_file", return_value=state_file), \
                  mock.patch.object(principal, "looks_idle", return_value=True), \
-                 mock.patch.object(principal, "notify_owner",
-                                   side_effect=lambda *a: eventos.append("aviso") if eventos is not None else None), \
+                 mock.patch.object(principal, "notify_owner"), \
                  mock.patch.object(principal, "esperar_assentar_e_fechar"), \
                  mock.patch.object(principal, "inject_compact",
-                                   side_effect=lambda *a: (ao_injetar() if ao_injetar else None, injetou.append(a),
-                                                           eventos.append("envio") if eventos is not None else None, 0)[3]):
+                                   side_effect=lambda *a: (injetou.append(a), 0)[1]):
                 rc = principal.main()
-            if trava_fd:
-                trava_fd.close()
             gravado = json.loads(state_file.read_text()) if state_file.exists() else {}
             return rc, injetou, gravado
 
@@ -209,87 +170,9 @@ class MainDoAutoCompactNoRunner(unittest.TestCase):
         self.assertEqual(len(injetou), 1)
         self.assertIn("last_compact_ts", gravado)
 
-    def test_since_do_recibo_e_capturado_antes_do_envio(self):
-        envios = []
-        rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0},
-                                           ao_injetar=lambda: envios.append(datetime.now(timezone.utc)))
-        self.assertEqual(rc, 0)
-        since = datetime.fromisoformat(gravado["last_compact_ts"])
-        self.assertLessEqual(since, envios[0])
-        self.assertEqual(gravado["pending_resume_poke"]["since"], gravado["last_compact_ts"])
-
-    def test_compact_bem_sucedido_zera_o_contador_e_o_cooldown_volta_ao_normal(self):
-        # last_compact_ts de 30 min atras, compact_boundary depois dele: com 4 falhas o recuo seria 240 min
-        # (nao injetaria); zerado, o cooldown normal de 20 min ja passou e o /compact segue.
-        antes = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
-        boundary = (datetime.now(timezone.utc) - timedelta(minutes=25)).isoformat()
-        rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0},
-                                           state={"consecutive_fail": 4, "last_compact_ts": antes},
-                                           boundary_ts=boundary)
-        self.assertEqual(rc, 0)
-        self.assertEqual(gravado["consecutive_fail"], 0)
-        self.assertEqual(len(injetou), 1)
-
-    def test_boundary_so_no_transcript_paralelo_nao_zera_o_contador_e_o_4_5_conta_falha(self):
-        antes = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
-        boundary = (datetime.now(timezone.utc) - timedelta(minutes=25)).isoformat()
-        rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0},
-                                           state={"consecutive_fail": 1, "last_compact_ts": antes},
-                                           boundary_paralelo_ts=boundary)
-        self.assertEqual(rc, 0)
-        self.assertEqual(gravado["consecutive_fail"], 2)
-
-    def test_aviso_ao_dono_sai_depois_do_envio_aceito(self):
-        eventos = []
-        self._rodar({"status": "idle", "naFilaTotal": 0}, eventos=eventos)
-        self.assertEqual(eventos, ["envio", "aviso"])
-
-    def test_trava_que_e_symlink_sai_1_sem_injetar(self):
-        rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0}, trava_tipo="symlink")
-        self.assertEqual(rc, 1)
-        self.assertEqual(injetou, [])
-
-    def test_trava_que_e_fifo_sai_1_sem_travar_nem_injetar(self):
-        rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0}, trava_tipo="fifo")
-        self.assertEqual(rc, 1)
-        self.assertEqual(injetou, [])
-
-    def test_pendencia_de_outra_sessao_e_descartada_sem_voltei_nem_retomada(self):
-        from auto_compact import ciclo
-        with tempfile.TemporaryDirectory() as d:
-            ws = Path(d)
-            a, b = ws / "A.jsonl", ws / "B.jsonl"
-            ts = datetime.now(timezone.utc)
-            b.write_text(json.dumps({"type": "system", "subtype": "compact_boundary",
-                                     "timestamp": (ts + timedelta(seconds=5)).isoformat()}) + "\n")
-            st = {"pending_resume_poke": {"file": str(ws / "poke.txt"), "ts": ts.isoformat(),
-                                          "since": ts.isoformat(), "ctx": 150000, "transcript": str(a)}}
-            state_file = ws / "estado.json"
-            with mock.patch.object(ciclo, "resolve_live_transcript", return_value=b), \
-                 mock.patch.object(ciclo, "send_resume_poke") as poke, \
-                 mock.patch.object(ciclo, "notify_owner") as aviso:
-                fechou = ciclo.fechar_ciclo_pendente(st, state_file, ws, "teste", "canal", ws, 45)
-            self.assertTrue(fechou)
-            poke.assert_not_called()
-            aviso.assert_not_called()
-            self.assertNotIn("pending_resume_poke", st)
-
-    def test_pendencia_sem_identidade_gravada_tambem_e_descartada(self):
-        from auto_compact import ciclo
-        with tempfile.TemporaryDirectory() as d:
-            ws = Path(d)
-            b = ws / "B.jsonl"
-            b.write_text("\n")
-            ts = datetime.now(timezone.utc).isoformat()
-            st = {"pending_resume_poke": {"file": None, "ts": ts, "since": ts, "ctx": 1}}
-            with mock.patch.object(ciclo, "resolve_live_transcript", return_value=b), \
-                 mock.patch.object(ciclo, "notify_owner") as aviso:
-                self.assertTrue(ciclo.fechar_ciclo_pendente(st, ws / "e.json", ws, "t", "c", ws, 45))
-            aviso.assert_not_called()
-            self.assertNotIn("pending_resume_poke", st)
-
-    def test_trava_ja_tomada_sai_0_sem_injetar(self):
-        rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0}, prender_trava=True)
+    def test_compact_recente_no_transcript_vivo_sai_0_sem_injetar_nem_gravar(self):
+        boundary = (datetime.now(timezone.utc) - timedelta(minutes=3)).isoformat()
+        rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0}, boundary_ts=boundary)
         self.assertEqual(rc, 0)
         self.assertEqual(injetou, [])
         self.assertNotIn("last_compact_ts", gravado)
@@ -299,14 +182,6 @@ class MainDoAutoCompactNoRunner(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(injetou, [])
         self.assertNotIn("last_compact_ts", gravado)
-
-    def test_em_recuo_depois_de_falhas_nao_injeta(self):
-        recente = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
-        rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0},
-                                           state={"consecutive_fail": 2, "last_compact_ts": recente})
-        self.assertEqual(rc, 0)
-        self.assertEqual(injetou, [])
-        self.assertEqual(gravado["consecutive_fail"], 2)
 
 
 class FilaParadaNoWatchdog(unittest.TestCase):

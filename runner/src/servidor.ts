@@ -376,12 +376,11 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           }
 
           if (quandoOcioso) {
-            if (!sessao.enfileirarQuandoOcioso(texto, esperouNoPainel)) {
-              // /compact repetido: já havia um na fila, sendo digitado ou em andamento.
-              json(res, { success: true, data: { enfileirado: false, deduplicado: true } }, 200);
-              return;
-            }
-            json(res, { success: true, data: { enfileirado: true, aguardando: "idle" } }, 202);
+            // false = /compact repetido: já havia um na fila, sendo digitado ou em andamento. Esse /compact pendente
+            // atende o pedido (quem chamou queria a sessão compactada, e o recibo dele vem do mesmo compact_boundary),
+            // então a resposta é a mesma do enfileirado, só com `deduplicado` para quem quiser saber.
+            const novo = sessao.enfileirarQuandoOcioso(texto, esperouNoPainel);
+            json(res, { success: true, data: { enfileirado: true, aguardando: "idle", ...(novo ? {} : { deduplicado: true }) } }, 202);
             return;
           }
           if (!sessao.temPtyVivo()) {

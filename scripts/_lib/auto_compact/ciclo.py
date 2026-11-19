@@ -6,7 +6,7 @@ from pathlib import Path
 from .ambiente import env, log
 from .estado import _antes, _modo_seguro, notify_owner, save_state
 from .poke import send_resume_poke
-from .transcript import had_compact_since_arquivo, looks_idle, resolve_live_transcript
+from .transcript import had_compact_since, looks_idle, resolve_live_transcript
 
 
 # ─── fechamento do ciclo "ja volto" -> "voltei" (modo inject) ─────────────────
@@ -25,22 +25,7 @@ def fechar_ciclo_pendente(st: dict, state_file: Path, session_dir: Path, slug: s
     pend = st.get("pending_resume_poke")
     if not pend:
         return True
-    # O recibo decide sobre ESTA sessao: so o transcript vivo conta, e marcador sem timestamp proprio nao.
-    transcript_vivo = resolve_live_transcript(session_dir, slug, channel)
-    if not transcript_vivo:
-        return False
-    # A pendencia nasceu numa sessao especifica. Se o transcript vivo agora e outro (sessao trocada, restart
-    # sem a conversa) ou a pendencia e de um estado antigo, sem essa identidade, o "voltei" e a retomada
-    # falariam de uma conversa que nao e a atual: descarta sem mandar nada.
-    origem = pend.get("transcript")
-    if not origem or str(origem) != str(transcript_vivo):
-        log(f"pendencia de retomada descartada: ela e de outra sessao ({origem or 'sem identidade gravada'}) "
-            f"e o transcript vivo agora e {transcript_vivo}; nao mando o 'voltei' nem a retomada")
-        st.pop("pending_resume_poke", None)
-        save_state(state_file, st)
-        return True
-    if not had_compact_since_arquivo(
-            transcript_vivo, pend.get("since") or "", sem_timestamp_conta=False):
+    if not had_compact_since(session_dir, pend.get("since") or ""):
         return False
     nome = env("DGCLAW_NAME") or slug
     arquivo = pend.get("file")

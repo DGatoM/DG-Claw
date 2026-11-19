@@ -1,12 +1,9 @@
-"""Guardas antes de injetar o /compact: agente com fila, compact recente e recuo depois de falhas."""
+"""Guardas antes de injetar o /compact: agente com fila e compact recente."""
 
 import inject as inj  # _lib já está no sys.path (ver auto-compact.py)
 
 from .ambiente import env
 from .transcript import had_compact_since_arquivo
-
-# Teto do recuo: depois de várias falhas seguidas, o auto-compact tenta no máximo a cada 4 h.
-RECUO_MAX_MIN = 240
 
 
 def _int_env(nome: str, padrao: int) -> int:
@@ -54,15 +51,3 @@ def acabou_de_compactar(transcript):
     minutos = _int_env("DGCLAW_COMPACT_MIN_INTERVAL_MIN", 10)
     corte = (datetime.now(timezone.utc) - timedelta(minutes=minutos)).isoformat()
     return had_compact_since_arquivo(transcript, corte, sem_timestamp_conta=False)
-
-
-def cooldown_com_recuo(cooldown_min: int, falhas: int, limite_alerta: int) -> int:
-    """Cooldown em minutos. Com falhas >= limite_alerta ele dobra a cada falha (limite de 4 h)."""
-    # Contador vindo de arquivo de estado: so inteiro >= 0 vale, e o expoente tem teto para a potencia
-    # nao crescer sem limite.
-    if isinstance(falhas, bool) or not isinstance(falhas, int) or falhas < 0:
-        falhas = 0
-    if falhas < limite_alerta:
-        return cooldown_min
-    # O teto so limita o AUMENTO: um cooldown configurado acima dele nunca encolhe.
-    return max(cooldown_min, min(RECUO_MAX_MIN, cooldown_min * (2 ** min(falhas, 8))))
