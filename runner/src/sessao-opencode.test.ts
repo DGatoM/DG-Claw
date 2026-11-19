@@ -252,3 +252,11 @@ test("OpenCode: partida lenta (tela muda por vários segundos) não solta o pedi
     delete process.env.FAKE_OPENCODE_PARTIDA_MS;
   }
 });
+
+test("OpenCode: depois que a prontidão expira nenhum envio é aceito até uma nova partida (nada é digitado na tela errada)", async () => {
+  const { s } = await novoCard({ provider: "opencode", auth: "api" });
+  s.mudar({ status: "errored", error: "o opencode não avisou que a tela estava pronta", statusReason: "runner:prontidao-expirou" });
+  const r = s.recusaDeEntrada();
+  assert.equal(r?.tipo, "prontidao");
+  assert.match(r?.comoResolver ?? "", /abrir outro/);
+});

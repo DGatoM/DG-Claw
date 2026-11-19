@@ -611,3 +611,32 @@ test("conversa: JSON inválido no export não leva trecho da conversa para o log
   }
   assert.equal(escrito.join("").includes(marcador), false);
 });
+
+test("opencode: AGENTS.md que é link físico (dois nomes do mesmo arquivo) não entra nas instruções", () => {
+  const spawn = pastaTemporaria("oc-agents-spawn3");
+  const cwd = pastaTemporaria("oc-agents-hard");
+  const segredo = path.join(cwd, "credencial.txt");
+  fs.writeFileSync(segredo, "SEGREDO-FICTICIO-456");
+  fs.linkSync(segredo, path.join(cwd, "AGENTS.md"));
+  assert.equal("instructions" in configDoSpawn(ctxOpenCode({ cwd }), spawn), false);
+  assert.deepEqual(fs.readdirSync(spawn), []);
+});
+
+test("opencode: proibição de ferramenta por extraArgs (--disallowedTools) também impede o card", () => {
+  assert.equal(motivosDeRestricao({ extraArgs: ["--disallowedTools", "Bash"] }).length, 1);
+  assert.equal(motivosDeRestricao({ extraArgs: ["--disallowed-tools=Bash"] }).length, 1);
+  assert.equal(motivosDeRestricao({ extraArgs: ["--verbose"] }).length, 0);
+});
+
+test("opencode: o spawn e o export recebem OPENCODE_AUTH_CONTENT vazio (credencial salva no OpenCode não vale)", async () => {
+  const ctx = ctxOpenCode();
+  await motorOpenCode.preparar(ctx);
+  assert.equal(ctx.env.OPENCODE_AUTH_CONTENT, "{}");
+  for (const limpar of ctx.limpezas) limpar();
+  zerarConversaDoOpenCode();
+  const pasta = pastaTemporaria("oc-auth");
+  const saida = path.join(pasta, "env.txt");
+  const bin = binarioDeConversa(pasta, `env > "${saida}"\ncat <<'FIM'\n${EXPORT}\nFIM`);
+  await lerConversaDoOpenCode({ sessionId: "ses_Auth1abc", env: { PATH: process.env.PATH ?? "" }, cwd: pasta, quantas: 1, binario: bin });
+  assert.match(fs.readFileSync(saida, "utf8"), /OPENCODE_AUTH_CONTENT=\{\}/);
+});

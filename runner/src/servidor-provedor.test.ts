@@ -687,3 +687,14 @@ test("POST /api/sessoes: agente com restrição do dono não grava card OpenCode
     else process.env.RUNNER_RESTRICOES_FILE = antes;
   }
 });
+
+test("POST /api/provedor: trocar o modelo de um card OpenCode vale (papel de card); na principal continua recusado", async () => {
+  cacheOpenRouterDeTeste();
+  const c = await req("POST", "/api/sessoes", { id: "oc-troca", provedor: "opencode", modelo: "glm" });
+  assert.equal(c.status, 201, JSON.stringify(c.corpo));
+  const card = await req("POST", "/api/provedor", { sessao: "oc-troca", provedor: "opencode", auth: "api", modelo: "outra/coisa", reiniciar: false });
+  assert.equal(card.status, 200, JSON.stringify(card.corpo));
+  const principalR = await req("POST", "/api/provedor", { provedor: "opencode", auth: "api", modelo: "outra/coisa", reiniciar: false });
+  assert.ok(principalR.status >= 400 && principalR.status < 500, JSON.stringify(principalR.corpo));
+  assert.equal((await req("DELETE", "/api/sessoes/oc-troca")).status, 200);
+});

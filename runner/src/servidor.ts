@@ -351,14 +351,14 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
                   howToFix:
                     recusa.tipo === "chave"
                       ? `${recusa.comoResolver}. Depois disso a mensagem pode ser reenviada.`
-                      : recusa.tipo === "restricao" || recusa.tipo === "modelo"
+                      : recusa.tipo === "restricao" || recusa.tipo === "modelo" || recusa.tipo === "prontidao"
                         ? `${recusa.comoResolver}. Depois disso a sessão abre de novo e a mensagem pode ser reenviada.`
                         : recusa.tipo === "login-expirado"
                         ? `${recusa.comoResolver}. Depois disso o runner reinicia a mesma sessão sozinho, e a mensagem pode ser reenviada.`
                         : "Fazer o login da conta deste agente, pelo painel (Provedor do agente), pelo terminal do cartão ou por " +
                           "lib/login-agente.sh. Depois disso o runner troca a sessão do login por uma " +
                           "limpa sozinho, e a mensagem pode ser reenviada.",
-                  code: recusa.tipo === "chave" ? "SEM_CHAVE" : recusa.tipo === "restricao" ? "RESTRICAO_CONTA" : recusa.tipo === "modelo" ? "MODELO_INDISPONIVEL" : recusa.tipo === "login-expirado" ? "LOGIN_EXPIRADO" : "SEM_LOGIN",
+                  code: recusa.tipo === "chave" ? "SEM_CHAVE" : recusa.tipo === "restricao" ? "RESTRICAO_CONTA" : recusa.tipo === "modelo" ? "MODELO_INDISPONIVEL" : recusa.tipo === "prontidao" ? "PRONTIDAO_EXPIROU" : recusa.tipo === "login-expirado" ? "LOGIN_EXPIRADO" : "SEM_LOGIN",
                 },
                 409,
               );

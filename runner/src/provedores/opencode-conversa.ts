@@ -181,6 +181,7 @@ export function ambienteDeLeitura(env: Record<string, string>): { env: Record<st
       OPENCODE_DISABLE_DEFAULT_PLUGINS: "1",
       OPENCODE_DISABLE_CLAUDE_CODE: "1",
       OPENCODE_DISABLE_EXTERNAL_SKILLS: "1",
+      OPENCODE_AUTH_CONTENT: "{}",
       OPENCODE_DISABLE_AUTOUPDATE: "1",
       OPENCODE_DISABLE_LSP_DOWNLOAD: "1",
     },

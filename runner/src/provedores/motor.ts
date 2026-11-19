@@ -23,7 +23,7 @@ export class ErroDeMotor extends Error {
  *  `chave` = o modo escolhido exige uma chave que não está no ambiente;
  *  `login-expirado` = a conta estava conectada e a credencial morreu (a sessão tem conversa e volta por retomada). */
 export interface Recusa {
-  tipo: "login" | "chave" | "login-expirado" | "restricao" | "modelo";
+  tipo: "login" | "chave" | "login-expirado" | "restricao" | "modelo" | "prontidao";
   mensagem: string;
   comoResolver: string;
 }

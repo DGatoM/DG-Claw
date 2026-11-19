@@ -452,6 +452,15 @@ export class Sessao extends EventEmitter {
         comoResolver: "conectar uma conta pessoal (Pro ou Max) ou uma chave de API, ou desligar as restrições (dgclaw agente restricoes)",
       };
     }
+    // A tela do CLI nunca confirmou que estava pronta (o PTY segue vivo, mas parado numa tela que talvez nem aceite
+    // texto): nenhum envio é digitado até uma nova partida confirmada, senão o pedido iria para a tela errada.
+    if (this.estado.status === "errored" && this.estado.statusReason === "runner:prontidao-expirou") {
+      return {
+        tipo: "prontidao",
+        mensagem: this.estado.error ?? `O terminal de ${this.slug} não avisou que estava pronto, e nada foi digitado nele.`,
+        comoResolver: "fechar este card e abrir outro (ou suspender e acordar a sessão), depois reenviar o pedido",
+      };
+    }
     return this.recusaDoMotor();
   }
 

@@ -270,6 +270,12 @@ Sem a chave no Cofre o card não sobe: o comando sai com código 5 e diz como gu
   vaga. A saída indicada é o Claude: o Codex também não aplica essas restrições. Modelo que saiu do catálogo ou do
   cache (inclusive o modelo padrão) mantém o provedor do card e o card para com 409 `MODELO_INDISPONIVEL`, pedindo outro modelo; ele nunca cai em
   outro provedor.
+- **Credenciais salvas e restrições por flag.** O spawn e a leitura da conversa recebem `OPENCODE_AUTH_CONTENT={}`,
+  para que uma chave antiga guardada pelo próprio OpenCode (`auth.json`) não continue sendo cobrada depois de o dono
+  trocar a chave no Cofre. Proibições de ferramenta por flag do Claude em `extraArgs` (`--disallowedTools` e
+  parecidas) também impedem o card, como `askTools` e `denyTools`. `AGENTS.md` com mais de um nome (link físico)
+  não entra nas instruções. Depois de `runner:prontidao-expirou` o card recusa novos envios (409 `PRONTIDAO_EXPIROU`)
+  até ser fechado e aberto de novo.
 - **Sem `--auto`.** O padrão do OpenCode só pede permissão ao sair da pasta de trabalho, e aprovar tudo
   sem olhar seria perigoso numa VPS de quem não é programador.
 - **Digitação:** pausa de 500 ms entre o texto e o Enter (a TUI trata texto e Enter colados como colagem).

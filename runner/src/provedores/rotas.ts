@@ -60,9 +60,10 @@ function rotuloSeguro(
   auth: string,
   modelo: string,
   codexHome: string | undefined,
+  paraCard = false,
 ): string {
   try {
-    return rotulo(cat, provedor, auth, modelo, { codexHome });
+    return rotulo(cat, provedor, auth, modelo, { codexHome, paraCard });
   } catch (err) {
     return err instanceof ErroCatalogo ? `${provedor}, ${auth} (${err.message})` : `${provedor}, ${auth}`;
   }
@@ -188,7 +189,7 @@ export async function tratarRotasDeProvedor(
       provedor: escolha.provedor,
       auth: escolha.auth,
       modelo: escolha.modelo,
-      rotulo: rotuloSeguro(catalogo, escolha.provedor, escolha.auth, escolha.modelo, home),
+      rotulo: rotuloSeguro(catalogo, escolha.provedor, escolha.auth, escolha.modelo, home, s.papel !== "principal"),
       origem: escolha.origem,
       disponiveis: provedoresDisponiveis(catalogo, amb.env.PATH ?? process.env.PATH),
       cards,
@@ -248,7 +249,7 @@ export async function tratarRotasDeProvedor(
         nomeP === "codex" && catalogo.provedores.codex?.auth && Object.hasOwn(catalogo.provedores.codex.auth, nomeA)
           ? (s.ambienteDaEscolha({ provedor: "codex", auth: nomeA, modelo: "" }, catalogo).codexHome ?? undefined)
           : undefined;
-      valida = validar(catalogo, nomeP, nomeA, (modelo ?? "").trim(), { codexHome });
+      valida = validar(catalogo, nomeP, nomeA, (modelo ?? "").trim(), { codexHome, paraCard: s.papel !== "principal" });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       erro(res, 400, "ESCOLHA_INVALIDA", msg, "escolher entre os provedores, formas de pagar e modelos do catálogo (GET /api/provedor mostra a escolha atual)");
@@ -281,7 +282,7 @@ export async function tratarRotasDeProvedor(
       provedor: e.provedor,
       auth: e.auth,
       modelo: e.modelo,
-      rotulo: rotuloSeguro(lida.catalogo, e.provedor, e.auth, e.modelo, undefined),
+      rotulo: rotuloSeguro(lida.catalogo, e.provedor, e.auth, e.modelo, undefined, s.papel !== "principal"),
       reiniciou,
     });
     return true;

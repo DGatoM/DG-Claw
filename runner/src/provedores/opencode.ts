@@ -59,6 +59,11 @@ function copiarAgentsMd(ctx: CtxMotor, pastaDoSpawn: string): string | null {
       log.aviso(ctx.a("spawn"), `o AGENTS.md da pasta de trabalho não é um arquivo comum; o card abre sem ele`);
       return null;
     }
+    if (st.nlink !== 1) {
+      // Dois nomes para o mesmo arquivo (link físico): pode ser uma credencial que o agente consegue ler.
+      log.aviso(ctx.a("spawn"), `o AGENTS.md da pasta de trabalho tem ${st.nlink} nomes (link físico); o card abre sem ele, por segurança`);
+      return null;
+    }
     if (st.size > TETO_DO_AGENTS_MD) {
       log.aviso(ctx.a("spawn"), `o AGENTS.md da pasta de trabalho tem ${st.size} bytes (o teto é ${TETO_DO_AGENTS_MD}); o card abre sem ele`);
       return null;
@@ -184,10 +189,14 @@ function montarXdgIsolado(xdg: string, configReal: string, deps: string, ctx: Ct
 
 /** As restrições do dono que o OpenCode não sabe aplicar: se existirem, o card não abre (senão seriam ignoradas em silêncio). */
 /** Os motivos pelos quais este agente não pode abrir card no OpenCode (lista vazia = pode). Também usada ao CRIAR o card, antes de gravá-lo. */
-export function motivosDeRestricao(cfg: { askTools?: string[]; denyTools?: string[] }): string[] {
+export function motivosDeRestricao(cfg: { askTools?: string[]; denyTools?: string[]; extraArgs?: string[] }): string[] {
   const motivos: string[] = [];
   if ((cfg.askTools ?? []).length) motivos.push("pedidos de confirmação por ferramenta (askTools)");
   if ((cfg.denyTools ?? []).length) motivos.push("ferramentas proibidas (denyTools)");
+  // O descritor também pode proibir ferramentas por flag do Claude (extraArgs): o OpenCode não as entende.
+  if ((cfg.extraArgs ?? []).some((a) => /^--(disallowed-?tools|allowed-?tools|permission-mode|dangerously-skip-permissions|tools)\b/i.test(String(a).trim()))) {
+    motivos.push("regras de ferramentas nos extraArgs (--disallowedTools e parecidas)");
+  }
   const r = lerRestricoes();
   if (r.ativa) motivos.push(r.erro ? `restrições do dono ilegíveis (${r.erro})` : "restrições do dono (sem Bash, sem enviar arquivo ou escrita só em certas pastas)");
   return motivos;
@@ -296,6 +305,9 @@ export const motorOpenCode: Motor = {
     ctx.env.OPENCODE_DISABLE_DEFAULT_PLUGINS = "1";
     ctx.env.OPENCODE_DISABLE_CLAUDE_CODE = "1";
     ctx.env.OPENCODE_DISABLE_EXTERNAL_SKILLS = "1";
+    // As credenciais salvas pelo OpenCode (auth.json, em ~/.local/share) têm precedência sobre a variável de ambiente:
+    // com {} aqui a única chave que vale é a do Cofre, e uma chave antiga guardada lá não continua sendo cobrada.
+    ctx.env.OPENCODE_AUTH_CONTENT = "{}";
     ctx.env.OPENCODE_DISABLE_AUTOUPDATE = "1";
     // Nada de baixar servidor de linguagem (LSP) no meio do card: o que o card precisa vem na imagem.
     ctx.env.OPENCODE_DISABLE_LSP_DOWNLOAD = "1";
