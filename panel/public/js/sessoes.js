@@ -946,7 +946,9 @@
   async function pollDetalhe() {
     const d = det;
     if (!d || !cfg || !cfg.ligado) return;
+    const chaveDaEspera = (it) => (it ? [it.estado, it.motivo, it.tem_terminal].join('|') : '');
     const estadoAntes = d.item && d.item.estado;
+    const esperaAntes = chaveDaEspera(d.item);
     try {
       const res = await chama(`/api/sessoes/${encodeURIComponent(d.id)}`);
       if (det !== d) return;
@@ -969,9 +971,9 @@
       return;
     }
     renderDetalhe();
-    // Saiu de "esperando o primeiro turno" (inclusive direto para concluído ou erro): a conversa e o motivo de
-    // conversa vazia mudaram, então recarrega mesmo fora do grupo trabalhando.
-    const saiuDaEspera = estadoAntes === 'esperando_primeiro_turno' && d.item && d.item.estado !== estadoAntes;
+    // Durante ou ao sair de "esperando o primeiro turno" (inclusive direto para concluído ou erro), mudança de estado,
+    // de motivo ou de terminal muda a orientação da conversa vazia: recarrega mesmo fora do grupo trabalhando.
+    const saiuDaEspera = estadoAntes === 'esperando_primeiro_turno' && chaveDaEspera(d.item) !== esperaAntes;
     if (d.item && (d.item.grupo === 'trabalhando' || saiuDaEspera)) carregaConversa('poll');
   }
 
