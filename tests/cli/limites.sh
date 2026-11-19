@@ -77,7 +77,8 @@ echo "1073741824 100000 100000 1024" >"$STUB_ESTADO/lim-dgclaw-a4"
 touch "$STUB_ESTADO/update-sem-suporte"
 dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
 igual "o reparar continua e termina com 0" "0" "$?"
-afirma "avisa em portugues o que fazer" grep -q 'dgclaw agente recriar a4' "$TMP/rep.txt"
+afirma "avisa em portugues que o valor entra na proxima recriacao" grep -q 'proxima vez que o agente for recriado' "$TMP/rep.txt"
+nega "e nao manda recriar na mao" grep -q 'dgclaw agente recriar' "$TMP/rep.txt"
 rm -f "$STUB_ESTADO/update-sem-suporte"
 touch "$STUB_ESTADO/update-sem-swap"
 echo "1073741824 100000 100000 1024" >"$STUB_ESTADO/lim-dgclaw-a4"
@@ -125,17 +126,48 @@ echo "1073741824 100000 100000 4096 -1" >"$STUB_ESTADO/lim-dgclaw-a4"   # swap i
 afirma "swap ilimitado continua ilimitado" grep -q '^podman update --memory-swap=-1 --memory=6144m --cpus=1.8 dgclaw-a4' "$STUB_LOG"
 echo "1073741824 100000 100000 4096 -1" >"$STUB_ESTADO/lim-dgclaw-a4"
 
-echo "recriar nao toma o atalho da imagem atual com limites abaixo do calculado"
+echo "o atalho da imagem atual nao olha os limites"
 maquina 8 2
 echo imagem-estavel >"$STUB_ESTADO/imagem-id"
 echo imagem-estavel >"$STUB_ESTADO/img-dgclaw-a8"
-echo "17179869184 400000 100000 8192 34359738368" >"$STUB_ESTADO/lim-dgclaw-a8"
+echo "1073741824 100000 100000 1024 2147483648" >"$STUB_ESTADO/lim-dgclaw-a8"
 : >"$STUB_LOG"; dgclaw agente recriar a8 >"$TMP/rec.txt" 2>&1
-afirma "limites em dia: atalho, nada a recriar" grep -q 'nada a recriar' "$TMP/rec.txt"
-echo "1073741824 100000 100000 4096 2147483648" >"$STUB_ESTADO/lim-dgclaw-a8"
-: >"$STUB_LOG"; dgclaw agente recriar a8 >"$TMP/rec.txt" 2>&1
-nega "limites abaixo: nao toma o atalho" grep -q 'nada a recriar' "$TMP/rec.txt"
-afirma "diz por que recria" grep -q 'limites do container estao abaixo do calculado' "$TMP/rec.txt"
-afirma "recriou com o limite calculado" grep -q '^podman create .*--memory 6144m' "$STUB_LOG"
+afirma "mesma imagem, limites baixos: continua 'nada a recriar'" grep -q 'nada a recriar' "$TMP/rec.txt"
+nega "nao recriou" grep -q '^podman create' "$STUB_LOG"
+
+echo "limites efetivos vem do cgroup, nao do HostConfig"
+maquina 8 2
+echo "1073741824 100000 100000 1024 2147483648" >"$STUB_ESTADO/lim-dgclaw-a4"
+rm -rf "$DGCLAW_RAIZ/sys/fs/cgroup"; touch "$STUB_ESTADO/cgroup-ausente"
+: >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
+igual "sem arquivos de cgroup o reparar termina com 0" "0" "$?"
+nega "e nao muda nada" grep -q '^podman update' "$STUB_LOG"
+afirma "e avisa que nao leu" grep -q 'nao consegui ler os limites atuais' "$TMP/rep.txt"
+rm -f "$STUB_ESTADO/cgroup-ausente"
+echo "swap: memory.swap.max e so o swap, entao 1 GB de swap atual vira memoria nova + 1 GB"
+: >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
+afirma "swap = memoria nova + swap atual" grep -q '^podman update --memory-swap=7168m --memory=6144m' "$STUB_LOG"
+afirma "diz que vale para o container ligado e o definitivo vem na recriacao" grep -q 'vale para o container ligado.*proxima vez que o agente for recriado' "$TMP/rep.txt"
+echo "1073741824 100000 100000 1024 2147483648" >"$STUB_ESTADO/lim-dgclaw-a4"
+touch "$STUB_ESTADO/update-sem-efeito"
+: >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
+afirma "update que nao mudou nada: avisa depois de reler" grep -q 'ainda mostra algum limite abaixo do calculado' "$TMP/rep.txt"
+nega "e nao diz que aumentou" grep -q 'aumentados' "$TMP/rep.txt"
+rm -f "$STUB_ESTADO/update-sem-efeito"
+
+echo "CPU: comparacao exata, arredondamento so para exibir"
+echo "8589934592 175000 100000 4096 17179869184" >"$STUB_ESTADO/lim-dgclaw-a8"   # 1.75 CPU, alvo 1.8
+: >"$STUB_LOG"; dgclaw agente reparar a8 >"$TMP/rep.txt" 2>&1
+afirma "175000/100000 com alvo 1.8 e abaixo" grep -q '^podman update --cpus=1.8 dgclaw-a8' "$STUB_LOG"
+echo "8589934592 180000 100000 4096 17179869184" >"$STUB_ESTADO/lim-dgclaw-a8"
+: >"$STUB_LOG"; dgclaw agente reparar a8 >"$TMP/rep.txt" 2>&1
+nega "180000/100000 ja e o alvo" grep -q '^podman update' "$STUB_LOG"
+
+echo "memoria da variavel abaixo de 512m e erro"
+DGCLAW_CONTAINER_MEMORIA=256m dgclaw agente recriar a8 --forcar >"$TMP/rec.txt" 2>&1
+nega "256m falha" test "$?" -eq 0
+afirma "com motivo e exemplo" grep -q '512m ou mais' "$TMP/rec.txt"
+DGCLAW_CONTAINER_MEMORIA=512m criar_agente m512 --nome X
+igual "512m e aceito" "512m" "$(limite_criado m512 | cut -d' ' -f1)"
 
 fim

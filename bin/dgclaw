@@ -1873,8 +1873,6 @@ agente_recriar() {
         if [ "${#DNS_CONTAINER_ARGS[@]}" -gt 0 ] \
             && [[ "$(podman inspect -f '{{.HostConfig.Dns}}' "$c" 2>/dev/null)" != *1.1.1.1* ]]; then
             info "agente $slug: a imagem e a mesma, mas o DNS do servidor ($DNS_HOST_PRIVADOS) fica numa rede privada e o container ainda usa esse DNS; vou recriar para ele usar DNS publico."
-        elif limites_abaixo_do_calculado "$c"; then
-            info "agente $slug: a imagem e a mesma, mas os limites do container estao abaixo do calculado para esta maquina ($(_limites_resumo "$ATU_MEM_MB" "$ATU_CPUS_DEC" "$ATU_PIDS")); vou recriar para ele nascer com os limites certos."
         else
             ok "agente $slug: o container ja usa a imagem atual, nada a recriar"
             return 0

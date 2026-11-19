@@ -92,6 +92,21 @@ case "${1:-}" in
                 [ -f "$est/inspect-falha-pos-kill" ] && [ -f "$est/kill-feito" ] && exit 125
             fi
         fi
+        # Limites efetivos: o DG Claw le o cgroup pelo host. O stub monta arquivos falsos sob $DGCLAW_RAIZ/sys/fs/cgroup a partir de
+        # estado/lim-<nome> ("<bytes> <quota> <periodo> <pids> <memoria+swap>"), como o kernel mostraria (swap.max e SO o swap).
+        # cgroup-ausente: o caminho existe mas os arquivos nao.
+        if printf '%s ' "$@" | grep -q 'State.CgroupPath'; then
+            [ -f "$est/inspect-limites-falha" ] && exit 125
+            if [ ! -f "$est/cgroup-ausente" ] && [ -f "$est/lim-$nome" ]; then
+                read -r m q p n w < "$est/lim-$nome"; w="${w:-$((m * 2))}"
+                d="${DGCLAW_RAIZ:?}/sys/fs/cgroup/machine.slice/libpod-$nome.scope"; mkdir -p "$d"
+                if [ "$m" -gt 0 ]; then echo "$m" > "$d/memory.max"; else echo max > "$d/memory.max"; fi
+                if [ "$w" -gt "$m" ] && [ "$m" -gt 0 ]; then echo $((w - m)) > "$d/memory.swap.max"; elif [ "$w" = -1 ] || [ "$m" -eq 0 ]; then echo max > "$d/memory.swap.max"; else echo 0 > "$d/memory.swap.max"; fi
+                if [ "$n" -gt 0 ]; then echo "$n" > "$d/pids.max"; else echo max > "$d/pids.max"; fi
+                if [ "$q" -gt 0 ]; then echo "$q $p" > "$d/cpu.max"; else echo "max $p" > "$d/cpu.max"; fi
+            fi
+            echo "/machine.slice/libpod-$nome.scope"; exit 0
+        fi
         if printf '%s ' "$@" | grep -q 'HostConfig.Memory'; then
             [ -f "$est/inspect-limites-falha" ] && exit 125
             # Arquivo com 4 campos (sem swap): o swap padrao e 2x a memoria, como o podman faz na criacao.
@@ -122,6 +137,8 @@ case "${1:-}" in
         [ -f "$est/update-sem-suporte" ] && { echo "Error: unknown command \"update\" for \"podman\"" >&2; exit 125; }
         if [ -f "$est/update-sem-swap" ] && printf '%s ' "$@" | grep -q -- '--memory-swap'; then echo "Error: unknown flag: --memory-swap" >&2; exit 125; fi
         nome="${*: -1}"; [ -f "$est/lim-$nome" ] || exit 1
+        # update-sem-efeito: o comando termina com 0 mas nao muda nada (o podman que mente).
+        [ -f "$est/update-sem-efeito" ] && exit 0
         read -r mem quota periodo pids swap < "$est/lim-$nome"
         swap="${swap:-$((mem * 2))}"
         shift   # tira o "update"
