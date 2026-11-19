@@ -814,8 +814,8 @@ export class Sessao extends EventEmitter {
   }
 
   /** Guarda um texto para digitar quando o agente ficar ocioso (ver sessao/fila.ts). */
-  enfileirarQuandoOcioso(texto: string, esperou = false): void {
-    enfileirarQuandoOcioso(this, texto, esperou);
+  enfileirarQuandoOcioso(texto: string, esperou = false): boolean {
+    return enfileirarQuandoOcioso(this, texto, esperou);
   }
 
   /** Guarda no buffer da tela e entrega a quem ouve (ver sessao/terminal.ts). Os testes de tela chamam por aqui. */

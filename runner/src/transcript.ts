@@ -198,26 +198,6 @@ export function turnoEncerradoNoTranscript(
   return { encerrado: false, motivo: "nenhuma linha JSON válida no fim do transcript" };
 }
 
-/** O texto limpo de dentro de <local-command-stderr> numa mensagem de usuário (string ou lista com itens text),
- *  sem ANSI e sem o prefixo "Error: ", só a primeira linha não vazia; null se a tag não existe. */
-function textoDoStderrLocal(conteudo: unknown): string | null {
-  let bruto = "";
-  if (typeof conteudo === "string") bruto = conteudo;
-  else if (Array.isArray(conteudo)) {
-    for (const item of conteudo) {
-      if (item && typeof item === "object" && (item as { type?: unknown }).type === "text" && typeof (item as { text?: unknown }).text === "string") {
-        bruto += (item as { text: string }).text;
-      }
-    }
-  }
-  const m = /<local-command-stderr>([\s\S]*?)<\/local-command-stderr>/.exec(bruto);
-  if (!m) return null;
-  // eslint-disable-next-line no-control-regex
-  // Só a primeira linha não vazia: o CLI pode acrescentar detalhes nas linhas seguintes.
-  const primeira = m[1]!.replace(/\x1b\[[0-9;]*m/g, "").split("\n").map((l) => l.trim()).find((l) => l !== "") ?? "";
-  return primeira.replace(/\s+/g, " ").replace(/^Error:\s*/, "").trim();
-}
-
 /** A única saída do CLI que vale como recusa do /compact. Qualquer outro texto não conta. */
 const RX_RECUSA_DO_COMPACT = /^Not enough messages to compact\.?$/;
 
@@ -249,7 +229,7 @@ export function compactRecusadoNoTranscript(
   let recusado = false;
   for (const linha of cauda.split("\n")) {
     if (!linha.trim()) continue;
-    let o: { type?: string; subtype?: string; timestamp?: unknown; content?: unknown; message?: { content?: unknown }; commandRun?: { command?: unknown } };
+    let o: { type?: string; subtype?: string; timestamp?: unknown; content?: unknown; commandRun?: { command?: unknown } };
     try {
       const lido: unknown = JSON.parse(linha);
       if (!lido || typeof lido !== "object" || Array.isArray(lido)) continue;
@@ -257,14 +237,8 @@ export function compactRecusadoNoTranscript(
     } catch {
       continue;
     }
-    // Variante do CLI: a recusa chega como linha de usuário com <local-command-stderr>. Só vale com a tag, com o
-    // texto exato (sem ANSI e sem o prefixo "Error: ") e depois do PreCompact; texto digitado pelo usuário nunca conta.
-    if (o.type === "user") {
-      const stderr = textoDoStderrLocal(o.message?.content);
-      const quandoUser = typeof o.timestamp === "string" ? Date.parse(o.timestamp) : NaN;
-      recusado = stderr !== null && RX_RECUSA_DO_COMPACT.test(stderr) && Number.isFinite(quandoUser) && quandoUser >= desdeMs;
-      continue;
-    }
+    // A recusa só é aceita na linha de controle que o próprio CLI grava (system/local_command do comando compact).
+    // Uma linha de usuário pode citar o mesmo texto (inclusive com a tag local-command-stderr) e nunca conta.
     const ehRecusaCandidata = o.type === "system" && o.subtype === "local_command" && o.commandRun?.command === "compact";
     if (!ehRecusaCandidata) {
       // Depois da recusa só valem metadados conhecidos (outro local_command, turn_duration, títulos, linha sem type).

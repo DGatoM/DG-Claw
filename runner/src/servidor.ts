@@ -376,7 +376,11 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           }
 
           if (quandoOcioso) {
-            sessao.enfileirarQuandoOcioso(texto, esperouNoPainel);
+            if (!sessao.enfileirarQuandoOcioso(texto, esperouNoPainel)) {
+              // /compact repetido: já havia um na fila, sendo digitado ou em andamento.
+              json(res, { success: true, data: { enfileirado: false, deduplicado: true } }, 200);
+              return;
+            }
             json(res, { success: true, data: { enfileirado: true, aguardando: "idle" } }, 202);
             return;
           }
