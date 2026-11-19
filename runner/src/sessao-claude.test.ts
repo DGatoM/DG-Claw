@@ -381,6 +381,18 @@ test("PreCompact: compact bom seguido de ferramenta longa e terminal quieto não
   assert.equal(s.filaQuandoIdle.length, 1);
 });
 
+test("PreCompact: rede dos 15 min não solta a fila se o transcript mostra atividade depois do PreCompact", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600, { compactSemFimMs: 1_000, compactQuietoRedeMs: 500 });
+  hook("PreCompact");
+  transcript([[{ type: "assistant", message: { content: [] } }, 100]]);
+  s.enfileirarQuandoOcioso("mensagem que tem que esperar");
+  await dormir(4_000);
+  assert.equal(s.estado.status, "working");
+  assert.equal(s.estado.statusReason, "hook:PreCompact");
+  assert.equal(s.filaQuandoIdle.length, 1);
+  assert.ok(lerTexto(amb.logDoRunner).includes("não soltei a fila"), "o aviso de atividade saiu");
+});
+
 test("PreCompact: rede de segurança, sem SessionStart nem recusa no transcript e terminal quieto, volta a idle e solta a fila", async () => {
   const { s, hook } = await novaComRedeCurta(600, { compactSemFimMs: 1_000, compactQuietoRedeMs: 500 });
   hook("PreCompact");

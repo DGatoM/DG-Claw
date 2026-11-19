@@ -14,14 +14,12 @@ e, se o CLI recusou o `/compact` (a mensagem de recusa e nada de conversa nem de
 para idle e solta a fila; como rede de segurança, um PreCompact sem fim há mais de 15 minutos com o terminal quieto também
 volta para idle, a menos que algum outro evento do agente tenha chegado depois dele. (2) O auto-compact, no runner, não
 enfileira `/compact` com o agente ocupado ou com mensagens na fila, nem até 10 minutos depois de uma compactação do próprio
-agente (`DGCLAW_COMPACT_MIN_INTERVAL_MIN`); a conferência final é feita pelo runner no instante da entrega (campo
-`somenteSeOcioso` da rota de entrada), e se o agente ficou ocupado nesse meio tempo o `/compact` é adiado para o próximo
-ciclo. Sem conseguir ler o estado do agente, o auto-compact também adia. Depois de falhas seguidas
-(`DGCLAW_COMPACT_FAIL_ALERT`) ele espera o dobro do cooldown a cada falha, no máximo 4 horas. (3) O watchdog passa a
-reconhecer fila parada (mensagens esperando há mais de `DGCLAW_FILA_PARADA_MIN`, 15 minutos, com o agente em working e o
-card sem mudar de estado). Se o transcript do Claude também está mudo há esse tempo, ele relê o card, reinicia o agente na
-mesma conversa e avisa o dono, respeitando o limite de reinícios e o auto-recovery desligado. Com agente Codex, ou sem
-conseguir medir o transcript, ele não reinicia: só avisa o dono uma vez por ocorrência. O PreCompact é do Claude Code; o
+agente (`DGCLAW_COMPACT_MIN_INTERVAL_MIN`). Sem conseguir ler o estado do agente, o auto-compact também adia. Depois de
+falhas seguidas (`DGCLAW_COMPACT_FAIL_ALERT`) ele espera o dobro do cooldown a cada falha, no máximo 4 horas. (3) O watchdog
+passa a reconhecer fila parada (mensagens esperando há mais de `DGCLAW_FILA_PARADA_MIN`, 15 minutos, com o agente em working
+e o card sem mudar de estado; com o Claude, o transcript também precisa estar mudo). Ele não reinicia o agente: avisa o dono
+uma vez por ocorrência, dizendo quantas mensagens esperam, há quanto tempo e que dá para reiniciar pelo botão Reiniciar do
+painel, e registra no `saude.json` que apenas observou. Vale para os dois motores e para o auto-recovery desligado. O PreCompact é do Claude Code; o
 Codex não passa pela correção do runner, e o auto-compact e o watchdog valem para os dois motores.
 
 **Correção da fila de mensagens: um "ok" que esperou na fila não é mais lido como aprovação de outra coisa.** Quando você

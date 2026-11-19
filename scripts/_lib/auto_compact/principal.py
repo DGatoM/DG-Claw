@@ -192,7 +192,8 @@ def main():
 
     # 4.2) guardas do runner (so modo bunker, e --force as ignora): nao enfileirar /compact atras de
     # trabalho nem logo depois de uma compactacao. Saem sem gravar last_compact_ts nem contar falha.
-    # A checagem acima e uma foto; quem fecha a corrida e o somenteSeOcioso da entrega (passo 5).
+    # A checagem e uma foto: se uma mensagem chegar entre ela e o envio, no maximo um /compact fica na fila
+    # atras dela, e o runner trata a recusa (vigias.ts).
     if not args.force:
         motivo = agente_ocupado_no_bunker()
         if motivo:
@@ -230,26 +231,18 @@ def main():
     log(f"{ctx // 1000}k > teto -> injetando /compact na sessao viva")
     # AVISO ANTES: a sumarizacao segura a persona por minutos. Sem isto a pessoa fala com
     # ela e nao recebe nada, sem saber por que.
-    aviso = (f"Compactando nossa conversa pra rodar leve... ja volto. "
-             f"— {env('DGCLAW_NAME') or slug}")
-    # No bunker sem --force o runner confere "idle e fila vazia" no mesmo instante da entrega
-    # (somenteSeOcioso) e pode recusar: o aviso so sai depois que o /compact foi aceito, para o
-    # dono nao ler "compactando" de um compact que nao aconteceu.
-    somente_se_ocioso = (not args.force) and inj.resolve_mode() == "bunker"
-    if not args.dry_run and not somente_se_ocioso:
-        notify_owner(aviso)
-    rc = inject_compact(slug, channel, args.dry_run, somente_se_ocioso=somente_se_ocioso)
+    # O instante do recibo (since) sai ANTES do aviso e do envio: um compact_boundary que chegue logo
+    # depois do envio tem timestamp >= este instante e conta como recibo.
+    agora = datetime.now(timezone.utc).isoformat()
+    if not args.dry_run:
+        notify_owner(f"Compactando nossa conversa pra rodar leve... ja volto. "
+                     f"— {env('DGCLAW_NAME') or slug}")
+    rc = inject_compact(slug, channel, args.dry_run)
 
     if args.dry_run:
         return 0
-    if rc == 6:
-        log("agente ficou ocupado, adio para o proximo ciclo")
-        return 0
-    if rc == 0 and somente_se_ocioso:
-        notify_owner(aviso)
 
     if rc == 0:
-        agora = datetime.now(timezone.utc).isoformat()
         st["last_compact_ts"] = agora
         st["ctx_at_compact"] = ctx
         mid_task = bool(snap.get("busy")) and resume_poke_enabled()

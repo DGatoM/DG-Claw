@@ -157,6 +157,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       s.compactsIniciados += 1;
       s.compactando = s.proc;
       s.compactComecouEm = Date.now();
+      s.compactAtividadeLogada = false;
       s.mudar({ status: "working", hookLatched: false, statusReason: "hook:PreCompact" });
       break;
     case "Stop":

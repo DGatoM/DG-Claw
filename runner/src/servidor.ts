@@ -291,11 +291,6 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           }
           const enviar = (corpo as { submit?: boolean }).submit !== false;
           const quandoOcioso = (corpo as { injectWhenIdle?: boolean }).injectWhenIdle === true;
-          const somenteSeOcioso = (corpo as { somenteSeOcioso?: boolean }).somenteSeOcioso === true;
-          if (somenteSeOcioso && quandoOcioso) {
-            json(res, { success: false, error: `"somenteSeOcioso" e "injectWhenIdle" não podem ir juntos: o primeiro recusa se o agente estiver ocupado, o segundo espera por ele.`, howToFix: "mandar só um dos dois campos", code: "CAMPOS_INCOMPATIVEIS" }, 400);
-            return;
-          }
           // O painel viu o agente ocupado quando o dono escreveu; no caminho até aqui ele pode ter ficado ocioso, e a
           // mensagem ainda assim foi escrita antes das falas dele que o dono não viu (ver avisoDeAtraso).
           const esperouNoPainel = (corpo as { esperou?: boolean }).esperou === true;
@@ -354,23 +349,6 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
               );
               return;
             }
-          }
-
-          // "somenteSeOcioso": conferir e entregar no mesmo instante (nenhum await entre a checagem e a inserção), para
-          // quem checou a fila por fora (auto-compact) não perder a corrida contra uma mensagem que chegou no meio.
-          if (somenteSeOcioso) {
-            const motivos: string[] = [];
-            if (sessao.estado.status !== "idle") motivos.push(`está ${sessao.estado.status}`);
-            if (sessao.itemEmVoo) motivos.push("há uma mensagem sendo digitada");
-            if (sessao.tamanhoDaFila() > 0) motivos.push(`há ${sessao.tamanhoDaFila()} mensagem(ns) na fila`);
-            if (!sessao.temPtyVivo()) motivos.push("não tem terminal vivo");
-            if (motivos.length > 0) {
-              json(res, { success: false, error: `O agente ${sessao.slug} não está livre agora: ${motivos.join("; ")}. O texto não foi enfileirado nem digitado.`, howToFix: "tentar de novo depois, quando o agente estiver idle e sem fila", code: "AGENTE_OCUPADO" }, 409);
-              return;
-            }
-            sessao.enfileirarQuandoOcioso(texto, esperouNoPainel);
-            json(res, { success: true, data: { enfileirado: true, aguardando: "idle" } }, 202);
-            return;
           }
 
           // Paralela dormindo e um pedido de TURNO: acorda e enfileira. O texto só é

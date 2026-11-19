@@ -208,6 +208,7 @@ const RX_RECUSA_DO_COMPACT = /^Not enough messages to compact\.?$/;
  * instante do PreCompact), cujo texto (sem as tags local-command) é exatamente a mensagem de recusa, e depois da
  * qual não veio nenhuma linha de conversa (user, assistant, ferramenta) nem `compact_boundary`: se veio, o agente
  * seguiu trabalhando ou o compact aconteceu, e a recusa já não explica o estado.
+ * `atividadeDepois`: houve conversa ou compactação desde o PreCompact (a rede de tempo não deve soltar a fila).
  * Devolve só o veredito: o texto cru do transcript nunca sai daqui, para não ir parar no log.
  * Sem arquivo ou sem a linha, não afirma nada.
  */
@@ -215,17 +216,18 @@ export function compactRecusadoNoTranscript(
   sessionId: string,
   desdeMs: number,
   configDir?: string | null,
-): { recusado: boolean } {
+): { recusado: boolean; atividadeDepois: boolean } {
   const arquivo = acharArquivoDaSessao(sessionId, configDir);
-  if (!arquivo) return { recusado: false };
+  if (!arquivo) return { recusado: false, atividadeDepois: false };
   let cauda: string;
   try {
     cauda = lerCauda(arquivo);
   } catch (err) {
     log.aviso("conversa", `não consegui ler o fim de ${arquivo}: ${err instanceof Error ? err.message : err}`);
-    return { recusado: false };
+    return { recusado: false, atividadeDepois: false };
   }
   let recusado = false;
+  let atividadeDepois = false;
   for (const linha of cauda.split("\n")) {
     if (!linha.trim()) continue;
     let o: { type?: string; subtype?: string; timestamp?: string; content?: unknown; commandRun?: { command?: unknown } };
@@ -236,22 +238,21 @@ export function compactRecusadoNoTranscript(
     } catch {
       continue;
     }
-    if (o.type === "user" || o.type === "assistant" || o.type === "tool_use" || o.type === "tool_result") {
+    const atividade = o.type === "user" || o.type === "assistant" || o.type === "tool_use" || o.type === "tool_result" || (o.type === "system" && o.subtype === "compact_boundary");
+    if (atividade) {
+      const quandoLinha = o.timestamp ? Date.parse(o.timestamp) : NaN;
+      if (Number.isFinite(quandoLinha) && quandoLinha >= desdeMs) atividadeDepois = true;
       recusado = false;
       continue;
     }
     if (o.type !== "system") continue;
-    if (o.subtype === "compact_boundary") {
-      recusado = false;
-      continue;
-    }
     if (o.subtype !== "local_command" || o.commandRun?.command !== "compact") continue;
     const quando = o.timestamp ? Date.parse(o.timestamp) : NaN;
     if (!Number.isFinite(quando) || quando < desdeMs) continue;
     const texto = typeof o.content === "string" ? o.content.replace(/<\/?local-command-(?:stdout|stderr)>/g, "").replace(/\s+/g, " ").trim() : "";
     recusado = RX_RECUSA_DO_COMPACT.test(texto);
   }
-  return { recusado };
+  return { recusado, atividadeDepois };
 }
 
 /** O texto que o Claude Code mostra (e devolve em `claude -p`) quando o OAuth da conta morreu. */

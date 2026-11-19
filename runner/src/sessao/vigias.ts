@@ -73,6 +73,7 @@ function conferirCompactSemFim(s: Sessao, quietoHa: number): void {
   // Qualquer hook depois do PreCompact zera compactComecouEm (eventos.ts), e o PTY do PreCompact tem que ser o de agora:
   // sem isso, uma ferramenta que começou logo depois de um compact bom seria tomada por compact sem fim.
   if (desde <= 0 || s.compactando === null || s.compactando !== s.proc) return;
+  let atividadeDepois = false;
   if (quietoHa >= s.quietoParaOlharTranscriptMs && s.estado.sessionId) {
     const r = compactRecusadoNoTranscript(s.estado.sessionId, desde, s.estado.config.envExtra?.CLAUDE_CONFIG_DIR);
     if (r.recusado) {
@@ -87,9 +88,17 @@ function conferirCompactSemFim(s: Sessao, quietoHa: number): void {
       talvezSoltarFila(s);
       return;
     }
+    atividadeDepois = r.atividadeDepois;
   }
   const emCompactMs = Date.now() - desde;
   if (emCompactMs > s.compactSemFimMs && quietoHa > s.compactQuietoRedeMs) {
+    if (atividadeDepois) {
+      if (!s.compactAtividadeLogada) {
+        s.compactAtividadeLogada = true;
+        log.aviso(s.a("estado"), "PreCompact sem SessionStart, mas o transcript mostra atividade depois dele: não soltei a fila");
+      }
+      return;
+    }
     log.aviso(
       s.a("estado"),
       `PreCompact sem SessionStart há ${Math.round(emCompactMs / 60_000)} min (terminal quieto há ${Math.round(quietoHa / 1000)}s); ` +

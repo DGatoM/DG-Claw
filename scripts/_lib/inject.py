@@ -549,33 +549,20 @@ def _tmux_session(slug: str) -> str:
     return os.environ.get("DGCLAW_TMUX_SESSION") or f"dgclaw-{slug}"
 
 
-# Prefixo do motivo quando o runner recusa por "somenteSeOcioso" (409 AGENTE_OCUPADO).
-MOTIVO_OCUPADO = "AGENTE_OCUPADO"
-
-
-def _inject_bunker(text: str, quando_ocioso: bool, somente_se_ocioso: bool = False):
+def _inject_bunker(text: str, quando_ocioso: bool):
     """Datilografa no card pelo painel. Devolve (ok, motivo).
 
     `quando_ocioso` NAO descarta nada: o painel ENFILEIRA e entrega quando o card
     ficar ocioso. E por isso que o modo bunker nao tem o exit 75 ("adiei, tenta no
     proximo disparo") dos outros dois: aqui adiar e o proprio painel esperar, e o
-    recado chega em vez de se perder.
-
-    `somente_se_ocioso` e o oposto: o runner confere na hora que o agente esta idle e sem fila e,
-    se nao estiver, recusa (409 AGENTE_OCUPADO) sem enfileirar nem digitar. Nao se combina com
-    `quando_ocioso`. A recusa volta como (False, "AGENTE_OCUPADO: ...")."""
+    recado chega em vez de se perder."""
     card = _bunker_card()
-    if somente_se_ocioso:
-        corpo = {"text": text, "somenteSeOcioso": True}
-    else:
-        corpo = {"text": text, "injectWhenIdle": True} if quando_ocioso else {"text": text}
+    corpo = {"text": text, "injectWhenIdle": True} if quando_ocioso else {"text": text}
     status, resposta = _bunker_pedir(f"/api/agents/{card}/input", corpo)
     if status in (200, 202) and resposta and resposta.get("success"):
         return True, "enfileirado" if quando_ocioso else "digitado"
     if status == 0:
         return False, "o painel nao respondeu"
-    if status == 409 and (resposta or {}).get("code") == "AGENTE_OCUPADO":
-        return False, f"{MOTIVO_OCUPADO}: {(resposta or {}).get('error') or 'agente ocupado'}"
     motivo = (resposta or {}).get("error") or f"painel respondeu {status}"
     remedio = (resposta or {}).get("howToFix")
     return False, f"{motivo}{' | ' + remedio if remedio else ''}"

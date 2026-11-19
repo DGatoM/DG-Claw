@@ -135,6 +135,8 @@ export class Sessao extends EventEmitter {
   compactando: unknown = null;
   /** Quando o último PreCompact chegou (ms); o transcript só vale como recusa do /compact se for mais novo que isto. */
   compactComecouEm = 0;
+  /** O aviso "atividade depois do PreCompact" já saiu neste compact (volta a false a cada PreCompact). */
+  compactAtividadeLogada = false;
   /** O Esc pendente do turno (o PRIMEIRO, de qualquer origem; os seguintes não sobrescrevem): só com ele o transcript prova uma interrupção. Cai quando o turno termina ou outro começa. */
   ultimoEscReal: { em: number; proc: unknown } | null = null;
   /**

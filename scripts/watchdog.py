@@ -41,9 +41,9 @@ Duas coberturas, ambas com o MESMO cap anti-storm:
   4) FILA PARADA (19/11/2026): mensagens esperando na fila do runner com o agente "working" (ou
      outro estado que nao e idle nem waiting_input) e o card sem mudar de estado ha mais de
      DGCLAW_FILA_PARADA_MIN (15) min. Um PreCompact recusado pelo CLI deixou um agente nesse estado por
-     horas, com este vigia dizendo "VIVA e saudavel". Restart normal (mesma conversa), com o mesmo cap
-     anti-storm e respeitando auto-recovery=off, SO com o transcript do Claude medido e mudo; com Codex ou
-     sem medicao so avisa o dono uma vez. Relê o card antes de reiniciar. So no mundo bunker.
+     horas, com este vigia dizendo "VIVA e saudavel". NUNCA reinicia: avisa o dono uma vez por incidente
+     (campo proprio do state, nao o saude_avisado) e grava saude.json com so_observou. Vale para os dois
+     motores e para auto-recovery=off. Com o Claude medido exige tambem o transcript mudo. So no mundo bunker.
 
   ONDE O RESTART ACONTECE: no mundo bunker (card do Bunker ou runner proprio, que e o caso
   da jaula) o restart e por HTTP (_lib/reinicio.py: parar + /resume), e nao systemctl. O
@@ -393,34 +393,22 @@ def fila_parada(card, now_ms: float, limite_min: int):
             "motivo": card.get("statusReason") or "sem motivo", "mais_antigo_em": min(ems)}
 
 
-def _mudou_desde_a_leitura(antes, depois, now_ms: float, limite_min: int) -> str:
-    """Motivo (texto) se o card relido NAO e o mesmo incidente da leitura anterior, ou "" se e.
-    Entre ler a fila e reiniciar o agente pode ter soltado a fila, ter sido parado pelo dono ou ter
-    andado: reiniciar nesse caso derruba um turno vivo."""
-    if not depois:
-        return "nao consegui reler o card antes de reiniciar"
-    if depois.get("status") in ("idle", "waiting_input", "stopped", "resumable", "errored"):
-        return f"o agente agora esta {depois.get('status')}"
-    if depois.get("updatedAt") != antes.get("updatedAt"):
-        return "o card mudou de estado desde a primeira leitura"
-    f = fila_parada(depois, now_ms, limite_min)
-    if not f:
-        return "a fila nao esta mais parada"
-    if f["mais_antigo_em"] != fila_parada(antes, now_ms, limite_min)["mais_antigo_em"]:
-        return "o item mais antigo da fila mudou"
-    return ""
+def cuidar_da_fila_parada(card, diag, ctx, transcript_epoch=None):
+    """Fila presa no runner: NUNCA reinicia, so avisa o dono uma vez por incidente e grava saude.json com
+    `so_observou`. Reiniciar um agente que pode estar no meio de um turno vivo custa mais que o aviso, e
+    no Codex o watchdog nem mede o transcript. Com o Claude medido, o transcript tambem precisa estar mudo
+    ha mais de DGCLAW_FILA_PARADA_MIN; Codex ou sem medicao avisa pelo card sozinho.
 
-
-def cuidar_da_fila_parada(card, diag, ctx, transcript_epoch=None, reler_card=None):
-    """Fila presa no runner. So REINICIA (mesma conversa, mesmo caminho e cap anti-storm dos outros) com
-    medicao confiavel: transcript do motor certo (Claude) mudo ha mais de DGCLAW_FILA_PARADA_MIN. Motor
-    Codex (o rollout nao tem linhas user/assistant) ou sem medicao: so avisa o dono uma vez por incidente
-    e grava saude.json dizendo que apenas observou. Antes de reiniciar, relê o card: se mudou, desiste.
-    auto-recovery=off tambem so observa. Devolve (tratado, veredito, diag_para_a_saude)."""
+    A deduplicacao usa o campo proprio state["fila_parada_avisada"] (o `em` do item mais antigo), e nao
+    saude_avisado, que a rodada limpa sempre que o diagnostico geral esta ativo. O campo sai quando a fila
+    destrava. Devolve (tratado, veredito, diag_para_a_saude)."""
     now_ms = time.time() * 1000
     limite = env_int("DGCLAW_FILA_PARADA_MIN", 15)
+    state, state_path = ctx["state"], ctx["state_path"]
     f = fila_parada(card, now_ms, limite)
     if not f:
+        if card and state.pop("fila_parada_avisada", None) is not None:
+            save_state(state_path, state)
         return False, "", diag
     codex = bool(card.get("codexHome"))
     medido = transcript_epoch is not None and not codex
@@ -428,30 +416,17 @@ def cuidar_da_fila_parada(card, diag, ctx, transcript_epoch=None, reler_card=Non
         return False, "", diag  # o transcript ainda anda: ferramenta longa, nao fila presa
     resumo = (f"{f['n']} mensagem(ns) esperando ha {f['idade_min']} min com o agente em "
               f"{f['status']} ({f['motivo']})")
-    diag = dict(diag, estado="atencao", tipo="fila_parada",
+    diag = dict(diag, estado="atencao", tipo="fila_parada", so_observou=True,
                 frase=f"A fila esta parada: {resumo}.")
-    state, state_path, now = ctx["state"], ctx["state_path"], ctx["now"]
-    motivo = f"ficou com a fila parada: {resumo}"
-    if ctx["auto_recovery"] == "off":
-        return True, observe_only(ctx["service"], motivo, state, state_path), diag
-    if not medido:
-        diag = dict(diag, so_observou=True)
-        por_que = ("o agente usa o motor Codex, cujo transcript o watchdog nao mede" if codex
-                   else "nao consegui medir a ultima escrita do transcript")
-        aviso = _avisar_uma_vez(
-            state, state_path, f"fila-parada:{int(f['mais_antigo_em'])}",
-            f"⚠️ Watchdog DG Claw: {resumo}. Nao reiniciei porque {por_que}, entao nao tenho como "
-            f"confirmar que o agente travou. Se ele nao estiver respondendo, reinicie pelo botao "
-            f"Reiniciar do painel.")
-        sys.stderr.write(f"[watchdog] fila parada sem medicao confiavel ({por_que}): so observei\n")
-        return True, f"fila parada, so observei ({por_que}); {aviso}", diag
-    depois = (reler_card or inject._bunker_estado)()
-    mudou = _mudou_desde_a_leitura(card, depois, time.time() * 1000, limite)
-    if mudou:
-        sys.stderr.write(f"[watchdog] fila parada: desisti de reiniciar, {mudou}\n")
-        return False, "", diag
-    return True, attempt_restart(ctx["service"], motivo, state, state_path, now,
-                                 ctx["max_restarts"], ctx["window_min"]), diag
+    incidente = int(f["mais_antigo_em"])
+    if state.get("fila_parada_avisada") == incidente:
+        return True, "fila parada, so observei (dono ja avisado)", diag
+    if notify_owner(f"⚠️ Watchdog DG Claw: {resumo}. Nao reiniciei o agente por conta propria. "
+                    f"Se ele nao estiver respondendo, da para reiniciar pelo botao Reiniciar do painel."):
+        state["fila_parada_avisada"] = incidente
+        save_state(state_path, state)
+        return True, "fila parada, so observei e avisei o dono", diag
+    return True, "fila parada, so observei (aviso NAO saiu, tento de novo na proxima rodada)", diag
 
 
 def _avisar_uma_vez(state, state_path, chave, msg) -> str:
@@ -660,7 +635,7 @@ def rodada() -> str:
         if tratado:
             gravar_saude(logs_dir, diag_fila, verdict, now)
             log(f"sessao '{name}' VIVA mas com a FILA PARADA -> {verdict}")
-            return verdict
+            # So avisa: as checagens seguintes (turno travado apos poke) continuam valendo nesta rodada.
 
     # ── 2) TURNO TRAVADO (sessao viva, mas transcript parado apos um poke recente) ──
     # Sessao viva e saudavel -> rearma o aviso de storm E o de auto-recovery=off (normalizou).

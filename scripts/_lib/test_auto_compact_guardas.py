@@ -118,7 +118,7 @@ class CompactRecenteERecuo(unittest.TestCase):
 class MainDoAutoCompactNoRunner(unittest.TestCase):
     """O main inteiro, com o card falso: a guarda sai 0 sem injetar nem gravar estado."""
 
-    def _rodar(self, card, state=None, rc_injecao=0, force=False):
+    def _rodar(self, card, state=None, ao_injetar=None):
         with tempfile.TemporaryDirectory() as d:
             ws = Path(d)
             transcript = ws / "t.jsonl"
@@ -133,7 +133,7 @@ class MainDoAutoCompactNoRunner(unittest.TestCase):
             from auto_compact import principal
             injetou = []
             with mock.patch.dict(os.environ, amb), \
-                 mock.patch.object(sys, "argv", ["auto-compact.py"] + (["--force"] if force else [])), \
+                 mock.patch.object(sys, "argv", ["auto-compact.py"]), \
                  mock.patch.object(principal.inj, "resolve_mode", return_value="bunker"), \
                  mock.patch.object(guardas.inj, "resolve_mode", return_value="bunker"), \
                  mock.patch.object(guardas.inj, "_bunker_estado", return_value=card), \
@@ -144,7 +144,7 @@ class MainDoAutoCompactNoRunner(unittest.TestCase):
                  mock.patch.object(principal, "notify_owner"), \
                  mock.patch.object(principal, "esperar_assentar_e_fechar"), \
                  mock.patch.object(principal, "inject_compact",
-                                   side_effect=lambda *a, **k: injetou.append((a, k)) or rc_injecao):
+                                   side_effect=lambda *a: (ao_injetar() if ao_injetar else None, injetou.append(a), 0)[2]):
                 rc = principal.main()
             gravado = json.loads(state_file.read_text()) if state_file.exists() else {}
             return rc, injetou, gravado
@@ -157,26 +157,20 @@ class MainDoAutoCompactNoRunner(unittest.TestCase):
         self.assertNotIn("last_compact_ts", gravado)
         self.assertEqual(gravado["consecutive_fail"], 1)
 
-    def test_card_idle_e_fila_vazia_injeta_com_somente_se_ocioso(self):
+    def test_card_idle_e_fila_vazia_injeta(self):
         rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0})
         self.assertEqual(rc, 0)
         self.assertEqual(len(injetou), 1)
-        self.assertTrue(injetou[0][1]["somente_se_ocioso"])
         self.assertIn("last_compact_ts", gravado)
 
-    def test_force_mantem_o_comportamento_antigo(self):
-        rc, injetou, gravado = self._rodar({"status": "working", "naFilaTotal": 2}, force=True)
+    def test_since_do_recibo_e_capturado_antes_do_envio(self):
+        envios = []
+        rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0},
+                                           ao_injetar=lambda: envios.append(datetime.now(timezone.utc)))
         self.assertEqual(rc, 0)
-        self.assertEqual(len(injetou), 1)
-        self.assertFalse(injetou[0][1]["somente_se_ocioso"])
-
-    def test_runner_recusa_por_ocupado_adia_sem_gravar_nem_contar_falha(self):
-        rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0}, rc_injecao=6,
-                                           state={"consecutive_fail": 1})
-        self.assertEqual(rc, 0)
-        self.assertEqual(len(injetou), 1)
-        self.assertNotIn("last_compact_ts", gravado)
-        self.assertEqual(gravado["consecutive_fail"], 1)
+        since = datetime.fromisoformat(gravado["last_compact_ts"])
+        self.assertLessEqual(since, envios[0])
+        self.assertEqual(gravado["pending_resume_poke"]["since"], gravado["last_compact_ts"])
 
     def test_leitura_do_card_falhou_nao_envia(self):
         rc, injetou, gravado = self._rodar(None)
@@ -193,176 +187,124 @@ class MainDoAutoCompactNoRunner(unittest.TestCase):
         self.assertEqual(gravado["consecutive_fail"], 2)
 
 
-class EntregaSomenteSeOcioso(unittest.TestCase):
-    def test_inject_bunker_manda_somente_se_ocioso_sem_inject_when_idle(self):
-        import inject
-        pedidos = []
-        with mock.patch.dict(os.environ, {"DGCLAW_BUNKER_CARD": "c1"}), \
-             mock.patch.object(inject, "_bunker_pedir",
-                               side_effect=lambda rota, corpo=None, timeout=30: pedidos.append(corpo) or (202, {"success": True})):
-            ok, _ = inject._inject_bunker("/compact", False, True)
-        self.assertTrue(ok)
-        self.assertEqual(pedidos, [{"text": "/compact", "somenteSeOcioso": True}])
-
-    def test_409_agente_ocupado_volta_como_motivo_proprio(self):
-        import inject
-        resp = {"success": False, "error": "o agente esta working", "code": "AGENTE_OCUPADO"}
-        with mock.patch.dict(os.environ, {"DGCLAW_BUNKER_CARD": "c1"}), \
-             mock.patch.object(inject, "_bunker_pedir", return_value=(409, resp)):
-            ok, motivo = inject._inject_bunker("/compact", False, True)
-        self.assertFalse(ok)
-        self.assertTrue(motivo.startswith(inject.MOTIVO_OCUPADO))
-
-    def test_inject_text_devolve_6_quando_o_runner_recusa_por_ocupado(self):
-        from auto_compact import injecao
-        with mock.patch.object(injecao, "env", return_value=""), \
-             mock.patch.object(injecao.inj, "resolve_mode", return_value="bunker"), \
-             mock.patch.object(injecao.inj, "is_session_alive", return_value=True), \
-             mock.patch.object(injecao.inj, "_bunker_card", return_value="c1"), \
-             mock.patch.object(injecao.inj, "_inject_bunker",
-                               return_value=(False, "AGENTE_OCUPADO: working")) as ib:
-            rc = injecao.inject_compact("teste", "canal", False, somente_se_ocioso=True)
-        self.assertEqual(rc, 6)
-        ib.assert_called_once_with("/compact", False, True)
-
-
 class FilaParadaNoWatchdog(unittest.TestCase):
     def _card(self, **kw):
         base = {"status": "working", "statusReason": "hook:PreCompact", "naFilaTotal": 2,
-                "naFila": [{"em": _agora_ms(-40), "msg": None}, {"em": _agora_ms(-30), "msg": None}],
-                "updatedAt": _agora_ms(-40)}
+                "naFila": [{"em": 1000.0, "msg": None}, {"em": 2000.0, "msg": None}],
+                "updatedAt": 1000.0}
+        # tempos absolutos relativos a agora, fixados uma vez por card
+        agora = _agora_ms()
+        base["naFila"] = [{"em": agora - 40 * 60000, "msg": None}, {"em": agora - 30 * 60000, "msg": None}]
+        base["updatedAt"] = agora - 40 * 60000
         base.update(kw)
         return base
 
-    def _ctx(self, tmp, auto_recovery="on"):
-        return {"state": {}, "state_path": Path(tmp) / ".watchdog-state.json",
+    def _ctx(self, tmp, auto_recovery="on", state=None):
+        return {"state": {} if state is None else state, "state_path": Path(tmp) / ".watchdog-state.json",
                 "now": datetime.now(timezone.utc), "service": "dgclaw-teste.service",
                 "auto_recovery": auto_recovery, "max_restarts": 3, "window_min": 60}
 
-    def _cuidar(self, card, auto_recovery="on", transcript_epoch="mudo", releitura="igual"):
-        """transcript_epoch: "mudo" = Claude com o transcript parado ha 40 min; None = sem medicao.
-        releitura: "igual" devolve o mesmo card; outro valor e o card relido (ou None = falhou)."""
+    def _cuidar(self, card, auto_recovery="on", transcript_epoch="mudo"):
+        """transcript_epoch: "mudo" = transcript parado ha 40 min; None = sem medicao."""
         if transcript_epoch == "mudo":
             transcript_epoch = time.time() - 40 * 60
         with tempfile.TemporaryDirectory() as d:
             ctx = self._ctx(d, auto_recovery)
-            reinicios, avisos = [], []
-            relido = card if releitura == "igual" else releitura
-            with mock.patch.object(wd, "do_restart", side_effect=lambda s: reinicios.append(s) or (True, "")), \
+            avisos = []
+            with mock.patch.object(wd, "do_restart", side_effect=AssertionError("nunca deve reiniciar")), \
+                 mock.patch.object(wd, "attempt_restart", side_effect=AssertionError("nunca deve reiniciar")), \
                  mock.patch.object(wd, "notify_owner", side_effect=lambda m: avisos.append(m) or True):
-                r = wd.cuidar_da_fila_parada(card, {"estado": "ativo", "tipo": "ok"}, ctx,
-                                             transcript_epoch, reler_card=lambda: relido)
-            return r, reinicios, avisos
+                r = wd.cuidar_da_fila_parada(card, {"estado": "ativo", "tipo": "ok"}, ctx, transcript_epoch)
+            return r, avisos
 
-    def test_fila_parada_reinicia_avisa_e_marca_a_saude(self):
-        (tratado, verdict, diag), reinicios, avisos = self._cuidar(self._card())
+    def test_fila_parada_avisa_e_marca_a_saude_sem_reiniciar(self):
+        (tratado, verdict, diag), avisos = self._cuidar(self._card())
         self.assertTrue(tratado)
-        self.assertEqual(len(reinicios), 1)
-        self.assertIn("reiniciei", verdict)
-        self.assertIn("fila parada", verdict)
-        self.assertIn("working", verdict)
-        self.assertIn("hook:PreCompact", verdict)
-        self.assertEqual(len(avisos), 1, "o dono e avisado")
-        self.assertEqual(diag["tipo"], "fila_parada")
-        self.assertNotEqual(diag["estado"], "ativo")
-
-    def test_fila_com_agente_idle_nao_reinicia(self):
-        (tratado, _v, _d), reinicios, _a = self._cuidar(self._card(status="idle"))
-        self.assertFalse(tratado)
-        self.assertEqual(reinicios, [])
-
-    def test_waiting_input_nao_reinicia(self):
-        (tratado, _v, _d), reinicios, _a = self._cuidar(self._card(status="waiting_input"))
-        self.assertFalse(tratado)
-        self.assertEqual(reinicios, [])
-
-    def test_fila_nova_nao_reinicia(self):
-        card = self._card(naFila=[{"em": _agora_ms(-3), "msg": None}], naFilaTotal=1)
-        (tratado, _v, _d), reinicios, _a = self._cuidar(card)
-        self.assertFalse(tratado)
-        self.assertEqual(reinicios, [])
-
-    def test_card_que_mudou_de_estado_ha_pouco_nao_reinicia(self):
-        (tratado, _v, _d), reinicios, _a = self._cuidar(self._card(updatedAt=_agora_ms(-2)))
-        self.assertFalse(tratado)
-        self.assertEqual(reinicios, [])
-
-    def test_transcript_escrito_ha_pouco_nao_reinicia(self):
-        # Ferramenta longa: o card nao muda de estado, mas o turno vivo escreve no transcript.
-        (tratado, _v, _d), reinicios, _a = self._cuidar(self._card(), transcript_epoch=time.time() - 120)
-        self.assertFalse(tratado)
-        self.assertEqual(reinicios, [])
-
-    def test_transcript_mudo_ha_muito_reinicia(self):
-        (tratado, _v, _d), reinicios, _a = self._cuidar(self._card(), transcript_epoch=time.time() - 40 * 60)
-        self.assertTrue(tratado)
-        self.assertEqual(len(reinicios), 1)
-
-    def test_sem_medicao_do_transcript_so_avisa_uma_vez_e_nao_reinicia(self):
-        card = self._card()
-        with tempfile.TemporaryDirectory() as d:
-            ctx = self._ctx(d)
-            reinicios, avisos = [], []
-            with mock.patch.object(wd, "do_restart", side_effect=lambda s: reinicios.append(s) or (True, "")), \
-                 mock.patch.object(wd, "notify_owner", side_effect=lambda m: avisos.append(m) or True):
-                for _ in range(2):
-                    tratado, verdict, diag = wd.cuidar_da_fila_parada(card, {"estado": "ativo"}, ctx, None)
-            self.assertTrue(tratado)
-            self.assertEqual(reinicios, [])
-            self.assertEqual(len(avisos), 1, "um aviso por incidente")
-            self.assertIn("so observei", verdict)
-            self.assertEqual(diag["tipo"], "fila_parada")
-            self.assertTrue(diag["so_observou"])
-
-    def test_agente_codex_so_avisa_e_nao_reinicia_mesmo_com_transcript_velho(self):
-        (tratado, verdict, diag), reinicios, avisos = self._cuidar(
-            self._card(codexHome="/tmp/codex-teste"), transcript_epoch=time.time() - 40 * 60)
-        self.assertTrue(tratado)
-        self.assertEqual(reinicios, [])
+        self.assertIn("so observei", verdict)
         self.assertEqual(len(avisos), 1)
-        self.assertIn("Codex", avisos[0])
+        self.assertIn("2 mensagem", avisos[0])
+        self.assertIn("working", avisos[0])
+        self.assertIn("Reiniciar", avisos[0])
+        self.assertEqual(diag["tipo"], "fila_parada")
         self.assertTrue(diag["so_observou"])
 
-    def test_releitura_com_card_mudado_desiste_sem_reiniciar(self):
-        card = self._card()
-        casos = {
-            "card andou": self._card(updatedAt=_agora_ms(-1)),
-            "ficou idle": self._card(status="idle"),
-            "parado pelo dono": self._card(status="stopped"),
-            "item mais antigo mudou": self._card(naFila=[{"em": _agora_ms(-20), "msg": None}], naFilaTotal=1),
-            "releitura falhou": None,
-        }
-        for nome, relido in casos.items():
-            with self.subTest(nome):
-                (tratado, _v, _d), reinicios, _a = self._cuidar(card, releitura=relido)
-                self.assertFalse(tratado)
-                self.assertEqual(reinicios, [])
+    def test_fila_com_agente_idle_ou_waiting_input_nao_avisa(self):
+        for st in ("idle", "waiting_input"):
+            (tratado, _v, _d), avisos = self._cuidar(self._card(status=st))
+            self.assertFalse(tratado)
+            self.assertEqual(avisos, [])
 
-    def test_fila_vazia_nao_reinicia(self):
-        (tratado, _v, _d), reinicios, _a = self._cuidar(self._card(naFilaTotal=0, naFila=[]))
+    def test_fila_nova_ou_card_recente_nao_avisa(self):
+        for card in (self._card(naFila=[{"em": _agora_ms(-3), "msg": None}], naFilaTotal=1),
+                     self._card(updatedAt=_agora_ms(-2)), self._card(naFilaTotal=0, naFila=[])):
+            (tratado, _v, _d), avisos = self._cuidar(card)
+            self.assertFalse(tratado)
+            self.assertEqual(avisos, [])
+
+    def test_transcript_escrito_ha_pouco_nao_avisa(self):
+        (tratado, _v, _d), avisos = self._cuidar(self._card(), transcript_epoch=time.time() - 120)
         self.assertFalse(tratado)
-        self.assertEqual(reinicios, [])
+        self.assertEqual(avisos, [])
 
-    def test_auto_recovery_off_so_observa(self):
-        (tratado, verdict, _d), reinicios, avisos = self._cuidar(self._card(), auto_recovery="off")
+    def test_codex_ou_sem_medicao_tambem_so_avisa(self):
+        for card, epoch in ((self._card(codexHome="/tmp/codex-teste"), "mudo"), (self._card(), None)):
+            (tratado, _v, diag), avisos = self._cuidar(card, transcript_epoch=epoch)
+            self.assertTrue(tratado)
+            self.assertEqual(len(avisos), 1)
+            self.assertTrue(diag["so_observou"])
+
+    def test_auto_recovery_off_tambem_so_avisa(self):
+        (tratado, _v, _d), avisos = self._cuidar(self._card(), auto_recovery="off")
         self.assertTrue(tratado)
-        self.assertEqual(reinicios, [])
-        self.assertIn("auto-recovery=off", verdict)
         self.assertEqual(len(avisos), 1)
 
-    def test_respeita_o_cap_de_reinicios(self):
+    def test_dedup_por_incidente_muda_com_o_item_mais_antigo_e_limpa_ao_destravar(self):
         with tempfile.TemporaryDirectory() as d:
             ctx = self._ctx(d)
-            ctx["state"] = {"restarts": [datetime.now(timezone.utc).isoformat()] * 3}
-            reinicios = []
-            card = self._card()
-            with mock.patch.object(wd, "do_restart", side_effect=lambda s: reinicios.append(s) or (True, "")), \
-                 mock.patch.object(wd, "notify_owner", return_value=True):
-                tratado, verdict, _ = wd.cuidar_da_fila_parada(
-                    card, {"estado": "ativo"}, ctx, time.time() - 40 * 60, reler_card=lambda: card)
-            self.assertTrue(tratado)
-            self.assertEqual(reinicios, [])
-            self.assertIn("cap atingido", verdict)
+            avisos = []
+            epoch = time.time() - 40 * 60
+            with mock.patch.object(wd, "attempt_restart", side_effect=AssertionError("nunca deve reiniciar")), \
+                 mock.patch.object(wd, "notify_owner", side_effect=lambda m: avisos.append(m) or True):
+                card = self._card()
+                wd.cuidar_da_fila_parada(card, {}, ctx, epoch)
+                wd.cuidar_da_fila_parada(card, {}, ctx, epoch)
+                self.assertEqual(len(avisos), 1)
+                outro = self._card(naFila=[{"em": _agora_ms(-35), "msg": None}], naFilaTotal=1)
+                wd.cuidar_da_fila_parada(outro, {}, ctx, epoch)
+                self.assertEqual(len(avisos), 2, "item mais antigo mudou: avisa de novo")
+                self.assertIn("fila_parada_avisada", ctx["state"])
+                wd.cuidar_da_fila_parada(self._card(status="idle", naFilaTotal=0, naFila=[]), {}, ctx, epoch)
+                self.assertNotIn("fila_parada_avisada", ctx["state"])
+
+    def test_rodada_com_diagnostico_ativo_nao_repete_o_aviso(self):
+        card = self._card()
+        with tempfile.TemporaryDirectory() as d:
+            ws = Path(d)
+            logs = ws / "logs"
+            avisos = []
+            diag = {"estado": "ativo", "tipo": "ok", "frase": "ok"}
+            with mock.patch.object(wd, "resolve_workspace", return_value=ws), \
+                 mock.patch.object(wd, "resolve_slug", return_value="teste"), \
+                 mock.patch.object(wd, "resolve_service", return_value="dgclaw-teste.service"), \
+                 mock.patch.object(wd, "resolve_session_dir", return_value=ws), \
+                 mock.patch.object(wd, "resolve_logs_dir", return_value=logs), \
+                 mock.patch.object(wd, "service_is_enabled", return_value=True), \
+                 mock.patch.object(wd, "pulso_write"), \
+                 mock.patch.object(wd, "ultimo_turno_epoch", return_value=time.time() - 40 * 60), \
+                 mock.patch.object(wd.reinicio, "ler_marca", return_value=None), \
+                 mock.patch.object(wd.saude_sessao, "diagnosticar", return_value=(diag, None)), \
+                 mock.patch.object(wd.inject, "is_session_alive", return_value=True), \
+                 mock.patch.object(wd.inject, "resolve_mode", return_value="bunker"), \
+                 mock.patch.object(wd.inject, "_bunker_estado", return_value=card), \
+                 mock.patch.object(wd, "attempt_restart", side_effect=AssertionError("nunca deve reiniciar")), \
+                 mock.patch.object(wd, "do_restart", side_effect=AssertionError("nunca deve reiniciar")), \
+                 mock.patch.object(wd, "notify_owner", side_effect=lambda m: avisos.append(m) or True):
+                wd.rodada()
+                wd.rodada()
+            self.assertEqual(len(avisos), 1, "diagnostico ativo limpa saude_avisado, mas nao o campo proprio")
+            gravado = json.loads((logs / "saude.json").read_text())
+            self.assertEqual(gravado["tipo"], "fila_parada")
+            self.assertTrue(gravado["so_observou"])
 
 
 if __name__ == "__main__":
