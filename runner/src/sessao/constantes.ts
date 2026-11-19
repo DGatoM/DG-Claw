@@ -54,3 +54,6 @@ export const TETO_BOOT_SEM_SINAL_MS = 30_000;
  *  sem hooks registrados (sem recibo possível). Antes disso, "ainda não chegou" não é "não existe": o recibo é
  *  esperado e a vigia do Enter fica armada. */
 export const PRAZO_SEM_HOOKS_MS = 60_000;
+
+/** Mensagem que esperou na fila mais que isto chega ao agente com um aviso de atraso (ver avisoDeAtraso). */
+export const AVISO_DE_FILA_APOS_MS = 20_000;

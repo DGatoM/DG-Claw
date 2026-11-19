@@ -13,7 +13,10 @@ function sse(res, evento, dados, id) {
 }
 
 function chaveAtividade(a) {
-  return [a.estado, a.acao, a.alerta, a.desde, a.detalhe].join('|');
+  // na_fila entra na chave: uma mensagem que entra ou sai da fila de um agente que segue na mesma operação
+  // também precisa chegar aos outros aparelhos abertos.
+  const fila = Array.isArray(a.na_fila) ? a.na_fila.map((x) => x.msg || x.em).join(',') : '';
+  return [a.estado, a.acao, a.alerta, a.desde, a.detalhe, fila].join('|');
 }
 
 /**
@@ -141,4 +144,4 @@ function abrirStream({ req, res, agente, since, fontes, log, tickMs, valeAinda, 
   return encerra;
 }
 
-module.exports = { abrirStream, sse };
+module.exports = { abrirStream, sse, chaveAtividade };

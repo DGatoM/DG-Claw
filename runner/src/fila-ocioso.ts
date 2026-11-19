@@ -14,6 +14,9 @@ export interface ItemDaFila {
   texto: string;
   /** epoch ms de quando entrou na fila. */
   em: number;
+  /** true quando a mensagem entrou com o agente ocupado ou com outras na frente: ela vai ser lida depois de falas
+   *  dele que o dono ainda não viu. Falta (arquivo antigo) vale falso. */
+  esperou?: boolean;
   /** Identificador curto, só para o log dizer de qual pedido fala (nunca o texto). */
   id?: string;
   /** Só no disco: o texto foi (ou ia ser) digitado no terminal e o CLI ainda não confirmou que o aceitou (sem
@@ -57,6 +60,7 @@ export function carregarFila(caminho: string, area: string): ItemDaFila[] {
     for (const it of dado.itens as Array<Record<string, unknown>>) {
       if (typeof it?.texto !== "string") throw new Error("item sem texto em formato de string");
       const item: ItemDaFila = { texto: it.texto, em: typeof it.em === "number" ? it.em : Date.now() };
+      if (it.esperou === true) item.esperou = true;
       if (typeof it.id === "string") item.id = it.id;
       if (it.digitado === true) item.digitado = true;
       if (it.incerto === true) item.incerto = true;

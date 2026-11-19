@@ -3,7 +3,7 @@ import type { Sessao } from "../sessao.js";
 import { type ItemDaFila, gravarFila } from "../fila-ocioso.js";
 import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
-import { JANELA_DE_PRONTIDAO_MS, PRONTO_APOS_SPAWN_MS, QUIETO_ANTES_DE_DIGITAR_MS } from "./constantes.js";
+import { AVISO_DE_FILA_APOS_MS, JANELA_DE_PRONTIDAO_MS, PRONTO_APOS_SPAWN_MS, QUIETO_ANTES_DE_DIGITAR_MS } from "./constantes.js";
 
 /** Um texto que já foi digitado no terminal e ainda não tem recibo do CLI (UserPromptSubmit no Claude,
  *  task_started no Codex). Enquanto estiver aqui o pedido NÃO está entregue: se o terminal sair antes do
@@ -27,15 +27,44 @@ const MOTIVOS_DE_TELA_BLOQUEADA = ["runner:dialogo-auto-mode", "runner:tela-de-c
 /** Guarda um texto para digitar assim que o agente ficar ocioso. É como uma
  *  rotina agendada (ou o cliente, numa sessão que estava dormindo) fala com ele
  *  sem atropelar o turno em andamento. A fila é FIFO: nenhum texto apaga outro. */
-export function enfileirarQuandoOcioso(s: Sessao, texto: string): void {
+export function enfileirarQuandoOcioso(s: Sessao, texto: string, esperouNoPainel = false): void {
   s.marcarAtividade();
-  s.filaQuandoIdle.push({ texto, em: Date.now(), id: randomUUID().slice(0, 8) });
+  // Entrou com o agente ocupado, com outra na frente ou com um item sendo digitado: vai ser lida depois de falas
+  // dele que quem escreveu ainda não viu (ver avisoDeAtraso).
+  const esperou = esperouNoPainel || s.estado.status !== "idle" || s.filaQuandoIdle.length > 0 || s.soltandoFila;
+  s.filaQuandoIdle.push({ texto, em: Date.now(), id: randomUUID().slice(0, 8), ...(esperou ? { esperou: true } : {}) });
   espelharFila(s);
   log.info(
     s.a("entrada"),
     `${texto.length} caracteres enfileirados para quando ficar ocioso (fila: ${s.filaQuandoIdle.length})`,
   );
   talvezSoltarFila(s);
+}
+
+function duasCasas(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/** Texto acrescentado DEPOIS da mensagem do chat do painel quando ela esperou na fila. Resposta curta ("ok", "sim")
+ *  escrita antes de o agente falar de outro assunto pode parecer autorização do que ele propôs depois; o aviso diz
+ *  isso ao agente. Vale para a mensagem que entrou com o agente ocupado (qualquer tempo de espera) ou que esperou
+ *  mais que AVISO_DE_FILA_APOS_MS. Fica fora do envelope: o painel lê só o que está dentro dele. Só o envelope
+ *  <dgchat> recebe o aviso: comando literal (/model...) e mensagem de canal externo (WhatsApp, Telegram), cujo
+ *  leitor espera a tag de fechamento no fim, saem intactos. */
+export function avisoDeAtraso(item: { texto?: string; em: number; esperou?: boolean }, agora: number = Date.now()): string {
+  if (item.texto !== undefined && !item.texto.startsWith("<dgchat")) return "";
+  const espera = agora - item.em;
+  if (!item.esperou && espera < AVISO_DE_FILA_APOS_MS) return "";
+  const quando = new Date(item.em);
+  const hora = `${duasCasas(quando.getHours())}:${duasCasas(quando.getMinutes())}`;
+  const minutos = Math.round(espera / 60_000);
+  const duracao = minutos < 1 ? "alguns segundos" : `cerca de ${minutos} min`;
+  return (
+    `\n\n[Aviso do sistema: a mensagem acima foi escrita às ${hora} e esperou ${duracao} na fila, ` +
+    `enquanto você respondia outras coisas. Ela pode ter sido escrita antes das suas últimas respostas. ` +
+    `Uma resposta curta (ok, sim, pode, beleza) não autoriza uma ação nova que você propôs depois disso: ` +
+    `se for o caso, confirme com o dono antes de agir.]`
+  );
 }
 
 /** Solta UM item por vez: o próximo sai no próximo idle, depois que o turno do
@@ -83,7 +112,7 @@ export function talvezSoltarFila(s: Sessao): void {
   s.filaQuandoIdle.shift();
   s.itemEmVoo = item;
   item.digitado = true;
-  const texto = item.texto;
+  const texto = item.texto + avisoDeAtraso(item);
   // Comando de barra (/compact, /clear...) não tem recibo confiável (não dispara UserPromptSubmit), então não
   // fica em semRecibo. Mas também é gravado como digitado antes de ser digitado, e sai do disco quando termina:
   // se o runner cair no meio, no boot ele aparece digitado e fica retido, nunca é executado de novo.
