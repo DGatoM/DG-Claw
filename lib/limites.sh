@@ -15,19 +15,39 @@
 LIMITE_PIDS=4096
 LIMITE_MEM_PISO_MB=2048
 
+# O ambiente DESTE processo, guardado ao carregar o arquivo (antes de carregar_env_dgclaw, que executa o dgclaw.env e
+# sobrescreveria a variavel). Assim criar, recriar e reparar leem os valores do mesmo jeito: variavel de ambiente
+# primeiro; sem ela, a linha literal do dgclaw.env.
+_LIM_AMB_MEMORIA="${DGCLAW_CONTAINER_MEMORIA:-}"
+_LIM_AMB_CPUS="${DGCLAW_CONTAINER_CPUS:-}"
+
 # _limites_env_literal <NOME>: le o valor de NOME do $DG_ETC/dgclaw.env SEM executar o arquivo (nada de source/eval:
-# so a linha `NOME=valor`, a ultima vence, aspas simples ou duplas em volta sao tiradas). Imprime vazio se nao achou.
+# so a linha `NOME=valor`, a ultima vence). Como o shell faria: aspas simples ou duplas em volta sao tiradas (o que vem
+# depois da aspa de fechamento, como um comentario, e ignorado) e, em valor sem aspas, um comentario no fim da linha
+# (espaco e `#`) e cortado. Imprime vazio se nao achou.
 _limites_env_literal() {
-    local nome="$1" arq="$DG_ETC/dgclaw.env" linha val=""
+    local nome="$1" arq="$DG_ETC/dgclaw.env" linha val="" resto
     [ -r "$arq" ] || return 0
     while IFS= read -r linha || [ -n "$linha" ]; do
         case "$linha" in "$nome="*) val="${linha#"$nome="}" ;; esac
     done <"$arq"
     case "$val" in
-        \"*\") val="${val#\"}"; val="${val%\"}" ;;
-        \'*\') val="${val#\'}"; val="${val%\'}" ;;
+        \"*)
+            resto="${val#\"}"
+            case "$resto" in *\"*) val="${resto%%\"*}" ;; esac ;;
+        \'*)
+            resto="${val#\'}"
+            case "$resto" in *\'*) val="${resto%%\'*}" ;; esac ;;
+        *)
+            val="${val%%[[:space:]]#*}"
+            val="${val%"${val##*[![:space:]]}"}" ;;
     esac
     printf '%s' "$val"
+}
+
+# _limites_valor_configurado <NOME> <valor-do-ambiente>: a variavel de ambiente vale; senao a linha literal do dgclaw.env.
+_limites_valor_configurado() {
+    if [ -n "$2" ]; then printf '%s' "$2"; else _limites_env_literal "$1"; fi
 }
 
 # limites_calcular: preenche LIM_MEM_MB (inteiro), LIM_MEM_ARG (valor do --memory), LIM_CPUS_DEC (decimos de CPU,
@@ -35,9 +55,9 @@ _limites_env_literal() {
 # shellcheck disable=SC2034 # lidas por quem carrega este arquivo
 limites_calcular() {
     local total_kb="" n mb dec cfg_mem cfg_cpus
-    # A variavel ja no ambiente vale; senao le o dgclaw.env literalmente (sem executa-lo).
-    cfg_mem="${DGCLAW_CONTAINER_MEMORIA:-}"; [ -n "$cfg_mem" ] || cfg_mem="$(_limites_env_literal DGCLAW_CONTAINER_MEMORIA)"
-    cfg_cpus="${DGCLAW_CONTAINER_CPUS:-}"; [ -n "$cfg_cpus" ] || cfg_cpus="$(_limites_env_literal DGCLAW_CONTAINER_CPUS)"
+    # Mesmo leitor e mesma precedencia em criar, recriar e reparar (ver _limites_valor_configurado).
+    cfg_mem="$(_limites_valor_configurado DGCLAW_CONTAINER_MEMORIA "$_LIM_AMB_MEMORIA")"
+    cfg_cpus="$(_limites_valor_configurado DGCLAW_CONTAINER_CPUS "$_LIM_AMB_CPUS")"
     if [ -r "$R/proc/meminfo" ]; then
         total_kb="$(awk '/^MemTotal:/ { print $2; exit }' "$R/proc/meminfo" 2>/dev/null)"
     fi
@@ -154,8 +174,15 @@ _limites_mem_abaixo() { [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_B" -gt 0 ] && [ "$A
 _limites_cpu_abaixo() { [ "$ATU_CPU_OK" = 1 ] && [ "$ATU_CPU_QUOTA" -gt 0 ] && [ $((ATU_CPU_QUOTA * 10)) -lt $((LIM_CPUS_DEC * ATU_CPU_PERIODO)) ]; }
 _limites_pids_abaixo() { [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS" -gt 0 ] && [ "$ATU_PIDS" -lt "$LIMITE_PIDS" ]; }
 
+# O padrao antigo do DG Claw (antes do calculo pela maquina): 2 GiB, 1.0 CPU e 1024 processos. O reparar so mexe num recurso
+# que ainda esta nesse valor; qualquer outro valor (acima ou abaixo do calculado) conta como escolha do dono.
+_limites_mem_antiga() { [ "$ATU_MEM_B" -eq 2147483648 ]; }
+_limites_cpu_antiga() { [ "$ATU_CPU_QUOTA" -eq "$ATU_CPU_PERIODO" ]; }
+_limites_pids_antigo() { [ "$ATU_PIDS" -eq 1024 ]; }
+
 # limites_ajustar_existente <slug>: poe o container que ja existe no limite calculado, SEM recriar, com
-# `podman update`. So sobe: o que a pessoa aumentou a mao (ou o que esta sem limite) nao e tocado. Se o podman
+# `podman update`. So sobe o que ainda esta no padrao antigo do DG Claw (2 GiB, 1.0 CPU, 1024 processos): qualquer outro valor
+# (a pessoa aumentou ou diminuiu a mao) e o que esta sem limite ficam como estao, e o log diz que foi mantido e por que. Se o podman
 # da maquina nao tem o `update` ou nao aceita um dos flags, avisa e segue (nunca derruba o reparar). O resultado de
 # cada recurso vem da RELEITURA do cgroup depois do update, nao do codigo de saida do podman.
 limites_ajustar_existente() {
@@ -174,18 +201,31 @@ limites_ajustar_existente() {
     [ "$ATU_CPU_OK" = 1 ] || aviso "nao consegui ler as CPUs do container $c (cpu.max no cgroup do host); elas nao foram ajustadas."
     [ "$ATU_PIDS_OK" = 1 ] || aviso "nao consegui ler o limite de processos do container $c (pids.max no cgroup do host); ele nao foi ajustado."
     local swap_antes_b="$ATU_SWAP_B" swap_ilim_antes="$ATU_SWAP_ILIM"
-    local quer_mem=0 quer_cpu=0 quer_pids=0
-    if _limites_mem_abaixo; then
+    local quer_mem=0 quer_cpu=0 quer_pids=0 mantidos=()
+    if _limites_mem_abaixo && ! _limites_mem_antiga; then
+        mantidos+=("memoria em $(_limites_mb_texto "$ATU_MEM_MB")")
+    elif _limites_mem_abaixo; then
         # O swap vai antes da memoria (o limite de memoria nao pode passar do de memoria+swap) e mantem a politica de swap
         # vigente. O --memory-swap do podman e memoria+swap e o memory.swap.max do cgroup e so o swap: ilimitado continua
         # ilimitado (-1); senao vale memoria nova + o swap que ja tinha (0 = continua sem swap), tudo em bytes.
         if [ "$ATU_SWAP_ILIM" = 1 ]; then sw="-1"; else sw="$((LIM_MEM_MB * 1048576 + ATU_SWAP_B))"; fi
         grupos+=("--memory-swap=$sw --memory=${LIM_MEM_MB}m"); quer_mem=1
     fi
-    if _limites_cpu_abaixo; then grupos+=("--cpus=$LIM_CPUS_ARG"); quer_cpu=1; fi
-    if _limites_pids_abaixo; then grupos+=("--pids-limit=$LIMITE_PIDS"); quer_pids=1; fi
+    if _limites_cpu_abaixo && ! _limites_cpu_antiga; then
+        mantidos+=("CPUs em $((ATU_CPUS_DEC / 10)).$((ATU_CPUS_DEC % 10))")
+    elif _limites_cpu_abaixo; then grupos+=("--cpus=$LIM_CPUS_ARG"); quer_cpu=1; fi
+    if _limites_pids_abaixo && ! _limites_pids_antigo; then
+        mantidos+=("processos em $ATU_PIDS")
+    elif _limites_pids_abaixo; then grupos+=("--pids-limit=$LIMITE_PIDS"); quer_pids=1; fi
+    for f in "${mantidos[@]}"; do
+        info "mantido: $f no container $c. Esse valor nao e o padrao antigo do DG Claw (2 GB, 1.0 CPU, 1024 processos), entao conta como escolha do dono e nao foi mexido."
+    done
     if [ "${#grupos[@]}" -eq 0 ]; then
-        ok "os limites do container ja estao iguais ou acima do calculado ($(_limites_resumo "$LIM_MEM_MB" "$LIM_CPUS_DEC" "$LIMITE_PIDS")); nada foi mudado"
+        if [ "${#mantidos[@]}" -gt 0 ]; then
+            ok "nada foi mudado: os limites abaixo do calculado ($(_limites_resumo "$LIM_MEM_MB" "$LIM_CPUS_DEC" "$LIMITE_PIDS")) sao escolha do dono e ficam como estao"
+        else
+            ok "os limites do container ja estao iguais ou acima do calculado ($(_limites_resumo "$LIM_MEM_MB" "$LIM_CPUS_DEC" "$LIMITE_PIDS")); nada foi mudado"
+        fi
         return 0
     fi
     # Os grupos sao palavras sem espaco dentro (valores numericos), entao a divisao sem aspas e segura.
@@ -204,19 +244,26 @@ limites_ajustar_existente() {
         return 0
     fi
     info "depois: $(_limites_resumo_atual)"
-    local subiram=() abaixo=()
+    local subiram=() abaixo=() sumiram=()
     if [ "$quer_mem" = 1 ]; then
+        # Um limite finito relido como "max" nao subiu: sumiu.
+        if [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_B" -eq 0 ]; then sumiram+=("memoria")
         # Subiu = memoria no alvo e swap como era (ilimitado continua ilimitado; senao os mesmos bytes).
-        if [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_B" -ge $((LIM_MEM_MB * 1048576)) ] \
+        elif [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_B" -ge $((LIM_MEM_MB * 1048576)) ] \
             && [ "$ATU_SWAP_ILIM" = "$swap_ilim_antes" ] && { [ "$ATU_SWAP_ILIM" = 1 ] || [ "$ATU_SWAP_B" -eq "$swap_antes_b" ]; }; then subiram+=("memoria")
         else abaixo+=("memoria"); fi
     fi
     if [ "$quer_cpu" = 1 ]; then
-        if [ "$ATU_CPU_OK" = 1 ] && { [ "$ATU_CPU_QUOTA" -eq 0 ] || [ $((ATU_CPU_QUOTA * 10)) -ge $((LIM_CPUS_DEC * ATU_CPU_PERIODO)) ]; }; then subiram+=("CPUs"); else abaixo+=("CPUs"); fi
+        if [ "$ATU_CPU_OK" = 1 ] && [ "$ATU_CPU_QUOTA" -eq 0 ]; then sumiram+=("CPUs")
+        elif [ "$ATU_CPU_OK" = 1 ] && [ $((ATU_CPU_QUOTA * 10)) -ge $((LIM_CPUS_DEC * ATU_CPU_PERIODO)) ]; then subiram+=("CPUs"); else abaixo+=("CPUs"); fi
     fi
     if [ "$quer_pids" = 1 ]; then
-        if [ "$ATU_PIDS_OK" = 1 ] && { [ "$ATU_PIDS" -eq 0 ] || [ "$ATU_PIDS" -ge "$LIMITE_PIDS" ]; }; then subiram+=("processos"); else abaixo+=("processos"); fi
+        if [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS" -eq 0 ]; then sumiram+=("processos")
+        elif [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS" -ge "$LIMITE_PIDS" ]; then subiram+=("processos"); else abaixo+=("processos"); fi
     fi
+    for f in "${sumiram[@]}"; do
+        aviso "FALHA: o limite de $f do container $c sumiu. Era finito e, depois do podman update, o cgroup passou a mostrar sem limite (max); isso nao e um aumento. Veja com: podman inspect $c, e rode dgclaw agente reparar de novo."
+    done
     for f in "${abaixo[@]}"; do
         aviso "$f do container $c continuou abaixo do calculado depois do podman update. O limite definitivo entra na proxima vez que o agente for recriado (por exemplo ao atualizar a imagem com dgclaw atualizar)."
     done

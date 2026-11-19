@@ -148,10 +148,10 @@ case "${1:-}" in
             # aceita --flag=valor e --flag valor
             case "$1" in --*=*) set -- "${1%%=*}" "${1#*=}" "${@:2}" ;; esac
             case "$1" in
-                --memory) v="$2"; case "$v" in *g) v=$(( ${v%g} * 1073741824 )) ;; *m) v=$(( ${v%m} * 1048576 )) ;; esac; mem="$v" ;;
+                --memory) v="$2"; case "$v" in *g) v=$(( ${v%g} * 1073741824 )) ;; *m) v=$(( ${v%m} * 1048576 )) ;; esac; mem="$v"; [ -f "$est/update-mem-vira-max" ] && mem=0 ;;
                 --memory-swap) v="$2"; case "$v" in *g) v=$(( ${v%g} * 1073741824 )) ;; *m) v=$(( ${v%m} * 1048576 )) ;; esac; swap="$v" ;;
-                --cpus) [ -f "$est/update-cpu-sem-efeito" ] || quota="$(awk -v c="$2" 'BEGIN { printf "%d", c * 100000 }')" ;;
-                --pids-limit) pids="$2" ;;
+                --cpus) [ -f "$est/update-cpu-sem-efeito" ] || quota="$(awk -v c="$2" 'BEGIN { printf "%d", c * 100000 }')"; [ -f "$est/update-cpu-vira-max" ] && quota=0 ;;
+                --pids-limit) pids="$2"; [ -f "$est/update-pids-vira-max" ] && pids=0 ;;
             esac
             shift 2
         done
