@@ -443,6 +443,9 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     const desde = ant && ant.chave === chave ? ant.desde : iso(agoraMs);
     atividadeAnterior.set(agente.slug, { chave, desde });
     est.desde = est.estado === 'ocioso' ? null : desde;
+    // Só quando o runner informa a fila (runner antigo não informa): a tela usa isto para manter o aviso "na fila".
+    if (r.ok && Array.isArray(r.estado.naFila)) est.na_fila = filaParaTela(agente.slug, r.estado.naFila);
+    else if (r.ok && r.estado.status === 'idle') est.na_fila = filaParaTela(agente.slug, []);
     return est;
   }
 
@@ -578,14 +581,40 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
 
   // ── enviar ───────────────────────────────────────────────────────────────
   let sequencia = 0;
+  // O texto das mensagens que entraram na fila do runner (slug -> msg -> { texto }; só falas do dono). O runner só diz
+  // QUAIS mensagens ainda esperam (id e hora, sem texto); o texto fica aqui, para a tela do dono mostrar o balão
+  // "na fila" de novo depois de recarregar. Memória apenas: some quando a mensagem sai da fila ou o Web reinicia.
+  const textosNaFila = new Map();
+  const MAX_NA_FILA = 50;
+  function guardaTextoNaFila(slug, msg, texto, colaboradorId) {
+    if (colaboradorId) return;   // fala de colaborador não volta para a tela do dono nem de outro colaborador
+    let m = textosNaFila.get(slug);
+    if (!m) { m = new Map(); textosNaFila.set(slug, m); }
+    m.set(msg, { texto });
+    while (m.size > MAX_NA_FILA) m.delete(m.keys().next().value);
+  }
+  /** A fila do runner no formato da tela: [{ msg, em (ms), texto? }]. O texto só vai se este Web o guardou. */
+  function filaParaTela(slug, naFilaRunner) {
+    if (!Array.isArray(naFilaRunner)) return undefined;
+    const guardados = textosNaFila.get(slug);
+    const ids = new Set(naFilaRunner.map((x) => x && x.msg).filter(Boolean));
+    if (guardados) for (const k of Array.from(guardados.keys())) if (!ids.has(k)) guardados.delete(k);
+    return naFilaRunner.filter((x) => x && typeof x.em === 'number').map((x) => {
+      const g = x.msg && guardados ? guardados.get(x.msg) : null;
+      const item = { msg: x.msg || null, em: x.em };
+      if (g) item.texto = g.texto;
+      return item;
+    });
+  }
   const erro = (status, motivo, extra) => ({ status, corpo: Object.assign({ ok: false, erro: motivo }, extra || {}) });
 
   /** Entrega o texto (já com marcadores de anexo) ao agente. Devolve { status, corpo }. */
   async function entregar(agente, textoFinal, { cru, voz, from, colaboradorId }) {
     sequencia += 1;
+    const msgId = cru ? null : `w${relogio().toString(36)}${sequencia}`;
     const payload = cru
       ? textoFinal
-      : montarEnvelope({ from: from || 'pessoa', chat: agente.chat_id, msg: `w${relogio().toString(36)}${sequencia}`, ts: new Date(relogio()).toISOString(), text: textoFinal, voz, colaboradorId });
+      : montarEnvelope({ from: from || 'pessoa', chat: agente.chat_id, msg: msgId, ts: new Date(relogio()).toISOString(), text: textoFinal, voz, colaboradorId });
     const epEnviado = relogio() / 1000 - 2;
     // O runner responde 202 "enfileirado" sempre; quem sabe se vai esperar é o estado de AGORA (sem o cache de 2 s).
     const antes = await runner.estado(agente);
@@ -605,7 +634,13 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     }
     log('info', `Mensagem entregue a ${agente.slug} (${cru ? 'comando cru' : `${textoFinal.length} caracteres`}).`);
     const corpo = { ok: true, ep_enviado: epEnviado, agente: agente.slug };
-    if (motivoFila) corpo.fila = { motivo: motivoFila };
+    if (motivoFila) {
+      corpo.fila = { motivo: motivoFila };
+      if (msgId) {
+        corpo.fila.msg = msgId;
+        guardaTextoNaFila(agente.slug, msgId, textoFinal, colaboradorId);
+      }
+    }
     return { status: 200, corpo };
   }
 

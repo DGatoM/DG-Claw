@@ -125,6 +125,10 @@ test('trilha-tela: agrupa só os comandos seguidos, rótulos e textos de fila e 
   assert.equal(TR.textoFila('resposta'), 'na fila: o agente ainda está respondendo a anterior');
   assert.equal(TR.textoFila('resposta', true), 'na fila: o agente está esperando a sua permissão');
   assert.equal(TR.textoFila(null), '');
+  // com a hora de entrada na fila, o balão diz há quanto tempo a mensagem espera (só a partir de 1 min)
+  assert.equal(TR.textoFila('resposta', false, 1000, 30 * 1000), 'na fila: o agente ainda está respondendo a anterior');
+  assert.equal(TR.textoFila('resposta', false, 0, 3 * 60 * 1000 + 5), 'na fila há 3 min: o agente ainda está respondendo a anterior');
+  assert.equal(TR.esperaFila(0, 2 * 3600 * 1000), 'há 2 h');
   assert.equal(TR.descricaoPedido({ ferramenta: 'Bash', titulo: 't', comando: 'rm x' }), 'Bash: rm x');
   assert.match(TR.descricaoPedido(null), /não informou/);
 });

@@ -318,6 +318,11 @@ export class Sessao extends EventEmitter {
     return this.ultimaAtividade;
   }
 
+  /** A fila de texto que ainda não foi entregue ao agente: o item em digitação e os que esperam. */
+  pendentesDaFila(): ItemDaFila[] {
+    return this.itemEmVoo ? [this.itemEmVoo, ...this.filaQuandoIdle] : [...this.filaQuandoIdle];
+  }
+
   tamanhoDaFila(): number {
     return this.filaQuandoIdle.length;
   }

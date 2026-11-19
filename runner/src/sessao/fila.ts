@@ -2,7 +2,7 @@ import type { Sessao } from "../sessao.js";
 import { gravarFila } from "../fila-ocioso.js";
 import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
-import { JANELA_DE_PRONTIDAO_MS, PRONTO_APOS_SPAWN_MS, QUIETO_ANTES_DE_DIGITAR_MS } from "./constantes.js";
+import { AVISO_DE_FILA_APOS_MS, JANELA_DE_PRONTIDAO_MS, PRONTO_APOS_SPAWN_MS, QUIETO_ANTES_DE_DIGITAR_MS } from "./constantes.js";
 
 const MOTIVOS_DE_TELA_BLOQUEADA = ["runner:dialogo-auto-mode", "runner:tela-de-confianca"];
 
@@ -18,6 +18,27 @@ export function enfileirarQuandoOcioso(s: Sessao, texto: string): void {
     `${texto.length} caracteres enfileirados para quando ficar ocioso (fila: ${s.filaQuandoIdle.length})`,
   );
   talvezSoltarFila(s);
+}
+
+function duasCasas(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/** Texto acrescentado DEPOIS da mensagem quando ela esperou na fila. Resposta curta ("ok", "sim") escrita antes
+ *  de o agente falar de outro assunto pode parecer autorização do que ele propôs depois; o aviso diz isso ao
+ *  agente. Fica fora do envelope: o painel lê só o que está dentro dele. Mensagem que não esperou sai intacta. */
+export function avisoDeAtraso(item: { em: number }, agora: number = Date.now()): string {
+  const espera = agora - item.em;
+  if (espera < AVISO_DE_FILA_APOS_MS) return "";
+  const quando = new Date(item.em);
+  const hora = `${duasCasas(quando.getHours())}:${duasCasas(quando.getMinutes())}`;
+  const minutos = Math.max(1, Math.round(espera / 60_000));
+  return (
+    `\n\n[Aviso do sistema: a mensagem acima foi escrita às ${hora} e esperou cerca de ${minutos} min na fila, ` +
+    `enquanto você respondia outras coisas. Ela pode ter sido escrita antes das suas últimas respostas. ` +
+    `Uma resposta curta (ok, sim, pode, beleza) não autoriza uma ação nova que você propôs depois disso: ` +
+    `se for o caso, confirme com o dono antes de agir.]`
+  );
 }
 
 /** Solta UM item por vez: o próximo sai no próximo idle, depois que o turno do
@@ -42,7 +63,7 @@ export function talvezSoltarFila(s: Sessao): void {
   }
   if (s.estado.status !== "idle") return;
   s.itemEmVoo = s.filaQuandoIdle.shift()!;
-  const texto = s.itemEmVoo.texto;
+  const texto = s.itemEmVoo.texto + avisoDeAtraso(s.itemEmVoo);
   s.soltandoFila = true;
   if (!s.bloqueioDaFilaLogado) log.info(
     s.a("entrada"),
