@@ -202,3 +202,41 @@ test("catálogo: provedor e forma de pagar com nome do protótipo não existem",
   assert.throws(() => validar(catalogo, "opencode", "constructor", "", { paraCard: true }), /Forma de pagar/);
   assert.throws(() => validar(catalogo, "claude", "__proto__"), /Forma de pagar/);
 });
+
+test("opencode: o modelo PADRÃO retirado do catálogo mantém o provedor do card (não cai no Claude)", () => {
+  const cache = path.join(pastaTemporaria("escolha-padrao-retirado"), "modelos.json");
+  fs.writeFileSync(
+    cache,
+    JSON.stringify({ buscadoEm: new Date().toISOString(), modelos: [{ id: "outra/coisa", nome: "Coisa", apelidos: [], entradaPorMilhao: null, saidaPorMilhao: null }] }),
+  );
+  const antes = process.env.DGCLAW_OPENROUTER_CACHE;
+  process.env.DGCLAW_OPENROUTER_CACHE = cache;
+  try {
+    for (const sessao of [{ provider: "opencode", auth: "api", model: "" }, { provider: "opencode", auth: "api" }]) {
+      const r = resolverEscolha({ arquivoProvedor: arquivoProvedor(), sessao, config: { provider: "claude" }, catalogo, paraCard: true });
+      assert.equal(r.escolha.provedor, "opencode", "o card segue no OpenCode");
+      assert.equal(r.escolha.modelo, catalogo.provedores.opencode!.modeloPadrao, "guarda o modelo padrão (já retirado) para o motor recusar");
+      assert.ok(r.problemas.length >= 1);
+    }
+  } finally {
+    if (antes === undefined) delete process.env.DGCLAW_OPENROUTER_CACHE;
+    else process.env.DGCLAW_OPENROUTER_CACHE = antes;
+  }
+});
+
+test("opencode: o cache em disco não redefine o apelido (glm) nem cria apelido que colide com um id", () => {
+  const cache = path.join(pastaTemporaria("escolha-apelido"), "modelos.json");
+  fs.writeFileSync(
+    cache,
+    JSON.stringify({
+      buscadoEm: new Date().toISOString(),
+      modelos: [
+        { id: "atacante/modelo-caro", nome: "Caro", apelidos: ["glm", "kimi"], entradaPorMilhao: 99, saidaPorMilhao: 99 },
+        { id: "z-ai/glm-5.3-prime", nome: "GLM", apelidos: [], entradaPorMilhao: 0.6, saidaPorMilhao: 2.2 },
+      ],
+    }),
+  );
+  const v = validar(catalogo, "opencode", "api", "glm", { paraCard: true, cacheOpenRouter: cache });
+  assert.equal(v.modelo, "z-ai/glm-5.3-prime", "o apelido continua apontando para o modelo do catálogo confiável");
+  assert.throws(() => validar(catalogo, "opencode", "api", "kimi", { paraCard: true, cacheOpenRouter: cache }), /não existe/);
+});

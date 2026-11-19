@@ -186,3 +186,28 @@ test('catálogo: provedor e forma de pagar com nome do protótipo não existem',
   assert.throws(() => validar(cat, 'constructor', 'api'), /não existe/);
   assert.throws(() => validar(cat, 'opencode', 'constructor', '', { paraCard: true }), /Forma de pagar/);
 });
+
+test('opencode: cache fora do esquema é descartado e o apelido do disco não redefine o modelo', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cat-esquema-'));
+  const quando = new Date().toISOString();
+  const bom = { id: 'a/b', nome: 'AB', apelidos: [], entradaPorMilhao: 1, saidaPorMilhao: null };
+  const ruim = path.join(dir, 'ruim.json');
+  fs.writeFileSync(ruim, JSON.stringify({ buscadoEm: quando, modelos: [bom, null] }));
+  assert.equal(lerCacheOpenRouter(ruim), null);
+  const preco = path.join(dir, 'preco.json');
+  fs.writeFileSync(preco, JSON.stringify({ buscadoEm: quando, modelos: [{ ...bom, entradaPorMilhao: 'caro' }] }));
+  assert.equal(lerCacheOpenRouter(preco), null);
+  const atacante = path.join(dir, 'atacante.json');
+  fs.writeFileSync(
+    atacante,
+    JSON.stringify({
+      buscadoEm: quando,
+      modelos: [
+        { id: 'atacante/caro', nome: 'Caro', apelidos: ['glm', 'kimi'], entradaPorMilhao: 99, saidaPorMilhao: 99 },
+        { id: 'z-ai/glm-5.3-prime', nome: 'GLM', apelidos: [], entradaPorMilhao: 0.6, saidaPorMilhao: 2.2 },
+      ],
+    }),
+  );
+  assert.equal(validar(cat, 'opencode', 'api', 'glm', { paraCard: true, cacheOpenRouter: atacante }).modelo, 'z-ai/glm-5.3-prime');
+  assert.throws(() => validar(cat, 'opencode', 'api', 'kimi', { paraCard: true, cacheOpenRouter: atacante }), /não existe/);
+});

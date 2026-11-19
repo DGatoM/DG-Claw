@@ -66,6 +66,24 @@ export function filtrarModelosOpenRouter(json: unknown): ModeloOpenRouter[] {
   return saida;
 }
 
+const FORMATO_ID_OPENROUTER = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._:-]+$/;
+
+/** Um registro do cache em disco tem o formato que a própria atualização grava (id, nome, preços número ou null). */
+function registroValido(m: unknown): m is ModeloOpenRouter {
+  if (!m || typeof m !== "object") return false;
+  const r = m as Record<string, unknown>;
+  const preco = (v: unknown) => v === null || (typeof v === "number" && Number.isFinite(v) && v >= 0);
+  return (
+    typeof r.id === "string" &&
+    FORMATO_ID_OPENROUTER.test(r.id) &&
+    typeof r.nome === "string" &&
+    r.nome.length > 0 &&
+    r.nome.length <= 300 &&
+    preco(r.entradaPorMilhao) &&
+    preco(r.saidaPorMilhao)
+  );
+}
+
 /**
  * O cache fica numa pasta que o agente consegue escrever, então o arquivo pode não ser o que parece: um link
  * para outro arquivo, ou um FIFO que travaria a leitura síncrona (e com ela o runner inteiro). Abre sem seguir
@@ -78,7 +96,11 @@ export function lerCacheOpenRouter(arquivo: string = arquivoCacheOpenRouter()): 
     const st = fs.fstatSync(fd);
     if (!st.isFile() || st.size > LIMITE_RESPOSTA_OPENROUTER) return null;
     const c = JSON.parse(fs.readFileSync(fd, "utf8")) as CacheOpenRouter;
-    if (Array.isArray(c.modelos) && c.modelos.length) return c;
+    // O agente escreve nessa pasta: conteúdo fora do esquema (registro nulo, id estranho, preço que não é número)
+    // inteiro é descartado e vale a lista de reserva, em vez de derrubar quem resolve a escolha.
+    if (c && typeof c === "object" && typeof c.buscadoEm === "string" && Array.isArray(c.modelos) && c.modelos.length && c.modelos.every(registroValido)) {
+      return { buscadoEm: c.buscadoEm, modelos: c.modelos.map((m) => ({ ...m, apelidos: [] })) };
+    }
   } catch {
     /* sem cache legível (ou que não é arquivo comum): vale a lista de reserva do catálogo, que é o comportamento desenhado */
   } finally {

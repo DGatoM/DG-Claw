@@ -667,3 +667,23 @@ test("POST /api/provedor/login: o OpenCode não tem login por conta e responde 4
   assert.match(r.corpo.howToFix, /Cofre/);
   assert.equal((await req("DELETE", "/api/sessoes/oc-login")).status, 200);
 });
+
+test("POST /api/sessoes: agente com restrição do dono não grava card OpenCode (nenhuma vaga é gasta)", async () => {
+  cacheOpenRouterDeTeste();
+  const arq = path.join(amb.raiz, "restricoes-teste.json");
+  fs.writeFileSync(arq, JSON.stringify({ sem_bash: true, sem_enviar_arquivo: false, escrita_so_em: null }));
+  const antes = process.env.RUNNER_RESTRICOES_FILE;
+  process.env.RUNNER_RESTRICOES_FILE = arq;
+  try {
+    const r = await req("POST", "/api/sessoes", { id: "oc-restrito", provedor: "opencode", modelo: "glm" });
+    assert.equal(r.status, 409, JSON.stringify(r.corpo));
+    assert.equal(r.corpo.code, "RESTRICAO_CONTA");
+    assert.ok(r.corpo.howToFix);
+    assert.equal(fs.existsSync(path.join(amb.estado, "sessoes", "oc-restrito")), false, "nada foi gravado");
+    const lista = await req("GET", "/api/sessoes");
+    assert.equal(JSON.stringify(lista.corpo).includes("oc-restrito"), false);
+  } finally {
+    if (antes === undefined) delete process.env.RUNNER_RESTRICOES_FILE;
+    else process.env.RUNNER_RESTRICOES_FILE = antes;
+  }
+});

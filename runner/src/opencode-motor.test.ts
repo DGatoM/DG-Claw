@@ -9,9 +9,16 @@ import { ctxDeTeste, pastaTemporaria, prepararAmbiente } from "./apoio-teste.js"
 
 prepararAmbiente("opencode-motor");
 
-const { motorOpenCode, configDoSpawn, modeloDoOpenCode } = await import("./provedores/opencode.js");
+// A imagem traz as dependências do OpenCode em /opt/dgclaw/opencode-deps; nos testes é uma pasta de mentira.
+const DEPS_FALSAS = pastaTemporaria("oc-deps");
+fs.writeFileSync(path.join(DEPS_FALSAS, "package.json"), "{}\n");
+fs.writeFileSync(path.join(DEPS_FALSAS, "package-lock.json"), "{}\n");
+fs.mkdirSync(path.join(DEPS_FALSAS, "node_modules"));
+process.env.DGCLAW_OPENCODE_DEPS = DEPS_FALSAS;
+
+const { motorOpenCode, configDoSpawn, modeloDoOpenCode, motivosDeRestricao } = await import("./provedores/opencode.js");
 const { OPENCODE_PLUGIN_SOURCE, OPENCODE_PLUGIN_NOME } = await import("./provedores/opencode-plugin-source.js");
-const { mensagensDoExport, lerConversaDoOpenCode, zerarConversaDoOpenCode, ErroDeConversa } = await import("./provedores/opencode-conversa.js");
+const { mensagensDoExport, lerConversaDoOpenCode, zerarConversaDoOpenCode, tamanhoDoCacheDeConversa, ErroDeConversa } = await import("./provedores/opencode-conversa.js");
 const { filtrarModelosOpenRouter, lerCacheOpenRouter, cacheOpenRouterVelho, atualizarCacheOpenRouter, garantirCacheOpenRouter, zerarFalhasDoOpenRouter, VALIDADE_CACHE_OPENROUTER_MS } =
   await import("./provedores/openrouter-modelos.js");
 
@@ -197,6 +204,29 @@ test("plugin: session.status busy vira batimento no máximo a cada 5 s e não re
   }
 });
 
+test("plugin: com o runner lento, os batimentos se agrupam e o Stop e a permissão ainda chegam", async () => {
+  const srv = await servidorMudoOuNormal(true);
+  try {
+    const g = await carregarPlugin(srv.porta);
+    await g.event({ event: { type: "catalog.updated", properties: {} } });
+    await g["chat.message"]({ sessionID: "ses_Lento1" });
+    for (let i = 0; i < 200; i++) await g["tool.execute.before"]({ sessionID: "ses_Lento1", tool: "bash", callID: `call_${i}` });
+    await g.event({ event: { type: "permission.asked", properties: { sessionID: "ses_Lento1" } } });
+    await g.event({ event: { type: "permission.replied", properties: { sessionID: "ses_Lento1" } } });
+    await g.event({ event: { type: "session.idle", properties: { sessionID: "ses_Lento1" } } });
+    await esperar(() => srv.recebidos.some((r) => r.corpo.event === "Stop"), 15000);
+    const eventos = srv.recebidos.map((r) => r.corpo.event);
+    assert.ok(eventos.includes("Notification"), "o pedido de permissão chegou");
+    assert.ok(eventos.filter((e) => e === "PreToolUse").length <= 6, "os batimentos repetidos foram agrupados, não enfileirados 200 vezes");
+  } finally {
+    srv.fechar();
+  }
+});
+
+test("plugin: sem o sinal de tela pronta não há SessionStart de reserva por prazo", () => {
+  assert.equal(/PRAZO_DA_PARTIDA_MS|setTimeout\(partida, \d{4}/.test(OPENCODE_PLUGIN_SOURCE), false);
+});
+
 test("plugin: nunca lança com evento torto, id malformado ou ctx vazio", async () => {
   const srv = await servidorMudoOuNormal(false);
   try {
@@ -372,7 +402,7 @@ test("openrouter: cache que é FIFO ou link simbólico não é lido nem trava o 
   assert.equal(lerCacheOpenRouter(fifo), null);
   assert.ok(Date.now() - t0 < 1000, "a leitura não ficou presa no FIFO");
   const alvo = path.join(pasta, "real.json");
-  fs.writeFileSync(alvo, JSON.stringify({ buscadoEm: new Date().toISOString(), modelos: [{ id: "a/b", nome: "AB", apelidos: [] }] }));
+  fs.writeFileSync(alvo, JSON.stringify({ buscadoEm: new Date().toISOString(), modelos: [{ id: "a/b", nome: "AB", apelidos: [], entradaPorMilhao: null, saidaPorMilhao: null }] }));
   const link = path.join(pasta, "link.json");
   fs.symlinkSync(alvo, link);
   assert.equal(lerCacheOpenRouter(link), null, "link simbólico não é seguido");
@@ -452,14 +482,132 @@ test("opencode: forma de pagar herdada do protótipo ('constructor') não vale e
   assert.equal(motorOpenCode.motivoSemLogin!(restrito)!.tipo, "restricao");
 });
 
-test("opencode: o AGENTS.md da pasta de trabalho entra por instructions (a config do projeto fica desligada)", () => {
+test("opencode: o AGENTS.md da pasta de trabalho entra por instructions como CÓPIA (a config do projeto fica desligada)", () => {
   const cwd = pastaTemporaria("oc-agents");
-  assert.equal("instructions" in configDoSpawn(ctxOpenCode({ cwd })), false, "sem AGENTS.md nada entra");
+  const spawn = pastaTemporaria("oc-agents-spawn");
+  assert.equal("instructions" in configDoSpawn(ctxOpenCode({ cwd }), spawn), false, "sem AGENTS.md nada entra");
   fs.writeFileSync(path.join(cwd, "AGENTS.md"), "regras da pasta\n");
-  const cfg = configDoSpawn(ctxOpenCode({ cwd, identidade: { arquivo: "/tmp/identidade.md", texto: "x" } }));
-  assert.deepEqual(cfg.instructions, ["/tmp/identidade.md", path.join(cwd, "AGENTS.md")]);
+  const cfg = configDoSpawn(ctxOpenCode({ cwd, identidade: { arquivo: "/tmp/identidade.md", texto: "x" } }), spawn);
+  const instr = cfg.instructions as string[];
+  assert.equal(instr[0], "/tmp/identidade.md");
+  assert.ok(instr[1]!.startsWith(spawn), "o OpenCode lê a cópia dentro da pasta do spawn, não o caminho original");
+  assert.equal(fs.readFileSync(instr[1]!, "utf8"), "regras da pasta\n");
+  assert.equal(fs.statSync(instr[1]!).mode & 0o777, 0o600);
   // Uma PASTA chamada AGENTS.md não é arquivo de instrução.
   const outro = pastaTemporaria("oc-agents2");
   fs.mkdirSync(path.join(outro, "AGENTS.md"));
-  assert.equal("instructions" in configDoSpawn(ctxOpenCode({ cwd: outro })), false);
+  assert.equal("instructions" in configDoSpawn(ctxOpenCode({ cwd: outro }), spawn), false);
+});
+
+test("opencode: AGENTS.md que é link simbólico (para uma credencial) ou grande demais não entra nas instruções", () => {
+  const spawn = pastaTemporaria("oc-agents-spawn2");
+  const cwd = pastaTemporaria("oc-agents-link");
+  const segredo = path.join(pastaTemporaria("oc-agents-segredo"), "credencial.txt");
+  fs.writeFileSync(segredo, "SEGREDO-FICTICIO-123");
+  fs.symlinkSync(segredo, path.join(cwd, "AGENTS.md"));
+  assert.equal("instructions" in configDoSpawn(ctxOpenCode({ cwd }), spawn), false, "o link não é seguido");
+  assert.deepEqual(fs.readdirSync(spawn), [], "nada foi copiado");
+  const grande = pastaTemporaria("oc-agents-grande");
+  fs.writeFileSync(path.join(grande, "AGENTS.md"), "x".repeat(300 * 1024));
+  assert.equal("instructions" in configDoSpawn(ctxOpenCode({ cwd: grande }), spawn), false, "acima do teto não entra");
+});
+
+test("opencode: sem a pasta de dependências da imagem o card não abre e manda reconstruir a imagem", async () => {
+  const antes = process.env.DGCLAW_OPENCODE_DEPS;
+  process.env.DGCLAW_OPENCODE_DEPS = path.join(pastaTemporaria("oc-sem-deps"), "nao-existe");
+  try {
+    const ctx = ctxOpenCode();
+    await assert.rejects(
+      motorOpenCode.preparar(ctx),
+      (e: unknown) => /dependências do OpenCode/.test((e as Error).message) && (e as { statusReason?: string }).statusReason === "runner:dependencias-ausentes",
+    );
+  } finally {
+    process.env.DGCLAW_OPENCODE_DEPS = antes;
+  }
+});
+
+test("opencode: motivosDeRestricao lista askTools e denyTools (usado também ao criar o card)", () => {
+  assert.deepEqual(motivosDeRestricao({}), []);
+  assert.equal(motivosDeRestricao({ askTools: ["Bash"] }).length, 1);
+  assert.equal(motivosDeRestricao({ askTools: ["Bash"], denyTools: ["Write"] }).length, 2);
+  const r = motorOpenCode.motivoSemLogin!(
+    ctxOpenCode({ config: { name: "x", cwd: "/tmp", initialPrompt: "", provider: "opencode-cli", permissionMode: "auto", denyTools: ["Bash"] } }),
+  )!;
+  assert.doesNotMatch(r.comoResolver, /Claude ou no Codex/, "o Codex também ignora as restrições: não é recomendado");
+});
+
+test("openrouter: cache com registro fora do esquema (nulo, id estranho, preço texto) é descartado inteiro", () => {
+  const pasta = pastaTemporaria("oc-esquema");
+  const quando = new Date().toISOString();
+  const bom = { id: "a/b", nome: "AB", apelidos: [], entradaPorMilhao: 1, saidaPorMilhao: null };
+  const casos: unknown[] = [
+    [bom, null],
+    [bom, { id: 7, nome: "x" }],
+    [bom, { ...bom, id: "../../etc" }],
+    [bom, { ...bom, entradaPorMilhao: "caro" }],
+    [bom, { ...bom, nome: "" }],
+  ];
+  for (const [i, modelos] of casos.entries()) {
+    const arq = path.join(pasta, `c${i}.json`);
+    fs.writeFileSync(arq, JSON.stringify({ buscadoEm: quando, modelos }));
+    assert.equal(lerCacheOpenRouter(arq), null, `caso ${i} tem que cair na lista de reserva`);
+  }
+  const ok = path.join(pasta, "ok.json");
+  fs.writeFileSync(ok, JSON.stringify({ buscadoEm: quando, modelos: [{ ...bom, apelidos: ["glm"] }] }));
+  assert.deepEqual(lerCacheOpenRouter(ok)?.modelos[0]?.apelidos, [], "os apelidos do disco nunca valem");
+});
+
+test("conversa: o export roda sem nenhuma credencial no ambiente e com config nova, apagada depois", async () => {
+  zerarConversaDoOpenCode();
+  const pasta = pastaTemporaria("oc-env");
+  const saida = path.join(pasta, "env.txt");
+  const bin = binarioDeConversa(pasta, `env > "${saida}"\ncat <<'FIM'\n${EXPORT}\nFIM`);
+  await lerConversaDoOpenCode({
+    sessionId: "ses_Env1abc",
+    env: { PATH: process.env.PATH ?? "", HOME: "/tmp", OPENROUTER_API_KEY: CHAVE_FALSA, GH_TOKEN: "ghp_FICTICIO", OPENCODE_CONFIG_DIR: "/tmp/plantado" },
+    cwd: pasta,
+    quantas: 1,
+    binario: bin,
+  });
+  const visto = fs.readFileSync(saida, "utf8");
+  assert.equal(visto.includes(CHAVE_FALSA), false, "a chave do OpenRouter não chega ao export");
+  assert.equal(visto.includes("ghp_FICTICIO"), false, "nenhuma outra credencial chega");
+  assert.equal(/OPENCODE_CONFIG_DIR/.test(visto), false);
+  assert.match(visto, /OPENCODE_DISABLE_PROJECT_CONFIG=1/);
+  const xdg = /XDG_CONFIG_HOME=(.*)/.exec(visto)![1]!;
+  assert.equal(fs.existsSync(xdg), false, "a pasta de configuração do export foi apagada");
+});
+
+test("conversa: o cache de históricos esvazia sozinho ao vencer e uma conversa enorme não é guardada", async () => {
+  zerarConversaDoOpenCode();
+  const pasta = pastaTemporaria("oc-cache");
+  const bin = binarioDeConversa(pasta, `cat <<'FIM'\n${EXPORT}\nFIM`);
+  await lerConversaDoOpenCode({ sessionId: "ses_Cache1abc", env: { PATH: process.env.PATH ?? "" }, cwd: pasta, quantas: 1, binario: bin });
+  assert.equal(tamanhoDoCacheDeConversa(), 1);
+  await new Promise((r) => setTimeout(r, 2300));
+  assert.equal(tamanhoDoCacheDeConversa(), 0, "venceu e saiu da memória sem precisar de outra leitura");
+  zerarConversaDoOpenCode();
+  const enorme = binarioDeConversa(
+    pasta,
+    `printf '{"messages":[{"info":{"role":"user"},"parts":[{"type":"text","text":"'\nhead -c 5000000 /dev/zero | tr '\\0' a\nprintf '"}]}]}'`,
+  );
+  const r = await lerConversaDoOpenCode({ sessionId: "ses_Cache2abc", env: { PATH: process.env.PATH ?? "" }, cwd: pasta, quantas: 1, binario: enorme });
+  assert.equal(r.length, 1);
+  assert.equal(tamanhoDoCacheDeConversa(), 0, "acima do teto de uma conversa não fica na memória");
+});
+
+test("conversa: JSON inválido no export não leva trecho da conversa para o log", () => {
+  const marcador = "MARCADOR-SECRETO-DA-CONVERSA";
+  const escrito: string[] = [];
+  const orig = process.stderr.write.bind(process.stderr);
+  const origOut = process.stdout.write.bind(process.stdout);
+  process.stderr.write = ((c: unknown) => (escrito.push(String(c)), true)) as typeof process.stderr.write;
+  process.stdout.write = ((c: unknown) => (escrito.push(String(c)), true)) as typeof process.stdout.write;
+  try {
+    assert.equal(mensagensDoExport(`{"messages": [${marcador}`), null);
+  } finally {
+    process.stderr.write = orig;
+    process.stdout.write = origOut;
+  }
+  assert.equal(escrito.join("").includes(marcador), false);
 });

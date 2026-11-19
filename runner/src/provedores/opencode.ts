@@ -40,8 +40,57 @@ export function modeloDoOpenCode(ctx: CtxMotor): string {
   return `${PREFIXO_DO_MODELO}${modelo}`;
 }
 
+const TETO_DO_AGENTS_MD = 256 * 1024;
+
+/**
+ * O AGENTS.md da pasta de trabalho entra nas instruções do card, e a pasta é gravável pelo agente: o arquivo pode ser
+ * um link para algo privado (uma credencial) que iria ao modelo no primeiro pedido. Abre sem seguir link (O_NOFOLLOW),
+ * confere pelo descritor que é um arquivo comum de tamanho limitado e entrega ao OpenCode uma CÓPIA dos bytes já
+ * conferidos, dentro da pasta do spawn (modo 600), nunca o caminho original.
+ */
+function copiarAgentsMd(ctx: CtxMotor, pastaDoSpawn: string): string | null {
+  if (!ctx.cwd) return null;
+  const origem = path.join(ctx.cwd, "AGENTS.md");
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(origem, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    const st = fs.fstatSync(fd);
+    if (!st.isFile()) {
+      log.aviso(ctx.a("spawn"), `o AGENTS.md da pasta de trabalho não é um arquivo comum; o card abre sem ele`);
+      return null;
+    }
+    if (st.size > TETO_DO_AGENTS_MD) {
+      log.aviso(ctx.a("spawn"), `o AGENTS.md da pasta de trabalho tem ${st.size} bytes (o teto é ${TETO_DO_AGENTS_MD}); o card abre sem ele`);
+      return null;
+    }
+    const bytes = fs.readFileSync(fd);
+    const destino = path.join(pastaDoSpawn, "AGENTS-da-pasta.md");
+    fs.writeFileSync(destino, bytes, { mode: 0o600 });
+    return destino;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      log.aviso(
+        ctx.a("spawn"),
+        code === "ELOOP"
+          ? "o AGENTS.md da pasta de trabalho é um link simbólico; o card abre sem ele (por segurança, links não são seguidos)"
+          : `não consegui ler o AGENTS.md da pasta de trabalho (${err instanceof Error ? err.message : err}); o card abre sem ele`,
+      );
+    }
+    return null;
+  } finally {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* descritor já fechado */
+      }
+    }
+  }
+}
+
 /** O config do spawn (opencode.json dentro de OPENCODE_CONFIG_DIR). Soma-se ao config global do usuário, não o substitui. */
-export function configDoSpawn(ctx: CtxMotor): Record<string, unknown> {
+export function configDoSpawn(ctx: CtxMotor, pastaDoSpawn?: string): Record<string, unknown> {
   const config: Record<string, unknown> = {
     $schema: "https://opencode.ai/config.json",
     // Sem aviso de versão nova nem atualização sozinha no meio de um card.
@@ -54,12 +103,8 @@ export function configDoSpawn(ctx: CtxMotor): Record<string, unknown> {
   // pasta. O AGENTS.md é só texto de instrução, então entra pela lista `instructions`, que o próprio runner monta.
   const instrucoes: string[] = [];
   if (ctx.identidade.arquivo) instrucoes.push(ctx.identidade.arquivo);
-  const agentsMd = path.join(ctx.cwd, "AGENTS.md");
-  try {
-    if (ctx.cwd && fs.statSync(agentsMd).isFile()) instrucoes.push(agentsMd);
-  } catch {
-    /* sem AGENTS.md na pasta de trabalho: nada a acrescentar */
-  }
+  const copia = pastaDoSpawn ? copiarAgentsMd(ctx, pastaDoSpawn) : null;
+  if (copia) instrucoes.push(copia);
   if (instrucoes.length) config.instructions = instrucoes;
   // Autonomia: só o modo "default" do descritor pede confirmação antes de editar e de rodar comando.
   // Os demais usam o padrão do OpenCode (que só pergunta ao sair da pasta de trabalho).
@@ -115,7 +160,7 @@ function ligarDependencias(destino: string, deps: string): void {
  * ferramentas do card, como o gh, seguirem achando o que é delas), MENOS a pasta `opencode`. É o que impede um
  * plugin deixado pelo agente em ~/.config/opencode de rodar dentro de outro card.
  */
-function montarXdgIsolado(xdg: string, configReal: string, deps: string | null, ctx: CtxMotor): void {
+function montarXdgIsolado(xdg: string, configReal: string, deps: string, ctx: CtxMotor): void {
   fs.mkdirSync(xdg, { recursive: true, mode: 0o700 });
   let entradas: string[] = [];
   try {
@@ -134,25 +179,29 @@ function montarXdgIsolado(xdg: string, configReal: string, deps: string | null, 
     }
   }
   const dirOpencode = path.join(xdg, "opencode");
-  if (deps) ligarDependencias(dirOpencode, deps);
-  else fs.mkdirSync(dirOpencode, { recursive: true, mode: 0o700 });
+  ligarDependencias(dirOpencode, deps);
 }
 
 /** As restrições do dono que o OpenCode não sabe aplicar: se existirem, o card não abre (senão seriam ignoradas em silêncio). */
-function recusaPorRestricao(ctx: CtxMotor): Recusa | null {
-  const cfg = ctx.config;
+/** Os motivos pelos quais este agente não pode abrir card no OpenCode (lista vazia = pode). Também usada ao CRIAR o card, antes de gravá-lo. */
+export function motivosDeRestricao(cfg: { askTools?: string[]; denyTools?: string[] }): string[] {
   const motivos: string[] = [];
   if ((cfg.askTools ?? []).length) motivos.push("pedidos de confirmação por ferramenta (askTools)");
   if ((cfg.denyTools ?? []).length) motivos.push("ferramentas proibidas (denyTools)");
   const r = lerRestricoes();
   if (r.ativa) motivos.push(r.erro ? `restrições do dono ilegíveis (${r.erro})` : "restrições do dono (sem Bash, sem enviar arquivo ou escrita só em certas pastas)");
+  return motivos;
+}
+
+function recusaPorRestricao(ctx: CtxMotor): Recusa | null {
+  const motivos = motivosDeRestricao(ctx.config);
   if (!motivos.length) return null;
   return {
     tipo: "restricao",
     mensagem:
       `O card ${ctx.slug} não abre no OpenCode: este agente tem ${motivos.join(" e ")}, e o OpenCode não aplica essas regras ` +
       "(elas só funcionam no Claude Code). Abrir assim deixaria o card fazer o que o dono proibiu.",
-    comoResolver: "abrir o card no Claude ou no Codex, ou tirar essas restrições do agente (dgclaw agente restricoes)",
+    comoResolver: "abrir o card no Claude, que aplica essas regras, ou tirar as restrições do agente (dgclaw agente restricoes). Não use o Codex: ele também não aplica essas restrições",
   };
 }
 
@@ -194,6 +243,15 @@ export const motorOpenCode: Motor = {
     ctx.extrasDoMotor = [];
     const pasta = path.join(ctx.pastaDeHooks, `opencode-${ctx.nonce.slice(0, 12)}`);
     const deps = pastaDeDependencias();
+    if (!deps) {
+      // Sem a pasta revisada o OpenCode instalaria o plugin pela internet, no momento em que já tem a chave no
+      // processo, e sem a garantia da trava (package-lock.json). Não abre.
+      throw new ErroDeMotor(
+        `A pasta de dependências do OpenCode (${process.env.DGCLAW_OPENCODE_DEPS?.trim() || DEPENDENCIAS_PADRAO}) não existe nesta imagem, e o card não abre sem ela (o OpenCode instalaria o plugin pela internet, sem a trava revisada).`,
+        "runner:dependencias-ausentes",
+        "reconstruir a imagem dos agentes (dgclaw atualizar e reconstruir a imagem), que traz as dependências do OpenCode em /opt/dgclaw/opencode-deps",
+      );
+    }
     const configReal = ctx.env.XDG_CONFIG_HOME?.trim() || path.join(ctx.env.HOME?.trim() || os.homedir(), ".config");
     try {
       fs.mkdirSync(path.join(pasta, "plugins"), { recursive: true, mode: 0o700 });
@@ -202,17 +260,9 @@ export const motorOpenCode: Motor = {
       fs.writeFileSync(plugin, OPENCODE_PLUGIN_SOURCE, { encoding: "utf8", mode: 0o600 });
       fs.chmodSync(plugin, 0o600);
       const arquivoDeConfig = path.join(pasta, "opencode.json");
-      fs.writeFileSync(arquivoDeConfig, JSON.stringify(configDoSpawn(ctx), null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
+      fs.writeFileSync(arquivoDeConfig, JSON.stringify(configDoSpawn(ctx, pasta), null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
       fs.chmodSync(arquivoDeConfig, 0o600);
-      if (deps) {
-        ligarDependencias(pasta, deps);
-      } else {
-        log.aviso(
-          ctx.a("spawn"),
-          `a pasta de dependências do OpenCode (${process.env.DGCLAW_OPENCODE_DEPS?.trim() || DEPENDENCIAS_PADRAO}) não existe: o OpenCode vai instalar o @opencode-ai/plugin sozinho, pela internet, a cada card. ` +
-            "Na imagem do agente ela existe (container/Containerfile); reconstruir a imagem resolve",
-        );
-      }
+      ligarDependencias(pasta, deps);
       fs.mkdirSync(path.join(pasta, "casa-vazia"), { recursive: true, mode: 0o700 });
       montarXdgIsolado(path.join(pasta, "xdg"), configReal, deps, ctx);
     } catch (err) {

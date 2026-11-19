@@ -48,9 +48,10 @@ export function mensagensDoExport(json: string, quantas = 6, segredos?: Iterable
   try {
     o = JSON.parse(json) as typeof o;
   } catch (err) {
+    // Só o tipo da falha e o tamanho: a mensagem do JSON.parse pode trazer um pedaço da própria conversa.
     log.erro(
       "conversa",
-      `o 'opencode export' não devolveu um JSON válido: ${err instanceof Error ? err.message : err}`,
+      `o 'opencode export' não devolveu um JSON válido (${err instanceof Error ? err.name : "erro"}, ${json.length} caracteres de saída)`,
       "conferir a versão do OpenCode (a conversa não foi perdida, só não foi lida)",
     );
     return null;
@@ -93,7 +94,10 @@ const CACHE_MS = 2_000;
 let leiturasAtivas = 0;
 const esperando: Array<() => void> = [];
 const emAndamento = new Map<string, Promise<MensagemDoOpenCode[]>>();
-const cache = new Map<string, { ate: number; msgs: MensagemDoOpenCode[] }>();
+const cache = new Map<string, { ate: number; msgs: MensagemDoOpenCode[]; bytes: number }>();
+/** Teto da soma dos históricos guardados (e de um só): passou, o resultado não é guardado e o painel só relê. */
+const TETO_DO_CACHE = 16 * 1024 * 1024;
+const TETO_DE_UM = 4 * 1024 * 1024;
 const FALHA_RECENTE = new Map<string, { ate: number; erro: ErroDeConversa }>();
 
 async function pegarVaga(): Promise<void> {
@@ -109,6 +113,37 @@ function soltarVaga(): void {
   else leiturasAtivas -= 1;
 }
 
+function tamanhoDe(msgs: MensagemDoOpenCode[]): number {
+  return msgs.reduce((t, m) => t + m.text.length * 2 + 64, 0);
+}
+
+/** Tira do cache o que venceu e, passando do teto global, o mais antigo; cada entrada some sozinha ao vencer. */
+function guardarNoCache(sessionId: string, msgs: MensagemDoOpenCode[]): void {
+  const agora = Date.now();
+  for (const [k, v] of cache) if (v.ate <= agora) cache.delete(k);
+  for (const [k, v] of FALHA_RECENTE) if (v.ate <= agora) FALHA_RECENTE.delete(k);
+  const bytes = tamanhoDe(msgs);
+  if (bytes > TETO_DE_UM) return;
+  let total = bytes;
+  for (const v of cache.values()) total += v.bytes;
+  for (const k of [...cache.keys()]) {
+    if (total <= TETO_DO_CACHE) break;
+    total -= cache.get(k)?.bytes ?? 0;
+    cache.delete(k);
+  }
+  const entrada = { ate: agora + CACHE_MS, msgs, bytes };
+  cache.set(sessionId, entrada);
+  const t = setTimeout(() => {
+    if (cache.get(sessionId) === entrada) cache.delete(sessionId);
+  }, CACHE_MS + 50);
+  t.unref();
+}
+
+/** Quantas conversas estão guardadas agora (só os testes). */
+export function tamanhoDoCacheDeConversa(): number {
+  return cache.size;
+}
+
 /** Limpa o cache e as leituras guardadas (só os testes). */
 export function zerarConversaDoOpenCode(): void {
   cache.clear();
@@ -116,53 +151,55 @@ export function zerarConversaDoOpenCode(): void {
   emAndamento.clear();
 }
 
+/** As únicas variáveis que o `opencode export` recebe: ele só lê o banco local, não precisa de chave nenhuma. */
+const VARIAVEIS_DA_LEITURA = ["PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TZ", "TMPDIR", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"];
+
 /**
- * Um ambiente de LEITURA: o `opencode export` carrega a configuração antes de ler o banco, e a pasta do agente
- * é gravável por ele. Aqui a config é uma pasta vazia (só links para o que não é do OpenCode) e a pasta do
- * projeto é ignorada, para que um plugin plantado pelo agente nunca rode com a chave no ambiente.
- * Criada uma vez por processo do runner, com nome aleatório e modo 700.
+ * Um ambiente de LEITURA, montado do zero a cada exportação: o `opencode export` carrega a configuração antes de
+ * ler o banco, e as pastas do agente são graváveis por ele. Por isso o processo recebe uma lista mínima de variáveis
+ * (nenhuma credencial do Cofre, do OpenRouter ou do agente), uma pasta de configuração nova, vazia e de uso único
+ * (sem plugins, sem dependências para instalar) e a configuração da pasta de trabalho desligada. Um plugin plantado
+ * pelo agente não roda e, se rodasse, não teria chave nenhuma para levar.
  */
-let configDeLeitura: string | null = null;
-export function ambienteDeLeitura(env: Record<string, string>, deps: string | null): Record<string, string> {
-  if (!configDeLeitura || !fs.existsSync(configDeLeitura)) {
-    configDeLeitura = fs.mkdtempSync(path.join(os.tmpdir(), "dgclaw-opencode-leitura-"));
-    fs.chmodSync(configDeLeitura, 0o700);
-    const dirOc = path.join(configDeLeitura, "xdg", "opencode");
-    fs.mkdirSync(dirOc, { recursive: true, mode: 0o700 });
-    fs.mkdirSync(path.join(configDeLeitura, "casa-vazia"), { mode: 0o700 });
-    if (deps) {
-      for (const f of ["package.json", "package-lock.json"]) fs.copyFileSync(path.join(deps, f), path.join(dirOc, f));
-      fs.symlinkSync(path.join(deps, "node_modules"), path.join(dirOc, "node_modules"), "dir");
-    }
-    const apagar = configDeLeitura;
-    process.once("exit", () => {
-      try {
-        fs.rmSync(apagar, { recursive: true, force: true });
-      } catch {
-        /* saindo: o que sobrar fica no temporário do sistema, que é limpo no boot */
-      }
-    });
+export function ambienteDeLeitura(env: Record<string, string>): { env: Record<string, string>; pasta: string } {
+  const pasta = fs.mkdtempSync(path.join(os.tmpdir(), "dgclaw-opencode-leitura-"));
+  fs.chmodSync(pasta, 0o700);
+  fs.mkdirSync(path.join(pasta, "xdg", "opencode"), { recursive: true, mode: 0o700 });
+  fs.mkdirSync(path.join(pasta, "casa-vazia"), { mode: 0o700 });
+  const minimo: Record<string, string> = {};
+  for (const nome of VARIAVEIS_DA_LEITURA) {
+    const v = env[nome];
+    if (typeof v === "string") minimo[nome] = v;
   }
   return {
-    ...env,
-    XDG_CONFIG_HOME: path.join(configDeLeitura, "xdg"),
-    OPENCODE_TEST_HOME: path.join(configDeLeitura, "casa-vazia"),
-    OPENCODE_DISABLE_PROJECT_CONFIG: "1",
-    OPENCODE_DISABLE_DEFAULT_PLUGINS: "1",
-    OPENCODE_DISABLE_CLAUDE_CODE: "1",
-    OPENCODE_DISABLE_EXTERNAL_SKILLS: "1",
-    OPENCODE_DISABLE_AUTOUPDATE: "1",
-    OPENCODE_DISABLE_LSP_DOWNLOAD: "1",
+    pasta,
+    env: {
+      ...minimo,
+      XDG_CONFIG_HOME: path.join(pasta, "xdg"),
+      OPENCODE_TEST_HOME: path.join(pasta, "casa-vazia"),
+      OPENCODE_DISABLE_PROJECT_CONFIG: "1",
+      OPENCODE_DISABLE_DEFAULT_PLUGINS: "1",
+      OPENCODE_DISABLE_CLAUDE_CODE: "1",
+      OPENCODE_DISABLE_EXTERNAL_SKILLS: "1",
+      OPENCODE_DISABLE_AUTOUPDATE: "1",
+      OPENCODE_DISABLE_LSP_DOWNLOAD: "1",
+    },
   };
 }
 
 function exportar(p: PedidoDeConversa): Promise<MensagemDoOpenCode[]> {
+  const leitura = ambienteDeLeitura(p.env);
   return new Promise((resolve, reject) => {
     execFile(
       p.binario ?? "opencode",
       ["export", p.sessionId],
-      { env: p.env, cwd: p.cwd, timeout: PRAZO_MS, maxBuffer: TETO_DA_SAIDA },
+      { env: leitura.env, cwd: p.cwd, timeout: PRAZO_MS, maxBuffer: TETO_DA_SAIDA },
       (err, stdout) => {
+        try {
+          fs.rmSync(leitura.pasta, { recursive: true, force: true });
+        } catch (e) {
+          log.aviso("conversa", `não consegui apagar ${leitura.pasta} (config temporária da leitura): ${e instanceof Error ? e.message : e}`);
+        }
         if (err) {
           const e = err as NodeJS.ErrnoException & { killed?: boolean };
           const motivo =
@@ -220,7 +257,7 @@ export async function lerConversaDoOpenCode(p: PedidoDeConversa): Promise<Mensag
       await pegarVaga();
       try {
         const msgs = await exportar(p);
-        cache.set(p.sessionId, { ate: Date.now() + CACHE_MS, msgs });
+        guardarNoCache(p.sessionId, msgs);
         return msgs;
       } catch (err) {
         if (err instanceof ErroDeConversa) FALHA_RECENTE.set(p.sessionId, { ate: Date.now() + 5_000, erro: err });

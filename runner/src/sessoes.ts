@@ -25,6 +25,7 @@ import {
 import { carregar, validar, ErroCatalogo } from "./provedores/catalogo.js";
 import { gravarJsonAtomico } from "./provedores/arquivos.js";
 import { gravarProvedorJson, provedorDoVocabulario, type Escolha } from "./provedores/escolha.js";
+import { motivosDeRestricao } from "./provedores/opencode.js";
 import { calcularCapacidade, descreverMemoria, type Capacidade } from "./capacidade.js";
 import { Sessao } from "./sessao.js";
 import { log } from "./logger.js";
@@ -328,6 +329,19 @@ export class GerenteDeSessoes {
         return falhaDeExtra(400, "ESCOLHA_INVALIDA", err.message, "ver as opções em GET /api/provedor e no catálogo de provedores");
       }
       throw err;
+    }
+    // Recusa definitiva antes de gravar: um card que o motor nunca vai abrir (restrições do dono, askTools, denyTools)
+    // não pode ocupar uma vaga persistente a cada tentativa.
+    if (nomeProvedor === "opencode") {
+      const motivos = motivosDeRestricao(this.descritor.config);
+      if (motivos.length) {
+        return falhaDeExtra(
+          409,
+          "RESTRICAO_CONTA",
+          `Não criei o card: este agente tem ${motivos.join(" e ")}, e o OpenCode não aplica essas regras. O card não foi gravado.`,
+          "abrir o card no Claude (o Codex também não aplica essas restrições) ou tirar as restrições do agente (dgclaw agente restricoes)",
+        );
+      }
     }
     const identidade = Array.isArray(p.identidade) ? p.identidade : p.identidade === undefined ? [] : [p.identidade];
     if (!identidade.every((x) => typeof x === "string" && x.trim())) {

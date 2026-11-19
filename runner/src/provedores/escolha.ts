@@ -12,7 +12,7 @@
 // lista do Codex na semana passada.
 import fs from "node:fs";
 import path from "node:path";
-import { carregar, catalogoDeEmergencia, validar, ErroCatalogo, type Catalogo } from "./catalogo.js";
+import { carregar, catalogoDeEmergencia, validar, validarProvedorEAuth, ErroCatalogo, type Catalogo } from "./catalogo.js";
 
 export type NomeProvedor = "claude" | "codex" | "opencode";
 export type OrigemDaEscolha = "provedor.json" | "descritor" | "padrao";
@@ -205,11 +205,11 @@ export function resolverEscolha(ent: EntradaDaEscolha): SaidaDaEscolha {
       // mantém o provedor e o motor recusa o spawn pedindo outro modelo (senão o próximo texto sairia pela
       // conta de outro serviço, sem o dono ter escolhido). Só vale quando o resto da escolha (provedor e forma
       // de pagar) é válido: o que falha, então, é só o modelo.
-      if (nome === "opencode" && ent.paraCard === true && n.model) {
+      if (nome === "opencode" && ent.paraCard === true) {
         const auth = n.auth ?? authPadraoDe(cat, nome);
         let soOModelo = false;
         try {
-          validar(cat, nome, auth, "", { paraCard: true });
+          validarProvedorEAuth(cat, nome, auth, { paraCard: true });
           soOModelo = true;
         } catch {
           /* provedor ou forma de pagar também inválidos: segue o fluxo normal (próximo nível) */
@@ -219,7 +219,8 @@ export function resolverEscolha(ent: EntradaDaEscolha): SaidaDaEscolha {
             motivo: `${n.nome} tem uma escolha inválida: ${err.message}`,
             comoResolver: "escolher outro modelo do OpenCode para este card; ele não troca de provedor sozinho",
           });
-          return { escolha: { provedor: nome, auth, modelo: n.model, origem: n.origem }, problemas, catalogo: cat };
+          const modeloGravado = n.model || cat.provedores[nome]?.modeloPadrao || "";
+          return { escolha: { provedor: nome, auth, modelo: modeloGravado, origem: n.origem }, problemas, catalogo: cat };
         }
       }
       problemas.push({

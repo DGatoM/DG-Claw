@@ -155,3 +155,27 @@ test("forma de pagar com nome herdado do protótipo ('constructor', '__proto__')
     assert.throws(() => montar("opencode", auth, { OPENROUTER_API_KEY: OPR }, ["OPENROUTER_API_KEY"]), /não existe para o provedor/);
   }
 });
+
+test("opencode/api: a chave do Cofre não é trocada pela sobreposição do descritor (envExtra)", () => {
+  const velha = "sk-or-v1-VELHA-FICTICIA";
+  const r = montarAmbiente({
+    base: { OPENROUTER_API_KEY: OPR },
+    envExtra: { OPENROUTER_API_KEY: velha, OUTRA: "ok" },
+    provedor: "opencode",
+    auth: "api",
+    catalogo: carregarCatalogoDeTeste(),
+    cofre: new Set(["OPENROUTER_API_KEY"]),
+  });
+  assert.equal(r.env.OPENROUTER_API_KEY, OPR, "vale o valor do Cofre, não o do descritor");
+  assert.ok(r.recusadas.includes("OPENROUTER_API_KEY"));
+  assert.equal(r.env.OUTRA, "ok");
+  const sem = montarAmbiente({
+    base: {},
+    envExtra: { OPENROUTER_API_KEY: velha },
+    provedor: "opencode",
+    auth: "api",
+    catalogo: carregarCatalogoDeTeste(),
+    cofre: new Set(),
+  });
+  assert.equal("OPENROUTER_API_KEY" in sem.env, false, "a chave só do descritor nunca vale");
+});

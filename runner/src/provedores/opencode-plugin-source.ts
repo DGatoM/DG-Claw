@@ -6,7 +6,7 @@
 // traduz para o POST /api/agent-hook do runner, no mesmo formato do hook do Claude, para a Sessao
 // aplicar o mesmo efeito (ver sessao/eventos.ts):
 //
-//   plugin carregado       -> SessionStart       (tira o card de "subindo")
+//   tela pronta (catalog.updated) -> SessionStart  (tira o card de "subindo"; sem esse sinal, nunca parte)
 //   chat.message           -> UserPromptSubmit   (recibo do Enter; traz o id da sessão)
 //   tool.execute.before    -> PreToolUse         (ferramenta em uso)
 //   session.status busy    -> PreToolUse         (batimento: o turno segue; no máximo 1 a cada 5 s)
@@ -94,20 +94,32 @@ function postar(corpo) {
 }
 
 // Envio em ordem (um Stop nunca passa na frente do PreToolUse que veio antes), sem esperar: o gancho
-// do OpenCode volta na hora. Se o runner estiver parado, o excesso é descartado em vez de acumular.
-function avisar(evento, extra) {
+// do OpenCode volta na hora. Se o runner estiver parado, o excesso é descartado em vez de acumular, mas só os
+// batimentos (PreToolUse, que se repetem): permissão, pedido, fim de turno e erro são essenciais e têm um teto
+// bem mais alto, porque perder o único Stop deixaria o card em "trabalhando" para sempre.
+const ESSENCIAIS = new Set(["SessionStart", "UserPromptSubmit", "Notification", "Stop", "StopFailure"]);
+let batimentosNaFila = 0;
+function avisar(evento, extra, forcarEssencial) {
   if (!agentId || !port) return;
-  if (naFila > 40) return;
+  const essencial = forcarEssencial === true || ESSENCIAIS.has(evento);
+  if (!essencial && (naFila > 40 || batimentosNaFila >= 3)) return;
+  if (naFila > 400) return;
   naFila += 1;
+  if (!essencial) batimentosNaFila += 1;
   const corpo = { agentId, nonce, event: evento, ...(extra || {}) };
-  fila = fila.then(() => postar(corpo)).catch(() => undefined).then(() => { naFila -= 1; });
+  fila = fila.then(() => postar(corpo)).catch(() => undefined).then(() => {
+    naFila -= 1;
+    if (!essencial) batimentosNaFila -= 1;
+  });
 }
 
 // O plugin carrega uns 2 s ANTES de a TUI aceitar texto (medido na 1.19.6: carga, rajada de plugin.added e,
 // no catalog.updated, a tela pronta). Avisar a partida na carga faria o runner digitar cedo demais, então o
-// SessionStart sai no primeiro catalog.updated (com uma folga curta) ou, se ele nunca vier, depois de 8 s.
+// SessionStart sai só no primeiro catalog.updated (com uma folga curta), ou no primeiro chat.message (a pessoa
+// já escreveu). Sem prazo de reserva de propósito: se a tela nunca ficar pronta, quem decide é o runner, que
+// espera até 45 s e então recusa o pedido com o motivo, em vez de o plugin liberar a fila para um pedido que
+// a tela ainda não aceita.
 const FOLGA_DA_TELA_MS = 800;
-const PRAZO_DA_PARTIDA_MS = 8000;
 let partiu = false;
 function partida() {
   if (partiu) return;
@@ -116,8 +128,6 @@ function partida() {
 }
 
 export const DgclawStatus = async () => {
-  const reserva = setTimeout(partida, PRAZO_DA_PARTIDA_MS);
-  if (reserva && typeof reserva.unref === "function") reserva.unref();
   return {
     event: async (entrada) => {
       try {
@@ -148,7 +158,8 @@ export const DgclawStatus = async () => {
         } else if (tipo === "permission.replied") {
           pendente = false;
           ultimoBatimento = Date.now();
-          avisar("PreToolUse", { sessionId: idDoCard(idDe(props.sessionID)) });
+          // A resposta a um pedido de permissão muda o estado do card (volta a "trabalhando"): não pode se perder.
+          avisar("PreToolUse", { sessionId: idDoCard(idDe(props.sessionID)) }, true);
         } else if (tipo === "session.error") {
           if (doCard(idDe(props.sessionID))) {
             const nome = props.error && typeof props.error.name === "string" ? props.error.name : "erro";

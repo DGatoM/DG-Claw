@@ -138,8 +138,21 @@ export function modelos(cat: Catalogo, id: string, opcoes: OpcoesDeModelos = {})
     const c = lerCacheOpenRouter(opcoes.cacheOpenRouter);
     if (c) {
       // Os apelidos (glm, kimi...) vivem na lista de reserva do catálogo e valem também para o cache.
-      const apelidos = new Map((p.modelos ?? []).map((m) => [m.id, m.apelidos ?? []]));
-      return c.modelos.map((m) => ({ ...m, apelidos: apelidos.get(m.id) ?? m.apelidos ?? [] }));
+      // Os apelidos vêm SÓ do catálogo confiável (o cache fica em pasta que o agente escreve) e nunca podem
+      // coincidir com o id de outro modelo nem se repetir: o primeiro modelo da lista de reserva fica com ele.
+      const ids = new Set(c.modelos.map((m) => m.id.toLowerCase()));
+      const usados = new Set<string>();
+      const apelidos = new Map<string, string[]>();
+      for (const m of p.modelos ?? []) {
+        const ok = (m.apelidos ?? []).filter((a) => {
+          const k = a.toLowerCase();
+          if (ids.has(k) || usados.has(k)) return false;
+          usados.add(k);
+          return true;
+        });
+        apelidos.set(m.id, ok);
+      }
+      return c.modelos.map((m) => ({ ...m, apelidos: apelidos.get(m.id) ?? [] }));
     }
   }
   if (p.modelosDe === "codex_models_cache") {
@@ -158,6 +171,21 @@ export function modelos(cat: Catalogo, id: string, opcoes: OpcoesDeModelos = {})
     }
   }
   return (p.modelos ?? []).map((m) => ({ ...m }));
+}
+
+/** Confere só o provedor e a forma de pagar (sem olhar o modelo). Lança ErroCatalogo se algo não vale. */
+export function validarProvedorEAuth(cat: Catalogo, id: string, auth: string, opcoes: OpcoesDeModelos = {}): ProvedorDoCatalogo {
+  const p = provedorDe(cat, id);
+  if (!p.disponivel) {
+    throw new ErroCatalogo(`O provedor ${p.nome} ainda não está disponível: ${p.motivo || "em preparo"}.`);
+  }
+  if (!p.auth || !Object.hasOwn(p.auth, auth)) {
+    throw new ErroCatalogo(`Forma de pagar '${auth}' não existe para ${p.nome}. Use: ${listaPt(Object.keys(p.auth ?? {}))}.`);
+  }
+  if (p.soCard && !opcoes.paraCard) {
+    throw new ErroCatalogo(`O ${p.nome} ${p.motivoSoCard || "abre só cards"}. Escolha Claude ou Codex para a conversa principal.`);
+  }
+  return p;
 }
 
 /** Devolve a escolha com o modelo no id canônico ('' = padrão do provedor). */

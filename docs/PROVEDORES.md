@@ -255,8 +255,10 @@ Sem a chave no Cofre o card não sobe: o comando sai com código 5 e diz como gu
   as sessões e o login continuam em `~/.local/share`, então retomar com `-s` funciona), e
   `OPENCODE_DISABLE_PROJECT_CONFIG=1`, `OPENCODE_DISABLE_DEFAULT_PLUGINS=1`, `OPENCODE_DISABLE_CLAUDE_CODE=1` e
   `OPENCODE_DISABLE_EXTERNAL_SKILLS=1`. Como `OPENCODE_DISABLE_PROJECT_CONFIG` também desliga a leitura do
-  `AGENTS.md` da pasta, o runner o põe na lista `instructions`. A leitura da conversa (`opencode export`) roda no
-  mesmo ambiente isolado.
+  `AGENTS.md` da pasta, o runner o põe na lista `instructions`, como uma CÓPIA dos bytes conferidos (aberto sem
+  seguir link, arquivo comum, até 256 KiB) dentro da pasta do spawn: um link simbólico chamado `AGENTS.md` não entra.
+  A leitura da conversa (`opencode export`) roda sem NENHUMA credencial no ambiente (só PATH, HOME, idioma e pastas
+  de dados), com uma pasta de configuração nova, vazia e de uso único, apagada ao terminar.
 - **Variáveis de fora.** Qualquer `OPENCODE_*` e `OPENROUTER_*` (menos a chave) herdada do serviço, do Cofre ou do
   descritor sai do ambiente do card (`limparPrefixos` do catálogo), porque `OPENCODE_MODELS_URL` e parecidas
   desviariam o endereço para onde a chave é mandada. O Cofre do painel também recusa nomes que começam com
@@ -264,8 +266,9 @@ Sem a chave no Cofre o card não sobe: o comando sai com código 5 e diz como gu
   só esteja no ambiente do serviço não abre card.
 - **O que impede o card.** O OpenCode não aplica `askTools`, `denyTools` nem as restrições do dono (`sem_bash`,
   `sem_enviar_arquivo`, `escrita_so_em`). Com qualquer uma delas ativa o card não abre (e a mensagem enviada a ele
-  é recusada com 409 `RESTRICAO_CONTA`), com o motivo e o que fazer. Modelo que saiu do catálogo ou do cache
-  mantém o provedor do card e o card para com 409 `MODELO_INDISPONIVEL`, pedindo outro modelo; ele nunca cai em
+  é recusada com 409 `RESTRICAO_CONTA`), com o motivo e o que fazer; ao CRIAR o card a recusa vem antes de gravar (409 `RESTRICAO_CONTA`), para não gastar
+  vaga. A saída indicada é o Claude: o Codex também não aplica essas restrições. Modelo que saiu do catálogo ou do
+  cache (inclusive o modelo padrão) mantém o provedor do card e o card para com 409 `MODELO_INDISPONIVEL`, pedindo outro modelo; ele nunca cai em
   outro provedor.
 - **Sem `--auto`.** O padrão do OpenCode só pede permissão ao sair da pasta de trabalho, e aprovar tudo
   sem olhar seria perigoso numa VPS de quem não é programador.
@@ -277,8 +280,10 @@ Sem a chave no Cofre o card não sobe: o comando sai com código 5 e diz como gu
   passa pela máscara de segredos (inclui o padrão `sk-or-v1-`).
 - **Partida lenta e o `SessionStart`.** O plugin carrega cerca de 2 s antes de a TUI aceitar texto (carga, uma
   rajada de `plugin.added` e, no `catalog.updated`, a tela pronta). Por isso o plugin só avisa a partida no
-  primeiro `catalog.updated` (mais 0,8 s de folga) ou, se ele nunca vier, 8 s depois da carga; avisar na carga fez
-  o runner digitar antes da hora e o texto se perder.
+  primeiro `catalog.updated` (mais 0,8 s de folga) ou no primeiro `chat.message`; não há prazo de reserva no plugin.
+  Se a tela nunca ficar pronta, o runner espera 45 s e recusa o pedido (`runner:prontidao-expirou`), em vez de
+  digitar numa tela que não aceita texto. Na fila do plugin, os batimentos repetidos são agrupados e o fim de turno,
+  o pedido de permissão e a resposta a ele têm entrega reservada.
 - **Dependência pré-instalada na imagem.** A 1.19.6 instala o pacote `@opencode-ai/plugin` (versão igual à do
   programa, 26 pacotes, 64 MB) em cada pasta de configuração que lhe falta `node_modules`, o que custava cerca de
   4 s e exigia rede e o registro npm no ar a cada card. O código (`packages/core/src/npm.ts`) pula a instalação
@@ -286,8 +291,9 @@ Sem a chave no Cofre o card não sobe: o comando sai com código 5 e diz como gu
   o pacote uma vez, com a trava revisada em `providers/opencode-deps/package-lock.json` (`npm ci --ignore-scripts`,
   e o build falha se a versão do pacote for diferente da do `OPENCODE_VERSAO`), e o runner copia o `package.json` e a
   trava e liga o `node_modules` (somente leitura, de root) na pasta do spawn e na `xdg/opencode`. Medido com a rede
-  bloqueada: o card abre e o plugin carrega. Sem a pasta (desenvolvimento), o runner avisa no log e o OpenCode volta a
-  instalar sozinho. Ao atualizar o `OPENCODE_VERSAO`, regerar a trava (`npm install --package-lock-only` na pasta
+  bloqueada: o card abre e o plugin carrega. Sem a pasta, o card NÃO abre (`runner:dependencias-ausentes`, com o aviso de reconstruir a imagem): deixar o
+  OpenCode instalar pela internet, com a chave já no processo, perderia a garantia da trava. Em desenvolvimento,
+  `DGCLAW_OPENCODE_DEPS` aponta para uma pasta com `package.json`, `package-lock.json` e `node_modules`. Ao atualizar o `OPENCODE_VERSAO`, regerar a trava (`npm install --package-lock-only` na pasta
   `providers/opencode-deps` com a versão nova). O runner também define `OPENCODE_DISABLE_LSP_DOWNLOAD=1` para o card
   não baixar servidores de linguagem durante o trabalho.
 - **Pronto da tela vem do plugin.** Com a partida lenta (até ~11 s medidos), a tela fica muda no meio, então o

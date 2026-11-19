@@ -75,6 +75,14 @@ export function filtrarModelosOpenRouter(json) {
   return saida;
 }
 
+const FORMATO_ID_OPENROUTER = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._:-]+$/;
+function registroValido(m) {
+  if (!m || typeof m !== 'object') return false;
+  const preco = (v) => v === null || (typeof v === 'number' && Number.isFinite(v) && v >= 0);
+  return typeof m.id === 'string' && FORMATO_ID_OPENROUTER.test(m.id) && typeof m.nome === 'string' && m.nome.length > 0 && m.nome.length <= 300
+    && preco(m.entradaPorMilhao) && preco(m.saidaPorMilhao);
+}
+
 // O cache fica em pasta que o agente escreve: abre sem seguir link (O_NOFOLLOW) e sem bloquear
 // (O_NONBLOCK, para um FIFO nao travar), e confere pelo descritor que e arquivo comum e pequeno.
 export function lerCacheOpenRouter(arquivo = arquivoCacheOpenRouter()) {
@@ -84,7 +92,10 @@ export function lerCacheOpenRouter(arquivo = arquivoCacheOpenRouter()) {
     const st = fs.fstatSync(fd);
     if (!st.isFile() || st.size > LIMITE_RESPOSTA_OPENROUTER) return null;
     const c = JSON.parse(fs.readFileSync(fd, 'utf8'));
-    if (Array.isArray(c.modelos) && c.modelos.length) return c;
+    // O agente escreve nessa pasta: conteudo fora do esquema e descartado inteiro (vale a reserva do catalogo).
+    if (c && typeof c === 'object' && typeof c.buscadoEm === 'string' && Array.isArray(c.modelos) && c.modelos.length && c.modelos.every(registroValido)) {
+      return { buscadoEm: c.buscadoEm, modelos: c.modelos.map((m) => ({ ...m, apelidos: [] })) };
+    }
   } catch { /* sem cache legivel: vale a reserva do catalogo */ } finally {
     if (fd !== null) { try { fs.closeSync(fd); } catch { /* ja fechado */ } }
   }
@@ -165,8 +176,19 @@ export function modelos(cat, id, { codexHome, soApi = false, cacheOpenRouter } =
     const c = lerCacheOpenRouter(cacheOpenRouter);
     if (c) {
       // Os apelidos (glm, kimi...) vivem na lista de reserva do catalogo e valem tambem para o cache.
-      const apelidos = new Map((p.modelos || []).map((m) => [m.id, m.apelidos || []]));
-      return c.modelos.map((m) => ({ ...m, apelidos: apelidos.get(m.id) || m.apelidos || [] }));
+      // Apelidos so do catalogo confiavel; nunca iguais ao id de outro modelo nem repetidos.
+      const ids = new Set(c.modelos.map((m) => m.id.toLowerCase()));
+      const usados = new Set();
+      const apelidos = new Map();
+      for (const m of p.modelos || []) {
+        apelidos.set(m.id, (m.apelidos || []).filter((a) => {
+          const k = a.toLowerCase();
+          if (ids.has(k) || usados.has(k)) return false;
+          usados.add(k);
+          return true;
+        }));
+      }
+      return c.modelos.map((m) => ({ ...m, apelidos: apelidos.get(m.id) || [] }));
     }
   }
   if (p.modelosDe === 'codex_models_cache') {

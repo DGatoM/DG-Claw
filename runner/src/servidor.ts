@@ -25,8 +25,7 @@ import { tratarRotasDeProvedor } from "./provedores/rotas.js";
 import { MOTIVO_SEM_MEDICAO, deStatusline, paraResposta } from "./uso.js";
 import { ESC, nonceConfere } from "./sessao/telas.js";
 import { acharRolloutPorId, mensagensDoRollout } from "./provedores/codex-rollout.js";
-import { ErroDeConversa, ambienteDeLeitura, lerConversaDoOpenCode } from "./provedores/opencode-conversa.js";
-import { pastaDeDependencias } from "./provedores/opencode.js";
+import { ErroDeConversa, lerConversaDoOpenCode } from "./provedores/opencode-conversa.js";
 import { garantirCacheOpenRouter } from "./provedores/openrouter-modelos.js";
 import { provedorDoVocabulario } from "./provedores/escolha.js";
 
@@ -580,7 +579,7 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             try {
               msgs = await lerConversaDoOpenCode({
                 sessionId: sessao.estado.sessionId,
-                env: ambienteDeLeitura(sessao.ambienteDaEscolha(escolha, catalogo).env, pastaDeDependencias()),
+                env: sessao.ambienteDaEscolha(escolha, catalogo).env,
                 cwd: sessao.descritor.config.cwd,
                 quantas: limite,
                 segredos: sessao.segredosParaMascara(),

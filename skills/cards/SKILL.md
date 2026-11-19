@@ -118,7 +118,7 @@ resultado, leia também o que veio depois do seu pedido.
   identidade e as ferramentas nativas do OpenCode (ler, editar, rodar comando). Peça só trabalho que se faz
   com isso, e nunca como motor da conversa principal. Se o agente tiver restrições do dono (sem Bash, sem enviar
   arquivo, escrita só em certas pastas) ou ferramentas negadas, o card do OpenCode não abre e o comando diz
-  o motivo: abra o card no Claude ou no Codex.
+  o motivo: abra o card no Claude (o Codex também não aplica essas restrições).
 - Não passe segredos (senhas, chaves) no pedido: ele fica guardado na conversa do card.
 - Não abra card para o que você resolve em um minuto. Card serve para segunda opinião e para
   trabalho que corre em paralelo.

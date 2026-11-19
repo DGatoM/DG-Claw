@@ -134,9 +134,21 @@ export function montarAmbiente(ent: EntradaDoAmbiente): ResultadoDoAmbiente {
     if (nome !== variavelDoModo && porPrefixo.some((p) => nome.startsWith(p))) porModo.add(nome);
   }
   // Modo que exige a chave no Cofre (soDoCofre): a variável herdada do ambiente do serviço não vale.
-  if (modo.soDoCofre && variavelDoModo && !cofre.has(variavelDoModo) && variavelDoModo in env) {
-    removidas.push({ nome: variavelDoModo, motivo: "herdada, não está no cofre" });
-    delete env[variavelDoModo];
+  if (modo.soDoCofre && variavelDoModo) {
+    // O valor vem SÓ do ambiente carregado pelo serviço a partir do Cofre (ent.base): a sobreposição do descritor
+    // (envExtra) não vale para esta variável, senão uma chave antiga continuaria sendo cobrada depois de o dono
+    // trocar a chave no Cofre.
+    const doCofre = ent.base[variavelDoModo];
+    if (aplicadas.includes(variavelDoModo)) {
+      aplicadas.splice(aplicadas.indexOf(variavelDoModo), 1);
+      recusadas.push(variavelDoModo);
+      if (doCofre != null) env[variavelDoModo] = doCofre;
+      else delete env[variavelDoModo];
+    }
+    if (!cofre.has(variavelDoModo) && variavelDoModo in env) {
+      removidas.push({ nome: variavelDoModo, motivo: "herdada, não está no cofre" });
+      delete env[variavelDoModo];
+    }
   }
   for (const nome of new Set([...porHeranca, ...porModo])) {
     if (nome === variavelDoModo || !(nome in env)) continue;
