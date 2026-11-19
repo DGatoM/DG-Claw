@@ -63,6 +63,14 @@ class GuardaDeFilaDoAutoCompact(unittest.TestCase):
             self.assertIsNotNone(m, card)
             self.assertIn("adio", m)
 
+    def test_log_da_guarda_nao_copia_campos_crus_do_card(self):
+        m = self._motivo({"status": "idle", "naFilaTotal": "segredo\nlinha"})
+        self.assertNotIn("segredo", m)
+        m = self._motivo({"status": "x\ninjetado", "naFilaTotal": 0})
+        self.assertNotIn("injetado", m)
+        self.assertIn("em outro estado", m)
+        self.assertIn("working", self._motivo({"status": "working", "naFilaTotal": 0}))
+
     def test_lista_de_fila_nao_vazia_conta_como_ocupado_mesmo_com_total_zero(self):
         m = self._motivo({"status": "idle", "naFilaTotal": 0, "naFila": [{"em": 1, "msg": None}]})
         self.assertIn("fila 1", m)
@@ -260,12 +268,11 @@ class FilaParadaNoWatchdog(unittest.TestCase):
         self.assertFalse(tratado)
         self.assertEqual(avisos, [])
 
-    def test_codex_ou_sem_medicao_tambem_so_avisa(self):
+    def test_codex_ou_sem_medicao_nao_avisa(self):
         for card, epoch in ((self._card(codexHome="/tmp/codex-teste"), "mudo"), (self._card(), None)):
-            (tratado, _v, diag), avisos = self._cuidar(card, transcript_epoch=epoch)
-            self.assertTrue(tratado)
-            self.assertEqual(len(avisos), 1)
-            self.assertTrue(diag["so_observou"])
+            (tratado, _v, _diag), avisos = self._cuidar(card, transcript_epoch=epoch)
+            self.assertFalse(tratado)
+            self.assertEqual(avisos, [])
 
     def test_auto_recovery_off_tambem_so_avisa(self):
         (tratado, _v, _d), avisos = self._cuidar(self._card(), auto_recovery="off")

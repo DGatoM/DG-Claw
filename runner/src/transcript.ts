@@ -235,6 +235,9 @@ export function compactRecusadoNoTranscript(
       if (!lido || typeof lido !== "object" || Array.isArray(lido)) continue;
       o = lido as typeof o;
     } catch {
+      // Linha ilegível (por exemplo, uma linha ainda sendo escrita): não dá para saber se o agente seguiu,
+      // então a recusa anterior deixa de valer e a próxima leitura decide.
+      recusado = false;
       continue;
     }
     // A recusa só é aceita na linha de controle que o próprio CLI grava (system/local_command do comando compact).

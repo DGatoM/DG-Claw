@@ -42,8 +42,8 @@ Duas coberturas, ambas com o MESMO cap anti-storm:
      outro estado que nao e idle nem waiting_input) e o card sem mudar de estado ha mais de
      DGCLAW_FILA_PARADA_MIN (15) min. Um PreCompact recusado pelo CLI deixou um agente nesse estado por
      horas, com este vigia dizendo "VIVA e saudavel". NUNCA reinicia: avisa o dono uma vez por incidente
-     (campo proprio do state, nao o saude_avisado) e grava saude.json com so_observou. Vale para os dois
-     motores e para auto-recovery=off. Com o Claude medido exige tambem o transcript mudo. So no mundo bunker.
+     (campo proprio do state, nao o saude_avisado) e grava saude.json com so_observou. Vale com
+     auto-recovery=off. So no Claude, com o transcript medido e mudo (Codex ou sem medicao nao avisa). So no mundo bunker.
 
   ONDE O RESTART ACONTECE: no mundo bunker (card do Bunker ou runner proprio, que e o caso
   da jaula) o restart e por HTTP (_lib/reinicio.py: parar + /resume), e nao systemctl. O
@@ -423,8 +423,8 @@ def fila_parada(card, now_ms: float, limite_min: int):
 def cuidar_da_fila_parada(card, diag, ctx, transcript_epoch=None):
     """Fila presa no runner: NUNCA reinicia, so avisa o dono uma vez por incidente e grava saude.json com
     `so_observou`. Reiniciar um agente que pode estar no meio de um turno vivo custa mais que o aviso, e
-    no Codex o watchdog nem mede o transcript. Com o Claude medido, o transcript tambem precisa estar mudo
-    ha mais de DGCLAW_FILA_PARADA_MIN; Codex ou sem medicao avisa pelo card sozinho.
+    no Codex o watchdog nem mede o transcript. So vale com o Claude medido e o transcript mudo ha mais de
+    DGCLAW_FILA_PARADA_MIN; Codex ou sem medicao nao avisa.
 
     A deduplicacao usa o campo proprio state["fila_parada_avisada"] (o `em` do item mais antigo), e nao
     saude_avisado, que a rodada limpa sempre que o diagnostico geral esta ativo. O campo sai quando a fila
@@ -437,9 +437,12 @@ def cuidar_da_fila_parada(card, diag, ctx, transcript_epoch=None):
         if card and state.pop("fila_parada_avisada", None) is not None:
             save_state(state_path, state)
         return False, "", diag
-    codex = bool(card.get("codexHome"))
-    medido = transcript_epoch is not None and not codex
-    if medido and (now_ms / 1000.0 - transcript_epoch) / 60.0 <= limite:
+    # So com o transcript do Claude medido: no Codex (rollout nao lido aqui) ou sem medicao, um turno que
+    # so escreve texto nao renova o card e o aviso sairia com o agente trabalhando. O travamento do
+    # PreCompact e so do Claude.
+    if card.get("codexHome") or transcript_epoch is None:
+        return False, "", diag
+    if (now_ms / 1000.0 - transcript_epoch) / 60.0 <= limite:
         return False, "", diag  # o transcript ainda anda: ferramenta longa, nao fila presa
     resumo = (f"{f['n']} mensagem(ns) esperando ha {f['idade_min']} min com o agente "
               f"{f['status']} ({f['motivo']})")

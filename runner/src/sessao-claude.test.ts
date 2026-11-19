@@ -416,6 +416,15 @@ test("PreCompact: recusa seguida de ai-title ainda conta", async () => {
   await esperarAte(() => s.estado.status === "idle", 5_000, "a recusa com ai-title depois virar idle");
 });
 
+test("PreCompact: linha ilegível depois da recusa (ainda sendo escrita) anula a recusa", async () => {
+  const { s, hook, transcript, arquivo } = await novaComRedeCurta(600);
+  hook("PreCompact");
+  transcript([[RECUSA_DO_COMPACT, 100]]);
+  fs.appendFileSync(arquivo, '{"type":"assistant","message":{"content":[{"type":"te');
+  await dormir(1_500);
+  assert.equal(s.estado.status, "working");
+});
+
 test("fila: dois /compact seguidos com o agente ocupado ficam em 1; /compact + mensagem + /compact ficam em 2", async () => {
   const { s, hook } = await novaComRedeCurta(60_000);
   hook("UserPromptSubmit");

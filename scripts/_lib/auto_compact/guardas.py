@@ -5,6 +5,8 @@ import inject as inj  # _lib já está no sys.path (ver auto-compact.py)
 from .ambiente import env
 from .transcript import had_compact_since_arquivo
 
+_ESTADOS_CONHECIDOS = ("spawning", "working", "waiting_input", "idle", "completed", "errored", "stopped", "resumable")
+
 
 def _int_env(nome: str, padrao: int) -> int:
     try:
@@ -30,13 +32,15 @@ def agente_ocupado_no_bunker():
     status = card.get("status")
     total = card.get("naFilaTotal")
     if isinstance(total, bool) or not isinstance(total, int) or total < 0:
-        return (f"o card veio sem um tamanho de fila valido (naFilaTotal={total!r}); "
-                f"nao enfileiro /compact as cegas, adio para o proximo ciclo")
+        return ("o card veio sem um tamanho de fila valido (naFilaTotal ausente ou invalido); "
+                "nao enfileiro /compact as cegas, adio para o proximo ciclo")
     lista = card.get("naFila")
     if isinstance(lista, list) and lista:
         total = max(total, len(lista))
     if status != "idle" or total > 0:
-        return (f"o agente esta {status} (fila {total}); nao enfileiro /compact, "
+        # So estados conhecidos vao para o log; o resto vira "outro estado".
+        conhecido = status if status in _ESTADOS_CONHECIDOS else "em outro estado"
+        return (f"o agente esta {conhecido} (fila {total}); nao enfileiro /compact, "
                 f"tento no proximo ciclo")
     return None
 
