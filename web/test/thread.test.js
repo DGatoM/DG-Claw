@@ -298,3 +298,12 @@ test('thread: restricoes.json ilegivel nao entrega anexo e avisa no log', () => 
   assert.deepEqual(leitor.ler(transcript, agente).eventos, []);
   assert.ok(cap.linhas.some((l) => /restricoes\.json/.test(JSON.stringify(l))), 'o log diz qual arquivo');
 });
+
+test('thread: o aviso de atraso que o runner acrescenta depois do envelope não aparece na fala do dono', () => {
+  const { agente, leitor } = preparar();
+  const tmp = path.join(pastaTemp('jsonl'), 's.jsonl');
+  const conteudo = '<dgchat from="pessoa" chat="c_ana" msg="m1" ts="x">ok</dgchat>\n\n[Aviso do sistema: a mensagem acima foi escrita às 14:32 e esperou 8 min.]';
+  fs.writeFileSync(tmp, JSON.stringify({ type: 'user', timestamp: '2026-10-12T15:00:01.000Z', message: { content: conteudo } }) + '\n');
+  const r = leitor.ler(tmp, agente);
+  assert.deepEqual(r.eventos.map((e) => e.text), ['ok']);
+});
