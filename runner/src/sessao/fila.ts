@@ -14,7 +14,8 @@ export function enfileirarQuandoOcioso(s: Sessao, texto: string, esperouNoPainel
   // Um /compact atrás de outro /compact só empilha recusas ("Not enough messages to compact."): se já há um na fila,
   // um sendo digitado, ou o PTY de agora está compactando, o segundo não entra. Devolve false nesse caso, para a rota
   // dizer que não enfileirou.
-  const ehCompact = (t: string) => t.trim() === "/compact";
+  // Vale também com argumentos ("/compact foque nas decisões"): o segundo cairia na mesma recusa.
+  const ehCompact = (t: string) => /^\/compact(?:\s|$)/.test(t.trim());
   if (
     ehCompact(texto) &&
     (s.filaQuandoIdle.some((item) => ehCompact(item.texto)) ||

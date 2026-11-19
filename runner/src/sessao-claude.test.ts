@@ -436,6 +436,12 @@ test("fila: dois /compact seguidos com o agente ocupado ficam em 1; /compact + m
   s.enfileirarQuandoOcioso("uma mensagem");
   s.enfileirarQuandoOcioso("/compact");
   assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["/compact", "uma mensagem"]);
+  s.filaQuandoIdle.length = 0;
+  s.enfileirarQuandoOcioso("/compact foque nas decisões");
+  s.enfileirarQuandoOcioso("/compact foque nas decisões");
+  s.enfileirarQuandoOcioso("/compact");
+  s.enfileirarQuandoOcioso("/compactar não é o comando");
+  assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["/compact foque nas decisões", "/compactar não é o comando"]);
 });
 
 test("fila: /compact não entra se já há um sendo digitado ou um compact em andamento, e devolve false", async () => {
