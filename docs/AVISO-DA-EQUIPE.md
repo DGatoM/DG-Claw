@@ -94,16 +94,19 @@ Para reiniciar: `sudo systemctl restart dgclaw-web`.
 
 Num agente de teste, ponha `DGCLAW_AVISOS_RETIDOS=1` no `.dgclaw/config.sh` e simule a queda gravando o
 `saude.json` com `{"estado":"atencao","tipo":"login","desde":null,"verificadoEm":"<agora em ISO>"}`. Na rodada
-seguinte (até 5 minutos) o aviso sai. Ponha o estado de volta em `ativo` para ver o "voltou". O watchdog regrava o
+seguinte (até 5 minutos) o aviso sai. Para ver o "voltou", grave o estado `ativo` com um `verificadoEm` estritamente posterior ao da queda (uma
+leitura igual ou mais antiga não encerra a queda), por exemplo
+`{"estado":"ativo","tipo":"ok","desde":null,"verificadoEm":"<ISO da queda + 1 minuto, ou o agora>"}`. O watchdog regrava o
 arquivo a cada 5 minutos, então teste num agente parado ou desligue o watchdog dele antes. Para testar só o comando:
 `echo teste | /usr/local/sbin/aviso-equipe.sh` (chame o script direto pelo caminho; uma variável vazia faria o teste não executar nada). O `echo $?` seguinte tem de mostrar 0.
 
 ## Limites da leitura do `config.sh`
 
 O painel nunca executa o `config.sh`: só lê linhas de atribuição simples, como `DGCLAW_AVISOS_RETIDOS=1`, com ou sem
-`export`, com aspas simples ou duplas, com `;` no fim ou comentário `# ...` depois do valor. Se a linha que trata dessa
-variável for outra coisa (por exemplo `DGCLAW_AVISOS_RETIDOS=$(cat arquivo)` ou `: ${DGCLAW_AVISOS_RETIDOS:=1}`), o painel
-não entende a linha: não manda aviso novo, não encerra nenhum aviso em andamento, e escreve no log uma frase dizendo
+`export`, com aspas simples ou duplas, com `;` no fim ou comentário `# ...` depois do valor. A atribuição tem de começar
+na primeira coluna (sem recuo) e ser o único comando da linha. Se a linha que trata dessa variável for outra coisa (por
+exemplo `DGCLAW_AVISOS_RETIDOS=$(cat arquivo)`, `: ${DGCLAW_AVISOS_RETIDOS:=1}`, uma atribuição recuada dentro de um `if`
+ou combinada com outro comando por `&&`, `||` ou `;`), o painel não entende a linha: não manda aviso novo, não encerra nenhum aviso em andamento, e escreve no log uma frase dizendo
 qual agente é e que a linha deve virar `DGCLAW_AVISOS_RETIDOS=1`.
 
 O vigia só lê a pasta padrão de logs, `.dgclaw/logs` dentro da casa do agente. Se o `config.sh` de um agente com avisos
