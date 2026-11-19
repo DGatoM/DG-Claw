@@ -104,6 +104,8 @@ case "${1:-}" in
                 if [ "$w" -gt "$m" ] && [ "$m" -gt 0 ]; then echo $((w - m)) > "$d/memory.swap.max"; elif [ "$w" = -1 ] || [ "$m" -eq 0 ]; then echo max > "$d/memory.swap.max"; else echo 0 > "$d/memory.swap.max"; fi
                 if [ "$n" -gt 0 ]; then echo "$n" > "$d/pids.max"; else echo max > "$d/pids.max"; fi
                 if [ "$q" -gt 0 ]; then echo "$q $p" > "$d/cpu.max"; else echo "max $p" > "$d/cpu.max"; fi
+                # cgroup-sem-swap: o kernel sem contabilidade de swap nao tem o arquivo.
+                [ -f "$est/cgroup-sem-swap" ] && rm -f "$d/memory.swap.max"
             fi
             echo "/machine.slice/libpod-$nome.scope"; exit 0
         fi
@@ -148,7 +150,7 @@ case "${1:-}" in
             case "$1" in
                 --memory) v="$2"; case "$v" in *g) v=$(( ${v%g} * 1073741824 )) ;; *m) v=$(( ${v%m} * 1048576 )) ;; esac; mem="$v" ;;
                 --memory-swap) v="$2"; case "$v" in *g) v=$(( ${v%g} * 1073741824 )) ;; *m) v=$(( ${v%m} * 1048576 )) ;; esac; swap="$v" ;;
-                --cpus) quota="$(awk -v c="$2" 'BEGIN { printf "%d", c * 100000 }')" ;;
+                --cpus) [ -f "$est/update-cpu-sem-efeito" ] || quota="$(awk -v c="$2" 'BEGIN { printf "%d", c * 100000 }')" ;;
                 --pids-limit) pids="$2" ;;
             esac
             shift 2

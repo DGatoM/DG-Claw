@@ -896,7 +896,7 @@ criar_container() {
         fi
     else
         dns_containers_calcular
-        limites_calcular
+        # LIM_* ja foram calculados (e validados) por agente_criar e agente_recriar, antes de reservar ou parar qualquer coisa.
         info "limites do container $c: memoria $LIM_MEM_ARG, CPUs $LIM_CPUS_ARG, processos $LIMITE_PIDS (calculados pelo tamanho desta maquina)"
         if [ "${#DNS_CONTAINER_ARGS[@]}" -gt 0 ]; then
             info "o DNS deste servidor ($DNS_HOST_PRIVADOS) fica numa rede privada, que a cerca dos agentes bloqueia; o container $c usa DNS publico (1.1.1.1 e 8.8.8.8)."
@@ -1301,6 +1301,9 @@ agente_criar() {
     # O podman nao herda o descritor da trava: o conmon vive ate o container parar e a seguraria.
     podman() { command podman "$@" 8>&-; }
     carregar_env_dgclaw
+    # Antes de reservar uid, portas, casa ou rede: uma sobrescrita invalida (DGCLAW_CONTAINER_MEMORIA=4GB) falha aqui, sem nada reservado.
+    # O criar_container reaproveita este resultado (LIM_*).
+    limites_calcular
     if ! podman image exists "$DGCLAW_IMAGEM" >/dev/null 2>&1; then
         falha "a imagem dos agentes ($DGCLAW_IMAGEM) ainda nao existe nesta maquina." \
               "ela e construida em segundo plano pelo instalador; espere ficar pronta: dgclaw imagem status (para construir agora: dgclaw imagem construir)"
@@ -1531,7 +1534,6 @@ agente_reparar() {
     fi
     porta="$(printf '%s' "$obj" | jq -r '.runner | sub("^.*:"; "")')"
     passo "Conferindo os limites de memoria, CPU e processos do container"
-    carregar_env_dgclaw
     limites_ajustar_existente "$slug"
     passo "Garantindo o gancho do Modo foco no runner.json"
     garantir_gancho_foco "$DG_CASAS/$slug/runner/runner.json" "$slug"
