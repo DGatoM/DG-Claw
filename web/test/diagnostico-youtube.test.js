@@ -56,7 +56,7 @@ test('o comando tenta SEM cookies primeiro e só usa os cookies depois de "sign 
   assert.ok(!ytdlp[0][0].includes('--cookies-from-browser'), 'a primeira é anônima');
   assert.match(ytdlp[0][0], /2>"\$d\/err"/, 'o stderr da primeira fica em arquivo fora da pasta de download');
   assert.ok(ytdlp[1][0].includes('--cookies-from-browser'), 'a segunda usa os cookies');
-  const iLogin = linhas.findIndex((l) => /grep -qiE "sign in to confirm you\.re not a bot" "\$d\/err"/.test(l));
+  const iLogin = linhas.findIndex((l) => /head -c 8192 "\$d\/err" \| grep -qiE "sign in to confirm you\.re not a bot"/.test(l));
   const iPasta = linhas.findIndex((l) => /if \[ ! -d \/home\/agente\/\.tela-chrome\/Default \]/.test(l));
   assert.ok(iLogin > ytdlp[0][1] && iLogin < iPasta && iPasta < ytdlp[1][1], 'ordem: anônima, checagem anti-robô, pasta, cookies');
   assert.match(SCRIPT, /head -c 8192 "\$d\/err" >&2/, 'falha por outro motivo repassa o stderr cortado');
@@ -83,6 +83,11 @@ test('pasta do Chrome ausente com download anônimo ok dá ok (script de verdade
   r = exec('echo "ERROR: HTTP Error 429" >&2; exit 3');
   assert.equal(r.status, 3, 'outro erro: devolve o código dela');
   assert.match(r.stderr, /429/);
+  // mensagem anti-robô DEPOIS dos 8 KiB não libera os cookies; antes do limite libera
+  r = exec('head -c 9000 /dev/zero | tr "\\0" "a" >&2; echo >&2; echo "ERROR: Sign in to confirm you\'re not a bot" >&2; exit 3');
+  assert.equal(r.status, 3, 'anti-robô depois do limite é ignorado: devolve o código dela');
+  r = exec('echo "ERROR: Sign in to confirm you\'re not a bot" >&2; head -c 9000 /dev/zero | tr "\\0" "a" >&2; exit 3');
+  assert.equal(r.status, 66, 'anti-robô antes do limite continua valendo');
   r = exec('exit 0');
   assert.equal(r.status, 65, 'saiu 0 sem arquivo');
   fs.rmSync(bin, { recursive: true, force: true });
@@ -373,4 +378,18 @@ function m_limpa(dir) { fs.rmSync(dir, { recursive: true, force: true }); }
 
 test('restrição de idade não é o desafio anti-robô: não vira "login"', () => {
   assert.notEqual(classificarYoutube({ codigo: 1, stdout: '', stderr: 'ERROR: Sign in to confirm your age' }).tipo, 'login');
+});
+
+test('código 70 (pasta temporária não criada) é infraestrutura: nao_medido e preserva o último resultado concluído', async () => {
+  const m = monta([
+    BOM,
+    { codigo: 70, stdout: '', stderr: '', erro: null },
+  ]);
+  await m.testa();
+  m.avanca(MIN);
+  assert.equal(await m.testa(), 'nao_medido');
+  const v = m.ctx.youtube.ler('tina', 'i:aaa');
+  assert.equal(v.tipo, 'nao_medido');
+  assert.deepEqual(v.ultimoConcluido, { em: AGORA, tipo: 'ok', codigo: null });
+  m.limpa();
 });

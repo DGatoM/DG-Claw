@@ -69,7 +69,11 @@ restrição de idade não é tentado com os cookies, e o agente avisa que o víd
    cookies, e confira abrindo youtube.com e os outros sites que você usou que nenhuma conta sua continua conectada.
    Como o `dgclaw atualizar` guarda cópias da casa do agente, a limpeza não alcança essas cópias: nesse caso, saia
    também das sessões pelos próprios serviços (na conta do Google, "Seus dispositivos"), troque as senhas que ficaram
-   salvas na Tela e apague as cópias de backup e snapshots da VPS anteriores à limpeza antes de entregar o acesso.
+   salvas na Tela. Só depois, e antes de entregar o acesso, retire da VPS as cópias de backup e snapshots anteriores à
+   limpeza. Antes de apagar qualquer uma, crie um backup novo, já depois da limpeza, e confira que ele abre e tem as
+   conversas, os cofres e as configurações do agente, para não ficar sem nenhum ponto de restauração. Se você quiser
+   guardar o histórico das cópias antigas, leve-as para fora da VPS, cifradas e sob o seu controle, e só então apague
+   as que ficaram no ambiente que vai ser entregue.
 
 ## [1.1.0] - 2026-11-18
 

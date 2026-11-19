@@ -20,6 +20,7 @@ const NOME_ARQUIVO = 'youtube-saude.json';
 const LIMITE_SAIDA = 8192;               // bytes lidos de stderr e de stdout, cortados antes de qualquer regex ou log
 const PASTA_COOKIES = '/home/agente/.tela-chrome/Default'; // só o perfil padrão da Tela: outro perfil aberto nela nunca entra no teste
 const VALIDADE_MS = 13 * 3600 * 1000;    // duas rodadas de 6 horas e uma margem: resultado mais velho que isso não é mais medida
+const SAIDA_SEM_TMP = 70;                // o script não conseguiu criar a pasta temporária: o yt-dlp nem começou
 const SAIDA_PODMAN_FALHOU = 125;         // o próprio podman não conseguiu executar o comando (ex.: container parado)
 const SAIDA_SEM_PERFIL = 66;             // código próprio do script: a pasta do Chrome da Tela não existe
 
@@ -29,14 +30,14 @@ const SAIDA_SEM_PERFIL = 66;             // código próprio do script: a pasta 
 // anti-robô) é que tenta de novo com os cookies da pasta do Chrome da Tela; se ela não existe, sai com 66.
 const OPCOES_BASE = `--ignore-config --no-plugin-dirs --js-runtimes node --no-playlist --no-progress --socket-timeout 20 -f "worst/worstvideo" --max-filesize 5M -P "$d/v" -o '%(id)s.%(ext)s'`;
 const SCRIPT = [
-  'd=$(mktemp -d /tmp/yt-saude.XXXXXX) || exit 70',
+  `d=$(mktemp -d /tmp/yt-saude.XXXXXX) || exit ${SAIDA_SEM_TMP}`,
   'trap \'rm -rf "$d"\' EXIT',
   'if ! command -v yt-dlp >/dev/null 2>&1',
   'then',
   '  echo "yt-dlp: command not found" >&2',
   '  exit 127',
   'fi',
-  'mkdir "$d/v" || exit 70',
+  `mkdir "$d/v" || exit ${SAIDA_SEM_TMP}`,
   `timeout ${PRAZO_DOWNLOAD_S} yt-dlp ${OPCOES_BASE} '${VIDEO_TESTE}' 2>"$d/err"`,
   'c=$?',
   'if [ $c -eq 0 ] && [ -n "$(find "$d/v" -type f -size +0c)" ]',
@@ -44,7 +45,7 @@ const SCRIPT = [
   '  exit 0',
   'fi',
   // Só o desafio anti-robô libera os cookies; "Sign in to confirm your age" (restrição de idade) não.
-  'if ! grep -qiE "sign in to confirm you.re not a bot" "$d/err"',
+  'if ! head -c 8192 "$d/err" | grep -qiE "sign in to confirm you.re not a bot"',
   'then',
   '  head -c 8192 "$d/err" >&2',
   '  if [ $c -eq 0 ]',
@@ -60,7 +61,7 @@ const SCRIPT = [
   `  exit ${SAIDA_SEM_PERFIL}`,
   'fi',
   'rm -rf "$d/v"',
-  'mkdir "$d/v" || exit 70',
+  `mkdir "$d/v" || exit ${SAIDA_SEM_TMP}`,
   // TMPDIR dentro de "$d": a cópia temporária do banco de cookies que o yt-dlp faz some junto no trap.
   `TMPDIR="$d" timeout ${PRAZO_DOWNLOAD_S} yt-dlp ${OPCOES_BASE.replace('--js-runtimes node', `--js-runtimes node --cookies-from-browser "chrome+basictext:${PASTA_COOKIES}" --match-filters "availability=public & age_limit=0"`)} '${VIDEO_TESTE}' || exit $?`,
   'if [ -z "$(find "$d/v" -type f -size +0c)" ]',
@@ -181,6 +182,11 @@ function testarYoutube(ctx, ag) {
     // Código 125 é do podman (ex.: "can only create exec sessions on running containers"): infraestrutura, e vale antes de qualquer análise do que o yt-dlp disse.
     if (r.codigo === SAIDA_PODMAN_FALHOU) {
       log('aviso', `Diagnóstico: o container ${ag.container} não aceitou o teste do YouTube (código de saída 125, falha do podman). Confira com dgclaw status.`);
+      registrarTentativa();
+      return 'nao_medido';
+    }
+    if (r.codigo === SAIDA_SEM_TMP) {
+      log('aviso', `Diagnóstico: o container ${ag.container} não conseguiu criar a pasta temporária do teste do YouTube (código de saída 70). Confira o espaço em disco do agente.`);
       registrarTentativa();
       return 'nao_medido';
     }
