@@ -70,13 +70,16 @@ export function vigiarStopPerdido(s: Sessao, esteProc: pty.IPty): void {
  *  O Codex não tem PreCompact e nunca chega aqui. */
 function conferirCompactSemFim(s: Sessao, quietoHa: number): void {
   const desde = s.compactComecouEm;
+  // Qualquer hook depois do PreCompact zera compactComecouEm (eventos.ts), e o PTY do PreCompact tem que ser o de agora:
+  // sem isso, uma ferramenta que começou logo depois de um compact bom seria tomada por compact sem fim.
+  if (desde <= 0 || s.compactando === null || s.compactando !== s.proc) return;
   if (quietoHa >= s.quietoParaOlharTranscriptMs && s.estado.sessionId) {
     const r = compactRecusadoNoTranscript(s.estado.sessionId, desde, s.estado.config.envExtra?.CLAUDE_CONFIG_DIR);
     if (r.recusado) {
       log.aviso(
         s.a("estado"),
-        `o CLI recusou o /compact${r.texto ? ` ("${mascarar(r.texto, s.segredosParaMascara())}")` : ""}: o hook PreCompact chegou, mas o transcript ` +
-          `tem a recusa e nenhuma fronteira de compact depois dela, então não virá SessionStart nem Stop. ` +
+        `compact recusado: poucas mensagens. O hook PreCompact chegou, mas o transcript ` +
+          `tem a recusa e nada depois dela, então não virá SessionStart nem Stop. ` +
           `Marquei como idle e vou soltar a fila; se repetir, o auto-compact está enfileirando /compact em excesso`,
       );
       cancelarStopPendente(s);
@@ -86,7 +89,7 @@ function conferirCompactSemFim(s: Sessao, quietoHa: number): void {
     }
   }
   const emCompactMs = Date.now() - desde;
-  if (desde > 0 && emCompactMs > s.compactSemFimMs && quietoHa > s.compactQuietoRedeMs) {
+  if (emCompactMs > s.compactSemFimMs && quietoHa > s.compactQuietoRedeMs) {
     log.aviso(
       s.a("estado"),
       `PreCompact sem SessionStart há ${Math.round(emCompactMs / 60_000)} min (terminal quieto há ${Math.round(quietoHa / 1000)}s); ` +

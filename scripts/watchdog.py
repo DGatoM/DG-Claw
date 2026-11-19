@@ -42,7 +42,8 @@ Duas coberturas, ambas com o MESMO cap anti-storm:
      outro estado que nao e idle nem waiting_input) e o card sem mudar de estado ha mais de
      DGCLAW_FILA_PARADA_MIN (15) min. Um PreCompact recusado pelo CLI deixou um agente nesse estado por
      horas, com este vigia dizendo "VIVA e saudavel". Restart normal (mesma conversa), com o mesmo cap
-     anti-storm e respeitando auto-recovery=off. So no mundo bunker (a fila e do runner).
+     anti-storm e respeitando auto-recovery=off, SO com o transcript do Claude medido e mudo; com Codex ou
+     sem medicao so avisa o dono uma vez. Relê o card antes de reiniciar. So no mundo bunker.
 
   ONDE O RESTART ACONTECE: no mundo bunker (card do Bunker ou runner proprio, que e o caso
   da jaula) o restart e por HTTP (_lib/reinicio.py: parar + /resume), e nao systemctl. O
@@ -362,14 +363,14 @@ def gravar_saude(logs_dir: Path, diag: dict, acao: str, now) -> None:
         FALHAS.append(f"nao consegui gravar saude.json em {logs_dir}: {e}")
 
 
-def fila_parada(card, now_ms: float, limite_min: int, transcript_epoch=None):
-    """O card do runner esta com a fila presa? Devolve {n, idade_min, status, motivo} ou None.
+def fila_parada(card, now_ms: float, limite_min: int):
+    """O card do runner esta com a fila presa? Devolve {n, idade_min, status, motivo, mais_antigo_em} ou None.
 
     Presa = tem item na fila E o agente nao esta idle (vai soltar sozinho) nem waiting_input (quem
     espera ali e a pessoa) E a mensagem mais antiga espera ha mais de `limite_min` E o card nao muda de
-    estado (updatedAt, epoch ms) ha mais de `limite_min` E o transcript (ultimo turno, epoch s) tambem
-    esta mudo ha mais de `limite_min`: uma ferramenta longa nao muda o card, mas o turno vivo escreve
-    no transcript. Sem `em` legivel nao afirma nada."""
+    estado (updatedAt, epoch ms) ha mais de `limite_min`. So olha o card; a confirmacao pelo transcript
+    (uma ferramenta longa nao muda o card, mas o turno vivo escreve nele) e de quem chama. Sem `em`
+    legivel nao afirma nada."""
     if not card:
         return None
     try:
@@ -388,19 +389,43 @@ def fila_parada(card, now_ms: float, limite_min: int, transcript_epoch=None):
     parado_ha = (now_ms - atualizado) / 60000.0
     if idade_fila <= limite_min or parado_ha <= limite_min:
         return None
-    if transcript_epoch is not None and (now_ms / 1000.0 - transcript_epoch) / 60.0 <= limite_min:
-        return None
     return {"n": total, "idade_min": int(idade_fila), "status": status,
-            "motivo": card.get("statusReason") or "sem motivo"}
+            "motivo": card.get("statusReason") or "sem motivo", "mais_antigo_em": min(ems)}
 
 
-def cuidar_da_fila_parada(card, diag, ctx, transcript_epoch=None):
-    """Fila presa no runner: restart normal (mesma conversa) pelo mesmo caminho dos outros, com o cap
-    anti-storm; auto-recovery=off so observa. attempt_restart ja avisa o dono (reinicio, cap estourado
-    ou falha). Devolve (tratado, veredito, diag_para_a_saude)."""
-    f = fila_parada(card, time.time() * 1000, env_int("DGCLAW_FILA_PARADA_MIN", 15), transcript_epoch)
+def _mudou_desde_a_leitura(antes, depois, now_ms: float, limite_min: int) -> str:
+    """Motivo (texto) se o card relido NAO e o mesmo incidente da leitura anterior, ou "" se e.
+    Entre ler a fila e reiniciar o agente pode ter soltado a fila, ter sido parado pelo dono ou ter
+    andado: reiniciar nesse caso derruba um turno vivo."""
+    if not depois:
+        return "nao consegui reler o card antes de reiniciar"
+    if depois.get("status") in ("idle", "waiting_input", "stopped", "resumable", "errored"):
+        return f"o agente agora esta {depois.get('status')}"
+    if depois.get("updatedAt") != antes.get("updatedAt"):
+        return "o card mudou de estado desde a primeira leitura"
+    f = fila_parada(depois, now_ms, limite_min)
+    if not f:
+        return "a fila nao esta mais parada"
+    if f["mais_antigo_em"] != fila_parada(antes, now_ms, limite_min)["mais_antigo_em"]:
+        return "o item mais antigo da fila mudou"
+    return ""
+
+
+def cuidar_da_fila_parada(card, diag, ctx, transcript_epoch=None, reler_card=None):
+    """Fila presa no runner. So REINICIA (mesma conversa, mesmo caminho e cap anti-storm dos outros) com
+    medicao confiavel: transcript do motor certo (Claude) mudo ha mais de DGCLAW_FILA_PARADA_MIN. Motor
+    Codex (o rollout nao tem linhas user/assistant) ou sem medicao: so avisa o dono uma vez por incidente
+    e grava saude.json dizendo que apenas observou. Antes de reiniciar, relê o card: se mudou, desiste.
+    auto-recovery=off tambem so observa. Devolve (tratado, veredito, diag_para_a_saude)."""
+    now_ms = time.time() * 1000
+    limite = env_int("DGCLAW_FILA_PARADA_MIN", 15)
+    f = fila_parada(card, now_ms, limite)
     if not f:
         return False, "", diag
+    codex = bool(card.get("codexHome"))
+    medido = transcript_epoch is not None and not codex
+    if medido and (now_ms / 1000.0 - transcript_epoch) / 60.0 <= limite:
+        return False, "", diag  # o transcript ainda anda: ferramenta longa, nao fila presa
     resumo = (f"{f['n']} mensagem(ns) esperando ha {f['idade_min']} min com o agente em "
               f"{f['status']} ({f['motivo']})")
     diag = dict(diag, estado="atencao", tipo="fila_parada",
@@ -409,6 +434,22 @@ def cuidar_da_fila_parada(card, diag, ctx, transcript_epoch=None):
     motivo = f"ficou com a fila parada: {resumo}"
     if ctx["auto_recovery"] == "off":
         return True, observe_only(ctx["service"], motivo, state, state_path), diag
+    if not medido:
+        diag = dict(diag, so_observou=True)
+        por_que = ("o agente usa o motor Codex, cujo transcript o watchdog nao mede" if codex
+                   else "nao consegui medir a ultima escrita do transcript")
+        aviso = _avisar_uma_vez(
+            state, state_path, f"fila-parada:{int(f['mais_antigo_em'])}",
+            f"⚠️ Watchdog DG Claw: {resumo}. Nao reiniciei porque {por_que}, entao nao tenho como "
+            f"confirmar que o agente travou. Se ele nao estiver respondendo, reinicie pelo botao "
+            f"Reiniciar do painel.")
+        sys.stderr.write(f"[watchdog] fila parada sem medicao confiavel ({por_que}): so observei\n")
+        return True, f"fila parada, so observei ({por_que}); {aviso}", diag
+    depois = (reler_card or inject._bunker_estado)()
+    mudou = _mudou_desde_a_leitura(card, depois, time.time() * 1000, limite)
+    if mudou:
+        sys.stderr.write(f"[watchdog] fila parada: desisti de reiniciar, {mudou}\n")
+        return False, "", diag
     return True, attempt_restart(ctx["service"], motivo, state, state_path, now,
                                  ctx["max_restarts"], ctx["window_min"]), diag
 
@@ -614,7 +655,7 @@ def rodada() -> str:
     # ── 1.5) FILA PARADA (so runner): mensagens presas com o agente "working" que nao anda ──
     if inject.resolve_mode() == "bunker":
         card = inject._bunker_estado()
-        t_fila = ultimo_turno_epoch(slug) or latest_transcript_mtime(session_dir)
+        t_fila = ultimo_turno_epoch(slug)  # None = sem medicao confiavel (nao cai no mtime da pasta)
         tratado, verdict, diag_fila = cuidar_da_fila_parada(card, diag, ctx, t_fila)
         if tratado:
             gravar_saude(logs_dir, diag_fila, verdict, now)

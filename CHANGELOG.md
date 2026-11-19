@@ -10,13 +10,18 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 **Correção do agente que ficava "trabalhando" para sempre depois de um /compact recusado.** Quando o auto-compact enfileirava
 vários `/compact` seguidos e o Claude Code respondia "Not enough messages to compact.", ele avisava o início da compactação
 e nunca o fim: o agente ficava em "working" por horas com as mensagens presas na fila. Agora (1) o runner olha o transcript
-e, se o CLI recusou o `/compact` (sem fronteira de compactação depois), volta o agente para idle e solta a fila; como rede
-de segurança, um PreCompact sem fim há mais de 15 minutos com o terminal quieto também volta para idle. (2) O auto-compact,
-no runner, não enfileira `/compact` com o agente ocupado ou com mensagens na fila, nem até 10 minutos depois de uma
-compactação (`DGCLAW_COMPACT_MIN_INTERVAL_MIN`), e depois de falhas seguidas (`DGCLAW_COMPACT_FAIL_ALERT`) espera o dobro
-do cooldown a cada falha, no máximo 4 horas. (3) O watchdog passa a reconhecer fila parada (mensagens esperando há mais de
-`DGCLAW_FILA_PARADA_MIN`, 15 minutos, com o agente em working e o card sem mudar de estado), reinicia o agente na mesma
-conversa e avisa o dono, respeitando o limite de reinícios e o auto-recovery desligado. O PreCompact é do Claude Code; o
+e, se o CLI recusou o `/compact` (a mensagem de recusa e nada de conversa nem de compactação depois dela), volta o agente
+para idle e solta a fila; como rede de segurança, um PreCompact sem fim há mais de 15 minutos com o terminal quieto também
+volta para idle, a menos que algum outro evento do agente tenha chegado depois dele. (2) O auto-compact, no runner, não
+enfileira `/compact` com o agente ocupado ou com mensagens na fila, nem até 10 minutos depois de uma compactação do próprio
+agente (`DGCLAW_COMPACT_MIN_INTERVAL_MIN`); a conferência final é feita pelo runner no instante da entrega (campo
+`somenteSeOcioso` da rota de entrada), e se o agente ficou ocupado nesse meio tempo o `/compact` é adiado para o próximo
+ciclo. Sem conseguir ler o estado do agente, o auto-compact também adia. Depois de falhas seguidas
+(`DGCLAW_COMPACT_FAIL_ALERT`) ele espera o dobro do cooldown a cada falha, no máximo 4 horas. (3) O watchdog passa a
+reconhecer fila parada (mensagens esperando há mais de `DGCLAW_FILA_PARADA_MIN`, 15 minutos, com o agente em working e o
+card sem mudar de estado). Se o transcript do Claude também está mudo há esse tempo, ele relê o card, reinicia o agente na
+mesma conversa e avisa o dono, respeitando o limite de reinícios e o auto-recovery desligado. Com agente Codex, ou sem
+conseguir medir o transcript, ele não reinicia: só avisa o dono uma vez por ocorrência. O PreCompact é do Claude Code; o
 Codex não passa pela correção do runner, e o auto-compact e o watchdog valem para os dois motores.
 
 **Correção da fila de mensagens: um "ok" que esperou na fila não é mais lido como aprovação de outra coisa.** Quando você

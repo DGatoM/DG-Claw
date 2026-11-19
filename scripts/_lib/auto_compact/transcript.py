@@ -131,52 +131,70 @@ def looks_idle(transcript: Path, idle_sec: int) -> bool:
     return last_type == "assistant"
 
 
+def _cutoff(iso_ts: str):
+    try:
+        cutoff = datetime.fromisoformat(iso_ts.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if cutoff.tzinfo is None:
+        cutoff = cutoff.replace(tzinfo=timezone.utc)
+    return cutoff
+
+
+def _arquivo_tem_compact_desde(p: Path, cutoff) -> bool:
+    """True se o transcript `p` tem um marcador de compactacao posterior a `cutoff`."""
+    try:
+        if datetime.fromtimestamp(p.stat().st_mtime, timezone.utc) < cutoff:
+            return False
+    except OSError:
+        return False
+    try:
+        with p.open() as f:
+            for line in f:
+                if "compact" not in line:
+                    continue
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                is_boundary = (o.get("subtype") == "compact_boundary"
+                               or o.get("isCompactSummary")
+                               or (o.get("type") == "system"
+                                   and "compact" in str(o.get("subtype", ""))))
+                if not is_boundary:
+                    continue
+                ts = o.get("timestamp")
+                if not ts:
+                    return True  # marcador em arquivo tocado pos-cutoff
+                try:
+                    t = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    if t.tzinfo is None:
+                        t = t.replace(tzinfo=timezone.utc)
+                    if t > cutoff:
+                        return True
+                except Exception:
+                    pass  # ts malformado numa linha: ignora so essa linha
+    except OSError:
+        return False
+    return False
+
+
 def had_compact_since(session_dir: Path, iso_ts: str) -> bool:
     """True se algum transcript tem um marcador de compactacao (compact_boundary /
     isCompactSummary) com timestamp posterior a iso_ts. E o RECIBO deterministico de que
     o /compact realmente rodou, o equivalente, pro auto-compact, do ACK dos pokes de texto.
     (Sem isto a injecao de /compact era cega: se a sessao estava ocupada, o keystroke se
     perdia e ninguem sabia.)"""
-    try:
-        cutoff = datetime.fromisoformat(iso_ts.replace("Z", "+00:00"))
-    except Exception:
-        return False
-    if cutoff.tzinfo is None:
-        cutoff = cutoff.replace(tzinfo=timezone.utc)
-    if not session_dir.exists():
+    cutoff = _cutoff(iso_ts)
+    if cutoff is None or not session_dir.exists():
         return False
     for p in sorted(session_dir.glob("*.jsonl"), key=lambda f: f.stat().st_mtime, reverse=True)[:20]:
-        try:
-            if datetime.fromtimestamp(p.stat().st_mtime, timezone.utc) < cutoff:
-                continue
-        except OSError:
-            continue
-        try:
-            with p.open() as f:
-                for line in f:
-                    if "compact" not in line:
-                        continue
-                    try:
-                        o = json.loads(line)
-                    except Exception:
-                        continue
-                    is_boundary = (o.get("subtype") == "compact_boundary"
-                                   or o.get("isCompactSummary")
-                                   or (o.get("type") == "system"
-                                       and "compact" in str(o.get("subtype", ""))))
-                    if not is_boundary:
-                        continue
-                    ts = o.get("timestamp")
-                    if not ts:
-                        return True  # marcador em arquivo tocado pos-cutoff
-                    try:
-                        t = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                        if t.tzinfo is None:
-                            t = t.replace(tzinfo=timezone.utc)
-                        if t > cutoff:
-                            return True
-                    except Exception:
-                        pass  # ts malformado numa linha: ignora so essa linha
-        except OSError:
-            continue
+        if _arquivo_tem_compact_desde(p, cutoff):
+            return True
     return False
+
+
+def had_compact_since_arquivo(transcript: Path, iso_ts: str) -> bool:
+    """Como had_compact_since, mas olhando so este transcript (o da sessao viva)."""
+    cutoff = _cutoff(iso_ts)
+    return cutoff is not None and _arquivo_tem_compact_desde(Path(transcript), cutoff)

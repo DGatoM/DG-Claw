@@ -12,10 +12,10 @@ from .ambiente import env, log
 
 # ─── injecao do /compact (reusa _lib/inject) ──────────────────────────────────
 
-def inject_compact(slug: str, channel: str, dry_run: bool) -> int:
+def inject_compact(slug: str, channel: str, dry_run: bool, somente_se_ocioso: bool = False) -> int:
     """Injeta '/compact' na sessao viva. Wrapper fino de inject_text (mantido pelo nome
     porque outros scripts e a doc chamam assim)."""
-    return inject_text(slug, channel, "/compact", dry_run)
+    return inject_text(slug, channel, "/compact", dry_run, somente_se_ocioso=somente_se_ocioso)
 
 
 def rodar_comando_de_host(cmd_tmpl: str, text: str, path=None, dry_run: bool = False,
@@ -51,11 +51,12 @@ def rodar_comando_de_host(cmd_tmpl: str, text: str, path=None, dry_run: bool = F
         return 7
 
 
-def inject_text(slug: str, channel: str, text: str, dry_run: bool) -> int:
+def inject_text(slug: str, channel: str, text: str, dry_run: bool, somente_se_ocioso: bool = False) -> int:
     """Injeta um texto qualquer na sessao viva: comando de host (DGCLAW_INJECT_CMD), painel
     (bunker), TIOCSTI (default) ou tmux. Reusa a logica de _lib/inject pra achar o pts, pegar
     o lock por-slug e injetar. Retorna 0 (ok), 2 (sessao morta), 3 (sem permissao), 4 (sem
-    lock), 5 (transporte falhou), 7 (comando de host falhou)."""
+    lock), 5 (transporte falhou), 6 (so no bunker com somente_se_ocioso: o agente ficou ocupado e o
+    runner recusou sem enfileirar), 7 (comando de host falhou)."""
     # Comando de host vence os demais: configurar essa env ja e um ato explicito, e ela so
     # existe em host onde os transportes nativos nao funcionam.
     cmd_host = env("DGCLAW_INJECT_CMD")
@@ -79,7 +80,10 @@ def inject_text(slug: str, channel: str, text: str, dry_run: bool) -> int:
         if dry_run:
             log(f"DRY-RUN (bunker) — injetaria {text!r} no card {inj._bunker_card()}")
             return 0
-        ok, motivo = inj._inject_bunker(text, True)
+        ok, motivo = inj._inject_bunker(text, not somente_se_ocioso, somente_se_ocioso)
+        if not ok and motivo.startswith(inj.MOTIVO_OCUPADO):
+            log(f"o runner recusou o texto no card {inj._bunker_card()}: {motivo}")
+            return 6
         if not ok:
             log(f"falha ao injetar no card {inj._bunker_card()}: {motivo}")
             return 5

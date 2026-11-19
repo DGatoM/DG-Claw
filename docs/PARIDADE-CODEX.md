@@ -80,7 +80,7 @@ agente (régua: feature de ~2 mil linhas leva 10 a 30 min).
 | Memória semântica (índice) | arquivos `.md` + embedder | funciona | `scripts/memory_index/reindex.py`, `embedder.py` não dependem do motor | nada | 0 |
 | Auto-compact | `auto-compact.py` lê `message.usage` e `compact_boundary` | não funciona | `scripts/_lib/auto_compact/transcript.py:58-91`; sai em "sem usage, no-op" | ler `token_count` (`total_token_usage`, `model_context_window`) e `task_*` do rollout; ou perguntar ao runner | 0,5 |
 | Watchdog (turno travado) | transcript do Claude | parcial | `scripts/watchdog.py:114-118,328-340` | `ultimo_turno_epoch` ler o rollout | 0,25 |
-| Watchdog (fila parada) | estado do card no runner (`naFila`, `updatedAt`, `status`) + transcript mudo | funciona pelo card | `scripts/watchdog.py` (`fila_parada`); o card do runner é igual nos dois motores. No Codex o `ultimo_turno_epoch` não lê o rollout (linha acima), então vale só a parte do card, sem a confirmação pelo transcript | a mesma da linha acima | (na linha acima) |
+| Watchdog (fila parada) | estado do card no runner (`naFila`, `updatedAt`, `status`) + transcript mudo | parcial (só avisa) | `scripts/watchdog.py` (`fila_parada`); o card do runner é igual nos dois motores. No Codex o `ultimo_turno_epoch` não lê o rollout (linha acima), então o watchdog não reinicia: só avisa o dono uma vez por ocorrência e grava `so_observou` no `saude.json` | a mesma da linha acima | (na linha acima) |
 | Saúde e modo seguro | `saude_sessao.py` + `claude auth status` | não funciona | `scripts/_lib/saude_sessao.py:251-275,561-651` | ramo de rollout e login pelo `codex login status` (já em `conferido.ts`) | 0,5 |
 
 ### Canais e integrações

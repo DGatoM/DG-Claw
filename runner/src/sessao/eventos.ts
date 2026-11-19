@@ -58,6 +58,13 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
     return { ok: true };
   }
 
+  // Qualquer hook depois do PreCompact prova que o CLI seguiu em frente (compact bom, ferramenta, prompt, fim de turno):
+  // a vigia do PreCompact sem fim (vigias.ts) deixa de valer e o motivo "hook:PreCompact" sai de cena.
+  if (payload.event !== "PreCompact" && s.compactComecouEm !== 0) {
+    s.compactComecouEm = 0;
+    if (s.estado.statusReason === "hook:PreCompact") s.mudar({ statusReason: `hook:${payload.event}` });
+  }
+
   switch (payload.event) {
     case "SessionStart":
       // O fim do compact chega aqui, como SessionStart com source=compact, e é o

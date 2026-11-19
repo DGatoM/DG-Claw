@@ -312,7 +312,9 @@ test("PreCompact: o CLI recusa o /compact (transcript com local_command e sem co
     12_000,
     "a fila soltar o texto no CLI",
   );
-  assert.ok(lerTexto(amb.logDoRunner).includes("Not enough messages to compact."), "o aviso traz o texto do CLI");
+  const log = lerTexto(amb.logDoRunner);
+  assert.ok(log.includes("compact recusado: poucas mensagens"), "o aviso traz o motivo fixo");
+  assert.equal(log.includes("Not enough messages to compact."), false, "o texto cru do transcript não vai para o log");
 });
 
 test("PreCompact: recusa ANTERIOR ao PreCompact não vale", async () => {
@@ -340,6 +342,43 @@ test("PreCompact: com compact_boundary depois do local_command a regra da recusa
   await dormir(2_000);
   assert.equal(s.estado.status, "working");
   assert.equal(s.estado.statusReason, "hook:PreCompact");
+});
+
+test("PreCompact: recusa com conteúdo vazio ou desconhecido não conta, e o texto desconhecido não aparece no log", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("PreCompact");
+  const marca = "CONTEUDO-DESCONHECIDO-DO-CLI";
+  transcript([[{ ...RECUSA_DO_COMPACT, content: "" }, 100]]);
+  await dormir(1_500);
+  assert.equal(s.estado.status, "working");
+  transcript([[{ ...RECUSA_DO_COMPACT, content: `<local-command-stdout>${"x".repeat(150)}${marca}</local-command-stdout>` }, 100]]);
+  await dormir(1_500);
+  assert.equal(s.estado.status, "working");
+  assert.equal(s.estado.statusReason, "hook:PreCompact");
+  assert.equal(lerTexto(amb.logDoRunner).includes(marca), false);
+});
+
+test("PreCompact: recusa seguida de linha assistant (o agente seguiu trabalhando) não conta", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("PreCompact");
+  transcript([[RECUSA_DO_COMPACT, 100], [{ type: "assistant", message: { content: [] } }, 200]]);
+  await dormir(1_500);
+  assert.equal(s.estado.status, "working");
+  assert.equal(s.estado.statusReason, "hook:PreCompact");
+});
+
+test("PreCompact: compact bom seguido de ferramenta longa e terminal quieto não solta a fila nem vai para idle", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600, { compactSemFimMs: 1_000, compactQuietoRedeMs: 500 });
+  hook("PreCompact");
+  hook("SessionStart", { source: "compact" });
+  hook("PreToolUse", { toolName: "Bash", toolUseId: "tu-1" });
+  assert.equal(s.compactComecouEm, 0);
+  assert.notEqual(s.estado.statusReason, "hook:PreCompact");
+  transcript([[RECUSA_DO_COMPACT, 100]]);
+  s.enfileirarQuandoOcioso("mensagem que tem que esperar a ferramenta");
+  await dormir(9_000);
+  assert.equal(s.estado.status, "working");
+  assert.equal(s.filaQuandoIdle.length, 1);
 });
 
 test("PreCompact: rede de segurança, sem SessionStart nem recusa no transcript e terminal quieto, volta a idle e solta a fila", async () => {

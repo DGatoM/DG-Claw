@@ -143,7 +143,7 @@ def main():
             fail_k = max(1, int(float(env("DGCLAW_COMPACT_FAIL_ALERT", "2"))))
         except (TypeError, ValueError):
             fail_k = 2
-        falhas = int(st.get("consecutive_fail", 0) or 0)
+        falhas = st.get("consecutive_fail", 0)  # cooldown_com_recuo valida o valor
         cd = cooldown_com_recuo(cooldown_min, falhas, fail_k)
         rem = cooldown_remaining(st, cd)
         if rem > 0:
@@ -192,12 +192,13 @@ def main():
 
     # 4.2) guardas do runner (so modo bunker, e --force as ignora): nao enfileirar /compact atras de
     # trabalho nem logo depois de uma compactacao. Saem sem gravar last_compact_ts nem contar falha.
+    # A checagem acima e uma foto; quem fecha a corrida e o somenteSeOcioso da entrega (passo 5).
     if not args.force:
         motivo = agente_ocupado_no_bunker()
         if motivo:
             log(motivo)
             return 0
-        if inj.resolve_mode() == "bunker" and acabou_de_compactar(session_dir):
+        if inj.resolve_mode() == "bunker" and acabou_de_compactar(transcript):
             log("acabou de compactar (compact_boundary recente no transcript); "
                 "nao enfileiro outro /compact, tento no proximo ciclo")
             return 0
@@ -229,13 +230,23 @@ def main():
     log(f"{ctx // 1000}k > teto -> injetando /compact na sessao viva")
     # AVISO ANTES: a sumarizacao segura a persona por minutos. Sem isto a pessoa fala com
     # ela e nao recebe nada, sem saber por que.
-    if not args.dry_run:
-        notify_owner(f"Compactando nossa conversa pra rodar leve... ja volto. "
-                     f"— {env('DGCLAW_NAME') or slug}")
-    rc = inject_compact(slug, channel, args.dry_run)
+    aviso = (f"Compactando nossa conversa pra rodar leve... ja volto. "
+             f"— {env('DGCLAW_NAME') or slug}")
+    # No bunker sem --force o runner confere "idle e fila vazia" no mesmo instante da entrega
+    # (somenteSeOcioso) e pode recusar: o aviso so sai depois que o /compact foi aceito, para o
+    # dono nao ler "compactando" de um compact que nao aconteceu.
+    somente_se_ocioso = (not args.force) and inj.resolve_mode() == "bunker"
+    if not args.dry_run and not somente_se_ocioso:
+        notify_owner(aviso)
+    rc = inject_compact(slug, channel, args.dry_run, somente_se_ocioso=somente_se_ocioso)
 
     if args.dry_run:
         return 0
+    if rc == 6:
+        log("agente ficou ocupado, adio para o proximo ciclo")
+        return 0
+    if rc == 0 and somente_se_ocioso:
+        notify_owner(aviso)
 
     if rc == 0:
         agora = datetime.now(timezone.utc).isoformat()

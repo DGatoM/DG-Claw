@@ -198,28 +198,34 @@ export function turnoEncerradoNoTranscript(
   return { encerrado: false, motivo: "nenhuma linha JSON válida no fim do transcript" };
 }
 
+/** A única saída do CLI que vale como recusa do /compact. Qualquer outro texto não conta. */
+const RX_RECUSA_DO_COMPACT = /^Not enough messages to compact\.?$/;
+
 /**
  * O CLI recusou o último `/compact`? Quando a conversa é curta demais ("Not enough messages to compact."), o
  * Claude Code dispara o hook PreCompact, grava uma linha `system/local_command` com `commandRun.command` "compact"
  * e NÃO dispara SessionStart nem Stop. A recusa é a linha mais recente desse tipo, mais nova que `desdeMs` (o
- * instante do PreCompact), sem nenhuma `system/compact_boundary` depois dela (o compact de verdade grava a fronteira).
+ * instante do PreCompact), cujo texto (sem as tags local-command) é exatamente a mensagem de recusa, e depois da
+ * qual não veio nenhuma linha de conversa (user, assistant, ferramenta) nem `compact_boundary`: se veio, o agente
+ * seguiu trabalhando ou o compact aconteceu, e a recusa já não explica o estado.
+ * Devolve só o veredito: o texto cru do transcript nunca sai daqui, para não ir parar no log.
  * Sem arquivo ou sem a linha, não afirma nada.
  */
 export function compactRecusadoNoTranscript(
   sessionId: string,
   desdeMs: number,
   configDir?: string | null,
-): { recusado: boolean; texto: string } {
+): { recusado: boolean } {
   const arquivo = acharArquivoDaSessao(sessionId, configDir);
-  if (!arquivo) return { recusado: false, texto: "" };
+  if (!arquivo) return { recusado: false };
   let cauda: string;
   try {
     cauda = lerCauda(arquivo);
   } catch (err) {
     log.aviso("conversa", `não consegui ler o fim de ${arquivo}: ${err instanceof Error ? err.message : err}`);
-    return { recusado: false, texto: "" };
+    return { recusado: false };
   }
-  let recusa: string | null = null;
+  let recusado = false;
   for (const linha of cauda.split("\n")) {
     if (!linha.trim()) continue;
     let o: { type?: string; subtype?: string; timestamp?: string; content?: unknown; commandRun?: { command?: unknown } };
@@ -230,18 +236,22 @@ export function compactRecusadoNoTranscript(
     } catch {
       continue;
     }
+    if (o.type === "user" || o.type === "assistant" || o.type === "tool_use" || o.type === "tool_result") {
+      recusado = false;
+      continue;
+    }
     if (o.type !== "system") continue;
     if (o.subtype === "compact_boundary") {
-      recusa = null;
+      recusado = false;
       continue;
     }
     if (o.subtype !== "local_command" || o.commandRun?.command !== "compact") continue;
     const quando = o.timestamp ? Date.parse(o.timestamp) : NaN;
     if (!Number.isFinite(quando) || quando < desdeMs) continue;
-    const bruto = typeof o.content === "string" ? o.content : "";
-    recusa = bruto.replace(/<\/?local-command-stdout>/g, "").replace(/\s+/g, " ").trim().slice(0, 160);
+    const texto = typeof o.content === "string" ? o.content.replace(/<\/?local-command-(?:stdout|stderr)>/g, "").replace(/\s+/g, " ").trim() : "";
+    recusado = RX_RECUSA_DO_COMPACT.test(texto);
   }
-  return recusa === null ? { recusado: false, texto: "" } : { recusado: true, texto: recusa };
+  return { recusado };
 }
 
 /** O texto que o Claude Code mostra (e devolve em `claude -p`) quando o OAuth da conta morreu. */
