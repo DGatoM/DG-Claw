@@ -267,6 +267,10 @@ function registrar(router, { CONFIG }) {
     // Card que nunca teve turno não "terminou": o pedido ainda não foi aceito. Fica em "parado", que a lista
     // "Ativas" mostra, e nunca em "concluído" nem em "fechado" (onde sumiria do filtro padrão).
     const filaPositiva = !!(ag.sessao && ag.sessao.fila > 0);
+    // Processo que falhou antes do primeiro turno: mostra a causa e deixa o Retomar, em vez de mandar aguardar.
+    if (semPrimeiroTurno(ag, fala) && espacos(ag.error) && st !== 'working' && st !== 'spawning' && st !== 'waiting_input') {
+      return { grupo: 'erro', estado: 'erro', motivo: `o pedido não virou turno porque a sessão falhou: ${espacos(ag.error).slice(0, 200)}`, tem_terminal: false };
+    }
     if (semPrimeiroTurno(ag, fala) && (st === 'idle' || st === 'completed' || st === 'resumable' || (st === 'stopped' && filaPositiva))) {
       const dorme = st === 'resumable' || st === 'stopped';
       const fila = filaPositiva;

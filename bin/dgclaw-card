@@ -277,7 +277,16 @@ cmd_abrir() {
           local causa
           if [ "$http_input" = "000" ]; then causa="o runner nao respondeu ao envio do pedido"
           else HTTP="$http_input"; RESP="$resp_input"; causa="o runner respondeu HTTP $http_input ao envio do pedido: $(campo .error)"; fi
-          CODIGO=$([ "$http_input" = "000" ] && echo 2 || echo 6) die "entrega incerta: o card $id foi criado e nao sei se o pedido entrou ($causa). O card pode ja estar trabalhando. Confira com 'dgclaw-card estado $id' e 'dgclaw-card ler $id', conte ao dono o que viu e NAO reenvie o pedido nem faca a tarefa pela conversa principal." ;;
+          # Com --monitor, o vigia entra mesmo assim (o id ja e conhecido), para o card nao ficar sem acompanhamento.
+          local aviso_mon=""
+          if [ "$monitor" != 0 ]; then
+            if aviso_mon="$( { ligar_monitor "$id" "$entregue" "$cada" && printf '%s' "$MON_OUT"; } 2>&1 )"; then
+              aviso_mon=" Monitor ligado: $aviso_mon"
+            else
+              aviso_mon=" O monitor NAO ligou, o card esta sem vigia: $aviso_mon"
+            fi
+          fi
+          CODIGO=$([ "$http_input" = "000" ] && echo 2 || echo 6) die "entrega incerta: o card $id foi criado e nao sei se o pedido entrou ($causa). O card pode ja estar trabalhando. Confira com 'dgclaw-card estado $id' e 'dgclaw-card ler $id', conte ao dono o que viu e NAO reenvie o pedido nem faca a tarefa pela conversa principal.$aviso_mon" ;;
       esac ;;
   esac
   # Ate aqui o id ainda nao saiu: sai agora (uma vez so), antes de qualquer espera que possa terminar com 8, 9, 11 ou 12.
@@ -492,6 +501,8 @@ explicar_conversa_vazia() { # $1 id
       echo "O card $id ainda nao tem mensagens: o pedido esta na fila ($fila) e ainda nao virou turno. Espere com: dgclaw-card esperar $id"
     elif [ "$status" = resumable ]; then
       echo "O card $id ainda nao tem mensagens: a sessao esta dormindo (sem terminal aberto). Ela acorda quando voce manda um recado: dgclaw-card mandar $id \"...\""
+    elif [ "$status" = working ] && [ "$turnos" = 0 ]; then
+      echo "O card $id esta com o terminal ativo (por exemplo, compactando a conversa), mas o pedido ainda nao virou turno. Espere com 'dgclaw-card esperar $id' e nao reenvie por conta propria."
     elif [ "$status" = working ]; then
       echo "O card $id esta trabalhando no primeiro turno, e a conversa ainda nao gravou nada. Espere com: dgclaw-card esperar $id"
     elif [ "$turnos" = 0 ]; then

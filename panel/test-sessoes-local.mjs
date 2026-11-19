@@ -239,6 +239,7 @@ try {
     nova('card-tp', { status: 'stopped', turnosAceitos: 0, msgs: [], sessionId: null, sessao: { papel: 'paralela', tipo: 'card', chat: 'c_tp', titulo: 'Fila parada', fila: 1 } });
     nova('card-sp', { status: 'spawning', turnosAceitos: 0, turnosAceitosSessao: 0, msgs: [] });
     nova('card-tu', { status: 'idle', turnosAceitos: 0, msgs: [{ role: 'user', text: 'só o pedido, sem resposta' }] });
+    nova('card-te', { status: 'resumable', turnosAceitos: 0, msgs: [], sessionId: null, error: 'o processo saiu com código 1' });
     const todos = await lerJson(await p.pedir('/api/sessoes?grupo=todos'));
     const por = Object.fromEntries(todos.json.itens.map((i) => [i.id, i]));
     ok(por['card-t0'].estado === 'esperando_primeiro_turno' && por['card-t0'].grupo !== 'concluido' && /esperando o primeiro turno/.test(por['card-t0'].motivo), 'idle com turnosAceitos 0 vira "esperando o primeiro turno", nunca concluído');
@@ -265,9 +266,10 @@ try {
     ok(por['card-tp'].estado === 'esperando_primeiro_turno' && por['card-tp'].tem_terminal === false, 'status stopped com fila positiva vale como esperando o primeiro turno, sem terminal');
     const vtp = await lerJson(await p.pedir('/api/sessoes/card-tp/conversa'));
     ok(/pedido guardado/.test(vtp.json.motivo_vazio) && /Retomar/.test(vtp.json.motivo_vazio) && !/Aguarde/.test(vtp.json.motivo_vazio), 'stopped com fila: manda usar Retomar');
+    ok(por['card-te'].grupo === 'erro' && /sessão falhou/.test(por['card-te'].motivo) && /código 1/.test(por['card-te'].motivo) && por['card-te'].tem_terminal === false, 'processo que falhou antes do primeiro turno: mostra a causa e deixa Retomar, sem mandar aguardar');
     const vf1 = await lerJson(await p.pedir('/api/sessoes/card-f1/conversa'));
     ok(vf1.json.mensagens.length === 1 && vf1.json.motivo_vazio === undefined, 'conversa com mensagens não traz motivo');
-    for (const id of ['card-t0', 'card-t1', 'card-tf', 'card-td', 'card-tq', 'card-tr', 'card-tu', 'card-ts', 'card-tp', 'card-sp']) sessoes.delete(id);
+    for (const id of ['card-t0', 'card-t1', 'card-tf', 'card-td', 'card-tq', 'card-tr', 'card-tu', 'card-ts', 'card-tp', 'card-sp', 'card-te']) sessoes.delete(id);
   }
 
   console.log('\n4. Criar');

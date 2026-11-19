@@ -68,7 +68,7 @@ http.createServer((req, res) => {
         // erro-campo: o card em idle com turnos 1, mas com o campo de erro preenchido (falha de turno conhecida).
         if (MODO === "erro-campo") { c.status = "resumable"; c.turnos = 1; c.erro = "o CLI caiu no meio do turno"; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
         // working-sem-turno: o status vira working (ex.: compactacao), mas o contador de turnos fica em 0.
-        if (MODO === "working-sem-turno") { c.msgs.push({ role: "user", text: JSON.parse(corpo).text }); c.status = "working"; c.motivo = "hook:PreCompact"; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
+        if (MODO === "working-sem-turno") { c.status = "working"; c.motivo = "hook:PreCompact"; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
         // stop-failure: turno falhou por limite, so o statusReason diz.
         if (MODO === "stop-failure") { c.status = "working"; c.turnos = 1; c.motivo = "hook:StopFailure rate_limit"; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
         // fila-parada: texto na fila, mas o card segue parado (sem terminal).

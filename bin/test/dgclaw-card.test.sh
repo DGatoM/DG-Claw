@@ -237,6 +237,10 @@ subir input-perdido
 ok "resposta do input perdida sai com 2" $([ $c = 2 ] && echo 0 || echo 1)
 grep -q "entrega incerta: o card card-abc123" "$T/e" && grep -q "NAO reenvie" "$T/e" && ! grep -q "nao foi entregue\|tente de novo" "$T/e"; ok "resposta perdida: 'entrega incerta', sem mandar tentar de novo" $?
 [ "$(head -1 "$T/o")" = "card-abc123" ]; ok "resposta perdida: o id sai na primeira linha" $?
+rm -rf "${T:?}/monitor"
+"$BIN" abrir --provedor claude --titulo x --pedido oi --monitor --entregue "feito" >"$T/o" 2>"$T/e"; c=$?
+ok "resposta perdida com --monitor continua saindo com 2" $([ $c = 2 ] && echo 0 || echo 1)
+grep -q "card-abc123" "$DGCLAW_MONITOR_ESTADO" 2>/dev/null && grep -q "Monitor ligado" "$T/e" && grep -q "entrega incerta" "$T/e"; ok "entrega incerta com --monitor: o monitor e cadastrado e o aviso diz isso" $?
 
 # --- recusas anteriores a fila: capacidade e NAO_ACORDOU ----------------------------------------------------
 for modo in input-sem-capacidade input-nao-acordou; do
@@ -252,6 +256,8 @@ subir working-sem-turno
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 1 >"$T/o" 2>"$T/e"; c=$?
 ok "working com contador 0 e hook:PreCompact nao confirma: sai com 9" $([ $c = 9 ] && echo 0 || echo 1)
 ! grep -q "Card aberto" "$T/o"; ok "working sem contador nao imprime 'Card aberto'" $?
+"$BIN" ler card-abc123 >"$T/o2" 2>"$T/e2"
+grep -q "terminal ativo" "$T/o2" && grep -q "ainda nao virou turno" "$T/o2" && ! grep -q "trabalhando no primeiro turno" "$T/o2"; ok "ler com working e contador 0 nao diz que o pedido esta no primeiro turno" $?
 
 # --- StopFailure no statusReason e falha de turno --------------------------------------------------------------
 subir stop-failure
