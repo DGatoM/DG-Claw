@@ -249,6 +249,35 @@ for sub in listar "liberar 120363000000000003-group" "remover 120363000000000001
   ok "whatsapp: grupo $sub com arquivo ilegivel recusa" $([ $c = 1 ] && grep -q "nao e uma lista valida" "$T/e" && echo 0 || echo 1)
 done
 [ "$(cat "$GR")" = '{"grupos":' ]; ok "whatsapp: arquivo ilegivel de grupos nao e sobrescrito" $?
+# entrada malformada na lista: recusa sem alterar e aponta o indice, sem imprimir o valor
+CHAVE_SEGREDO="tok""en"
+printf '{"versao":1,"grupos":[{"id":"120363000000000001-group"},{"id":"valor-secreto-%s"}]}' "$CHAVE_SEGREDO" > "$GR"
+cp "$GR" "$T/gr.antes"
+"$BIN" canal whatsapp grupo liberar 120363000000000003-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: lista com entrada malformada recusa e aponta a entrada 2" $([ $c = 1 ] && grep -q "entrada 2" "$T/e" && ! grep -q "valor-secreto" "$T/e" "$T/o" && cmp -s "$GR" "$T/gr.antes" && echo 0 || echo 1)
+# versao desconhecida: recusa sem gravar
+echo '{"versao":2,"grupos":[]}' > "$GR"; cp "$GR" "$T/gr.antes"
+"$BIN" canal whatsapp grupo liberar 120363000000000003-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: versao 2 da lista e recusada sem gravar" $([ $c = 1 ] && grep -q "versao" "$T/e" && cmp -s "$GR" "$T/gr.antes" && echo 0 || echo 1)
+# campos extras do raiz e da entrada sobrevivem a liberar e a remover
+echo '{"versao":1,"dono_nota":"fica","grupos":[{"id":"120363000000000001-group","nome":"A","liberado_em":"x","extra":42}]}' > "$GR"
+"$BIN" canal whatsapp grupo liberar 120363000000000002-group >/dev/null 2>&1
+"$BIN" canal whatsapp grupo remover 120363000000000002-group >/dev/null 2>&1
+node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1]));process.exit(d.versao===1&&d.dono_nota==="fica"&&d.grupos.length===1&&d.grupos[0].extra===42?0:1)' "$GR"
+ok "whatsapp: campos extras sobrevivem a liberar e remover" $?
+# liberar e remover ao mesmo tempo: a revogacao nunca e desfeita
+falhou=0
+for rodada in 1 2 3 4 5 6 7 8; do
+  echo '{"versao":1,"grupos":[{"id":"120363000000000001-group","nome":"A","liberado_em":"x"}]}' > "$GR"
+  "$BIN" canal whatsapp grupo remover 120363000000000001-group >/dev/null 2>&1 &
+  p1=$!
+  "$BIN" canal whatsapp grupo liberar 120363000000000002-group >/dev/null 2>&1 &
+  p2=$!
+  wait "$p1" "$p2"
+  node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1])).grupos.map((g)=>g.id);process.exit(d.length===1&&d[0]==="120363000000000002-group"?0:1)' "$GR" || falhou=1
+done
+ok "whatsapp: remover A e liberar B em paralelo mantem A revogado e B liberado" $falhou
+[ -f "$GR.trava" ]; ok "whatsapp: a trava da lista e um arquivo estavel ao lado dela" $?
 "$BIN" canal whatsapp grupo >"$T/o" 2>"$T/e"; ok "whatsapp: grupo sem subcomando mostra o uso" $([ $? = 1 ] && grep -q "listar | liberar" "$T/e" && echo 0 || echo 1)
 DGCLAW_TIPO=admin "$BIN" canal whatsapp grupo listar >/dev/null 2>&1; ok "whatsapp: admin nao mexe nos grupos (codigo 2)" $([ $? = 2 ] && echo 0 || echo 1)
 rm -f "$GR"

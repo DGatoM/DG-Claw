@@ -131,6 +131,7 @@ async function listarGrupos({ env, fetchImpl, arqGrupos }) {
     resposta: {
       ok: true,
       grupos: lista.grupos.map((g) => ({ id: g.id, nome: g.nome, liberado: ids.has(g.id) })),
+      ...(lista.omitidos ? { omitidos: lista.omitidos, aviso_omitidos: `${lista.omitidos} grupo(s) ficaram de fora por terem o ID no formato antigo (sem o sufixo -group), que o envio nao aceita` } : {}),
       ...(lista.truncado ? { aviso: 'a lista foi cortada no limite de paginas; pode haver mais grupos' } : {}),
       ...(liberados.erro ? { aviso_liberados: liberados.erro } : {}),
     },
@@ -140,5 +141,5 @@ async function listarGrupos({ env, fetchImpl, arqGrupos }) {
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
   const { codigoSaida, resposta } = await executar(process.argv.slice(2));
   process.stdout.write(JSON.stringify(resposta) + '\n');
-  process.exit(codigoSaida);
+  process.exitCode = codigoSaida;
 }

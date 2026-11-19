@@ -293,24 +293,28 @@ gravar_permitidos() { # usa LISTA
   fi | escrever_atomico "$WADIR/permitidos.json"
 }
 
-# Grupos liberados para o envio pela Z-API (grupos-liberados.json). O ID e digitos seguidos de "-group"
-# (a mesma regra de canais/whatsapp/lib/grupos.mjs). Arquivo ilegivel e erro, nunca lista vazia.
+# Grupos liberados para o envio pela Z-API (grupos-liberados.json). O ID e digitos seguidos de "-group".
+# A regex abaixo e a MESMA de ID_GRUPO em canais/whatsapp/lib/grupos.mjs (reproduzida igual, e nao importada, porque
+# este script nao sabe onde a imagem guarda o modulo). Arquivo ilegivel e erro, nunca lista vazia.
 ID_GRUPO='^[0-9]{10,30}-group$'
 
 # grupos_op <listar|liberar|remover> [id] [nome]: imprime a lista nova (JSON) no stdout e o aviso em stderr (codigo 3 = nada mudou)
 grupos_op() {
-  GRUPOS_ARQ="$WADIR/grupos-liberados.json" GRUPOS_OP="$1" GRUPOS_ID="${2:-}" GRUPOS_NOME="${3:-}" node -e '
+  GRUPOS_ARQ="$WADIR/grupos-liberados.json" GRUPOS_OP="$1" GRUPOS_ID="${2:-}" GRUPOS_NOME="${3:-}" GRUPOS_RE="$ID_GRUPO" node -e '
     const fs = require("fs");
     const arq = process.env.GRUPOS_ARQ, op = process.env.GRUPOS_OP, id = process.env.GRUPOS_ID;
+    const re = new RegExp(process.env.GRUPOS_RE);
+    const falhar = (motivo) => {
+      console.error("o arquivo " + arq + " existe mas nao e uma lista valida (" + motivo + "). Corrija ou apague o arquivo e rode \x27canal whatsapp grupo liberar\x27 de novo. Nada foi alterado.");
+      process.exit(1);
+    };
     let o = { versao: 1, grupos: [] };
     if (fs.existsSync(arq)) {
-      try {
-        o = JSON.parse(fs.readFileSync(arq, "utf8"));
-        if (!o || !Array.isArray(o.grupos) || o.grupos.some((g) => !g || typeof g.id !== "string")) throw new Error("formato");
-      } catch (e) {
-        console.error("o arquivo " + arq + " existe mas nao e uma lista valida (esperado {\"versao\":1,\"grupos\":[{\"id\":\"...\",\"nome\":\"...\",\"liberado_em\":\"...\"}]}). Corrija ou apague o arquivo e rode \x27canal whatsapp grupo liberar\x27 de novo.");
-        process.exit(1);
-      }
+      try { o = JSON.parse(fs.readFileSync(arq, "utf8")); } catch (e) { falhar("o JSON esta quebrado"); }
+      if (!o || typeof o !== "object" || Array.isArray(o) || !Array.isArray(o.grupos)) falhar("esperado {\"versao\":1,\"grupos\":[...]}");
+      if (o.versao !== 1) falhar("a versao do arquivo nao e a 1, que este comando conhece");
+      const ruim = o.grupos.findIndex((g) => !g || typeof g.id !== "string" || !re.test(g.id));
+      if (ruim >= 0) falhar("a entrada " + (ruim + 1) + " de \"grupos\" tem o campo \"id\" invalido");
     }
     const nome = process.env.GRUPOS_NOME.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 100);
     const tem = o.grupos.some((g) => g.id === id);
@@ -321,8 +325,23 @@ grupos_op() {
       if (!tem) { console.error("o grupo " + id + " nao esta na lista de liberados, entao nada foi removido. Confira o ID."); process.exit(1); }
       o.grupos = o.grupos.filter((g) => g.id !== id);
     }
-    process.stdout.write(JSON.stringify({ versao: 1, grupos: o.grupos }, null, 2) + "\n");
+    process.stdout.write(JSON.stringify(o, null, 2) + "\n");
   '
+}
+
+# grupos_alterar <liberar|remover> <id> [nome]: le, altera e grava a lista com a trava segurada o tempo todo.
+# A trava e um arquivo proprio (grupos-liberados.json.trava), que a troca atomica nunca substitui: duas
+# alteracoes ao mesmo tempo se enfileiram e a segunda enxerga o resultado da primeira. Imprime a lista nova.
+# Codigo 3 = nada mudou; 1 = recusou.
+grupos_alterar() {
+  command -v flock >/dev/null 2>&1 || die "o comando flock nao existe aqui, e ele protege a lista de grupos contra duas alteracoes ao mesmo tempo. Avise quem mantem a imagem do agente."
+  garantir_pasta_wa
+  (
+    flock -x 9 || exit 1
+    novo="$(grupos_op "$@")" || { rc=$?; [ "$rc" = 3 ] && printf '%s\n' "$novo"; exit "$rc"; }
+    printf '%s\n' "$novo" | escrever_atomico "$WADIR/grupos-liberados.json" || exit 1
+    printf '%s\n' "$novo"
+  ) 9>>"$WADIR/grupos-liberados.json.trava"
 }
 
 # Texto "+55..., +55..." da lista (ou "nenhum")
@@ -385,20 +404,16 @@ cmd_wa_grupo() {
       [ -n "$id" ] || die "uso: dgclaw-agente canal whatsapp grupo liberar <id> [nome]  (o ID tem o formato 120363000000000000-group; o agente o acha pelo nome com 'enviar-zapi.mjs grupos')"
       [[ "$id" =~ $ID_GRUPO ]] || die "ID de grupo invalido: recebi '${id:0:40}'. O ID tem digitos seguidos de -group, por exemplo 120363000000000000-group."
       shift 2; nome="$*"
-      novo="$(grupos_op liberar "$id" "$nome")" || rc=$?
+      novo="$(grupos_alterar liberar "$id" "$nome")" || rc=$?
       if [ "$rc" = 3 ]; then mostrar_grupos "$novo"; return 0; fi
       [ "$rc" = 0 ] || exit 1
-      garantir_pasta_wa
-      printf '%s\n' "$novo" | escrever_atomico "$WADIR/grupos-liberados.json"
       echo "Grupo $id liberado."
       mostrar_grupos "$novo" ;;
     remover)
       id="${2:-}"
       [ -n "$id" ] || die "uso: dgclaw-agente canal whatsapp grupo remover <id>"
       [[ "$id" =~ $ID_GRUPO ]] || die "ID de grupo invalido: recebi '${id:0:40}'. O ID tem digitos seguidos de -group, por exemplo 120363000000000000-group."
-      novo="$(grupos_op remover "$id")" || exit 1
-      garantir_pasta_wa
-      printf '%s\n' "$novo" | escrever_atomico "$WADIR/grupos-liberados.json"
+      novo="$(grupos_alterar remover "$id")" || exit 1
       echo "Grupo $id removido."
       mostrar_grupos "$novo" ;;
     *) die "uso: dgclaw-agente canal whatsapp grupo (listar | liberar <id> [nome] | remover <id>)" ;;

@@ -54,9 +54,15 @@ export function criarAdaptadorZapi({ instancia, token, clientToken, fetchImpl = 
     return { id: String(id) };
   }
 
-  /** Lista os grupos da instancia (GET groups, paginado). Para ao receber pagina curta, repetida ou no teto de paginas. */
+  /**
+   * Lista os grupos da instancia (GET groups, paginado). Avanca pelo tamanho da pagina recebida, com ou sem filtro.
+   * Para ao receber pagina curta, pagina so de repetidos ou no teto de paginas.
+   * `omitidos` conta os grupos que nao tem o ID no formato novo (sufixo -group) e por isso ficam de fora.
+   */
   async function listarGrupos({ tamanhoPagina = 50, maxPaginas = 20 } = {}) {
     const vistos = new Map();
+    const crus = new Set();
+    let omitidos = 0;
     let truncado = false;
     for (let pagina = 1; pagina <= maxPaginas; pagina++) {
       const corpo = await chamar(`groups?page=${pagina}&pageSize=${tamanhoPagina}`, { method: 'GET' }, 'a lista de grupos');
@@ -64,14 +70,16 @@ export function criarAdaptadorZapi({ instancia, token, clientToken, fetchImpl = 
       let novos = 0;
       for (const g of corpo) {
         const id = g && typeof g.phone === 'string' ? g.phone : null;
-        if (!idDeGrupoValido(id) || vistos.has(id)) continue;
-        vistos.set(id, limparNome(g.name));
+        if (id === null || crus.has(id)) continue;
+        crus.add(id);
         novos += 1;
+        if (!idDeGrupoValido(id)) { omitidos += 1; continue; }
+        vistos.set(id, limparNome(g.name));
       }
       if (corpo.length < tamanhoPagina || novos === 0) break;
       if (pagina === maxPaginas) truncado = true;
     }
-    return { grupos: [...vistos].map(([id, nome]) => ({ id, nome })), truncado };
+    return { grupos: [...vistos].map(([id, nome]) => ({ id, nome })), truncado, omitidos };
   }
 
   return { enviarTexto, listarGrupos };

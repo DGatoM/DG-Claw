@@ -362,12 +362,14 @@ node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs enviar --grupo 120363000000
 ```
 
 `grupos` chama `GET /instances/{instância}/token/{token}/groups`, página por página (50 por página, até 20 páginas;
-passando disso a resposta traz o campo `aviso`) e imprime `{"ok":true,"grupos":[{"id","nome","liberado"}]}`. O nome do
+passando disso a resposta traz o campo `aviso`) e imprime `{"ok":true,"grupos":[{"id","nome","liberado"}]}`. A paginação
+avança pelo tamanho da página que a Z-API devolveu, com ou sem filtro. Os grupos com ID no formato antigo ficam de
+fora, e a resposta diz quantos foram no campo `omitidos` (com o `aviso_omitidos`). O nome do
 grupo vem de fora: o script tira caracteres de controle e quebras de linha e corta em 100 caracteres. Os erros passam
 pela mesma limpeza de credencial do envio.
 
 **Quem libera é o dono.** O agente só escreve nos grupos que estão em `~/.dgclaw/whatsapp/grupos-liberados.json`,
-que o dono mexe pelo comando `dgclaw-agente canal whatsapp grupo (listar | liberar <id> [nome] | remover <id>)`.
+que o dono mexe pelo comando `dgclaw-agente canal whatsapp grupo (listar | liberar <id> | remover <id>)`. Libere sempre só com o ID: o nome do grupo vem de quem participa dele e não deve ser colado no comando.
 Arquivo ausente quer dizer nenhum grupo liberado. Arquivo que existe e não pôde ser lido recusa o envio
 (`LISTA_DE_GRUPOS_ILEGIVEL`) e nunca libera. A lista é relida a cada envio e de novo depois da espera do ritmo, então
 um grupo removido nesse meio tempo não recebe a mensagem.
@@ -409,7 +411,7 @@ pelo WhatsApp. Como são MCP, funcionam igual em Claude e em Codex. No transcrip
 dgclaw-agente canal whatsapp parear <numero-secundario>
 dgclaw-agente canal whatsapp permitir <numero-do-dono>
 dgclaw-agente canal whatsapp remover <numero>
-dgclaw-agente canal whatsapp grupo (listar | liberar <id> [nome] | remover <id>)
+dgclaw-agente canal whatsapp grupo (listar | liberar <id> | remover <id>)
 dgclaw-agente canal whatsapp ligar
 dgclaw-agente canal whatsapp desligar [--apagar]
 dgclaw-agente canal whatsapp retomar
@@ -420,7 +422,7 @@ dgclaw-agente canal status
   até 45 s pelo arquivo `codigo` e imprime **só o código**. Sem código no prazo: mostra o `motivo` do
   `estado.json`.
 - `permitir` e `remover`: editam `permitidos.json` (escrita atômica, 600). A ponte relê sozinha.
-- `grupo`: edita `grupos-liberados.json` (escrita atômica, 600), a lista de grupos em que o agente pode escrever pela Z-API. `liberar` confere o formato do ID (dígitos seguidos de `-group`), grava o nome (sem quebra de linha, até 100 caracteres) e a data; `listar` mostra a lista; `remover` tira um grupo. Arquivo ilegível é erro, nunca lista vazia.
+- `grupo`: edita `grupos-liberados.json` (escrita atômica, 600), a lista de grupos em que o agente pode escrever pela Z-API. `liberar` confere o formato do ID (dígitos seguidos de `-group`), grava o nome (sem quebra de linha, até 100 caracteres) e a data; `listar` mostra a lista; `remover` tira um grupo. Arquivo ilegível é erro, nunca lista vazia: o comando recusa sem alterar nada quando a versão não é a 1 ou quando uma entrada tem o `id` inválido (e aponta o número da entrada, sem mostrar o valor). Os campos extras do arquivo e de cada entrada são preservados. Duas alterações ao mesmo tempo se enfileiram por uma trava (`grupos-liberados.json.trava`), então uma revogação nunca é desfeita por outra liberação. No envio, a lista não é lida se for link simbólico, e o erro de lista ilegível nunca copia o conteúdo do arquivo.
 - `ligar`: exige sessão pareada e lista com pelo menos um número; cria `ligado` e roda
   `sudo -n systemctl enable --now dgclaw-whatsapp`. Não precisa reiniciar a sessão do agente: as tools já
   existem.

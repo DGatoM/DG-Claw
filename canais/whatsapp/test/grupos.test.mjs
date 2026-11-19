@@ -5,6 +5,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import http from 'node:http';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { criarAdaptadorZapi } from '../lib/adaptador-zapi.mjs';
 import { criarEnvioSeguro } from '../lib/envio-seguro.mjs';
 import { idDeGrupoValido, lerGruposLiberados, limparNome } from '../lib/grupos.mjs';
@@ -24,6 +27,13 @@ function casa({ liberados = [G1] } = {}) {
     fs.writeFileSync(arq, JSON.stringify({ versao: 1, grupos: liberados.map((id) => ({ id, nome: 'Grupo', liberado_em: '2026-11-19T10:00:00Z' })) }));
   }
   return { home, arq, limpar: () => fs.rmSync(home, { recursive: true, force: true }) };
+}
+
+/** Ambiente do filho sem as variaveis que o executor de testes do node injeta (o filho nao e um teste). */
+function envLimpo() {
+  const e = { ...process.env };
+  for (const k of Object.keys(e)) if (k.startsWith('NODE_TEST')) delete e[k];
+  return e;
 }
 
 function fetchGravando() {
@@ -264,4 +274,79 @@ test('limparNome tira controle e quebra de linha e corta em 100', () => {
   assert.equal(limparNome('a\r\nb\tc\u0000d'), 'a b c d');
   assert.equal(limparNome('x'.repeat(300)).length, 100);
   assert.equal(limparNome(undefined), '');
+});
+
+test('lista ilegivel: o erro nao copia JSON.parse nem o valor bruto do arquivo', () => {
+  const c = casa({ liberados: null });
+  const segredo = 'sk-' + 'SEGREDO123456';
+  fs.writeFileSync(c.arq, `{"grupos": [{"id": "${segredo}"} ${segredo}`);
+  let r = lerGruposLiberados(c.arq);
+  assert.match(r.erro, /ilegivel/);
+  assert.doesNotMatch(r.erro, /SEGREDO123456/);
+  fs.writeFileSync(c.arq, JSON.stringify({ versao: 1, grupos: [{ id: G1 }, { id: segredo }] }));
+  r = lerGruposLiberados(c.arq);
+  assert.match(r.erro, /entrada 2/);
+  assert.doesNotMatch(r.erro, /SEGREDO123456/);
+  c.limpar();
+});
+
+test('lista que e link simbolico e recusada, mesmo apontando para uma lista valida', async () => {
+  const c = casa({ liberados: null });
+  const real = path.join(c.home, 'real.json');
+  fs.writeFileSync(real, JSON.stringify({ versao: 1, grupos: [{ id: G1, nome: 'A', liberado_em: 'x' }] }));
+  fs.symlinkSync(real, c.arq);
+  const r = lerGruposLiberados(c.arq);
+  assert.match(r.erro, /link simbolico/);
+  const g = fetchGravando();
+  const e = await executar(['enviar', '--grupo', G1, '--texto', 'oi pessoal'], { env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} });
+  assert.equal(e.resposta.codigo, 'LISTA_DE_GRUPOS_ILEGIVEL');
+  assert.equal(g.chamadas.length, 0);
+  c.limpar();
+});
+
+test('grupos: pagina inteira no formato antigo nao esconde a pagina seguinte, e conta os omitidos', async () => {
+  const c = casa({ liberados: null });
+  const legados = Array.from({ length: 50 }, (_, i) => ({ name: `Velho ${i}`, phone: `5511999990${String(100 + i)}-1600000000` }));
+  const fetchImpl = async (url) => {
+    const p = Number(/page=(\d+)/.exec(url)[1]);
+    return { ok: true, status: 200, json: async () => (p === 1 ? legados : p === 2 ? [{ name: 'Novo', phone: G1 }] : []) };
+  };
+  const r = await executar(['grupos'], { env: ENV, home: c.home, fetchImpl });
+  assert.deepEqual(r.resposta.grupos.map((g) => g.id), [G1]);
+  assert.equal(r.resposta.omitidos, 50);
+  assert.match(r.resposta.aviso_omitidos, /50 grupo/);
+  c.limpar();
+});
+
+test('CLI de verdade com stdout em pipe: 1000 grupos saem inteiros e o JSON faz parse', async () => {
+  const c = casa({ liberados: null });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'zapi-falsa-'));
+  const todos = Array.from({ length: 1000 }, (_, i) => ({ name: `Grupo ${i} ` + 'n'.repeat(30), phone: `1203630000${String(100000 + i)}-group` }));
+  const servidor = http.createServer((req, res) => {
+    const p = Number(new URL(req.url, 'http://x').searchParams.get('page') || 1);
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify(todos.slice((p - 1) * 50, p * 50)));
+  });
+  await new Promise((ok) => servidor.listen(0, '127.0.0.1', ok));
+  const porta = servidor.address().port;
+  // Preload que redireciona o fetch para o servidor local, como a Z-API simulada.
+  const preload = path.join(dir, 'preload.mjs');
+  fs.writeFileSync(preload, `const f = globalThis.fetch; globalThis.fetch = (u, i) => f(String(u).replace('https://api.z-api.io', 'http://127.0.0.1:${porta}'), i);\n`);
+  const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'enviar-zapi.mjs');
+  // O node liga o stdout do filho a um socket, que tem folga; para ter um pipe de verdade (64 KB) e um leitor lento,
+  // a CLI roda dentro de um "sh" que a liga a "sleep 0.3; cat". Quem sai antes de terminar de escrever perde o resto.
+  const filho = spawn('sh', ['-c', '"$0" --import "$1" "$2" grupos | { sleep 0.3; cat; }', process.execPath, preload, cli], {
+    env: { ...envLimpo(), ...ENV, HOME: c.home }, stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const partes = [];
+  filho.stdout.on('data', (p) => partes.push(p));
+  const codigo = await new Promise((ok) => filho.on('close', ok));
+  servidor.close();
+  servidor.closeAllConnections();
+  const saida = Buffer.concat(partes).toString('utf8');
+  assert.equal(codigo, 0);
+  assert.ok(saida.length > 65536);
+  assert.equal(JSON.parse(saida).grupos.length, 1000);
+  fs.rmSync(dir, { recursive: true, force: true });
+  c.limpar();
 });

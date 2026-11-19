@@ -40,7 +40,8 @@ rodar `dgclaw-agente canal whatsapp retomar`.
 Nenhum grupo vem liberado: sem a sua liberação o agente recusa o envio para grupo, e é isso que protege você de uma
 mensagem para um grupo errado. Quem quiser que o agente escreva em um grupo precisa liberá-lo uma vez. Peça ao agente
 a lista dos grupos (ele mostra o ID e o nome de cada um) e, no chat do DG Claw, peça para rodar
-`dgclaw-agente canal whatsapp grupo liberar <id> "<nome>"` com o ID do grupo escolhido.
+`dgclaw-agente canal whatsapp grupo liberar <id>` com o ID do grupo escolhido. Use só o ID: o nome do grupo é escrito por
+quem participa dele, e por isso não deve ser colado dentro de um comando.
 
 **Correção de segurança e de perda de dados: `dgclaw agente recriar` mostra o que se perde e pede `--forcar`.** Trocar o
 container de um agente (o que a atualização faz com a imagem nova) apaga o que alguém instalou direto dentro dele, fora

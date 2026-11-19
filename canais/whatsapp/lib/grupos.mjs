@@ -23,27 +23,39 @@ export function limparNome(nome) {
 
 /**
  * Le a lista de grupos liberados. Arquivo ausente: nenhum grupo liberado.
- * Arquivo que existe e nao le (ou tem formato errado) NUNCA libera: devolve { erro }.
+ * Arquivo que existe e nao le (ou tem formato errado, ou e link simbolico) NUNCA libera: devolve { erro }.
+ * A mensagem de erro nunca copia conteudo do arquivo (nem do parser, nem de um ID): so o campo ou o indice com problema.
  * @returns {{ grupos: Array<{id:string,nome:string,liberado_em:string}> } | { erro: string }}
  */
 export function lerGruposLiberados(arquivo) {
   let bruto;
+  let fd;
   try {
-    bruto = fs.readFileSync(arquivo, 'utf8');
+    fd = fs.openSync(arquivo, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    if (!fs.fstatSync(fd).isFile()) {
+      return { erro: `${arquivo} nao e um arquivo comum; nenhum grupo esta liberado. O dono apaga esse item e libera de novo com "dgclaw-agente canal whatsapp grupo liberar <id>"` };
+    }
+    bruto = fs.readFileSync(fd, 'utf8');
   } catch (e) {
     if (e.code === 'ENOENT') return { grupos: [] };
+    if (e.code === 'ELOOP') return { erro: `${arquivo} e um link simbolico e nao sera lido; nenhum grupo esta liberado. O dono apaga o link e libera de novo com "dgclaw-agente canal whatsapp grupo liberar <id>"` };
     return { erro: `nao consegui ler ${arquivo} (${motivoErro(e)}); confira a permissao do arquivo` };
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
   }
+  const ilegivel = (campo) => ({ erro: `${arquivo} esta ilegivel (${campo}); nenhum grupo esta liberado. O dono corrige ou apaga o arquivo e libera de novo com "dgclaw-agente canal whatsapp grupo liberar <id>"` });
+  let o;
   try {
-    const o = JSON.parse(bruto);
-    if (!o || !Array.isArray(o.grupos)) throw new Error('faltou o campo "grupos"');
-    const grupos = [];
-    for (const g of o.grupos) {
-      if (!g || !idDeGrupoValido(g.id)) throw new Error(`ha um ID de grupo invalido (${JSON.stringify(g && g.id).slice(0, 40)})`);
-      grupos.push({ id: g.id, nome: limparNome(g.nome), liberado_em: String(g.liberado_em ?? '') });
-    }
-    return { grupos };
-  } catch (e) {
-    return { erro: `${arquivo} esta ilegivel (${motivoErro(e)}); nenhum grupo esta liberado. O dono corrige ou apaga o arquivo e libera de novo com "dgclaw-agente canal whatsapp grupo liberar <id>"` };
+    o = JSON.parse(bruto);
+  } catch {
+    return ilegivel('o JSON esta quebrado');
   }
+  if (!o || !Array.isArray(o.grupos)) return ilegivel('faltou o campo "grupos"');
+  const grupos = [];
+  for (let i = 0; i < o.grupos.length; i++) {
+    const g = o.grupos[i];
+    if (!g || !idDeGrupoValido(g.id)) return ilegivel(`o campo "id" da entrada ${i + 1} de "grupos" nao e valido`);
+    grupos.push({ id: g.id, nome: limparNome(g.nome), liberado_em: String(g.liberado_em ?? '') });
+  }
+  return { grupos };
 }
