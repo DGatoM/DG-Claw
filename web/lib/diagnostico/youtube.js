@@ -72,7 +72,7 @@ const SCRIPT = [
 
 // Sinais de que o YouTube recusou o download por falta de login: o pedido de login, e o aviso de cookies inválidos (que o yt-dlp dá
 // mesmo quando consegue baixar um vídeo público).
-const RX_LOGIN = /sign in to confirm|cookies are no longer valid|cookies.{0,40}(?:invalid|expired)|please sign in|login required/i;
+const RX_LOGIN = /sign in to confirm you.re not a bot|cookies are no longer valid|cookies.{0,40}(?:invalid|expired)|please sign in|login required/i;
 const RX_AUSENTE = /yt-dlp:? (?:command )?not found|yt-dlp: no such file|executable file .*yt-dlp.* not found/i;
 const RX_CONTAINER = /no such container|cannot (?:exec|find)|container .* (?:is not running|does not exist)/i;
 

@@ -252,7 +252,7 @@ test('saída enorme é cortada antes da classificação', () => {
   const lixo = 'x'.repeat(LIMITE_SAIDA + 10);
   assert.equal(classificarYoutube({ codigo: 1, stdout: '', stderr: `${lixo}\nSign in to confirm you're not a bot` }).tipo, 'outro', 'o sinal depois do limite não é lido');
   assert.equal(classificarYoutube({ codigo: 1, stdout: `${lixo}\ncookies are no longer valid`, stderr: '' }).tipo, 'outro');
-  assert.equal(classificarYoutube({ codigo: 1, stdout: '', stderr: `Sign in to confirm\n${lixo}` }).tipo, 'login', 'o que está dentro do limite continua valendo');
+  assert.equal(classificarYoutube({ codigo: 1, stdout: '', stderr: `Sign in to confirm you're not a bot\n${lixo}` }).tipo, 'login', 'o que está dentro do limite continua valendo');
 });
 
 test('o último resultado sobrevive a reinício do painel (arquivo) e container parado não mostra teste', async () => {
@@ -370,3 +370,7 @@ test('vigia: primeira rodada 2 minutos depois de iniciar (aqui encurtada) e depo
   m_limpa(dir);
 });
 function m_limpa(dir) { fs.rmSync(dir, { recursive: true, force: true }); }
+
+test('restrição de idade não é o desafio anti-robô: não vira "login"', () => {
+  assert.notEqual(classificarYoutube({ codigo: 1, stdout: '', stderr: 'ERROR: Sign in to confirm your age' }).tipo, 'login');
+});
