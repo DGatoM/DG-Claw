@@ -308,21 +308,28 @@ printf '\n5. Microfone do chat e nomes das chaves do cofre (so os nomes, nunca o
 WEBENV="$R/etc/dgclaw/web.env"
 if [ ! -r "$WEBENV" ]; then
     inconclusivo 5 "nao consegui ler o arquivo de ambiente do servico Web ($(printf '%s' "$WEBENV" | limpar)), entao nao sei se o microfone tem chave." \
-        "confira a mao a ultima linha GROQ_API_KEY do web.env (so se tem valor, sem mostrar o valor)"
+        "confira a mao a ultima linha de GROQ_API_KEY, OPENAI_API_KEY e ELEVENLABS_API_KEY no web.env (so se tem valor, sem mostrar o valor)"
 else
     mic="$(head -c 1048576 "$WEBENV" 2>/dev/null | LC_ALL=C awk '
-        /^[[:space:]]*(export[[:space:]]+)?GROQ_API_KEY[[:space:]]*=/ {
+        /^[[:space:]]*(export[[:space:]]+)?(GROQ|OPENAI|ELEVENLABS)_API_KEY[[:space:]]*=/ {
+            k = $0; sub(/^[[:space:]]*(export[[:space:]]+)?/, "", k); sub(/[[:space:]]*=.*$/, "", k)
             v = $0; sub(/^[^=]*=/, "", v)
             gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
             if (v ~ /^".*"$/ || v ~ /^\047.*\047$/) { v = substr(v, 2, length(v) - 2); gsub(/^[[:space:]]+|[[:space:]]+$/, "", v) }
-            tem = (length(v) > 0) ? 1 : 0
+            tem[k] = (length(v) > 0) ? 1 : 0
         }
-        END { print tem + 0 }' 2>/dev/null)"
+        END {
+            n = split("ELEVENLABS_API_KEY GROQ_API_KEY OPENAI_API_KEY", ordem, " ")
+            for (i = 1; i <= n; i++) if (tem[ordem[i]] == 1) lista = lista (lista == "" ? "" : ", ") ordem[i]
+            print (lista == "" ? "NENHUMA" : lista)
+        }' 2>/dev/null)"
     case "$mic" in
-        1) ok 5 "o servico Web tem GROQ_API_KEY com valor no web.env (microfone do chat)" ;;
-        0) falha 5 "o web.env nao tem GROQ_API_KEY com valor (ausente, vazia ou uma atribuicao vazia depois de uma com valor). Sem ela o microfone do chat e a transcricao de audio nao funcionam." \
+        NENHUMA) falha 5 "o web.env nao tem ELEVENLABS_API_KEY, GROQ_API_KEY nem OPENAI_API_KEY com valor (ausentes, vazias ou com uma atribuicao vazia por ultimo). Sem uma delas o microfone do chat e a transcricao de audio nao funcionam." \
             "ponha a chave do cliente no web.env (sem mostrar o valor) e reinicie o Web: sudo systemctl restart dgclaw-web" ;;
-        *) inconclusivo 5 "nao consegui interpretar o web.env." "confira a mao a ultima linha GROQ_API_KEY do web.env" ;;
+        ELEVENLABS_API_KEY|GROQ_API_KEY|OPENAI_API_KEY|*", "*) 
+            case "$mic" in *[!A-Z_,\ ]*) inconclusivo 5 "nao consegui interpretar o web.env." "confira a mao as linhas das chaves de microfone do web.env" ;;
+                *) ok 5 "o servico Web tem chave para o microfone e o audio (a ultima atribuicao tem valor): $mic" ;; esac ;;
+        *) inconclusivo 5 "nao consegui interpretar o web.env." "confira a mao as linhas das chaves de microfone do web.env" ;;
     esac
 fi
 

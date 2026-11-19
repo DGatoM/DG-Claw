@@ -98,8 +98,9 @@ sucesso antes de recriar.
 
 - **Microfone (automático):** o serviço Web lê a chave do próprio arquivo de ambiente (`/etc/dgclaw/web.env`).
   O script lê o arquivo como texto (nunca o executa) e só confere se a **última** atribuição de
-  `GROQ_API_KEY` tem valor. Aspas vazias contam como vazio, e uma atribuição antiga com valor seguida de uma
-  vazia também é `FALHA`. Ele nunca imprime o valor. Arquivo ilegível é `INCONCLUSIVO`.
+  pelo menos uma entre `ELEVENLABS_API_KEY`, `GROQ_API_KEY` e `OPENAI_API_KEY` tem valor. Aspas vazias contam
+  como vazio. Se nenhuma das três tem valor (inclusive uma atribuição antiga com valor seguida de uma vazia),
+  é `FALHA`. Ele só diz os nomes que têm valor e nunca imprime o valor. Arquivo ilegível é `INCONCLUSIVO`.
 - **Nomes do cofre (automático):** o script roda `dgclaw agente cofre <agente> listar --json` e mostra só o
   nome de cada chave ativa. Ele não afirma que as chaves das skills estão lá.
 - **Skills contra o cofre (à mão):** liste os nomes com `dgclaw agente cofre <agente> listar` e confira contra

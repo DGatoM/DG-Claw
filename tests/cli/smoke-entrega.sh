@@ -40,7 +40,7 @@ afirma "item 3 OK no pids.max" grep -q 'OK     \[3\] pids.max do container: 8192
 afirma "item 3 OK no TasksMax" grep -q 'OK     \[3\] TasksMax .*2400' "$TMP/s.txt"
 afirma "item 3 OK no OOMPolicy" grep -q 'OK     \[3\] OOMPolicy=continue' "$TMP/s.txt"
 afirma "item 3 OK sem OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
-afirma "item 5 OK no microfone (web.env)" grep -q 'OK     \[5\] o servico Web tem GROQ_API_KEY com valor' "$TMP/s.txt"
+afirma "item 5 OK no microfone (web.env)" grep -q 'OK     \[5\] o servico Web tem chave para o microfone e o audio (a ultima atribuicao tem valor): GROQ_API_KEY' "$TMP/s.txt"
 afirma "item 3 OK na CPU (sem limite)" grep -q 'OK     \[3\] CPU do container: sem limite' "$TMP/s.txt"
 afirma "item 3 OK no kernel com a cobertura" grep -q 'OK     \[3\] nenhum OOM no journal do runner (7 dias) nem no do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
 afirma "o kernel e lido sem -k (todo o periodo, nao so o boot)" grep -q 'journalctl _TRANSPORT=kernel --since 7 days ago' "$STUB_LOG"
@@ -224,25 +224,28 @@ rm -f "$STUB_ESTADO/oom-host"; : >"$STUB_ESTADO/journal-host-erro"
 smoke ana
 afirma "journal do kernel com erro: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal' "$TMP/s.txt"
 
-echo "smoke-entrega: GROQ_API_KEY no web.env (ultima atribuicao, valor vazio, sem executar o arquivo)"
+echo "smoke-entrega: chaves de microfone no web.env (ultima atribuicao, valor vazio, sem executar o arquivo)"
 limpar_estado
 printf 'GROQ_API_KEY=""\n' >"$ETC/web.env"
 smoke ana
-afirma "GROQ_API_KEY com aspas vazias: FALHA" grep -q 'FALHA  \[5\] o web.env nao tem GROQ_API_KEY com valor' "$TMP/s.txt"
+afirma "GROQ_API_KEY com aspas vazias: FALHA" grep -q 'FALHA  \[5\] o web.env nao tem ELEVENLABS_API_KEY, GROQ_API_KEY nem OPENAI_API_KEY com valor' "$TMP/s.txt"
 printf "GROQ_API_KEY=''\n" >"$ETC/web.env"
 smoke ana
-afirma "GROQ_API_KEY com aspas simples vazias: FALHA" grep -q 'FALHA  \[5\] o web.env nao tem GROQ_API_KEY com valor' "$TMP/s.txt"
+afirma "GROQ_API_KEY com aspas simples vazias: FALHA" grep -q 'FALHA  \[5\] o web.env nao tem ELEVENLABS_API_KEY, GROQ_API_KEY nem OPENAI_API_KEY com valor' "$TMP/s.txt"
 printf 'GROQ_API_KEY=gsk_antiga_segredo\nOUTRA=1\nGROQ_API_KEY=\n' >"$ETC/web.env"
 smoke ana
-afirma "atribuicao antiga seguida de uma vazia: FALHA" grep -q 'FALHA  \[5\] o web.env nao tem GROQ_API_KEY com valor' "$TMP/s.txt"
+afirma "atribuicao antiga seguida de uma vazia: FALHA" grep -q 'FALHA  \[5\] o web.env nao tem ELEVENLABS_API_KEY, GROQ_API_KEY nem OPENAI_API_KEY com valor' "$TMP/s.txt"
 nega "nao mostra o valor antigo" grep -q 'gsk_antiga' "$TMP/s.txt"
 printf 'GROQ_API_KEY=\nexport GROQ_API_KEY="gsk_nova_segredo"\n' >"$ETC/web.env"
 smoke ana
-afirma "vazia seguida de uma com valor: OK" grep -q 'OK     \[5\] o servico Web tem GROQ_API_KEY com valor' "$TMP/s.txt"
+afirma "vazia seguida de uma com valor: OK" grep -q 'OK     \[5\] o servico Web tem chave para o microfone e o audio (a ultima atribuicao tem valor): GROQ_API_KEY' "$TMP/s.txt"
 nega "nao mostra o valor novo" grep -q 'gsk_nova' "$TMP/s.txt"
-printf 'OPENAI_API_KEY=sk_x\nELEVENLABS_API_KEY=el_x\n' >"$ETC/web.env"
+printf 'OPENAI_API_KEY=sk_x\n' >"$ETC/web.env"
 smoke ana
-afirma "so OPENAI/ELEVENLABS nao bastam para o microfone: FALHA" grep -q 'FALHA  \[5\] o web.env nao tem GROQ_API_KEY com valor' "$TMP/s.txt"
+afirma "so OPENAI_API_KEY com valor: OK" grep -q 'OK     \[5\] o servico Web tem chave para o microfone e o audio (a ultima atribuicao tem valor): OPENAI_API_KEY' "$TMP/s.txt"
+printf 'GROQ_API_KEY=gsk_x\nGROQ_API_KEY=""\n' >"$ETC/web.env"
+smoke ana
+afirma "GROQ vazia por ultimo e nenhuma outra: FALHA" grep -q 'FALHA  \[5\] o web.env nao tem ELEVENLABS_API_KEY, GROQ_API_KEY nem OPENAI_API_KEY com valor' "$TMP/s.txt"
 printf '%s\nGROQ_API_KEY=gsk_x\n' "\$(touch $TMP/executou)" >"$ETC/web.env"
 smoke ana
 nega "o web.env e lido como texto, nunca executado" test -e "$TMP/executou"
