@@ -189,7 +189,7 @@ ENV CODEX_HOME=/home/agente/.codex
 ENV LANG=pt_BR.UTF-8
 
 # Conferência de build: se uma ferramenta prometida não ficou no PATH, a imagem não sai.
-RUN for c in node npm claude codex bun gh yt-dlp ffmpeg pdftotext jq rg sqlite3 python; do \
+RUN for c in node npm claude codex opencode bun gh yt-dlp ffmpeg pdftotext jq rg sqlite3 python; do \
       command -v "$c" >/dev/null || { echo "ERRO: '$c' não está no PATH da imagem" >&2; exit 1; }; \
     done \
     && node --version && bun --version && claude --version && codex --version && opencode --version && gh --version | head -1
