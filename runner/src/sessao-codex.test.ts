@@ -407,7 +407,7 @@ const filaEmDisco = (s: { arquivoDaFila: string }): Array<Record<string, unknown
 };
 const matarOTerminal = (s: { proc: unknown }) => (s.proc as { kill(): void }).kill();
 
-test("Codex sem recibo: o pedido digitado sem task_started fica pendente e, com o terminal morto, volta e sai UMA vez", async () => {
+test("Codex sem recibo: o pedido digitado sem task_started fica pendente e, com o terminal morto, fica retido e NUNCA é digitado de novo", async () => {
   const marcaDoLog = lerTexto(amb.logDoRunner).length;
   logarCodex(amb);
   const { s } = await nova({}, undefined, { reciboVigiaPassosMs: [300, 300] });
@@ -423,20 +423,18 @@ test("Codex sem recibo: o pedido digitado sem task_started fica pendente e, com 
   matarOTerminal(s);
   await esperarAte(() => s.estado.status === "resumable" || s.estado.status === "stopped", 8_000, "o terminal morrer");
   assert.equal(s.semRecibo.length, 0);
-  assert.deepEqual(s.filaQuandoIdle.map((i) => [i.texto, i.digitado, i.tentativa]), [["pedido-codex-que-some-1", true, 1]]);
+  assert.equal(s.filaQuandoIdle.length, 0, "não volta para a fila");
+  assert.deepEqual(s.retidos.map((i) => [i.texto, i.incerto]), [["pedido-codex-que-some-1", true]]);
+  assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), /ficou retido sem confirmação: o terminal (saiu|foi encerrado)/);
 
-  // Sem o id da conversa (o Codex nunca abriu o turno, o rollout não existe) não há histórico para conferir: o
-  // pedido NÃO sai sozinho, fica retido (incerto) e o log diz o que fazer.
   await s.subir("retomar");
-  await esperarAte(() => s.retidos.length === 1, 30_000, "o pedido ficar retido");
   await esperarAte(() => s.estado.status === "idle", 10_000);
   await dormir(2_500);
   assert.equal(promptsDe("pedido-codex-que-some-1"), 0, "não foi enviado sozinho");
   assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.incerto]), [["pedido-codex-que-some-1", true]]);
-  assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), /ficou retido sem confirmação: não deu para ler o histórico da conversa/);
 });
 
-test("Codex: com o id da conversa e o rollout sem o pedido, a reentrega é segura e sai UMA vez", async () => {
+test("Codex: mesmo com o id da conversa e o rollout sem o pedido, o pedido sem recibo fica retido e não sai sozinho", async () => {
   const marcaDoLog = lerTexto(amb.logDoRunner).length;
   logarCodex(amb);
   const { s } = await nova({}, undefined, { reciboVigiaPassosMs: [300, 300] });
@@ -455,11 +453,12 @@ test("Codex: com o id da conversa e o rollout sem o pedido, a reentrega é segur
   matarOTerminal(s);
   await esperarAte(() => s.estado.status === "resumable", 8_000);
   await s.subir("retomar");
-  await esperarAte(() => promptsDe("pedido-codex-seguro-1") === 1, 30_000, "o pedido sair de novo, por ser seguro");
-  await esperarAte(() => s.semRecibo.length === 0 && s.filaQuandoIdle.length === 0 && filaEmDisco(s).length === 0, 10_000, "o recibo limpar o pendente e o disco");
+  await esperarAte(() => s.estado.status === "idle", 10_000);
   await dormir(2_500);
-  assert.equal(promptsDe("pedido-codex-seguro-1"), 1);
-  assert.equal(s.retidos.length, 0);
+  assert.equal(s.semRecibo.length, 0);
+  assert.equal(s.filaQuandoIdle.length, 0);
+  assert.equal(promptsDe("pedido-codex-seguro-1"), 0, "o Codex ignorou os Enters e o pedido não foi digitado de novo");
+  assert.deepEqual(s.retidos.map((i) => [i.texto, i.incerto]), [["pedido-codex-seguro-1", true]]);
 });
 
 test("Codex: a retomada passa ao vigia o rollout já achado, mesmo mais antigo que a janela de busca do vigia", async () => {
@@ -541,4 +540,13 @@ test("Codex: id sem rollout no disco sobe a sessão NOVA direto (sem 'codex resu
   await esperarAte(() => entradasDe(id).length >= 2, 5_000, "o Codex reabrir");
   assert.equal(entradasDe(id)[1].argv[0] === "resume", false, "nem tentou o resume");
   assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), new RegExp(`não retomo a sessão ${fantasma}: o histórico dela não está no disco \\(rollout do Codex`));
+});
+
+test("Codex: pasta de sessões que não abre (erro de leitura, não ENOENT) mantém o 'codex resume' em vez de abandonar a conversa", async () => {
+  const { inspecionarRolloutPorId } = await import("./provedores/codex-rollout.js");
+  const casa = fs.mkdtempSync(path.join(amb.raiz, "codex-ilegivel-"));
+  fs.writeFileSync(path.join(casa, "sessions"), "nao e uma pasta"); // readdir dá ENOTDIR: não é ausência comprovada
+  const fantasma = "11111111-2222-4333-8444-555555555556";
+  assert.equal(inspecionarRolloutPorId(fantasma, casa).estado, "inconclusivo");
+  assert.equal(inspecionarRolloutPorId(fantasma, path.join(casa, "outra")).estado, "nao-existe", "ENOENT é ausência comprovada");
 });

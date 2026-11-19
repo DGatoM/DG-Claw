@@ -9,12 +9,12 @@ import { motorDe } from "../provedores/motores.js";
 import { conferirContaComRestricoes } from "../restricoes-conta.js";
 import { montarCtx } from "./configuracao.js";
 import { RESUME_MORREU_CEDO_MS } from "./constantes.js";
-import { acharRolloutPorId } from "../provedores/codex-rollout.js";
+import { inspecionarRolloutPorId } from "../provedores/codex-rollout.js";
 import { configDirDoClaude } from "../provedores/claude.js";
 import { codexHomeDe } from "../provedores/codex.js";
 import { inspecionarArquivoDaSessao } from "../transcript.js";
 import { cancelarQuietoDeBoot, cancelarStopPendente } from "./eventos.js";
-import { cancelarReintentoDaFila, devolverSemRecibo, reterOsDeOutroProvedor } from "./fila.js";
+import { cancelarReintentoDaFila, devolverSemRecibo } from "./fila.js";
 import { conferirLoginExpiradoNoTranscript, encerrarIncidenteDeLogin } from "./login.js";
 import { semAnsi } from "./telas.js";
 import { aoReceberDados, descarregarMascara } from "./terminal.js";
@@ -80,13 +80,20 @@ export function reviver(s: Sessao): Promise<void> {
  *  configuração que o motor realmente usa (configDirDoClaude). Codex: o rollout, em qualquer dia com sessão (o limite
  *  de 45 dias da busca do vigia não serve aqui, porque uma conversa antiga ainda abre e abandoná-la por engano é pior
  *  que a falha de 4 s); o caminho achado vai para o vigia, que não o procuraria de novo só nos últimos 45 dias.
- *  Se a inspeção do disco for inconclusiva (erro de leitura, e não "não existe"), conta como existente: mantém o
- *  --resume em vez de abandonar uma conversa por causa de um erro de disco. */
+ *  Só a ausência comprovada (ENOENT) leva à sessão nova. Qualquer outro erro de leitura (permissão, pasta que não
+ *  abre) conta como existente e mantém o --resume, como era antes, com um aviso no log. */
 function conversaNoDisco(s: Sessao, ctx: CtxMotor, sessionId: string): { existe: boolean; rollout: string | null } {
   if (s.motor.provedor === "codex") {
     const home = ctx.env.CODEX_HOME ?? codexHomeDe({ auth: ctx.escolha.auth, env: ctx.env, cwd: ctx.cwd, id: ctx.id });
-    const rollout = acharRolloutPorId(sessionId, home, Number.MAX_SAFE_INTEGER);
-    return { existe: rollout !== null, rollout };
+    const r = inspecionarRolloutPorId(sessionId, home);
+    if (r.estado === "inconclusivo") {
+      log.aviso(
+        s.a("pty"),
+        `não consegui conferir se o rollout da sessão ${sessionId} está no disco (${r.motivo}); mantenho o --resume em vez de abandonar a conversa`,
+      );
+      return { existe: true, rollout: null };
+    }
+    return { existe: r.estado === "achou", rollout: r.estado === "achou" ? r.arquivo : null };
   }
   const r = inspecionarArquivoDaSessao(sessionId, configDirDoClaude(ctx));
   if (r.estado === "inconclusivo") {
@@ -145,8 +152,6 @@ async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPe
   for (const p of problemas) log.erro(s.a("escolha"), p.motivo, p.comoResolver);
   s.escolhaVigente = escolha;
   s.motor = motorDe(escolha.provedor);
-  // O pedido digitado sem recibo no CLI ou na conta antigos não entra sozinho no terminal novo.
-  reterOsDeOutroProvedor(s);
 
   // O id guardado só abre no CLI e na conta que o criaram. Sem `escolha` gravada (estado
   // de antes desta função existir) o CLI era o Claude.
@@ -259,7 +264,7 @@ async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPe
       s.a("pty"),
       `não retomo a sessão ${s.estado.sessionId}: o histórico dela não está no disco (${s.motor.provedor === "codex" ? "rollout do Codex" : "transcript do Claude"} sem esse id), ` +
         `o que quase sempre quer dizer que ela morreu antes de o primeiro pedido virar turno. ` +
-        `Subo uma sessão NOVA e guardo a antiga em previousSessionId; texto que foi digitado sem recibo volta para a fila`,
+        `Subo uma sessão NOVA e guardo a antiga em previousSessionId`,
     );
     modo = "nova";
   }
@@ -343,6 +348,8 @@ export async function spawn(s: Sessao, ctx: CtxMotor, args: string[], rolloutDaR
   // recibo dependem disso).
   s.hooksVivos = false;
   s.estado.hookActive = false;
+  // A caixa do terminal novo está vazia: o rascunho do dono no terminal antigo não suspende mais nada.
+  s.digitacaoSuspensaEm = null;
   s.mudar({ status: "spawning", statusReason: "runner:spawn" });
   // O id da conversa só vale para este CLI e esta conta: grava de quem é, para o boot seguinte decidir.
   gravarEstado({ escolha: ctx.escolha }, s.arquivoDeEstado);

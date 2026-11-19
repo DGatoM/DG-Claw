@@ -44,6 +44,19 @@ export type InspecaoDoTranscript =
   | { estado: "nao-existe" }
   | { estado: "inconclusivo"; motivo: string };
 
+/** O arquivo existe? Só ENOENT e ENOTDIR (ausência comprovada) dão false; qualquer outro erro (permissão, I/O) sobe,
+ *  porque "não consegui olhar" não é "não existe". */
+function existe(caminho: string): boolean {
+  try {
+    fs.statSync(caminho);
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw err;
+  }
+}
+
 /** Como acharArquivoDaSessao, mas separa "não existe" (a pasta foi varrida e o id não está nela) de "não deu para
  *  saber" (erro ao ler o disco). Quem decide algo grave com base na ausência precisa dessa diferença. */
 export function inspecionarArquivoDaSessao(sessionId: string, configDir?: string | null): InspecaoDoTranscript {
@@ -58,50 +71,15 @@ export function inspecionarArquivoDaSessao(sessionId: string, configDir?: string
     }
     for (const dir of entradas) {
       const alvo = path.join(raiz, dir, `${sessionId}.jsonl`);
-      if (fs.existsSync(alvo)) return { estado: "achou", arquivo: alvo };
+      if (existe(alvo)) return { estado: "achou", arquivo: alvo };
     }
     // Algumas instalações gravam o jsonl solto na raiz.
     const solto = path.join(raiz, `${sessionId}.jsonl`);
-    if (fs.existsSync(solto)) return { estado: "achou", arquivo: solto };
+    if (existe(solto)) return { estado: "achou", arquivo: solto };
     return { estado: "nao-existe" };
   } catch (err) {
     return { estado: "inconclusivo", motivo: err instanceof Error ? err.message : String(err) };
   }
-}
-
-/** Texto sem diferença de espaço, para comparar o pedido digitado com o que o histórico guardou. */
-export function normalizarParaComparar(texto: string): string {
-  return texto.replace(/\s+/g, " ").trim();
-}
-
-/** O histórico (transcript do Claude) tem este pedido como turno do USUÁRIO? Só olha turnos gravados a partir de
- *  `desdeMs` (quando o pedido entrou na fila), para um texto repetido de ontem não passar por este. Devolve null
- *  quando não deu para ler o arquivo. Nunca registra o texto. */
-export function pedidoNoTranscript(arquivo: string, texto: string, desdeMs: number): boolean | null {
-  let cru: string;
-  try {
-    cru = fs.readFileSync(arquivo, "utf8");
-  } catch {
-    return null;
-  }
-  const alvo = normalizarParaComparar(texto);
-  if (!alvo) return false;
-  for (const linha of cru.split("\n")) {
-    if (!linha.trim()) continue;
-    let d: Record<string, unknown>;
-    try {
-      d = JSON.parse(linha) as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-    if (d.isSidechain === true) continue;
-    const msg = d.message as { role?: string; content?: unknown } | undefined;
-    if (msg?.role !== "user") continue;
-    const quando = typeof d.timestamp === "string" ? Date.parse(d.timestamp) : NaN;
-    if (Number.isFinite(quando) && quando < desdeMs - 1_000) continue;
-    if (normalizarParaComparar(textoDoConteudo(msg.content)).includes(alvo)) return true;
-  }
-  return false;
 }
 
 function textoDoConteudo(conteudo: unknown): string {

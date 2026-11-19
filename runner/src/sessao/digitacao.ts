@@ -1,7 +1,7 @@
 import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
-import { reter, talvezSoltarFila } from "./fila.js";
+import { reter, suspenderPorRascunho, talvezSoltarFila } from "./fila.js";
 import { INTERVALO_MS, PEDACO, RECIBO_ENTER_TENTATIVAS } from "./constantes.js";
 import { ehDialogoDeAutoMode, telaDeConfiancaDoCodex } from "./telas.js";
 
@@ -144,8 +144,12 @@ export async function enviarComRecibo(s: Sessao, comandoDeBarra = false): Promis
     }
     const antes = s.promptsAceitos;
     const compactAntes = s.compactsIniciados;
+    // O recibo deste pedido só vale se vier depois do PRIMEIRO Enter dele: o contador é marcado aqui, antes da escrita.
+    if (s.envioAtual && !s.envioAtual.enterEscrito) {
+      s.envioAtual.promptsAntes = s.promptsAceitos;
+      s.envioAtual.enterEscrito = true;
+    }
     s.escrever("\r");
-    if (s.envioAtual) s.envioAtual.enterEscrito = true;
     entradasEsperadas = s.entradasManuais;
     const recebeu = await esperarRecibo(s, antes, espera, comandoDeBarra ? compactAntes : undefined);
     if (recebeu) return true;
@@ -208,6 +212,13 @@ function vigiarReciboAtrasado(
         `digitei ${total} Enters e nenhum abriu turno: o texto ficou escrito na caixa de entrada do agente`,
         "olhar a tela (GET /api/agents/:id/terminal) e dar um Enter à mão, ou reenviar por POST /api/agents/:id/input",
       );
+      // Sem recibo depois de todos os Enters: o pedido fica retido como incerto (não trava os próximos, e o texto
+      // fica guardado no arquivo da fila). Nunca é digitado de novo sozinho.
+      const pendente = s.semRecibo[0];
+      if (pendente?.aguardando) {
+        reter(s, pendente.item, `${total} Enters foram escritos e nenhum virou turno`);
+        talvezSoltarFila(s);
+      }
       return;
     }
     if (s.entradasManuais !== entradasEsperadas) {
@@ -215,9 +226,11 @@ function vigiarReciboAtrasado(
         s.a("entrada"),
         "parei de insistir no Enter: houve outra escrita no terminal depois do texto, e a caixa já não é a mesma",
       );
-      // O pedido pendente não tem como ser provado nem repetido com segurança: fica retido e a fila segue.
+      // O pedido pendente não tem como ser provado nem repetido com segurança: fica retido. Como há texto alheio
+      // na caixa (provavelmente o dono escrevendo), a digitação automática fica suspensa até o Enter dele.
       const pendente = s.semRecibo[0];
       if (pendente?.aguardando) {
+        suspenderPorRascunho(s);
         reter(s, pendente.item, "a repetição do Enter parou porque houve outra escrita no terminal");
         talvezSoltarFila(s);
       }

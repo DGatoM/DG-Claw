@@ -16,19 +16,12 @@ export interface ItemDaFila {
   em: number;
   /** Identificador curto, só para o log dizer de qual pedido fala (nunca o texto). */
   id?: string;
-  /** Só no disco: uma tentativa de digitar o texto no terminal começou e o CLI ainda não confirmou que o aceitou
-   *  (sem recibo). É gravado ANTES da primeira escrita no terminal. Ao carregar, o texto só sai de novo se for
-   *  seguro (ver avaliarReentrega em sessao/fila.ts). */
+  /** Só no disco: o texto foi (ou ia ser) digitado no terminal e o CLI ainda não confirmou que o aceitou (sem
+   *  recibo). É gravado ANTES da primeira escrita no terminal. Ao carregar, um item `digitado` nunca é digitado de
+   *  novo: fica retido como `incerto` (ver recuperarDoDisco em sessao/fila.ts). */
   digitado?: boolean;
-  /** Quantas tentativas de digitar o texto já começaram. O limite é de duas (uma repetição), mesmo entre processos. */
-  tentativa?: number;
-  /** O provedor e a forma de pagar da primeira tentativa: a reentrega só vale no mesmo CLI e na mesma conta. */
-  provedor?: string;
-  conta?: string;
-  /** A conversa em que o texto foi digitado: é o histórico dela que prova se o pedido foi recebido. */
-  sessaoId?: string | null;
   /** O pedido pode ter sido recebido ou não e não deu para provar: fica guardado no arquivo, NÃO é enviado
-   *  sozinho e não bloqueia os próximos. */
+   *  sozinho, nunca, e não bloqueia os próximos. */
   incerto?: boolean;
 }
 
@@ -66,10 +59,6 @@ export function carregarFila(caminho: string, area: string): ItemDaFila[] {
       const item: ItemDaFila = { texto: it.texto, em: typeof it.em === "number" ? it.em : Date.now() };
       if (typeof it.id === "string") item.id = it.id;
       if (it.digitado === true) item.digitado = true;
-      if (typeof it.tentativa === "number" && Number.isFinite(it.tentativa)) item.tentativa = it.tentativa;
-      if (typeof it.provedor === "string") item.provedor = it.provedor;
-      if (typeof it.conta === "string") item.conta = it.conta;
-      if (typeof it.sessaoId === "string" || it.sessaoId === null) item.sessaoId = it.sessaoId;
       if (it.incerto === true) item.incerto = true;
       itens.push(item);
     }
@@ -93,24 +82,27 @@ export function carregarFila(caminho: string, area: string): ItemDaFila[] {
 
 /**
  * Grava a fila de forma atômica (arquivo .tmp na mesma pasta + rename). Fila vazia apaga o
- * arquivo. Nunca lança: se falhar, loga e a fila continua valendo em memória.
+ * arquivo. Nunca lança: se falhar, loga e a fila continua valendo em memória. Devolve true quando gravou e
+ * false quando falhou: quem vai digitar um texto só digita depois de um true.
  */
-export function gravarFila(caminho: string, itens: ItemDaFila[], area: string): void {
+export function gravarFila(caminho: string, itens: ItemDaFila[], area: string): boolean {
   try {
     if (itens.length === 0) {
       fs.rmSync(caminho, { force: true });
-      return;
+      return true;
     }
     const pasta = path.dirname(caminho);
     fs.mkdirSync(pasta, { recursive: true, mode: 0o700 });
     const tmp = `${caminho}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify({ versao: 1, itens }), { mode: 0o600 });
     fs.renameSync(tmp, caminho);
+    return true;
   } catch (err) {
     log.erro(
       area,
       `não consegui gravar a fila de textos pendentes em ${caminho}: ${err instanceof Error ? err.message : err}`,
       "conferir espaço em disco e permissões da pasta de estado; a fila continua em memória, mas um reinício agora perderia os textos",
     );
+    return false;
   }
 }

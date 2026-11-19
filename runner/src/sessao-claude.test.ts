@@ -1198,7 +1198,7 @@ const filaEmDisco = (s: { arquivoDaFila: string }): Array<Record<string, unknown
 const matarOTerminal = (s: { proc: unknown }) => (s.proc as { kill(): void }).kill();
 const REDE_CURTA = { reciboVigiaPassosMs: [300, 300] };
 
-test("sem recibo: o texto digitado fica pendente (também em disco); com o terminal morto e o respawn ele volta e sai UMA vez", async () => {
+test("sem recibo: o texto digitado fica pendente (também em disco); com o terminal morto ele fica retido e NUNCA é digitado de novo", async () => {
   const marcaDoLog = lerTexto(amb.logDoRunner).length;
   logarClaude(amb);
   process.env.FAKE_NAO_CONFIRMA = "1";
@@ -1214,20 +1214,25 @@ test("sem recibo: o texto digitado fica pendente (também em disco); com o termi
   assert.equal(s.semRecibo.length, 1, "pendente em memória");
   assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.digitado]), [["pedido-que-some-1", true]], "pendente em disco, marcado como digitado");
 
-  // O terminal morre sozinho (como o runner reiniciado): o pedido volta para a frente da fila.
+  // O terminal morre sozinho (como o runner reiniciado): o pedido fica retido, não volta para a fila.
   gravarTranscriptDoClaude(sessionId);
   matarOTerminal(s);
   await esperarAte(() => s.estado.status === "resumable", 8_000, "o terminal morrer");
   assert.equal(s.semRecibo.length, 0);
-  assert.deepEqual(s.filaQuandoIdle.map((i) => [i.texto, i.digitado, i.tentativa]), [["pedido-que-some-1", true, 1]]);
-  assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.digitado, i.tentativa, i.incerto]), [["pedido-que-some-1", true, 1, undefined]]);
-  assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), /1 texto\(s\) digitado\(s\) sem recibo do claude .* voltam para a frente da fila/);
+  assert.equal(s.filaQuandoIdle.length, 0, "não volta para a fila");
+  assert.deepEqual(s.retidos.map((i) => [i.texto, i.incerto]), [["pedido-que-some-1", true]]);
+  assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.incerto]), [["pedido-que-some-1", true]]);
+  const log = lerTexto(amb.logDoRunner).slice(marcaDoLog);
+  assert.match(log, /ficou retido sem confirmação: o terminal saiu com código .* antes do recibo/);
+  assert.match(log, /Não o enviei de novo sozinho/);
+  assert.match(log, /O que fazer: conferir na conversa do agente/);
+  assert.doesNotMatch(log, /ficou retido[^\n]*pedido-que-some-1/, "o log não traz o texto do pedido");
 
   assert.equal(await s.subir("retomar"), "retomar");
-  await esperarAte(() => promptsDe("pedido-que-some-1") === 2, 25_000, "o pedido sair de novo no terminal novo");
-  await esperarAte(() => s.semRecibo.length === 0 && s.filaQuandoIdle.length === 0 && filaEmDisco(s).length === 0, 8_000, "o recibo limpar o pendente e o disco");
-  await dormir(1_500);
-  assert.equal(promptsDe("pedido-que-some-1"), 2, "entregue de novo uma única vez");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  await dormir(2_000);
+  assert.equal(promptsDe("pedido-que-some-1"), 1, "nunca digitado de novo");
+  assert.equal(s.retidos.length, 1);
 });
 
 test("sem recibo: texto COM recibo nunca é reentregue, mesmo com o terminal morto e o respawn", async () => {
@@ -1359,38 +1364,39 @@ test("esperarRecibo: sem hook, antes do prazo de boot espera o recibo; depois do
   assert.equal(await esperarRecibo(falso({ spawnEm: Date.now() - 100, prazoSemHooksMs: 400 }), 0, 2_000), true, "o prazo vence durante a espera");
 });
 
-test("fila: devolverSemRecibo devolve o que teve Enter, retém a digitação interrompida; recuperarDoDisco mantém retidos e digitados", async () => {
+test("fila: devolverSemRecibo retém tudo o que estava sem recibo; recuperarDoDisco retém os digitados e os incertos (nunca digita de novo)", async () => {
   const marcaDoLog = lerTexto(amb.logDoRunner).length;
   const { devolverSemRecibo } = await import("./sessao/fila.js");
   const { gravarFila } = await import("./fila-ocioso.js");
   const { s } = await nova();
   s.filaQuandoIdle.push({ texto: "ja-na-fila", em: 1 });
   s.semRecibo.push(
-    { item: { texto: "com-enter", em: 2, digitado: true, tentativa: 1, id: "aaaa1111" }, promptsAntes: 0, aguardando: true, enterEscrito: true, interrompido: false },
-    { item: { texto: "no-meio", em: 3, digitado: true, tentativa: 1, id: "bbbb2222" }, promptsAntes: 0, aguardando: false, enterEscrito: false, interrompido: false },
+    { item: { texto: "com-enter", em: 2, digitado: true, id: "aaaa1111" }, promptsAntes: 0, aguardando: true, enterEscrito: true, interrompido: false },
+    { item: { texto: "no-meio", em: 3, digitado: true, id: "bbbb2222" }, promptsAntes: 0, aguardando: false, enterEscrito: false, interrompido: false },
   );
   devolverSemRecibo(s, "teste");
-  assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["com-enter", "ja-na-fila"], "só o que teve Enter volta para a fila");
-  assert.deepEqual(s.retidos.map((i) => [i.texto, i.incerto]), [["no-meio", true]], "a digitação interrompida fica retida");
+  assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["ja-na-fila"], "nada volta para a fila");
+  assert.deepEqual(s.retidos.map((i) => [i.texto, i.incerto]), [["com-enter", true], ["no-meio", true]]);
   const log = lerTexto(amb.logDoRunner).slice(marcaDoLog);
   assert.match(log, /um pedido de 7 caracteres \(id bbbb2222\) ficou retido sem confirmação: a digitação foi interrompida no meio/);
   assert.doesNotMatch(log, /no-meio/, "o log nunca traz o texto do pedido");
-  assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.incerto]), [["com-enter", undefined], ["ja-na-fila", undefined], ["no-meio", true]]);
+  assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.incerto]), [["ja-na-fila", undefined], ["com-enter", true], ["no-meio", true]]);
 
-  // No boot: o retido continua retido, o digitado fica na frente (ainda marcado) e o resto fica como estava.
+  // No boot: o retido continua retido, o digitado vira retido e o resto fica como estava.
   const id = "sess-disco";
   const pasta = path.join(amb.estado, id);
   fs.mkdirSync(pasta, { recursive: true });
   const arquivo = path.join(pasta, "fila-ocioso", `${id}.json`);
   gravarFila(arquivo, [
-    { texto: "retido-antigo", em: 2, digitado: true, tentativa: 2, incerto: true },
+    { texto: "retido-antigo", em: 2, digitado: true, incerto: true },
     { texto: "nunca-digitado", em: 3 },
-    { texto: "digitado-sem-recibo", em: 1, digitado: true, tentativa: 1, provedor: "claude", conta: "assinatura" },
+    { texto: "digitado-sem-recibo", em: 1, digitado: true },
   ], "teste");
   const { s: s2 } = await nova({}, { idFixo: id });
-  assert.deepEqual(s2.filaQuandoIdle.map((i) => [i.texto, i.digitado, i.tentativa]), [["digitado-sem-recibo", true, 1], ["nunca-digitado", undefined, undefined]]);
-  assert.deepEqual(s2.retidos.map((i) => i.texto), ["retido-antigo"]);
-  assert.deepEqual(filaEmDisco(s2).map((i) => [i.texto, i.incerto]), [["digitado-sem-recibo", undefined], ["nunca-digitado", undefined], ["retido-antigo", true]]);
+  assert.deepEqual(s2.filaQuandoIdle.map((i) => i.texto), ["nunca-digitado"]);
+  assert.deepEqual(s2.retidos.map((i) => i.texto), ["retido-antigo", "digitado-sem-recibo"]);
+  assert.deepEqual(filaEmDisco(s2).map((i) => [i.texto, i.incerto]), [["nunca-digitado", undefined], ["retido-antigo", true], ["digitado-sem-recibo", true]]);
+  assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), /tinha sido digitado sem recibo antes do runner parar.*Não o envio de novo sozinho/);
 });
 
 /** Sobe uma sessão cujo CLI nunca confirma o pedido, enfileira `texto` e espera o aviso de pedido sem recibo. */
@@ -1408,80 +1414,145 @@ async function sessaoComPedidoSemRecibo(texto: string, opcoes: Record<string, un
   return { s, id, sessionId, marcaDoLog };
 }
 
-test("reentrega insegura: histórico ilegível deixa o pedido retido (incerto), sem enviar, e a fila segue com os próximos", async () => {
-  const { s, sessionId, marcaDoLog } = await sessaoComPedidoSemRecibo("pedido-ilegivel-1");
-  // O "arquivo" do transcript é uma pasta: existe, mas não dá para ler.
-  const pasta = path.join(process.env.CLAUDE_CONFIG_DIR as string, "projects", "proj-ilegivel");
-  fs.mkdirSync(path.join(pasta, `${sessionId}.jsonl`), { recursive: true });
+test("terminal que sai com o pedido sem recibo: fica retido, a fila segue com os próximos e o retido nunca é digitado", async () => {
+  const { s, marcaDoLog } = await sessaoComPedidoSemRecibo("pedido-retido-1");
   matarOTerminal(s);
   await esperarAte(() => s.estado.status === "resumable", 8_000);
   s.enfileirarQuandoOcioso("proximo-pedido-1");
   await s.subir("nova");
   await esperarAte(() => promptsDe("proximo-pedido-1") === 1, 25_000, "o pedido seguinte sair mesmo com o retido");
-  assert.equal(promptsDe("pedido-ilegivel-1"), 1, "o retido não foi enviado de novo");
-  assert.deepEqual(s.retidos.map((i) => [i.texto, i.incerto]), [["pedido-ilegivel-1", true]]);
+  assert.equal(promptsDe("pedido-retido-1"), 1, "o retido não foi enviado de novo");
+  assert.deepEqual(s.retidos.map((i) => [i.texto, i.incerto]), [["pedido-retido-1", true]]);
   await esperarAte(() => s.semRecibo.length === 0 && !s.soltandoFila, 8_000);
-  assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.incerto]), [["pedido-ilegivel-1", true]], "o retido fica no arquivo, marcado");
-  const log = lerTexto(amb.logDoRunner).slice(marcaDoLog);
-  assert.match(log, /um pedido de 17 caracteres \(id [0-9a-f]{8}\) ficou retido sem confirmação: não deu para ler o histórico/);
-  assert.match(log, /O que fazer: conferir na conversa do agente se o pedido foi executado e, se não foi, reenviá-lo pela conversa/);
-  assert.doesNotMatch(log, /ficou retido[^\n]*pedido-ilegivel-1/, "o log não traz o texto do pedido");
+  assert.ok(filaEmDisco(s).some((i) => i.texto === "pedido-retido-1" && i.incerto === true), "o retido fica no arquivo, marcado");
+  assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), /um pedido de 15 caracteres \(id [0-9a-f]{8}\) ficou retido sem confirmação/);
 });
 
-test("reentrega insegura: histórico que JÁ tem o pedido como turno do usuário não repete (só o recibo se perdeu)", async () => {
-  const { s, sessionId } = await sessaoComPedidoSemRecibo("pedido-ja-no-historico-1");
-  const arq = gravarTranscriptDoClaude(sessionId);
-  fs.appendFileSync(arq, JSON.stringify({ type: "user", timestamp: new Date().toISOString(), message: { role: "user", content: "pedido-ja-no-historico-1" } }) + "\n");
-  matarOTerminal(s);
-  await esperarAte(() => s.estado.status === "resumable", 8_000);
-  await s.subir("retomar");
-  await esperarAte(() => s.estado.status === "idle", 8_000);
-  await esperarAte(() => s.filaQuandoIdle.length === 0 && filaEmDisco(s).length === 0, 8_000, "a fila esvaziar sem reenviar");
-  await dormir(1_500);
-  assert.equal(promptsDe("pedido-ja-no-historico-1"), 1, "não repetido");
-  assert.equal(s.retidos.length, 0);
-});
-
-test("reentrega insegura: outro provedor ou outra conta (no boot, vindo do disco) fica retido e nunca entra no terminal novo; a segunda tentativa também", async () => {
+test("boot com item digitado no arquivo: fica retido (incerto), nunca entra no terminal, e os não digitados saem", async () => {
   const { gravarFila } = await import("./fila-ocioso.js");
   logarClaude(amb);
-  const id = "sess-outro-provedor";
+  const id = "sess-boot-digitado";
   const pasta = path.join(amb.estado, id);
   fs.mkdirSync(pasta, { recursive: true });
   gravarFila(path.join(pasta, "fila-ocioso", `${id}.json`), [
-    { texto: "veio-do-codex-1", em: 1, digitado: true, tentativa: 1, provedor: "codex", conta: "assinatura", sessaoId: "x" },
-    { texto: "veio-de-outra-conta-1", em: 2, digitado: true, tentativa: 1, provedor: "claude", conta: "api", sessaoId: "x" },
-    { texto: "ja-repetido-1", em: 3, digitado: true, tentativa: 2, provedor: "claude", conta: "assinatura", sessaoId: "x" },
+    { texto: "veio-digitado-1", em: 1, digitado: true },
+    { texto: "veio-barra-digitada", em: 2, digitado: true },
     { texto: "normal-1", em: 4 },
   ], "teste");
   const { s } = await nova({}, { idFixo: id });
   await s.subir("nova");
   await esperarAte(() => promptsDe("normal-1") === 1, 25_000, "o pedido normal sair");
-  assert.equal(promptsDe("veio-do-codex-1"), 0);
-  assert.equal(promptsDe("veio-de-outra-conta-1"), 0);
-  assert.equal(promptsDe("ja-repetido-1"), 0, "o limite de uma repetição vale entre processos");
-  assert.deepEqual(s.retidos.map((i) => i.texto).sort(), ["ja-repetido-1", "veio-de-outra-conta-1", "veio-do-codex-1"]);
-  await esperarAte(() => filaEmDisco(s).length === 3 && s.semRecibo.length === 0, 8_000);
-  assert.ok(filaEmDisco(s).every((i) => i.incerto === true));
+  assert.equal(promptsDe("veio-digitado-1"), 0);
+  assert.equal(promptsDe("veio-barra-digitada"), 0);
+  assert.deepEqual(s.retidos.map((i) => i.texto).sort(), ["veio-barra-digitada", "veio-digitado-1"]);
+  await esperarAte(() => s.semRecibo.length === 0 && !s.soltandoFila, 8_000);
+  assert.ok(filaEmDisco(s).filter((i) => i.incerto === true).length === 2);
 });
 
-test("um envio sem recibo por vez: o próximo pedido espera o pendente, e o recibo confirma só o pendente", async () => {
+test("falha ao gravar a fila: nada é digitado, o pedido volta para a frente, o log diz o arquivo e o que fazer; com o disco de volta ele sai", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  logarClaude(amb);
+  const { s, pasta } = await nova({}, { reintentoTelaBloqueadaMs: 300 });
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const certo = s.arquivoDaFila;
+  const arquivoQueEBloqueia = path.join(pasta, "bloqueio");
+  fs.writeFileSync(arquivoQueEBloqueia, "x"); // um arquivo no lugar da pasta: mkdir/gravação falham (ENOTDIR), até como root
+  (s as unknown as { arquivoDaFila: string }).arquivoDaFila = path.join(arquivoQueEBloqueia, "fila.json");
+  s.enfileirarQuandoOcioso("pedido-sem-disco-1");
+  await esperarAte(() => /não digitei o pedido .* porque não consegui gravar o arquivo da fila/.test(lerTexto(amb.logDoRunner).slice(marcaDoLog)), 8_000, "o aviso");
+  await dormir(800);
+  assert.equal(promptsDe("pedido-sem-disco-1"), 0, "nada foi digitado");
+  assert.deepEqual(s.filaQuandoIdle.map((i) => [i.texto, i.digitado]), [["pedido-sem-disco-1", undefined]], "continua na frente da fila, sem a marca");
+  assert.equal(s.semRecibo.length, 0);
+  assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), /conferir espaço em disco/);
+  (s as unknown as { arquivoDaFila: string }).arquivoDaFila = certo;
+  await esperarAte(() => promptsDe("pedido-sem-disco-1") === 1, 15_000, "o pedido sair quando o disco voltou");
+});
+
+test("comando de barra: é gravado como digitado ANTES de ser digitado; interrompido pelo terminal, fica retido; terminando, sai do disco", async () => {
+  logarClaude(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  let visto: Array<Record<string, unknown>> | null = null;
+  (s as unknown as { digitarEEnviar: () => Promise<boolean> }).digitarEEnviar = () => {
+    visto = filaEmDisco(s);
+    return new Promise<boolean>(() => {}); // a digitação não termina: o terminal vai cair no meio
+  };
+  s.enfileirarQuandoOcioso("/clear");
+  await esperarAte(() => visto !== null, 8_000, "a digitação começar");
+  assert.deepEqual((visto as unknown as Array<Record<string, unknown>>).map((i) => [i.texto, i.digitado]), [["/clear", true]], "já estava no disco como digitado");
+  assert.equal(s.semRecibo.length, 0, "a barra não entra em semRecibo");
+  matarOTerminal(s);
+  await esperarAte(() => s.estado.status === "resumable", 8_000);
+  assert.deepEqual(s.retidos.map((i) => [i.texto, i.incerto]), [["/clear", true]]);
+  assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.incerto]), [["/clear", true]]);
+});
+
+test("comando de barra que termina: sai do disco (não fica digitado para sempre)", async () => {
+  logarClaude(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  s.enfileirarQuandoOcioso("/status");
+  await esperarAte(() => promptsDe("/status") === 1, 25_000, "a barra ser digitada");
+  await esperarAte(() => !s.soltandoFila && filaEmDisco(s).length === 0, 10_000, "o disco limpar");
+  assert.equal(s.retidos.length, 0);
+});
+
+test("vigia do Enter esgotada sem recibo: o pedido vai para retidos (incerto), não trava os próximos", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  const { s } = await sessaoComPedidoSemRecibo("pedido-vigia-esgotada-1");
+  await esperarAte(() => s.retidos.length === 1, 15_000, "a vigia esgotar e reter o pedido");
+  assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), /nenhum abriu turno: o texto ficou escrito na caixa/);
+  assert.equal(s.semRecibo.length, 0);
+  assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.incerto]), [["pedido-vigia-esgotada-1", true]]);
+  s.enfileirarQuandoOcioso("depois-da-vigia-1");
+  await esperarAte(() => promptsDe("depois-da-vigia-1") === 1, 25_000, "o próximo sair");
+});
+
+test("um envio sem recibo por vez: o próximo espera o pendente; o recibo confirma só o pendente e NÃO solta a fila (só o próximo idle depois do turno)", async () => {
   const { s } = await sessaoComPedidoSemRecibo("primeiro-pendente-1");
   s.enfileirarQuandoOcioso("segundo-pedido-1");
   await dormir(2_500);
   assert.equal(promptsDe("segundo-pedido-1"), 0, "a fila não soltou o segundo enquanto o primeiro não tem recibo");
   assert.equal(s.semRecibo.length, 1);
   assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["segundo-pedido-1"]);
-  // O recibo chega (turno aceito): o pendente sai e a fila solta o seguinte.
+  // O recibo chega (turno aceito): o pendente sai, mas o segundo só sai no próximo idle.
+  const { confirmarRecibos, talvezSoltarFila } = await import("./sessao/fila.js");
   s.promptsAceitos += 1;
-  const { confirmarRecibos } = await import("./sessao/fila.js");
   confirmarRecibos(s);
   assert.equal(s.semRecibo.some((e) => e.item.texto === "primeiro-pendente-1"), false, "o primeiro saiu do pendente");
-  await esperarAte(() => promptsDe("segundo-pedido-1") === 1, 25_000, "o segundo sair depois do recibo");
+  await dormir(1_500);
+  assert.equal(promptsDe("segundo-pedido-1"), 0, "confirmar o recibo não solta a fila");
+  talvezSoltarFila(s); // o idle depois do turno
+  await esperarAte(() => promptsDe("segundo-pedido-1") === 1, 25_000, "o segundo sair no idle");
 });
 
-test("antes de repetir o Enter, outra escrita no terminal para a repetição e deixa o pedido retido como incerto", async () => {
+test("recibo que chega ANTES do Enter do pendente não tira nada (é de outro turno)", async () => {
   const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  const { confirmarRecibos } = await import("./sessao/fila.js");
+  const { s } = await nova();
+  const item = { texto: "digitando-ainda", em: 1, digitado: true, id: "cccc3333" };
+  s.semRecibo.push({ item, promptsAntes: 0, aguardando: false, enterEscrito: false, interrompido: false });
+  s.promptsAceitos = 1; // o dono deu Enter num turno dele
+  confirmarRecibos(s);
+  assert.equal(s.semRecibo.length, 1, "o pendente continua");
+  assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), /recibo antes do Enter do pedido cccc3333: é de outro turno/);
+  // Depois do Enter dele, o contador de referência é o de ESSE momento: o recibo antigo não vale.
+  s.semRecibo[0]!.enterEscrito = true;
+  s.semRecibo[0]!.promptsAntes = s.promptsAceitos;
+  confirmarRecibos(s);
+  assert.equal(s.semRecibo.length, 1, "o recibo antigo não confirma");
+  s.promptsAceitos += 1;
+  confirmarRecibos(s);
+  assert.equal(s.semRecibo.length, 0, "o recibo posterior ao Enter confirma");
+});
+
+test("antes de repetir o Enter, outra escrita no terminal para a repetição, deixa o pedido retido e SUSPENDE a digitação do próximo até o dono dar o Enter", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  const { confirmarRecibos, talvezSoltarFila } = await import("./sessao/fila.js");
   logarClaude(amb);
   process.env.FAKE_NAO_CONFIRMA = "1";
   const { s } = await nova({}, { ...REDE_CURTA });
@@ -1490,13 +1561,24 @@ test("antes de repetir o Enter, outra escrita no terminal para a repetição e d
   await esperarAte(() => s.estado.status === "idle", 8_000);
   s.enfileirarQuandoOcioso("pedido-com-rascunho-1");
   await esperarAte(() => promptsDe("pedido-com-rascunho-1") === 1, 25_000, "o primeiro Enter");
+  s.enfileirarQuandoOcioso("segundo-com-rascunho-1");
   s.escrever("rascunho-do-dono"); // alguém digita no terminal enquanto se espera o recibo
   await esperarAte(() => s.retidos.length === 1, 10_000, "o pedido ficar retido");
   await dormir(2_500);
   assert.equal(promptsDe("rascunho-do-dono"), 0, "nenhum Enter a mais mandou o rascunho");
   assert.equal(promptsDe("pedido-com-rascunho-1"), 1);
+  assert.equal(promptsDe("segundo-com-rascunho-1"), 0, "o segundo não é digitado por cima do rascunho");
+  assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["segundo-com-rascunho-1"]);
   assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), /parei de repetir o Enter .* outra escrita no terminal/);
-  assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.incerto]), [["pedido-com-rascunho-1", true]]);
+  assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), /a digitação automática dos próximos pedidos fica suspensa/);
+  assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.incerto]), [["segundo-com-rascunho-1", undefined], ["pedido-com-rascunho-1", true]]);
+  // O dono dá o Enter (chega um recibo): a suspensão acaba, mas o segundo só sai no idle seguinte.
+  s.promptsAceitos += 1;
+  confirmarRecibos(s);
+  assert.equal(s.digitacaoSuspensaEm, null);
+  talvezSoltarFila(s);
+  // O rascunho do dono continua na caixa e o texto novo entra depois dele: o Claude falso registra os dois juntos.
+  await esperarAte(() => lerLinhasJson(amb.logDosClis).some((l) => l.bin === "claude" && l.modo === "prompt" && typeof l.texto === "string" && l.texto.endsWith("segundo-com-rascunho-1")), 25_000, "o segundo sair depois do Enter do dono");
 });
 
 test("SIGTERM durante a espera do recibo: o arquivo que o próximo processo carregaria tem UMA cópia do pedido", async () => {
@@ -1511,11 +1593,11 @@ test("SIGTERM durante a espera do recibo: o arquivo que o próximo processo carr
   await esperarAte(() => promptsDe("pedido-no-sigterm-1") === 1 && s.soltandoFila, 25_000, "o Enter escrito, ainda esperando o recibo");
   s.parar("SIGTERM de teste");
   const carregado = carregarFila(s.arquivoDaFila, "teste");
-  assert.deepEqual(carregado.map((i) => [i.texto, i.digitado, i.tentativa]), [["pedido-no-sigterm-1", true, 1]], "uma cópia só, com a tentativa registrada");
+  assert.deepEqual(carregado.map((i) => [i.texto, i.digitado, i.incerto]), [["pedido-no-sigterm-1", true, true]], "uma cópia só, retida como incerta");
   assert.equal(s.itemEmVoo, null, "a posse passou para a fila");
 });
 
-test("o estado da tentativa vai para o disco ANTES da primeira escrita no terminal", async () => {
+test("o estado de digitado vai para o disco ANTES da primeira escrita no terminal", async () => {
   logarClaude(amb);
   const { s } = await nova({}, { ...REDE_CURTA });
   await s.subir("nova");
@@ -1528,7 +1610,7 @@ test("o estado da tentativa vai para o disco ANTES da primeira escrita no termin
   };
   s.enfileirarQuandoOcioso("pedido-gravado-antes-1");
   await esperarAte(() => visto !== null, 25_000, "a primeira escrita");
-  assert.deepEqual((visto as unknown as Array<Record<string, unknown>>).map((i) => [i.texto, i.digitado, i.tentativa, i.provedor, i.conta]), [["pedido-gravado-antes-1", true, 1, "claude", "assinatura"]]);
+  assert.deepEqual((visto as unknown as Array<Record<string, unknown>>).map((i) => [i.texto, i.digitado]), [["pedido-gravado-antes-1", true]]);
   await esperarAte(() => s.semRecibo.length === 0 && filaEmDisco(s).length === 0, 8_000, "o recibo limpar o disco");
 });
 
@@ -1596,7 +1678,7 @@ test("deriva de sessão: evento e source desconhecidos do hook viram 'outro' no 
   assert.doesNotMatch(log, /INJETAD/);
 });
 
-test("retomada: id sem transcript no disco sobe a sessão NOVA direto (sem o --resume que falha) e reentrega o pendente", async () => {
+test("retomada: id sem transcript no disco sobe a sessão NOVA direto (sem o --resume que falha) e o pedido sem recibo fica retido, sem ser digitado de novo", async () => {
   const marcaDoLog = lerTexto(amb.logDoRunner).length;
   logarClaude(amb);
   process.env.FAKE_NAO_CONFIRMA = "1";
@@ -1618,11 +1700,10 @@ test("retomada: id sem transcript no disco sobe a sessão NOVA direto (sem o --r
   assert.equal(entradasDe(id)[1].argv.includes("--resume"), false, "nem tentou o --resume");
   assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), new RegExp(`não retomo a sessão ${idAntigo}: o histórico dela não está no disco`));
   assert.doesNotMatch(lerTexto(amb.logDoRunner).slice(-4_000), /não abriu: o claude saiu com código/);
-  await esperarAte(() => promptsDe("pedido-sem-transcript-1") === 2, 25_000, "o pedido sair de novo na sessão nova");
   assert.ok(Date.now() - inicio < 30_000);
-  await esperarAte(() => s.semRecibo.length === 0 && filaEmDisco(s).length === 0, 8_000);
+  assert.deepEqual(s.retidos.map((i) => [i.texto, i.incerto]), [["pedido-sem-transcript-1", true]]);
   await dormir(1_500);
-  assert.equal(promptsDe("pedido-sem-transcript-1"), 2, "uma única reentrega");
+  assert.equal(promptsDe("pedido-sem-transcript-1"), 1, "nunca digitado de novo");
 });
 
 test("deriva de sessão: o log de 'a sessão viva mudou por dentro' traz o evento e o source do hook", async () => {

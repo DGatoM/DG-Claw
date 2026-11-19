@@ -107,22 +107,28 @@ suspensas. A fila de ocioso agora é FIFO (antes o segundo texto apagava o prime
 
 Pedido sem recibo: um texto da fila só conta como entregue quando o CLI confirma que o aceitou
 (`UserPromptSubmit` no Claude, `task_started` do rollout no Codex). A fila solta no máximo um texto
-sem recibo por vez: enquanto houver um digitado sem confirmação, o próximo espera. O estado da tentativa
-(`digitado: true`, o número da tentativa, o provedor, a conta e a conversa) é gravado no arquivo da fila
-antes da primeira escrita no terminal. Se o terminal sair, a retomada falhar ou a sessão subir como nova
-antes do recibo, o pedido só é digitado de novo quando é seguro: mesma conta e mesmo provedor da primeira
-tentativa, nenhuma repetição anterior (o limite é de uma, também entre processos) e o histórico da conversa
-(transcript do Claude, rollout do Codex) lido sem o pedido. Em qualquer outro caso (histórico ilegível,
-provedor ou conta diferentes, digitação interrompida no meio, outra escrita no terminal durante a repetição
-do Enter) o pedido fica retido no arquivo da fila com `incerto: true`, não é enviado sozinho e não bloqueia
-os próximos. O log avisa com o id e o tamanho (nunca o texto) e diz o que fazer: conferir na conversa se o
-pedido foi executado e, se não foi, reenviá-lo pela conversa. Se o histórico mostra o pedido, ele foi
-recebido e não se repete. Comando de barra (`/compact`, `/clear`) não entra nisso. O Claude só é tratado
-como agente sem hooks (sem recibo possível) depois de 60 s do spawn sem nenhum hook, e a prova de hooks
-vivos é zerada a cada spawn. A fila não é solta no boot sem o `SessionStart` ou o prompt na tela (teto de
-30 s, com aviso no log). Antes de `--resume`, o runner confere se o transcript (Claude, na pasta de
-configuração do motor) ou o rollout (Codex, entregue ao vigia) do id existe; sem ele sobe direto a sessão
-nova, e um erro de leitura do disco mantém o `--resume`.
+sem recibo por vez: enquanto houver um digitado sem confirmação, o próximo espera. Antes da primeira
+escrita no terminal o item é gravado no arquivo da fila com `digitado: true`; se a gravação falhar
+(disco cheio, por exemplo) nada é digitado, o item volta para a frente da fila e o log diz o arquivo e
+o que fazer. Comando de barra (`/compact`, `/clear`) também é gravado como `digitado` antes de ser
+digitado (não entra em `semRecibo`, porque não tem recibo) e sai do arquivo quando a digitação termina.
+O recibo só tira o pendente da frente se o Enter dele já foi escrito; um recibo que chega antes é de
+outro turno. Confirmar o recibo não solta a fila: o próximo texto só sai no próximo idle, depois que o
+turno começou e terminou.
+
+Um item digitado sem recibo NUNCA é digitado de novo sozinho. Terminal que sai, retomada que falha,
+sessão nova, troca de provedor ou de conta, runner reiniciado com item `digitado` no arquivo, outra
+escrita no terminal durante a repetição do Enter e vigia do Enter esgotada sem recibo levam o item para
+`retidos`, marcado `incerto: true` no arquivo da fila. Retido não trava os próximos. O log avisa com o id
+e o tamanho (nunca o texto), diz onde o texto está guardado e o que fazer: conferir na conversa se o
+pedido foi executado e, se não foi, reenviá-lo pelo chat. Quando a vigia do Enter encontra texto alheio
+na caixa (o dono escrevendo no terminal), a digitação automática fica suspensa até chegar um recibo (ele
+deu o Enter) ou até um turno começar e terminar. O Claude só é tratado como agente sem hooks (sem recibo
+possível) depois de 60 s do spawn sem nenhum hook, e a prova de hooks vivos é zerada a cada spawn. A fila
+não é solta no boot sem o `SessionStart` ou o prompt na tela (teto de 30 s, com aviso no log). Antes de
+`--resume`, o runner confere se o transcript (Claude, na pasta de configuração do motor) ou o rollout
+(Codex, entregue ao vigia) do id existe: só a ausência comprovada (ENOENT) sobe direto a sessão nova; um
+erro de leitura (permissão, pasta que não abre) mantém o `--resume`, com aviso no log.
 
 ## Provedores (Claude e Codex)
 

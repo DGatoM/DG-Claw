@@ -1,22 +1,17 @@
-import fs from "node:fs";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Sessao } from "../sessao.js";
 import { type ItemDaFila, gravarFila } from "../fila-ocioso.js";
 import { log } from "../logger.js";
-import { configDirDoClaude } from "../provedores/claude.js";
-import { acharRolloutPorId, pedidoNoRollout } from "../provedores/codex-rollout.js";
-import { codexHomeDe } from "../provedores/codex.js";
 import { ErroDeMotor } from "../provedores/motor.js";
-import { inspecionarArquivoDaSessao, pedidoNoTranscript } from "../transcript.js";
 import { JANELA_DE_PRONTIDAO_MS, PRONTO_APOS_SPAWN_MS, QUIETO_ANTES_DE_DIGITAR_MS } from "./constantes.js";
 
 /** Um texto que já foi digitado no terminal e ainda não tem recibo do CLI (UserPromptSubmit no Claude,
  *  task_started no Codex). Enquanto estiver aqui o pedido NÃO está entregue: se o terminal sair antes do
- *  recibo, ele volta para a frente da fila (ver devolverSemRecibo). */
+ *  recibo, ele fica retido como incerto e nunca é digitado de novo sozinho (ver devolverSemRecibo). */
 export interface SemRecibo {
   item: ItemDaFila;
-  /** O valor de `promptsAceitos` quando o texto saiu da fila: o recibo é `promptsAceitos` passar dele. */
+  /** O valor de `promptsAceitos` quando o texto saiu da fila, e de novo quando o primeiro Enter é escrito: o recibo
+   *  é `promptsAceitos` passar dele DEPOIS do Enter. */
   promptsAntes: number;
   /** true depois que o envio terminou sem recibo (o Enter segue sendo insistido pela vigia). */
   aguardando: boolean;
@@ -66,45 +61,56 @@ export function talvezSoltarFila(s: Sessao): void {
   if (s.estado.status !== "idle") return;
   // Um envio automático sem recibo por vez: enquanto houver um digitado sem confirmação, a fila espera.
   if (s.semRecibo.length) return;
-  // Um item que já foi digitado sem recibo só sai de novo se for seguro; senão fica retido e não trava os próximos.
-  let item: ItemDaFila | undefined;
-  while ((item = s.filaQuandoIdle[0])) {
-    if (!item.digitado) break;
-    const veredito = avaliarReentrega(s, item);
-    if (veredito.acao === "reentregar") break;
-    s.filaQuandoIdle.shift();
-    if (veredito.acao === "descartar") {
-      log.info(s.a("entrada"), `o pedido ${item.id ?? "?"} (${item.texto.length} caracteres) já consta no histórico da conversa: ${veredito.motivo}; não repito`);
-    } else {
-      reter(s, item, veredito.motivo);
-    }
+  // O dono escreveu na caixa do terminal (rascunho sem Enter): nada é digitado por cima até ele dar o Enter
+  // (chega um recibo) ou até um turno começar e terminar (idle depois do turno).
+  if (s.digitacaoSuspensaEm !== null) {
+    if (s.turnoComecouEm < s.digitacaoSuspensaEm) return;
+    s.digitacaoSuspensaEm = null;
   }
+  const item = s.filaQuandoIdle[0];
   if (!item) {
     espelharFila(s);
     return;
   }
+  // Um item `digitado` nunca sai de novo sozinho (recuperarDoDisco já retém os do disco; isto é a rede de segurança).
+  if (item.digitado) {
+    reter(s, item, "ele estava marcado como digitado sem recibo");
+    talvezSoltarFila(s);
+    return;
+  }
+  // O pedido vai para o disco como `digitado` ANTES da primeira escrita no terminal. Se a gravação falhar, não
+  // digita nada: sem o registro, um reinício no meio da digitação perderia o rastro do que foi feito.
   s.filaQuandoIdle.shift();
   s.itemEmVoo = item;
+  item.digitado = true;
   const texto = item.texto;
-  // Comando de barra (/compact, /clear...) não tem recibo confiável (não dispara UserPromptSubmit), então
-  // não fica pendente: repetir um /clear depois de um reinício seria pior que o risco que se evita.
+  // Comando de barra (/compact, /clear...) não tem recibo confiável (não dispara UserPromptSubmit), então não
+  // fica em semRecibo. Mas também é gravado como digitado antes de ser digitado, e sai do disco quando termina:
+  // se o runner cair no meio, no boot ele aparece digitado e fica retido, nunca é executado de novo.
   const ehBarra = texto.trim().startsWith("/");
-  const antesDaTentativa = { digitado: item.digitado, tentativa: item.tentativa, provedor: item.provedor, conta: item.conta, sessaoId: item.sessaoId };
-  let entrada: SemRecibo | null = null;
-  if (!ehBarra) {
-    // O estado da tentativa vai para o disco ANTES da primeira escrita no terminal: se o runner cair no meio,
-    // o próximo processo sabe que houve uma tentativa e que o limite de uma repetição já está contando.
-    item.digitado = true;
-    item.tentativa = (item.tentativa ?? 0) + 1;
-    item.provedor = s.motor.provedor;
-    item.conta = s.escolhaVigente.auth;
-    item.sessaoId = s.estado.sessionId ?? null;
-    entrada = { item, promptsAntes: s.promptsAceitos, aguardando: false, enterEscrito: false, interrompido: false };
-    s.semRecibo.push(entrada);
+  const entrada: SemRecibo | null = ehBarra
+    ? null
+    : { item, promptsAntes: s.promptsAceitos, aguardando: false, enterEscrito: false, interrompido: false };
+  if (entrada) s.semRecibo.push(entrada);
+  if (!espelharFila(s)) {
+    if (entrada) retirarSemRecibo(s, entrada);
+    delete item.digitado;
+    s.itemEmVoo = null;
+    s.filaQuandoIdle.unshift(item);
+    if (!s.bloqueioDaFilaLogado) {
+      s.bloqueioDaFilaLogado = true;
+      log.erro(
+        s.a("entrada"),
+        `não digitei o pedido ${item.id ?? "?"} (${item.texto.length} caracteres) porque não consegui gravar o arquivo da fila ${s.arquivoDaFila}; ` +
+          `ele continua na frente da fila e a fila tenta de novo sozinha`,
+        "conferir espaço em disco e permissões da pasta de estado do runner (disco cheio é a causa mais comum)",
+      );
+    }
+    agendarReintento(s);
+    return;
   }
   s.envioAtual = entrada;
   s.soltandoFila = true;
-  espelharFila(s);
   if (!s.bloqueioDaFilaLogado) log.info(
     s.a("entrada"),
     `soltando os ${texto.length} caracteres enfileirados (agente ocioso; restam ${s.filaQuandoIdle.length} na fila)`,
@@ -114,6 +120,7 @@ export function talvezSoltarFila(s: Sessao): void {
       s.bloqueioDaFilaLogado = false;
       if (!entrada || !s.semRecibo.includes(entrada)) return;
       if (entrada.interrompido) {
+        suspenderPorRascunho(s);
         reter(s, item, "a repetição do Enter parou porque houve outra escrita no terminal depois do primeiro Enter");
         return;
       }
@@ -125,7 +132,7 @@ export function talvezSoltarFila(s: Sessao): void {
       log.aviso(
         s.a("entrada"),
         `digitei os ${texto.length} caracteres, mas o ${s.motor.binario} ainda não confirmou que aceitou o pedido; ` +
-          `ele continua pendente (e guardado em disco) até o recibo chegar, e se o terminal sair antes disso volta para a frente da fila`,
+          `ele continua pendente (e guardado em disco) até o recibo chegar, e se o terminal sair antes disso fica retido como incerto, sem ser digitado de novo`,
       );
     })
     .catch((err) => {
@@ -134,14 +141,13 @@ export function talvezSoltarFila(s: Sessao): void {
       // fica como estava e a fila olha de novo sozinha a cada poucos segundos. É seguro repetir: o primeiro
       // passo de digitarEEnviar só OLHA a tela. Quando o dono responder o aviso no terminal, sai uma vez.
       if (err instanceof ErroDeMotor && MOTIVOS_DE_TELA_BLOQUEADA.includes(err.statusReason)) {
-        // Se o terminal saiu no meio, devolverSemRecibo já pôs o item de volta na fila: não duplica.
-        const jaDevolvido = entrada !== null && !s.semRecibo.includes(entrada);
+        // Se o terminal saiu no meio, devolverSemRecibo já reteve o item (e o tirou de itemEmVoo): não mexe.
         if (entrada) retirarSemRecibo(s, entrada);
-        if (s.itemEmVoo && !jaDevolvido) {
-          // Nada foi digitado: a tentativa não conta.
-          Object.assign(s.itemEmVoo, antesDaTentativa);
-          if (antesDaTentativa.digitado === undefined) delete s.itemEmVoo.digitado;
-          s.filaQuandoIdle.unshift(s.itemEmVoo);
+        if (s.itemEmVoo === item) {
+          // Nada foi digitado: o item volta como estava, sem a marca de digitado.
+          delete item.digitado;
+          s.itemEmVoo = null;
+          s.filaQuandoIdle.unshift(item);
         }
         if (!s.bloqueioDaFilaLogado) {
           s.bloqueioDaFilaLogado = true;
@@ -154,8 +160,10 @@ export function talvezSoltarFila(s: Sessao): void {
       log.erro(
         s.a("entrada"),
         `falhei ao digitar o texto enfileirado: ${err instanceof Error ? err.message : err}`,
-        "reenviar pelo POST /api/agents/:id/input",
+        "conferir se o pedido chegou ao agente; o texto fica guardado como incerto e, se não foi atendido, reenviar pela conversa",
       );
+      // O texto pode ter sido digitado em parte: fica retido, nunca é digitado de novo sozinho.
+      if (s.itemEmVoo === item) reter(s, item, "a digitação falhou no meio");
     })
     .finally(() => {
       s.soltandoFila = false;
@@ -186,7 +194,7 @@ export function cancelarReintentoDaFila(s: Sessao): void {
 
 /** Grava no disco o que ainda não foi entregue: o digitado sem recibo, o item em digitação, a fila e os
  *  pedidos retidos (incertos). Cada item aparece uma vez só. */
-export function espelharFila(s: Sessao): void {
+export function espelharFila(s: Sessao): boolean {
   const vistos = new Set<ItemDaFila>();
   const lista: ItemDaFila[] = [];
   const somar = (it: ItemDaFila | null | undefined) => {
@@ -199,7 +207,7 @@ export function espelharFila(s: Sessao): void {
   somar(s.itemEmVoo);
   for (const it of s.filaQuandoIdle) somar(it);
   for (const it of s.retidos) somar(it);
-  gravarFila(s.arquivoDaFila, lista, s.a("fila"));
+  return gravarFila(s.arquivoDaFila, lista, s.a("fila"));
 }
 
 function retirarSemRecibo(s: Sessao, entrada: SemRecibo): void {
@@ -228,107 +236,57 @@ export function reter(s: Sessao, item: ItemDaFila, motivo: string): void {
   espelharFila(s);
 }
 
-/** O histórico da conversa em que o pedido foi digitado tem esse pedido como turno do usuário?
- *  "tem" e "nao-tem" só saem quando o histórico foi lido; qualquer dúvida é "ilegivel". */
-function pedidoNoHistorico(s: Sessao, item: ItemDaFila): "tem" | "nao-tem" | "ilegivel" {
-  const ctx = s.ctxVivo;
-  if (!ctx || !item.sessaoId) return "ilegivel";
-  if (item.provedor === "codex") {
-    const home = ctx.env.CODEX_HOME ?? codexHomeDe({ auth: ctx.escolha.auth, env: ctx.env, cwd: ctx.cwd, id: ctx.id });
-    try {
-      fs.readdirSync(path.join(home, "sessions"));
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") return "ilegivel";
-      return "nao-tem";
-    }
-    const arquivo = acharRolloutPorId(item.sessaoId, home, Number.MAX_SAFE_INTEGER);
-    if (!arquivo) return "nao-tem";
-    const r = pedidoNoRollout(arquivo, item.texto, item.em);
-    return r === null ? "ilegivel" : r ? "tem" : "nao-tem";
-  }
-  const achou = inspecionarArquivoDaSessao(item.sessaoId, configDirDoClaude(ctx));
-  if (achou.estado === "inconclusivo") return "ilegivel";
-  if (achou.estado === "nao-existe") return "nao-tem";
-  const r = pedidoNoTranscript(achou.arquivo, item.texto, item.em);
-  return r === null ? "ilegivel" : r ? "tem" : "nao-tem";
+/** O dono escreveu na caixa do terminal e o pedido ficou retido: a digitação automática fica suspensa até chegar
+ *  um recibo (ele deu o Enter) ou até um turno começar e terminar. Chamar ANTES de reter. */
+export function suspenderPorRascunho(s: Sessao): void {
+  s.digitacaoSuspensaEm = Date.now();
+  log.aviso(
+    s.a("entrada"),
+    "alguém escreveu no terminal do agente: a digitação automática dos próximos pedidos fica suspensa até o dono dar o Enter ou o agente terminar um turno. " +
+      "Os pedidos seguintes continuam guardados na fila",
+  );
 }
 
-type Veredito = { acao: "reentregar" } | { acao: "reter"; motivo: string } | { acao: "descartar"; motivo: string };
-
-/** Quando um pedido digitado sem recibo pode sair de novo sozinho: só se for seguro. Seguro quer dizer: ainda cabe
- *  uma repetição, é o mesmo CLI e a mesma conta da primeira tentativa, e o histórico da conversa foi lido e NÃO
- *  tem o pedido. Histórico que mostra o pedido quer dizer que ele foi entregue (só o recibo se perdeu): não repete.
- *  Qualquer outra situação deixa o pedido retido. */
-export function avaliarReentrega(s: Sessao, item: ItemDaFila): Veredito {
-  if ((item.tentativa ?? 1) >= 2) return { acao: "reter", motivo: "ele já foi digitado duas vezes sem que o CLI confirmasse nenhuma" };
-  if (!item.provedor) return { acao: "reter", motivo: "não há registro de qual CLI recebeu a primeira tentativa" };
-  if (item.provedor !== s.motor.provedor || (item.conta ?? "") !== s.escolhaVigente.auth) {
-    return { acao: "reter", motivo: `o provedor ou a forma de pagar mudou desde a primeira tentativa (era ${item.provedor}/${item.conta ?? "?"}, agora é ${s.motor.provedor}/${s.escolhaVigente.auth})` };
-  }
-  const historico = pedidoNoHistorico(s, item);
-  if (historico === "tem") return { acao: "descartar", motivo: "o CLI o registrou como pedido do usuário, só o recibo se perdeu" };
-  if (historico === "ilegivel") return { acao: "reter", motivo: "não deu para ler o histórico da conversa para conferir se o pedido chegou a ser recebido" };
-  return { acao: "reentregar" };
-}
-
-/** Na troca de provedor ou de conta, o pedido digitado sem recibo no CLI antigo não entra no terminal novo. */
-export function reterOsDeOutroProvedor(s: Sessao): void {
-  for (const it of [...s.filaQuandoIdle]) {
-    if (!it.digitado) continue;
-    if (it.provedor !== s.motor.provedor || (it.conta ?? "") !== s.escolhaVigente.auth) {
-      reter(s, it, `o provedor ou a forma de pagar mudou (era ${it.provedor ?? "?"}/${it.conta ?? "?"}, agora é ${s.motor.provedor}/${s.escolhaVigente.auth})`);
-    }
-  }
-}
-
-/** O CLI aceitou um prompt (`promptsAceitos` subiu): o texto digitado que está pendente está entregue e sai do
- *  pendente, para nunca ser reentregue. Só o pendente correspondente (a fila solta um por vez).
- *  Chamado pelos dois recibos (hook do Claude, rollout do Codex). */
+/** O CLI aceitou um prompt (`promptsAceitos` subiu). Só tira o pendente da frente se o Enter dele já foi escrito
+ *  e o contador passou do valor de antes desse Enter; um recibo que chega antes é de outro turno (o dono, por
+ *  exemplo) e não prova nada. Confirmar o recibo NÃO solta a fila: o próximo texto só sai no próximo idle, depois
+ *  que o turno começou e terminou. Chamado pelos dois recibos (hook do Claude, rollout do Codex). */
 export function confirmarRecibos(s: Sessao): void {
+  // O dono deu o Enter (ou o agente abriu um turno): o rascunho que suspendia a digitação foi consumido.
+  s.digitacaoSuspensaEm = null;
   const e = s.semRecibo[0];
-  if (!e || s.promptsAceitos <= e.promptsAntes) return;
+  if (!e) return;
+  if (!e.enterEscrito) {
+    log.info(s.a("entrada"), `chegou um recibo antes do Enter do pedido ${e.item.id ?? "?"}: é de outro turno e não confirma esse pedido`);
+    return;
+  }
+  if (s.promptsAceitos <= e.promptsAntes) return;
   s.semRecibo = s.semRecibo.slice(1);
   if (s.itemEmVoo === e.item) s.itemEmVoo = null;
   if (e.aguardando) {
     log.info(s.a("entrada"), `o recibo do texto digitado (${e.item.texto.length} caracteres) chegou atrasado: o pedido está entregue e não será repetido`);
   }
   espelharFila(s);
-  talvezSoltarFila(s);
 }
 
-/** O terminal saiu (ou foi encerrado) com texto digitado e sem recibo: esse pedido não chegou ao agente, ou pelo
- *  menos não há prova de que chegou. Se a digitação foi interrompida no meio, o pedido fica retido. Se o Enter
- *  chegou a ser escrito, o pedido volta para a FRENTE da fila marcado como digitado, e só sai de novo se a
- *  conferência de avaliarReentrega disser que é seguro. */
+/** O terminal saiu (ou foi encerrado) com texto digitado e sem recibo: não há prova de que o pedido chegou ao
+ *  agente. Ele fica retido como incerto, com o texto guardado no arquivo da fila, e NUNCA é digitado de novo
+ *  sozinho. Vale também para um comando de barra que estava sendo digitado. */
 export function devolverSemRecibo(s: Sessao, motivo: string): void {
-  if (!s.semRecibo.length) return;
-  const voltam: ItemDaFila[] = [];
   const pendentes = s.semRecibo;
   s.semRecibo = [];
   for (const e of pendentes) {
-    // A posse passa para a fila ANTES de gravar: o arquivo nunca tem duas cópias do mesmo pedido.
-    if (s.itemEmVoo === e.item) s.itemEmVoo = null;
-    if (!e.enterEscrito && !e.aguardando) {
-      reter(s, e.item, `a digitação foi interrompida no meio (${motivo})`);
-      continue;
-    }
-    voltam.push(e.item);
+    reter(s, e.item, !e.enterEscrito && !e.aguardando ? `a digitação foi interrompida no meio (${motivo})` : motivo);
   }
-  s.filaQuandoIdle.unshift(...voltam);
-  espelharFila(s);
-  if (voltam.length) {
-    log.aviso(
-      s.a("entrada"),
-      `${voltam.length} texto(s) digitado(s) sem recibo do ${s.motor.binario} (${motivo}); voltam para a frente da fila e só saem de novo se o histórico da conversa mostrar que o pedido não foi recebido`,
-    );
-  }
+  // O comando de barra em digitação não está em semRecibo, mas também está marcado como digitado.
+  const emVoo = s.itemEmVoo;
+  if (emVoo && emVoo.digitado && s.soltandoFila) reter(s, emVoo, `a digitação foi interrompida no meio (${motivo})`);
 }
 
 /** O que o disco guardava no boot: os retidos (incertos) continuam retidos, e os digitados sem recibo (o runner
- *  parou antes do recibo) ficam na frente da fila, ainda marcados, para a mesma conferência de segurança. */
+ *  parou antes do recibo, ou no meio de um comando de barra) também ficam retidos: nunca são digitados de novo. */
 export function recuperarDoDisco(s: Sessao): void {
   const fila: ItemDaFila[] = [];
-  const digitados: ItemDaFila[] = [];
   let mudou = false;
   for (const it of s.filaQuandoIdle) {
     if (!it.id) {
@@ -343,13 +301,19 @@ export function recuperarDoDisco(s: Sessao): void {
           `O que fazer: conferir na conversa do agente se foi executado e, se não foi, reenviá-lo pela conversa`,
       );
     } else if (it.digitado) {
-      if (!it.tentativa) it.tentativa = 1;
-      digitados.push(it);
-      log.aviso(s.a("fila"), `o pedido ${it.id} (${it.texto.length} caracteres) tinha sido digitado sem recibo antes do runner parar; só sai de novo se o histórico da conversa mostrar que ele não foi recebido`);
+      it.incerto = true;
+      s.retidos.push(it);
+      mudou = true;
+      log.aviso(
+        s.a("fila"),
+        `o pedido ${it.id} (${it.texto.length} caracteres) tinha sido digitado sem recibo antes do runner parar, e não sei se o agente o recebeu. ` +
+          `Não o envio de novo sozinho, para não ser executado duas vezes; ele fica guardado em ${s.arquivoDaFila}, marcado como incerto. ` +
+          `O que fazer: conferir na conversa do agente se foi executado e, se não foi, reenviá-lo pela conversa`,
+      );
     } else {
       fila.push(it);
     }
   }
-  s.filaQuandoIdle = [...digitados, ...fila];
-  if (mudou || digitados.length) espelharFila(s);
+  s.filaQuandoIdle = fila;
+  if (mudou) espelharFila(s);
 }

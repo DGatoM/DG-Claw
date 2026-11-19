@@ -174,15 +174,18 @@ export class Sessao extends EventEmitter {
   filaQuandoIdle: ItemDaFila[] = [];
   readonly arquivoDaFila: string;
   /** O item que está sendo digitado agora. Continua no disco até a digitação terminar:
-   *  se o runner cair no meio, o texto sai de novo no próximo boot (repetir uma
-   *  mensagem é melhor que perder a de um cliente). */
+   *  se o runner cair no meio, no próximo boot ele aparece marcado como digitado e fica retido (incerto):
+   *  nunca é digitado de novo sozinho, mas também nunca se perde. */
   itemEmVoo: ItemDaFila | null = null;
   /** Textos já digitados que o CLI ainda não confirmou (sem recibo). Vão junto no arquivo da fila, marcados
-   *  como digitados, e voltam para a frente dela se o terminal sair antes do recibo (ver sessao/fila.ts). */
+   *  como digitados, e ficam retidos (incertos, nunca digitados de novo) se o terminal sair antes do recibo (ver sessao/fila.ts). */
   semRecibo: SemRecibo[] = [];
   /** O envio em curso (do primeiro caractere ao fim da espera do recibo), para a digitação avisar a fila de que o
    *  Enter foi escrito ou de que a repetição parou. */
   envioAtual: SemRecibo | null = null;
+  /** Quando o dono escreveu no terminal e um pedido ficou retido por isso: a digitação automática fica suspensa até
+   *  chegar um recibo ou um turno começar e terminar (ver suspenderPorRascunho). null quando não está suspensa. */
+  digitacaoSuspensaEm: number | null = null;
   /** Pedidos retidos sem confirmação (`incerto`): ficam no arquivo da fila, nunca são enviados sozinhos e não
    *  bloqueiam os próximos. */
   retidos: ItemDaFila[] = [];
