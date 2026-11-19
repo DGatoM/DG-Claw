@@ -448,4 +448,21 @@ afirma "o self-7 desligado aparece" grep -q 'dgclaw-rita-self-7.timer' "$TMP/rec
 nega "o self-8 ligado nao aparece" grep -q 'self-8' "$TMP/rec.txt"
 rm -f "$STUB_ESTADO/self-timers"
 
+# 20) etapa interna do reparo falha (comando simples, nao `falha`): o recriar tem que sair com erro e nao anunciar sucesso.
+# O reparo roda num subshell com `set -e`; com `agente_reparar || ...` o `set -e` ficaria desligado e o `mv` que falha
+# na regravacao do config.sh passaria despercebido.
+echo imagem-v28 >"$STUB_ESTADO/imagem-id"
+: >"$STUB_ESTADO/diff-dgclaw-rita"
+echo "# linha alheia" >>"$LIB/agentes/rita/home/.dgclaw/config.sh"   # config.sh diferente do gerado: o reparo precisa regravar
+mkdir -p "$TMP/shim"
+printf '#!/bin/bash\ncase "$*" in *config.sh) echo "mv: falha simulada" >&2; exit 1 ;; esac\nexec /bin/mv "$@"\n' >"$TMP/shim/mv"
+chmod +x "$TMP/shim/mv"
+PATH_ANTES="$PATH"; PATH="$TMP/shim:$PATH"
+recriar rita
+rc_rep=$?
+PATH="$PATH_ANTES"
+nega "etapa interna do reparo falhou: o recriar sai com erro" test "$rc_rep" -eq 0
+nega "e nao anuncia 'recriado com a imagem atual'" grep -q 'recriado com a imagem atual' "$TMP/rec.txt"
+afirma "a falha simulada aparece na saida" grep -q 'falha simulada' "$TMP/rec.txt"
+
 fim

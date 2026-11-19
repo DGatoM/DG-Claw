@@ -1964,8 +1964,16 @@ agente_recriar() {
     C_RECRIANDO=""
     trap - EXIT
 
-    local rep_rc=0
-    agente_reparar "$slug" || rep_rc=$?
+    # `agente_reparar ... || rep_rc=$?` desligaria o `set -e` dentro de TODA a funcao (regra do bash para o comando a
+    # esquerda de ||), e uma etapa que falhasse deixaria o reparo seguir e anunciar sucesso. Por isso o reparo roda num
+    # subshell com o `set -e` ligado de novo, e o codigo de saida e capturado depois, sem `||`. O subshell e seguro: o
+    # reparo so usa variaveis locais e escreve em arquivos e no podman, nada que este processo leia depois.
+    local rep_rc=0 tinha_e=0
+    case "$-" in *e*) tinha_e=1 ;; esac
+    set +e
+    ( set -e; agente_reparar "$slug" )
+    rep_rc=$?
+    if [ "$tinha_e" = 1 ]; then set -e; fi
     devolver_unidades_self "$slug" "$unidades"
     [ "$rep_rc" -eq 0 ] || return "$rep_rc"
     ok "agente $slug recriado com a imagem atual (casa, cofre e portas intactos)"
