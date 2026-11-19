@@ -61,6 +61,9 @@ function carregaConfig(opcoes, log) {
     maxUploadBytes: Math.round(num(env.DGCLAW_WEB_MAX_UPLOAD_MB, 50) * 1024 * 1024),
     maxTexto: Math.round(num(env.DGCLAW_WEB_MAX_TEXTO, 20000)),
     tz: opcoes.tz || env.DGCLAW_WEB_TZ || env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    // Comando opcional da equipe para o aviso de agente fora do ar com avisos retidos (web/lib/vigia-saude-retida.js).
+    // Vem do web.env, que só o dono edita: roda com bash -c, o texto vai no stdin e em DGCLAW_AVISO_TEXTO.
+    equipeAvisoCmd: String(env.DGCLAW_EQUIPE_AVISO_CMD || '').trim(),
     canalTelegram: env.DGCLAW_CHANNEL_SOURCE || 'plugin:telegram',
     sessaoDias: 30,
     // E-mail do convite do colaborador (opcional). A senha fica em env.DGCLAW_SMTP_SENHA e nunca entra aqui nem em log.
