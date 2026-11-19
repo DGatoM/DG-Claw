@@ -43,6 +43,8 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/dns-containers.sh"
 # shellcheck source=lib/colaborador.sh
 . "$APP_DIR/lib/colaborador.sh"
+# shellcheck source=lib/limites.sh
+. "$APP_DIR/lib/limites.sh"
 
 # Tempo maximo de espera (segundos) do systemd e do /api/saude de dentro do agente.
 # Variavel so para os testes nao esperarem um minuto de verdade.
@@ -894,6 +896,8 @@ criar_container() {
         fi
     else
         dns_containers_calcular
+        # LIM_* ja foram calculados (e validados) por agente_criar e agente_recriar, antes de reservar ou parar qualquer coisa.
+        info "limites do container $c: memoria $LIM_MEM_ARG, CPUs $LIM_CPUS_ARG, processos $LIMITE_PIDS (calculados pelo tamanho desta maquina)"
         if [ "${#DNS_CONTAINER_ARGS[@]}" -gt 0 ]; then
             info "o DNS deste servidor ($DNS_HOST_PRIVADOS) fica numa rede privada, que a cerca dos agentes bloqueia; o container $c usa DNS publico (1.1.1.1 e 8.8.8.8)."
         fi
@@ -909,7 +913,7 @@ criar_container() {
             "${DNS_CONTAINER_ARGS[@]}"
             --publish "127.0.0.1:$C_PORTA_RUNNER:4300"
             --publish "127.0.0.1:$C_PORTA_PAINEL:8300"
-            --memory 2g --cpus 1.0 --pids-limit 4096 --restart unless-stopped
+            --memory "$LIM_MEM_ARG" --cpus "$LIM_CPUS_ARG" --pids-limit "$LIMITE_PIDS" --restart unless-stopped
             # O podman copia as variaveis de proxy de quem roda o comando para dentro do
             # container. Um proxy local do host (127.0.0.1:...) nao existe la dentro, e todo
             # curl do agente falharia com "connection refused".
@@ -1297,6 +1301,9 @@ agente_criar() {
     # O podman nao herda o descritor da trava: o conmon vive ate o container parar e a seguraria.
     podman() { command podman "$@" 8>&-; }
     carregar_env_dgclaw
+    # Antes de reservar uid, portas, casa ou rede: uma sobrescrita invalida (DGCLAW_CONTAINER_MEMORIA=4GB) falha aqui, sem nada reservado.
+    # O criar_container reaproveita este resultado (LIM_*).
+    limites_calcular
     if ! podman image exists "$DGCLAW_IMAGEM" >/dev/null 2>&1; then
         falha "a imagem dos agentes ($DGCLAW_IMAGEM) ainda nao existe nesta maquina." \
               "ela e construida em segundo plano pelo instalador; espere ficar pronta: dgclaw imagem status (para construir agora: dgclaw imagem construir)"
@@ -1517,7 +1524,7 @@ regravar_config_sh() {
 
 agente_reparar() {
     exigir_slug "${1:-}" reparar
-    local slug="$1" c="dgclaw-$1" obj porta
+    local slug="$1" c="dgclaw-$1" obj porta lim_rc=0
     exigir_ferramentas jq podman curl
     obj="$(agentes_obter "$slug")"
     [ -n "$obj" ] || falha "o agente '$slug' nao esta no agentes.json." \
@@ -1526,6 +1533,9 @@ agente_reparar() {
         falha "o container $c nao esta ligado." "ligue com: dgclaw agente iniciar $slug"
     fi
     porta="$(printf '%s' "$obj" | jq -r '.runner | sub("^.*:"; "")')"
+    passo "Conferindo os limites de memoria, CPU e processos do container"
+    # Limite que sumiu depois do ajuste e erro, mas o resto do reparar segue; o codigo de erro sai no fim.
+    limites_ajustar_existente "$slug" || lim_rc=1
     passo "Garantindo o gancho do Modo foco no runner.json"
     garantir_gancho_foco "$DG_CASAS/$slug/runner/runner.json" "$slug"
     passo "Garantindo o gancho do aviso de novidades no runner.json"
@@ -1546,6 +1556,7 @@ agente_reparar() {
               "veja o log: podman exec $c journalctl -u dgclaw-runner -n 50"
     fi
     if [ "$ENSAIO" != 1 ]; then tela_avisar_sem_senha "$slug"; fi
+    return "$lim_rc"
 }
 
 # Rotinas que o `reparar` (vida_script -> install-timers.sh) regrava no container novo: nao contam como
@@ -1825,6 +1836,8 @@ agente_recriar() {
     exigir_slug "$slug" recriar
     exigir_ferramentas jq podman curl
     carregar_env_dgclaw
+    # Antes de parar ou remover qualquer coisa: uma sobrescrita invalida (DGCLAW_CONTAINER_MEMORIA=4GB) falha aqui, com o agente intacto.
+    limites_calcular
     local c="dgclaw-$slug" obj aloc estado img_atual img_nova unidades inv
     obj="$(agentes_obter "$slug")"
     [ -n "$obj" ] || falha "o agente '$slug' nao esta no agentes.json." "veja os que existem com: dgclaw agente listar"
@@ -1951,7 +1964,21 @@ agente_recriar() {
     C_RECRIANDO=""
     trap - EXIT
 
-    agente_reparar "$slug"
+    # `agente_reparar ... || rep_rc=$?` desligaria o `set -e` dentro de TODA a funcao (regra do bash para o comando a
+    # esquerda de ||), e uma etapa que falhasse deixaria o reparo seguir e anunciar sucesso. Por isso o reparo roda num
+    # subshell com o `set -e` ligado de novo, e o codigo de saida e capturado depois, sem `||`. O subshell e seguro: o
+    # reparo so usa variaveis locais e escreve em arquivos e no podman, nada que este processo leia depois.
+    local rep_rc=0 tinha_e=0
+    case "$-" in *e*) tinha_e=1 ;; esac
+    set +e
+    ( set -e; agente_reparar "$slug" )
+    rep_rc=$?
+    if [ "$tinha_e" = 1 ]; then set -e; fi
+    if [ "$rep_rc" -ne 0 ]; then
+        # Reparo incompleto: os timers ficam desligados, para nenhuma rotina disparar com a configuracao pela metade.
+        aviso "o reparo do agente $slug nao terminou (codigo $rep_rc), entao as rotinas dele (timers dgclaw-$slug-self-*) ficaram DESLIGADAS ate a recriacao dar certo. Corrija o erro acima e rode: dgclaw agente reparar $slug. Para religar as rotinas guardadas em $unidades (a lista fica la, nao a apague): podman exec -i dgclaw-$slug tar -C /etc/systemd/system -xf - < $unidades; podman exec dgclaw-$slug systemctl daemon-reload; e para cada timer: podman exec dgclaw-$slug systemctl enable --now <nome>.timer"
+        return "$rep_rc"
+    fi
     devolver_unidades_self "$slug" "$unidades"
     ok "agente $slug recriado com a imagem atual (casa, cofre e portas intactos)"
 }

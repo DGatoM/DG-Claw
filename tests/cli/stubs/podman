@@ -28,7 +28,15 @@ case "${1:-}" in
         esac ;;
     create)
         dns=""
-        while [ $# -gt 0 ]; do [ "$1" = --name ] && nome="$2"; [ "$1" = --dns ] && dns="$dns $2"; shift; done
+        mem=0; cpus=0; pids=2048
+        while [ $# -gt 0 ]; do
+            [ "$1" = --name ] && nome="$2"; [ "$1" = --dns ] && dns="$dns $2"
+            [ "$1" = --memory ] && mem="$2"; [ "$1" = --cpus ] && cpus="$2"; [ "$1" = --pids-limit ] && pids="$2"
+            shift
+        done
+        # Limites do container: "<bytes> <quota> <periodo> <pids>", como o inspect devolve.
+        case "$mem" in *g) mem=$(( ${mem%g} * 1073741824 )) ;; *m) mem=$(( ${mem%m} * 1048576 )) ;; esac
+        echo "$mem $(awk -v c="$cpus" 'BEGIN { printf "%d", c * 100000 }') 100000 $pids $((mem * 2))" > "$est/lim-$nome"
         echo created > "$est/c-$nome"
         echo "[${dns# }]" > "$est/dns-$nome"
         # O container nasce com a imagem que estava "atual" na hora (para o `agente recriar` comparar).
@@ -84,6 +92,34 @@ case "${1:-}" in
                 [ -f "$est/inspect-falha-pos-kill" ] && [ -f "$est/kill-feito" ] && exit 125
             fi
         fi
+        # Limites efetivos: o DG Claw le o cgroup pelo host. O stub monta arquivos falsos sob $DGCLAW_RAIZ/sys/fs/cgroup a partir de
+        # estado/lim-<nome> ("<bytes> <quota> <periodo> <pids> <memoria+swap>"), como o kernel mostraria (swap.max e SO o swap).
+        # cgroup-ausente: o caminho existe mas os arquivos nao.
+        if printf '%s ' "$@" | grep -q 'State.CgroupPath'; then
+            [ -f "$est/inspect-limites-falha" ] && exit 125
+            # releitura-falha: a leitura dos limites funciona antes do `podman update` e falha depois dele.
+            [ -f "$est/releitura-falha" ] && [ -f "$est/update-feito" ] && exit 125
+            if [ ! -f "$est/cgroup-ausente" ] && [ -f "$est/lim-$nome" ]; then
+                read -r m q p n w < "$est/lim-$nome"; w="${w:-$((m * 2))}"
+                d="${DGCLAW_RAIZ:?}/sys/fs/cgroup/machine.slice/libpod-$nome.scope"; mkdir -p "$d"
+                if [ "$m" -gt 0 ]; then echo "$m" > "$d/memory.max"; else echo max > "$d/memory.max"; fi
+                if [ "$w" -gt "$m" ] && [ "$m" -gt 0 ]; then echo $((w - m)) > "$d/memory.swap.max"; elif [ "$w" = -1 ] || [ "$m" -eq 0 ]; then echo max > "$d/memory.swap.max"; else echo 0 > "$d/memory.swap.max"; fi
+                # pids "zero" = teto finito igual a 0 (0 literal no arquivo); 0 ou -1 = sem limite (max).
+                if [ "$n" = zero ]; then echo 0 > "$d/pids.max"; elif [ "$n" -gt 0 ]; then echo "$n" > "$d/pids.max"; else echo max > "$d/pids.max"; fi
+                if [ "$q" -gt 0 ]; then echo "$q $p" > "$d/cpu.max"; else echo "max $p" > "$d/cpu.max"; fi
+                # cgroup-sem-swap: o kernel sem contabilidade de swap nao tem o arquivo.
+                [ -f "$est/cgroup-sem-swap" ] && rm -f "$d/memory.swap.max"
+                # cpu-nao-relido: o cpu.max some depois do update (os outros controladores continuam legiveis).
+                [ -f "$est/cpu-nao-relido" ] && [ -f "$est/update-feito" ] && rm -f "$d/cpu.max"
+            fi
+            echo "/machine.slice/libpod-$nome.scope"; exit 0
+        fi
+        if printf '%s ' "$@" | grep -q 'HostConfig.Memory'; then
+            [ -f "$est/inspect-limites-falha" ] && exit 125
+            # Arquivo com 4 campos (sem swap): o swap padrao e 2x a memoria, como o podman faz na criacao.
+            read -r m q p n w < <(cat "$est/lim-$nome" 2>/dev/null || echo "2147483648 100000 100000 1024")
+            echo "$m $q $p $n ${w:-$((m * 2))}"; exit 0
+        fi
         if printf '%s ' "$@" | grep -q '\.Mounts'; then
             if [ -f "$est/mounts-volume" ]; then echo "bind volume "; else echo "bind bind bind bind bind "; fi
             exit 0
@@ -103,6 +139,39 @@ case "${1:-}" in
         else
             cat "$est/c-$nome"
         fi ;;
+    update)
+        # update-sem-suporte: o podman antigo nao tem o comando; update-sem-swap: nao aceita --memory-swap.
+        [ -f "$est/update-sem-suporte" ] && { echo "Error: unknown command \"update\" for \"podman\"" >&2; exit 125; }
+        if [ -f "$est/update-sem-swap" ] && printf '%s ' "$@" | grep -q -- '--memory-swap'; then echo "Error: unknown flag: --memory-swap" >&2; exit 125; fi
+        nome="${*: -1}"; [ -f "$est/lim-$nome" ] || exit 1
+        # update-sem-efeito: o comando termina com 0 mas nao muda nada (o podman que mente).
+        [ -f "$est/update-sem-efeito" ] && exit 0
+        touch "$est/update-feito"
+        read -r mem quota periodo pids swap < "$est/lim-$nome"
+        swap="${swap:-$((mem * 2))}"
+        args_update="$*"
+        shift   # tira o "update"
+        while [ $# -gt 1 ]; do
+            # aceita --flag=valor e --flag valor
+            case "$1" in --*=*) set -- "${1%%=*}" "${1#*=}" "${@:2}" ;; esac
+            case "$1" in
+                --memory) v="$2"; case "$v" in *g) v=$(( ${v%g} * 1073741824 )) ;; *m) v=$(( ${v%m} * 1048576 )) ;; esac; mem="$v"; [ -f "$est/update-mem-vira-max" ] && mem=0 ;;
+                --memory-swap) v="$2"; case "$v" in *g) v=$(( ${v%g} * 1073741824 )) ;; *m) v=$(( ${v%m} * 1048576 )) ;; esac; swap="$v" ;;
+                --cpus) [ -f "$est/update-cpu-sem-efeito" ] || quota="$(awk -v c="$2" 'BEGIN { printf "%d", c * 100000 }')"; [ -f "$est/update-cpu-vira-max" ] && quota=0 ;;
+                --pids-limit) pids="$2"; [ -f "$est/update-pids-vira-max" ] && pids=0 ;;
+            esac
+            shift 2
+        done
+        # update-*-acima: o cgroup fica ACIMA do pedido; update-swap-mais: o swap passa a ser mais permissivo que antes.
+        [ -f "$est/update-mem-acima" ] && { mem=$((mem + 1073741824)); swap=$((swap + 1073741824)); }
+        [ -f "$est/update-cpu-acima" ] && quota=$((quota * 2))
+        [ -f "$est/update-pids-acima" ] && pids=$((pids + 500))
+        [ -f "$est/update-swap-mais" ] && swap=$((swap + 1073741824))
+        # update-cpu-mexe-mem: quando o update pede CPUs, a memoria (finita) muda de colateral (+1 GiB, com o swap junto).
+        [ -f "$est/update-cpu-mexe-mem" ] && [[ "$args_update" == *--cpus* ]] && { mem=$((mem + 1073741824)); swap=$((swap + 1073741824)); }
+        # update-swap-vira-max: o swap finito vira sem limite (-1) depois do update, mesmo sem o reparo ter mexido nele.
+        [ -f "$est/update-swap-vira-max" ] && swap=-1
+        echo "$mem $quota $periodo $pids $swap" > "$est/lim-$nome" ;;
     exec)
         # `sh -c '...systemctl is-enabled...' sh <unidades>`: "unidade estado"; estado/timer-desligado lista as desligadas.
         if printf '%s ' "$@" | grep -q 'is-enabled'; then
@@ -138,6 +207,9 @@ case "${1:-}" in
             done
             exit 0
         fi
+        # Rotinas proprias do agente: estado/self-tar (um tar de verdade) e o que `tar -cf -` devolve; `tar -xf -` so consome.
+        if printf '%s ' "$@" | grep -q 'tar -cf -' && [ -f "$est/self-tar" ]; then cat "$est/self-tar"; exit 0; fi
+        if printf '%s ' "$@" | grep -q 'tar -C /etc/systemd/system -xf -'; then cat >/dev/null; exit 0; fi
         # `exec <container> dpkg-query ...`: pacotes do container (estado/pacotes-container).
         if printf '%s ' "$@" | grep -q dpkg-query; then
             if [ -f "$est/pacotes-sem-dpkg" ]; then exit 1; fi
