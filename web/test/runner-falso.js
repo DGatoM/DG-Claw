@@ -5,7 +5,7 @@
 const http = require('node:http');
 
 function criarRunnerFalso(opcoes) {
-  const o = Object.assign({ agenteId: 'ag1', token: null, sessionId: 'sess-0001-aaaa', status: 'idle', currentTool: null, provedor: null, naFila: undefined, codexHome: null, atrasoProvedorMs: 0, falhaInput: null,
+  const o = Object.assign({ agenteId: 'ag1', token: null, sessionId: 'sess-0001-aaaa', status: 'idle', currentTool: null, provedor: null, naFila: undefined, naFilaTotal: undefined, codexHome: null, atrasoProvedorMs: 0, falhaInput: null,
     statusReason: null, erroEstado: null,
     // login assistido: o estado que GET/POST /api/provedor/login devolvem (o teste muda à vontade)
     login: { estado: 'nenhum' }, loginRecusa: null }, opcoes || {});
@@ -18,7 +18,7 @@ function criarRunnerFalso(opcoes) {
     if (rota === `/api/agents/${o.agenteId}` && req.method === 'GET') {
       rec.estadoPedidos += 1;
       if (o.falhaEstado) return json(503, { success: false, error: 'runner indisponível no teste' });
-      return json(200, { success: true, data: { id: o.agenteId, status: o.status, sessionId: o.sessionId, currentTool: o.currentTool, updatedAt: Date.now(), codexHome: o.codexHome, statusReason: o.statusReason, error: o.erroEstado, motivo: o.motivo, naFila: o.naFila } });
+      return json(200, { success: true, data: { id: o.agenteId, status: o.status, sessionId: o.sessionId, currentTool: o.currentTool, updatedAt: Date.now(), codexHome: o.codexHome, statusReason: o.statusReason, error: o.erroEstado, motivo: o.motivo, naFila: o.naFila, naFilaTotal: o.naFilaTotal } });
     }
     if (rota === `/api/agents/${o.agenteId}/uso` && req.method === 'GET') {
       rec.usoPedidos = (rec.usoPedidos || 0) + 1;

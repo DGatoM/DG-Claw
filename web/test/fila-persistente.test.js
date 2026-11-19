@@ -87,3 +87,20 @@ test('fila: lista enorme ou repetida do runner é cortada e deduplicada antes de
     assert.ok(b.na_fila.length <= 50);
   } finally { await s.fechar(); }
 });
+
+test('fila: lista parcial (fila maior que o corte) não faz o Web esquecer o texto de quem ficou de fora', async () => {
+  const s = await cenario({ status: 'working' });
+  try {
+    const agente = s.t.web.registro.obter('ana');
+    const r = await s.t.web.conversa.entregar(agente, 'a ultima', { cru: false, from: 'pessoa' });
+    await new Promise((x) => setTimeout(x, 3200));   // passa da idade mínima para esquecer
+    s.runner.opcoes.naFila = [{ em: 1, msg: 'w-outra' }];
+    s.runner.opcoes.naFilaTotal = 51;
+    const a = await s.t.web.conversa.atividade(agente);
+    assert.equal(a.na_fila_parcial, true);
+    s.runner.opcoes.naFila = [{ em: 1, msg: 'w-outra' }, { em: 2, msg: r.corpo.fila.msg }];
+    await new Promise((x) => setTimeout(x, 2100));
+    const b = await s.t.web.conversa.atividade(agente);
+    assert.equal(b.na_fila[1].texto, 'a ultima');
+  } finally { await s.fechar(); }
+});

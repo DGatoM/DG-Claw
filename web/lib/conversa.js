@@ -445,9 +445,10 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     est.desde = est.estado === 'ocioso' ? null : desde;
     // Só quando o runner informa a fila (runner antigo não informa): a tela usa isto para manter o aviso "na fila".
     if (r.ok && Array.isArray(r.estado.naFila)) {
-      est.na_fila = filaParaTela(agente.slug, r.estado.naFila);
+      const parcial = typeof r.estado.naFilaTotal === 'number' && r.estado.naFilaTotal > r.estado.naFila.length;
+      est.na_fila = filaParaTela(agente.slug, r.estado.naFila, parcial);
       // fila maior que a lista devolvida: a tela não pode tratar ausência como "já saiu"
-      if (typeof r.estado.naFilaTotal === 'number' && r.estado.naFilaTotal > est.na_fila.length) est.na_fila_parcial = true;
+      if (parcial) est.na_fila_parcial = true;
     }
     return est;
   }
@@ -597,13 +598,9 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     while (m.size > MAX_NA_FILA) m.delete(m.keys().next().value);
   }
   /** A fila do runner no formato da tela: [{ msg, em (ms), texto? }]. O texto só vai se este Web o guardou. */
-  function filaParaTela(slug, naFilaRunner) {
+  function filaParaTela(slug, naFilaRunner, parcial) {
     if (!Array.isArray(naFilaRunner)) return undefined;
     const guardados = textosNaFila.get(slug);
-    const ids = new Set(naFilaRunner.map((x) => x && x.msg).filter(Boolean));
-    // Só esquece o texto de quem sumiu da lista E já tem mais que o cache do estado (TTL_RUNNER_MS) de vida:
-    // um retrato do runner anterior ao envio não pode apagar uma mensagem que ainda espera.
-    if (guardados) for (const [k, g] of Array.from(guardados.entries())) if (!ids.has(k) && relogio() - g.em > TTL_RUNNER_MS + 3000) guardados.delete(k);
     // Defesa contra runner que devolve lista enorme ou repetida: só ids válidos, sem repetir, no máximo MAX_NA_FILA.
     const vistos = new Set();
     const validos = [];
@@ -614,6 +611,10 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       validos.push({ msg: id, em: x.em });
       if (validos.length >= MAX_NA_FILA) break;
     }
+    // Só esquece o texto de quem sumiu da lista E já tem mais que o cache do estado (TTL_RUNNER_MS) de vida:
+    // um retrato do runner anterior ao envio não pode apagar uma mensagem que ainda espera. Lista parcial (fila
+    // maior que o corte): ausência não prova que saiu, então nada é esquecido.
+    if (guardados && !parcial) for (const [k, g] of Array.from(guardados.entries())) if (!vistos.has(k) && relogio() - g.em > TTL_RUNNER_MS + 3000) guardados.delete(k);
     return validos.map((x) => {
       const g = x.msg && guardados ? guardados.get(x.msg) : null;
       const item = { msg: x.msg || null, em: x.em };

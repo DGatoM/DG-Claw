@@ -84,7 +84,7 @@
     const limpa = () => { cache.url = null; cache.arq = null; cache.modo = null; };
     try {
       const podeCompartilhar = !!(nav && typeof nav.canShare === 'function' && typeof nav.share === 'function');
-      if (cache.url === url && cache.modo === 'abrir') { limpa(); deps.abrir(comAba(url)); return { via: 'aba' }; }
+      if (cache.url === url && cache.modo === 'abrir') { limpa(); if (deps.bloqueado && deps.bloqueado()) return { via: 'bloqueado' }; deps.abrir(comAba(url)); return { via: 'aba' }; }
       if (!podeCompartilhar) { deps.abrir(comAba(url)); return { via: 'aba' }; }
       let arq = cache.url === url ? cache.arq : null;
       if (!arq) {
@@ -117,6 +117,8 @@
         } else blob = await r.blob();
         arq = deps.criarArquivo(blob, nome || (doCab ? decodeURIComponent(doCab) : 'arquivo'), blob.type || 'application/octet-stream');
       }
+      // o modo escondido pode ter sido ligado enquanto o arquivo vinha: nada abre depois disso
+      if (deps.bloqueado && deps.bloqueado()) { limpa(); return { via: 'bloqueado' }; }
       if (!nav.canShare({ files: [arq] })) {
         // o aparelho não compartilha este tipo: a aba só abre num toque novo, então o arquivo já baixado espera por ele
         cache.url = url; cache.arq = null; cache.modo = 'abrir';   // só o endereço: a aba busca o arquivo por conta própria
@@ -133,7 +135,8 @@
             // já era o segundo toque, com o arquivo pronto, e o aparelho recusou de novo: abre a aba, que sempre deixa salvar
             limpa(); deps.abrir(comAba(url)); return { via: 'aba' };
           }
-          cache.url = url; cache.arq = arq; cache.modo = 'compartilhar';
+          // documento com dados restaurados não fica em memória: o segundo toque busca de novo, com a sessão de agora
+          cache.url = url; cache.arq = deps.semArquivoEmMemoria ? null : arq; cache.modo = 'compartilhar';
           return { via: 'segundo-toque' };
         }
         throw e;

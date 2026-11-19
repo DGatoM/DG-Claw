@@ -1194,18 +1194,19 @@ function filaSincroniza() {
   let mudou = false;
   const est = window.atividadeFoto && window.atividadeFoto.agentes ? window.atividadeFoto.agentes[AGENTE.id] : null;
   // lista cortada pelo servidor (muitas mensagens na fila): ausência nela não prova que a mensagem saiu
-  const lista = est && Array.isArray(est.na_fila) && !est.na_fila_parcial ? est.na_fila : null;
+  const lista = est && Array.isArray(est.na_fila) ? est.na_fila : null;
+  const completa = !(est && est.na_fila_parcial);   // lista parcial: presença vale, ausência não prova nada
   if (lista) {
     const ids = new Set(lista.map(x => x.msg).filter(Boolean));
     for (const p of pendentes) {
       // lista atrasada (o runner ainda não tinha a mensagem quando foi consultado) não apaga o aviso: 6 s de folga
-      if (p.fila && p.msgId && !ids.has(p.msgId) && atvAgoraMs() - (p.filaEm || 0) > 6000) { p.fila = null; mudou = true; }
+      if (completa && p.fila && p.msgId && !ids.has(p.msgId) && atvAgoraMs() - (p.filaEm || 0) > 6000) { p.fila = null; mudou = true; }
       else if (!p.fila && p.msgId && ids.has(p.msgId) && p.estado === 'enviada') { p.fila = 'resposta'; mudou = true; }
     }
     // balão que só existia por causa da fila (reconstruído do servidor) sai quando a mensagem sai dela: a cópia
     // de verdade já está chegando na thread
     const antes = pendentes.length;
-    pendentes = pendentes.filter(p => !(p.daFila && p.msgId && !ids.has(p.msgId) && atvAgoraMs() - (p.filaEm || 0) > 6000));
+    if (completa) pendentes = pendentes.filter(p => !(p.daFila && p.msgId && !ids.has(p.msgId) && atvAgoraMs() - (p.filaEm || 0) > 6000));
     if (pendentes.length !== antes) mudou = true;
     // o evento da fila chegou antes da resposta do envio: o balão reconstruído cede ao otimista
     const ids2 = new Set(pendentes.filter(p => !p.daFila && p.msgId).map(p => p.msgId));
@@ -1225,7 +1226,7 @@ function filaSincroniza() {
       mudou = true;
     }
     // comando sem id (ex.: /context): com a fila vazia, o aviso sai depois da folga
-    if (!lista.length) for (const p of pendentes) {
+    if (completa && !lista.length) for (const p of pendentes) {
       if (p.fila && !p.msgId && atvAgoraMs() - (p.filaEm || 0) > 6000) { p.fila = null; mudou = true; }
     }
     for (const p of pendentes) {
@@ -3036,10 +3037,13 @@ function baixaNoPwaIos(url, nome) {
   return PURO.baixarNoPwaIos(url, nome, {
     fetch: (u, o) => fetch(u, o), nav: navigator, cache: baixaCache,
     criarArquivo: (blob, n, tipo) => new File([blob], n, { type: tipo }),
+    bloqueado: () => document.body.classList.contains('sigilo'),
+    semArquivoEmMemoria: /\/final\//.test(url),
     abrir: u => window.open(u, '_blank', 'noopener'),
   }).then(r => {
     if (r.via === 'segundo-toque') mostraAviso('O arquivo está pronto. Toque em Baixar mais uma vez para salvar.');
     else if (r.via === 'erro') mostraAviso('Não consegui baixar o arquivo (' + r.erro + ').');
+    else if (r.via === 'bloqueado') mostraAviso('O modo escondido foi ligado: o arquivo não foi aberto. Desligue o olho e baixe de novo.');
     return r;
   });
 }
