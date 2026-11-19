@@ -65,8 +65,10 @@ restrição de idade não é tentado com os cookies, e o agente avisa que o víd
    agente usa essa sessão. Sem isso o YouTube continua recusando o download, e a tela de diagnóstico mostra o aviso "O YouTube
    pediu login". Se você já usou a Tela de um agente que vai ser entregue com a sua conta pessoal (ou guardou senhas e
    entrou em outros serviços nela), sair do YouTube não basta: o perfil do navegador guarda senhas, histórico e as sessões
-   dos outros sites. Antes da entrega, apague pela Tela os dados de navegação de todo o período, incluindo senhas e
-   cookies, e confira abrindo youtube.com e os outros sites que você usou que nenhuma conta sua continua conectada.
+   dos outros sites, e limpar os dados de navegação não apaga downloads, extensões nem outros perfis. Antes da entrega,
+   desligue a sincronização do Chrome na Tela e peça ao Admin para apagar o perfil inteiro do navegador (a pasta
+   `.tela-chrome` na casa do agente, com a Tela fechada), para o cliente receber um perfil novo. Depois confira abrindo
+   youtube.com e os outros sites que você usou que nenhuma conta sua continua conectada.
    Como o `dgclaw atualizar` guarda cópias da casa do agente, a limpeza não alcança essas cópias: nesse caso, saia
    também das sessões pelos próprios serviços (na conta do Google, "Seus dispositivos"), troque as senhas que ficaram
    salvas na Tela. Só depois, e antes de entregar o acesso, retire da VPS as cópias de backup e snapshots anteriores à
