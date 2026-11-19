@@ -27,7 +27,19 @@ def fechar_ciclo_pendente(st: dict, state_file: Path, session_dir: Path, slug: s
         return True
     # O recibo decide sobre ESTA sessao: so o transcript vivo conta, e marcador sem timestamp proprio nao.
     transcript_vivo = resolve_live_transcript(session_dir, slug, channel)
-    if not transcript_vivo or not had_compact_since_arquivo(
+    if not transcript_vivo:
+        return False
+    # A pendencia nasceu numa sessao especifica. Se o transcript vivo agora e outro (sessao trocada, restart
+    # sem a conversa) ou a pendencia e de um estado antigo, sem essa identidade, o "voltei" e a retomada
+    # falariam de uma conversa que nao e a atual: descarta sem mandar nada.
+    origem = pend.get("transcript")
+    if not origem or str(origem) != str(transcript_vivo):
+        log(f"pendencia de retomada descartada: ela e de outra sessao ({origem or 'sem identidade gravada'}) "
+            f"e o transcript vivo agora e {transcript_vivo}; nao mando o 'voltei' nem a retomada")
+        st.pop("pending_resume_poke", None)
+        save_state(state_file, st)
+        return True
+    if not had_compact_since_arquivo(
             transcript_vivo, pend.get("since") or "", sem_timestamp_conta=False):
         return False
     nome = env("DGCLAW_NAME") or slug

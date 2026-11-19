@@ -202,8 +202,8 @@ def _main():
 
     # 4.2) guardas do runner (so modo bunker, e --force as ignora): nao enfileirar /compact atras de
     # trabalho nem logo depois de uma compactacao. Saem sem gravar last_compact_ts nem contar falha.
-    # A checagem e uma foto: se uma mensagem chegar entre ela e o envio, no maximo um /compact fica na fila
-    # atras dela, e o runner trata a recusa (vigias.ts).
+    # A checagem e uma foto: a corrida entre ela e o POST continua possivel. O pior caso e um /compact atras de
+    # uma mensagem, e o runner nao deixa empilhar mais de um /compact na fila; a recusa ele trata (vigias.ts).
     if not args.force:
         motivo = agente_ocupado_no_bunker()
         if motivo:
@@ -242,13 +242,6 @@ def _main():
     # O instante do recibo (since) sai ANTES do envio: um compact_boundary que chegue logo
     # depois do envio tem timestamp >= este instante e conta como recibo.
     agora = datetime.now(timezone.utc).isoformat()
-    # Ultima conferencia antes do envio. A checagem e o POST continuam separados; a janela que sobra sao
-    # milissegundos, e o runner trata a recusa (vigias.ts).
-    if not args.force and not args.dry_run:
-        motivo = agente_ocupado_no_bunker()
-        if motivo:
-            log(motivo)
-            return 0
     rc = inject_compact(slug, channel, args.dry_run)
 
     if args.dry_run:
@@ -268,7 +261,9 @@ def _main():
         # "voltei", pra fechar o ciclo do "ja volto".
         pk = write_resume_poke(workspace, slug, snap, ctx, args.dry_run) if mid_task else None
         st["pending_resume_poke"] = {"file": str(pk) if pk else None, "ts": agora,
-                                     "since": agora, "ctx": ctx}
+                                     "since": agora, "ctx": ctx,
+                                     "transcript": str(transcript),
+                                     "session_id": Path(str(transcript)).stem}
         save_state(state_file, st)
         log("/compact injetado — o motor vai sumarizar (demora ~min)")
         esperar_assentar_e_fechar(st, state_file, session_dir, slug, channel, workspace,
@@ -290,26 +285,36 @@ def _main():
 def main():
     """Uma execucao por vez: duas rodadas do timer sobrepostas (compact lento, timer atrasado) poderiam
     checar a fila ao mesmo tempo e enfileirar dois /compact. Trava exclusiva nao bloqueante ao lado do
-    state file; quem nao pega a trava sai 0."""
+    state file; quem nao pega a trava sai 0. Se a trava nao puder ser aberta ou validada, NAO segue sem ela:
+    sai 1 explicando o que fazer."""
     import fcntl
     import os
+    import stat
+    trava = "(caminho ainda nao resolvido)"
+    fd = None
     try:
         workspace = resolve_workspace()
         state_file = resolve_state_file(workspace, resolve_slug())
-        trava = Path(str(state_file) + ".lock")
-        trava.parent.mkdir(parents=True, exist_ok=True)
+        trava = str(state_file) + ".lock"
+        Path(trava).parent.mkdir(parents=True, exist_ok=True)
         # O_NOFOLLOW e sem truncar: um symlink plantado no lugar da trava nao vira escrita em outro arquivo.
-        fd = os.fdopen(os.open(trava, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600), "w")
+        # O_NONBLOCK: uma FIFO no lugar dela nao pode travar a abertura.
+        fd = os.open(trava, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, 0o600)
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError("nao e um arquivo comum")
     except OSError as e:
-        log(f"nao consegui criar a trava de execucao ({e}); sigo sem ela")
-        return _main()
+        if fd is not None:
+            os.close(fd)
+        log(f"nao consegui abrir a trava de execucao {trava}: {e}. O auto-compact nao roda sem ela. "
+            f"Apague o arquivo {trava} se ele nao for um arquivo comum")
+        return 1
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         log("outra execucao do auto-compact em andamento — saindo sem fazer nada")
-        fd.close()
+        os.close(fd)
         return 0
     try:
         return _main()
     finally:
-        fd.close()
+        os.close(fd)

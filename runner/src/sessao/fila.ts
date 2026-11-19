@@ -11,6 +11,12 @@ const MOTIVOS_DE_TELA_BLOQUEADA = ["runner:dialogo-auto-mode", "runner:tela-de-c
  *  sem atropelar o turno em andamento. A fila é FIFO: nenhum texto apaga outro. */
 export function enfileirarQuandoOcioso(s: Sessao, texto: string, esperouNoPainel = false): void {
   s.marcarAtividade();
+  // Um /compact atrás de outro /compact só empilha recusas ("Not enough messages to compact."): se já há um na fila, o
+  // segundo não entra. O chamador não precisa saber (a rota responde sucesso como antes).
+  if (texto.trim() === "/compact" && s.filaQuandoIdle.some((item) => item.texto.trim() === "/compact")) {
+    log.info(s.a("entrada"), "já havia um /compact na fila; não enfileirei outro");
+    return;
+  }
   // Entrou com o agente ocupado, com outra na frente ou com um item sendo digitado: vai ser lida depois de falas
   // dele que quem escreveu ainda não viu (ver avisoDeAtraso).
   const esperou = esperouNoPainel || s.estado.status !== "idle" || s.filaQuandoIdle.length > 0 || s.soltandoFila;

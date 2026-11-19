@@ -97,7 +97,7 @@ class FechamentoNoMesmoRun(unittest.TestCase):
         self.state = self.dir / "state.json"
         agora = _iso(-1)
         self.st = {"pending_resume_poke": {"file": None, "ts": agora, "since": agora,
-                                           "ctx": 157000}}
+                                           "ctx": 157000, "transcript": str(self.tr)}}
         ac.save_state(self.state, self.st)
         self.avisos = []
 

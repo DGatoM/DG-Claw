@@ -391,6 +391,51 @@ test("ultimoEventoEm anda num PreToolUse repetido da mesma ferramenta, sem mexer
   assert.equal(s.estado.updatedAt, atualizado1);
 });
 
+test("PreCompact: recusa como linha de usuário com local-command-stderr (com ANSI e prefixo Error) conta; texto normal do usuário não", async () => {
+  const stderr = (t: string) => ({ type: "user", message: { role: "user", content: `<local-command-stderr>${t}</local-command-stderr>` } });
+  {
+    const { s, hook, transcript } = await novaComRedeCurta(600);
+    hook("PreCompact");
+    transcript([[stderr("\u001b[31mError: Not enough messages to compact.\u001b[0m\nmais detalhe"), 100]]);
+    await esperarAte(() => s.estado.status === "idle", 5_000, "a recusa pela variante stderr virar idle");
+    assert.equal(s.estado.statusReason, "transcript:compact recusado pelo CLI");
+  }
+  {
+    const { s, hook, transcript } = await novaComRedeCurta(600);
+    hook("PreCompact");
+    transcript([[{ type: "user", message: { role: "user", content: [{ type: "text", text: "Not enough messages to compact." }] } }, 100]]);
+    await dormir(1_500);
+    assert.equal(s.estado.status, "working");
+  }
+  {
+    const { s, hook, transcript } = await novaComRedeCurta(600);
+    hook("PreCompact");
+    transcript([[RECUSA_DO_COMPACT, 100], [{ type: "user", message: { role: "user", content: "Not enough messages to compact." } }, 200]]);
+    await dormir(1_500);
+    assert.equal(s.estado.status, "working");
+  }
+});
+
+test("PreCompact: recusa seguida de ai-title ainda conta", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("PreCompact");
+  transcript([[RECUSA_DO_COMPACT, 100], [{ type: "ai-title", aiTitle: "x" }, 200]]);
+  await esperarAte(() => s.estado.status === "idle", 5_000, "a recusa com ai-title depois virar idle");
+});
+
+test("fila: dois /compact seguidos com o agente ocupado ficam em 1; /compact + mensagem + /compact ficam em 2", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  s.enfileirarQuandoOcioso("/compact");
+  s.enfileirarQuandoOcioso(" /compact ");
+  assert.equal(s.filaQuandoIdle.length, 1);
+  s.filaQuandoIdle.length = 0;
+  s.enfileirarQuandoOcioso("/compact");
+  s.enfileirarQuandoOcioso("uma mensagem");
+  s.enfileirarQuandoOcioso("/compact");
+  assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["/compact", "uma mensagem"]);
+});
+
 test("PreCompact: recusa seguida de linha assistant (o agente seguiu trabalhando) não conta", async () => {
   const { s, hook, transcript } = await novaComRedeCurta(600);
   hook("PreCompact");

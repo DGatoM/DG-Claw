@@ -140,7 +140,7 @@ class MainDoAutoCompactNoRunner(unittest.TestCase):
     """O main inteiro, com o card falso: a guarda sai 0 sem injetar nem gravar estado."""
 
     def _rodar(self, card, state=None, ao_injetar=None, boundary_ts=None, boundary_paralelo_ts=None,
-               prender_trava=False, eventos=None):
+               prender_trava=False, eventos=None, trava_tipo=None):
         with tempfile.TemporaryDirectory() as d:
             ws = Path(d)
             transcript = ws / "t.jsonl"
@@ -161,6 +161,12 @@ class MainDoAutoCompactNoRunner(unittest.TestCase):
                 import fcntl
                 trava_fd = open(str(state_file) + ".lock", "w")
                 fcntl.flock(trava_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if trava_tipo == "symlink":
+                alvo = ws / "alvo-da-trava"
+                alvo.write_text("nao pode ser tocado")
+                os.symlink(alvo, str(state_file) + ".lock")
+            elif trava_tipo == "fifo":
+                os.mkfifo(str(state_file) + ".lock")
             if state is not None:
                 state_file.write_text(json.dumps(state))
             amb = {"DGCLAW_WORKSPACE": str(ws), "DGCLAW_SLUG": "teste", "DGCLAW_SESSION_DIR": str(ws),
@@ -238,13 +244,49 @@ class MainDoAutoCompactNoRunner(unittest.TestCase):
         self._rodar({"status": "idle", "naFilaTotal": 0}, eventos=eventos)
         self.assertEqual(eventos, ["envio", "aviso"])
 
-    def test_agente_que_ficou_ocupado_antes_do_envio_adia_sem_gravar(self):
-        # 1a leitura (guarda do passo 4.2): livre; 2a (logo antes do envio): ocupado.
-        cards = [{"status": "idle", "naFilaTotal": 0}, {"status": "working", "naFilaTotal": 1}]
-        rc, injetou, gravado = self._rodar(cards)
-        self.assertEqual(rc, 0)
+    def test_trava_que_e_symlink_sai_1_sem_injetar(self):
+        rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0}, trava_tipo="symlink")
+        self.assertEqual(rc, 1)
         self.assertEqual(injetou, [])
-        self.assertNotIn("last_compact_ts", gravado)
+
+    def test_trava_que_e_fifo_sai_1_sem_travar_nem_injetar(self):
+        rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0}, trava_tipo="fifo")
+        self.assertEqual(rc, 1)
+        self.assertEqual(injetou, [])
+
+    def test_pendencia_de_outra_sessao_e_descartada_sem_voltei_nem_retomada(self):
+        from auto_compact import ciclo
+        with tempfile.TemporaryDirectory() as d:
+            ws = Path(d)
+            a, b = ws / "A.jsonl", ws / "B.jsonl"
+            ts = datetime.now(timezone.utc)
+            b.write_text(json.dumps({"type": "system", "subtype": "compact_boundary",
+                                     "timestamp": (ts + timedelta(seconds=5)).isoformat()}) + "\n")
+            st = {"pending_resume_poke": {"file": str(ws / "poke.txt"), "ts": ts.isoformat(),
+                                          "since": ts.isoformat(), "ctx": 150000, "transcript": str(a)}}
+            state_file = ws / "estado.json"
+            with mock.patch.object(ciclo, "resolve_live_transcript", return_value=b), \
+                 mock.patch.object(ciclo, "send_resume_poke") as poke, \
+                 mock.patch.object(ciclo, "notify_owner") as aviso:
+                fechou = ciclo.fechar_ciclo_pendente(st, state_file, ws, "teste", "canal", ws, 45)
+            self.assertTrue(fechou)
+            poke.assert_not_called()
+            aviso.assert_not_called()
+            self.assertNotIn("pending_resume_poke", st)
+
+    def test_pendencia_sem_identidade_gravada_tambem_e_descartada(self):
+        from auto_compact import ciclo
+        with tempfile.TemporaryDirectory() as d:
+            ws = Path(d)
+            b = ws / "B.jsonl"
+            b.write_text("\n")
+            ts = datetime.now(timezone.utc).isoformat()
+            st = {"pending_resume_poke": {"file": None, "ts": ts, "since": ts, "ctx": 1}}
+            with mock.patch.object(ciclo, "resolve_live_transcript", return_value=b), \
+                 mock.patch.object(ciclo, "notify_owner") as aviso:
+                self.assertTrue(ciclo.fechar_ciclo_pendente(st, ws / "e.json", ws, "t", "c", ws, 45))
+            aviso.assert_not_called()
+            self.assertNotIn("pending_resume_poke", st)
 
     def test_trava_ja_tomada_sai_0_sem_injetar(self):
         rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0}, prender_trava=True)
