@@ -110,6 +110,8 @@
 .sx-msg.ok { background: color-mix(in srgb, var(--ok) 14%, var(--painel)); color: var(--ok); }
 .sx-msg.erro { background: color-mix(in srgb, var(--erro) 12%, var(--painel)); color: var(--erro); }
 .sx-msg a { color: inherit; font-weight: 600; }
+.sx-aviso-custo { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 13px; background: color-mix(in srgb, var(--aviso, #d99a00) 16%, var(--painel)); border: 1px solid color-mix(in srgb, var(--aviso, #d99a00) 55%, transparent); color: var(--texto); }
+.sx-aviso-custo[hidden], #sx-n-modelo-linha[hidden] { display: none; }
 .sx-erro { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 13px; background: color-mix(in srgb, var(--erro) 12%, var(--painel)); color: var(--erro); }
 
 /* ── Detalhe ── */

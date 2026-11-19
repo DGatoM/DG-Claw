@@ -7,6 +7,20 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+- **Novo: o agente abre cards no OpenCode, com modelos do OpenRouter (GLM, Kimi, DeepSeek, Qwen, Gemini e outros).** É
+  um terceiro provedor, só para cards: nunca roda a conversa principal. Usa a chave `OPENROUTER_API_KEY`, guardada no
+  Cofre do painel, e a cobrança é por token, direto na sua conta do OpenRouter. No painel, em Sessões, "Nova sessão" ganha
+  o motor OpenCode (com o aviso de custo e a lista de modelos); pelo terminal, `dgclaw-card abrir --provedor opencode
+  --modelo glm`. O card do OpenCode não tem os hooks do Claude Code, os skills do DG Claw, os conectores do claude.ai
+  nem o Telegram (registro em `docs/PARIDADE-CODEX.md`).
+
+### Como atualizar
+
+Esta versão traz um programa novo na imagem dos agentes, o OpenCode. Depois do `dgclaw atualizar`, reconstrua a imagem
+dos agentes para que ele exista dentro deles. Sem isso o painel simplesmente não mostra o OpenCode como opção de card, e
+nada mais muda. Para usar, guarde a chave `OPENROUTER_API_KEY` no Cofre do painel. Ao criar a chave no OpenRouter, defina o
+limite de gasto dela, porque cada card cobra por token e pode ficar caro. Nenhuma configuração sua é apagada.
+
 ## [1.1.0] - 2026-11-18
 
 - **Correção no aviso de versão nova: o número agora sobe a cada release e, quando é igual, o aviso mostra o commit.** O

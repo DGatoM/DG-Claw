@@ -45,6 +45,7 @@ ARG NODE_MAJOR=22
 # Versões fixadas: a imagem tem que sair igual hoje e daqui a seis meses.
 ARG CLAUDE_CODE_VERSAO=2.1.296
 ARG CODEX_VERSAO=0.162.1
+ARG OPENCODE_VERSAO=1.19.6
 ARG BUN_VERSAO=1.4.3
 
 LABEL org.opencontainers.image.title="DG Claw agente" \
@@ -97,12 +98,12 @@ RUN curl --proto '=https' --tlsv1.2 -fsSL https://deb.nodesource.com/gpgkey/node
     && apt-get update && apt-get install -y --no-install-recommends nodejs gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Claude Code e Codex CLI globais. A credencial não vem junto: cada agente faz o
+# Claude Code, Codex CLI e OpenCode globais (o OpenCode só abre cards, com a chave do OpenRouter). A credencial não vem junto: cada agente faz o
 # próprio login e ela fica na casa dele. O Bun entra porque o plugin oficial do
 # Telegram roda nele; fica em /usr/bin, portanto no PATH do agente e das unidades.
 # O plugin em si NÃO vai na imagem: a casa /home/agente é montada do host e esconderia
 # a instalação, então quem a faz é o "dgclaw agente criar".
-RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSAO}" "@openai/codex@${CODEX_VERSAO}" "bun@${BUN_VERSAO}" \
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSAO}" "@openai/codex@${CODEX_VERSAO}" "opencode-ai@${OPENCODE_VERSAO}" "bun@${BUN_VERSAO}" \
     && npm cache clean --force
 
 # Configuração ADMINISTRADA do Claude Code (restrições do dono, docs/RESTRICOES-DO-AGENTE.md). O arquivo
@@ -191,7 +192,7 @@ ENV LANG=pt_BR.UTF-8
 RUN for c in node npm claude codex bun gh yt-dlp ffmpeg pdftotext jq rg sqlite3 python; do \
       command -v "$c" >/dev/null || { echo "ERRO: '$c' não está no PATH da imagem" >&2; exit 1; }; \
     done \
-    && node --version && bun --version && claude --version && codex --version && gh --version | head -1
+    && node --version && bun --version && claude --version && codex --version && opencode --version && gh --version | head -1
 
 # Mesma conferência para o perfil com navegador: sem a Tela completa e sem um navegador que o
 # lançador consiga abrir, a imagem não sai. Em amd64 o navegador é o Google Chrome; nas outras
