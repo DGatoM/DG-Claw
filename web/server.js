@@ -175,7 +175,7 @@ function criarServidor(opcoes) {
   // Conexões abertas (stream da conversa) de cada colaborador: ao revogar ou trocar a senha, fecham junto com a sessão.
   const streamsDoColaborador = new Map();
   const fechaStreamsDe = (id) => { for (const r of streamsDoColaborador.get(id) || []) r.destroy(); streamsDoColaborador.delete(id); proxy.fecharDoColaborador(id); };
-  const primeiroAcesso = criarPrimeiroAcesso({ config, auth, log, agora: opcoes.agora });
+  const primeiroAcesso = criarPrimeiroAcesso({ config, auth, log, agora: opcoes.agora, revalidarProxy: () => proxy.revalidar() });
   const avatares = criarAvatar({ dataDir: config.dataDir, log });
   const marca = criarMarca({ dir: config.marcaDir, padraoJson: path.join(__dirname, 'marca-padrao.json'), padraoDir: path.join(__dirname, 'public', 'ds', 'marca-padrao'), log });
   const midia = criarMidia({ dataDir: config.dataDir, log, registro, publicDir: config.publicDir });

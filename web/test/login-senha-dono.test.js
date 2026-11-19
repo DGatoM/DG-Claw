@@ -148,3 +148,84 @@ test('troca de senha do dono: colaborador não troca a senha do dono por esta ro
     assert.equal((await login(cliente(s.t.porta), 'dono', s.t.senha)).status, 200, 'a senha do dono não mudou');
   } finally { await s.fechar(); }
 });
+
+test('troca de senha do dono: o link de primeiro acesso pendente deixa de valer', async () => {
+  const { t, webEnv } = await comWebEnv();
+  try {
+    const crypto = require('node:crypto');
+    const token = crypto.randomBytes(32).toString('base64url');
+    const agora = Date.now();
+    fs.writeFileSync(path.join(path.dirname(webEnv), 'primeiro-acesso.json'), JSON.stringify({
+      versao: 1, usuario: 'Mariana', token_sha256: crypto.createHash('sha256').update(token).digest('hex'),
+      criado: agora, expira: agora + 30 * 60 * 1000, usado_em: null,
+    }) + '\n', { mode: 0o600 });
+    assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
+    const r = await t.c.post('/api/v1/dono/senha', { json: { atual: t.senha, nova: NOVA, confirmacao: NOVA } });
+    assert.equal(r.status, 200, r.texto);
+    const outraSenha = 'terceira-frase-longa-7';
+    const uso = await cliente(t.porta).post('/api/primeiro-acesso', { json: { token, senha: outraSenha, confirmacao: outraSenha } });
+    assert.equal(uso.status, 410, uso.texto);
+    assert.equal((await login(cliente(t.porta), 'mariana', NOVA)).status, 200, 'a senha da troca segue valendo');
+  } finally { await t.fechar(); }
+});
+
+test('troca de senha do dono: se o link pendente não puder ser invalidado, a senha antiga continua valendo', async () => {
+  const { t, webEnv } = await comWebEnv();
+  try {
+    // Um diretório cheio no lugar do arquivo faz o rm falhar com erro que não é ENOENT.
+    const alvo = path.join(path.dirname(webEnv), 'primeiro-acesso.json');
+    fs.mkdirSync(alvo); fs.writeFileSync(path.join(alvo, 'x'), '1');
+    const antes = fs.readFileSync(webEnv, 'utf8');
+    assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
+    const r = await t.c.post('/api/v1/dono/senha', { json: { atual: t.senha, nova: NOVA, confirmacao: NOVA } });
+    assert.equal(r.status, 500, r.texto);
+    assert.match(r.json.erro, /link de recuperação pendente/);
+    assert.equal(fs.readFileSync(webEnv, 'utf8'), antes);
+    assert.equal((await login(cliente(t.porta), 'mariana', t.senha)).status, 200);
+  } finally { await t.fechar(); }
+});
+
+test('troca de senha do dono: web.env com duas definições do hash fica com uma só e o login funciona ao recarregar', async () => {
+  const dir = pastaTemp('sd2');
+  const webEnv = path.join(dir, 'web.env');
+  fs.writeFileSync(webEnv, "DGCLAW_PANEL_USER=Mariana\nDGCLAW_PANEL_PASSWORD_HASH='velho1'\nLINHA_ALHEIA=fica # c\nexport DGCLAW_PANEL_PASSWORD_HASH='velho2'\nFIM=1", { mode: 0o600 });
+  const t = await subirWeb({ agentes: AG, env: { DGCLAW_PANEL_USER: 'Mariana', DGCLAW_WEB_ENV: webEnv } });
+  try {
+    assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
+    const r = await t.c.post('/api/v1/dono/senha', { json: { atual: t.senha, nova: NOVA, confirmacao: NOVA } });
+    assert.equal(r.status, 200, r.texto);
+    const linhas = fs.readFileSync(webEnv, 'utf8').split('\n');
+    assert.equal(linhas.filter((l) => l.includes('DGCLAW_PANEL_PASSWORD_HASH')).length, 1);
+    assert.deepEqual(linhas.filter((l) => !l.includes('DGCLAW_PANEL_PASSWORD_HASH')), ['DGCLAW_PANEL_USER=Mariana', 'LINHA_ALHEIA=fica # c', 'FIM=1']);
+    assert.ok(linhas[1].startsWith("DGCLAW_PANEL_PASSWORD_HASH='scrypt$"), 'a nova ficou no lugar da primeira');
+    const { lerEnvArquivo } = require('../lib/config');
+    const vars = lerEnvArquivo(webEnv).vars;
+    const t2 = await subirWeb({ agentes: AG, env: { DGCLAW_PANEL_USER: 'Mariana', DGCLAW_PANEL_PASSWORD_HASH: vars.DGCLAW_PANEL_PASSWORD_HASH, DGCLAW_WEB_ENV: webEnv } });
+    try { assert.equal((await login(cliente(t2.porta), 'Mariana', NOVA)).status, 200); } finally { await t2.fechar(); }
+  } finally { await t.fechar(); }
+});
+
+test('troca de senha do dono: a mesma senha em forma composta e decomposta conta como igual', async () => {
+  const { t } = await comWebEnv();
+  try {
+    const comp = 'senha-longa-ação-1234'.normalize('NFC');
+    const decomp = comp.normalize('NFD');
+    assert.notEqual(comp, decomp);
+    assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
+    assert.equal((await t.c.post('/api/v1/dono/senha', { json: { atual: t.senha, nova: comp, confirmacao: comp } })).status, 200);
+    const r = await t.c.post('/api/v1/dono/senha', { json: { atual: decomp, nova: comp, confirmacao: decomp } });
+    assert.equal(r.status, 400, r.texto); assert.match(r.json.erro, /diferente da atual/);
+  } finally { await t.fechar(); }
+});
+
+test('troca de senha do dono: o proxy de WebSocket é revalidado na troca', async () => {
+  const { t } = await comWebEnv();
+  try {
+    let chamadas = 0;
+    const orig = t.web.proxy.revalidar;
+    t.web.proxy.revalidar = () => { chamadas += 1; return orig(); };
+    assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
+    assert.equal((await t.c.post('/api/v1/dono/senha', { json: { atual: t.senha, nova: NOVA, confirmacao: NOVA } })).status, 200);
+    assert.equal(chamadas, 1);
+  } finally { await t.fechar(); }
+});

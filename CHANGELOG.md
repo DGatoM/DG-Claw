@@ -15,7 +15,7 @@ continua genérica. A tela de login passou a mostrar quantos minutos faltam quan
 (o servidor manda `espera` na volta ao `/login`). O dono logado troca a própria senha em Segurança > Trocar senha
 (`/trocar-senha`, rota `POST /api/v1/dono/senha`): pede a senha atual, a nova duas vezes e usa as mesmas regras do primeiro
 acesso (mínimo de 12 caracteres). Só a linha do hash no `web.env` é regravada, o limite de tentativas da senha atual é o
-do login, as outras sessões caem e a sessão de quem trocou continua. Colaborador e chave de API recebem 403 nessa rota.
+do login, as outras sessões caem e a sessão de quem trocou continua. Colaborador e chave de API recebem 403 nessa rota. A troca também invalida o link de primeiro acesso ou recuperação que estiver pendente, deixa uma só linha do hash no `web.env` e fecha de imediato os WebSockets das sessões derrubadas; a senha nova é comparada com a atual já normalizada, como o login faz.
 ## [1.1.0] - 2026-11-18
 
 - **Correção no aviso de versão nova: o número agora sobe a cada release e, quando é igual, o aviso mostra o commit.** O

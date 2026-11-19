@@ -34,7 +34,7 @@ function gravaAtomico(arquivo, texto) {
   }
 }
 
-function criarPrimeiroAcesso({ config, auth, log, agora }) {
+function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy }) {
   const relogio = agora || (() => Date.now());
   const arquivo = caminhoArquivo(config);
   const webEnv = caminhoWebEnv(config);
@@ -62,8 +62,15 @@ function criarPrimeiroAcesso({ config, auth, log, agora }) {
     let texto = '';
     try { texto = fs.readFileSync(webEnv, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
     const linha = `DGCLAW_PANEL_PASSWORD_HASH='${hash}'`;
-    if (RX_LINHA_HASH.test(texto)) texto = texto.replace(RX_LINHA_HASH, (_, pre) => `${pre}${linha}`);
-    else texto = texto + (texto && !texto.endsWith('\n') ? '\n' : '') + `${linha}\n`;
+    if (RX_LINHA_HASH.test(texto)) {
+      // Fica uma definição só: a nova entra no lugar da primeira e as outras saem (o dotenv usaria a última).
+      let primeira = true;
+      texto = texto.replace(/^(\s*(?:export\s+)?)DGCLAW_PANEL_PASSWORD_HASH\s*=.*(?:\r?\n|$)/gm, (_, pre) => {
+        if (!primeira) return '';
+        primeira = false;
+        return `${pre}${linha}\n`;
+      });
+    } else texto = texto + (texto && !texto.endsWith('\n') ? '\n' : '') + `${linha}\n`;
     gravaAtomico(webEnv, texto);
   }
 
@@ -76,10 +83,11 @@ function criarPrimeiroAcesso({ config, auth, log, agora }) {
     const { atual, nova, confirmacao } = dados || {};
     if (typeof atual !== 'string' || !atual) return erro(400, 'Digite a senha atual.');
     if (typeof nova !== 'string') return erro(400, 'Digite a senha nova.');
-    if (nova !== confirmacao) return erro(400, 'As senhas não conferem.');
+    if (typeof confirmacao !== 'string' || nova.normalize('NFKC') !== confirmacao.normalize('NFKC')) return erro(400, 'As senhas não conferem.');
     if (nova.length < 12) return erro(400, `A senha precisa ter pelo menos 12 caracteres (a sua tem ${nova.length}).`);
     if (nova.toLowerCase() === 'admin') return erro(400, 'Essa senha é fácil demais de adivinhar. Escolha outra.');
-    if (nova === atual) return erro(400, 'A senha nova precisa ser diferente da atual.');
+    const norm = (v) => String(v).normalize('NFKC'); // a mesma normalização do scrypt em lib/auth.js
+    if (norm(nova) === norm(atual)) return erro(400, 'A senha nova precisa ser diferente da atual.');
     if (trocandoDono) return erro(409, 'Já há uma troca de senha em andamento. Espere alguns segundos e tente de novo.');
     trocandoDono = true;
     try {
@@ -101,6 +109,14 @@ function criarPrimeiroAcesso({ config, auth, log, agora }) {
       // Depois dos awaits: a sessão que autorizou o pedido ainda tem de valer.
       const agoraSessao = auth.sessaoDoPedido(req);
       if (!agoraSessao || agoraSessao.papel !== 'dono' || agoraSessao.usuario !== sessao.usuario) return erro(401, 'A sua sessão deixou de valer enquanto você trocava a senha. Entre de novo.');
+      // Antes de gravar: o link de primeiro acesso pendente deixa de valer (como na troca pelo terminal).
+      // Se não der para apagar, a troca não acontece e a senha antiga continua valendo.
+      try {
+        fs.rmSync(arquivo, { force: true });
+      } catch (e) {
+        log('erro', `Troca de senha do dono: não consegui invalidar o link de primeiro acesso pendente em ${arquivo} (${e.code || e.message}). A senha antiga continua valendo.`);
+        return erro(500, `Não consegui invalidar o link de recuperação pendente (${e.code || e.message}). A senha antiga continua valendo; peça ao Admin para conferir a permissão da pasta de configuração.`);
+      }
       try {
         gravaHashNoEnv(hash);
       } catch (e) {
@@ -112,6 +128,8 @@ function criarPrimeiroAcesso({ config, auth, log, agora }) {
         log('erro', `Troca de senha do dono: o hash gerado não foi aceito (${r.erro}).`);
         return erro(500, `O servidor não aceitou o hash gerado (${r.erro}). Rode no servidor: sudo dgclaw senha`);
       }
+      // As outras sessões já caíram; os WebSockets do proxy que seguem abertos precisam ser conferidos agora, não em até 30 s.
+      if (revalidarProxy) revalidarProxy();
       const s = auth.criaSessao(auth.usuario, req);
       log('info', `${auth.usuario} trocou a senha do painel pelo painel (ip ${ip}); as outras sessões foram derrubadas.`);
       return { status: 200, corpo: { ok: true, destino: '/' }, cookies: s.cookies };
