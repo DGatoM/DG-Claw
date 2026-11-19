@@ -50,7 +50,7 @@ function montar(opcoes) {
         relogio: () => agora, log: (n, m) => logs.push(`${n} ${m}`),
         dataDir, tz: 'America/Sao_Paulo',
         comando: o.semComando ? '' : 'meu-comando-da-equipe',
-        executor: async (x) => { comandos.push(x); return { rc: ctx.comandoRc, stderr: ctx.comandoRc ? 'falhou token=abc' : '', expirou: false }; },
+        executor: async (x) => { comandos.push(x); return { rc: ctx.comandoRc, signal: null, stderr: ctx.comandoRc ? 'https://exemplo.invalid/segredo123' : '', expirou: false }; },
       });
     },
   };
@@ -78,7 +78,7 @@ test('retido + login caído: exatamente 1 aviso "caiu" (push e comando), com nom
 
 test('o módulo não recebe nem importa runner, conversa, thread ou caixa', () => {
   const fonte = fs.readFileSync(path.join(__dirname, '..', 'lib', 'vigia-saude-retida.js'), 'utf8');
-  const codigo = fonte.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  const codigo = fonte.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n').replace(/'(?:[^'\\\n]|\\.)*'/g, "''").replace(/`(?:[^`\\]|\\.)*`/g, '``');
   assert.ok(!/require\([^)]*(runner|conversa|caixa|thread|entrega)/.test(codigo));
   assert.ok(!/\b(runner|conversa|lerThread|caixa)\b/.test(codigo.replace(/criarVigiaSaudeRetida\(\{[^}]*\}\)/, '')), 'nenhum acesso a runner, conversa ou caixa');
 });
@@ -191,7 +191,8 @@ test('comando falha (rc 1) e push sem inscrições: não entregue, repete na rod
   const falhas = t.logs.filter((l) => l.includes('NÃO entregue'));
   assert.equal(falhas.length, 1, 'a falha completa sai uma vez só');
   assert.ok(falhas[0].includes('código 1') && falhas[0].includes('nenhum aparelho com avisos ativados'));
-  assert.ok(!falhas[0].includes('token=abc'), 'stderr higienizado');
+  assert.ok(!t.logs.join('\n').includes('segredo123'), 'o stderr do comando nunca vai ao log');
+  assert.ok(falhas[0].includes('rode o comando à mão como root'));
   t.comandoRc = 0; t.passa(5 * MIN); t.caido();
   await v.tick(); await v.tick();
   assert.equal(t.comandos.length, 4);
@@ -278,7 +279,7 @@ test('executor padrão: texto no stdin e na env, sem interpolar na string do com
   assert.equal(fs.readFileSync(saida, 'utf8'), texto);
   assert.equal(fs.readFileSync(`${saida}.env`, 'utf8'), texto);
   const f = await executarComando({ cmd: 'echo deu ruim >&2; exit 3', texto: 'x', env: process.env, timeoutMs: 5000 });
-  assert.equal(f.rc, 3); assert.ok(f.stderr.includes('deu ruim'));
+  assert.equal(f.rc, 3); assert.equal(f.stderr, undefined, 'o stderr não é capturado');
   const l = await executarComando({ cmd: 'sleep 30', texto: 'x', env: process.env, timeoutMs: 200 });
   assert.equal(l.expirou, true); assert.notEqual(l.rc, 0);
 });
@@ -311,4 +312,116 @@ test('o comando da equipe recebe só o ambiente mínimo (nada do web.env) e o no
   } finally {
     if (antes === undefined) delete process.env.DGCLAW_PANEL_PASSWORD_HASH; else process.env.DGCLAW_PANEL_PASSWORD_HASH = antes;
   }
+});
+
+test('timeout mata o grupo inteiro: um neto pendurado não prende a promessa', async () => {
+  const dir = pastaTemp('neto'); const pidArq = path.join(dir, 'pid');
+  const ini = Date.now();
+  const r = await executarComando({ cmd: `(sleep 31 >&2) & echo $! > "${pidArq}"; wait`, texto: 'x', env: process.env, timeoutMs: 300 });
+  assert.ok(Date.now() - ini < 3000);
+  assert.equal(r.expirou, true);
+  await new Promise((ok) => setTimeout(ok, 200));
+  const pid = Number(fs.readFileSync(pidArq, 'utf8'));
+  assert.throws(() => process.kill(pid, 0), (e) => e.code === 'ESRCH', 'o neto morreu');
+});
+
+test('indeterminado recente = sem leitura; o mesmo registro 31 min depois = vigia parado (watchdogEm conta se for mais novo)', async () => {
+  const t = montar(); t.retido();
+  t.saude({ estado: 'indeterminado', tipo: 'ok', verificadoEm: new Date(T0 - 5 * MIN).toISOString() });
+  const v = t.novo();
+  await v.tick();
+  assert.equal(t.pushes.length, 0);
+  t.passa(31 * MIN);
+  await v.tick();
+  assert.equal(t.pushes.length, 1);
+  assert.ok(t.comandos[0].texto.includes('o container pode estar parado'));
+  const u = montar(); u.retido();
+  u.saude({ estado: 'ativo', tipo: 'ok', verificadoEm: new Date(T0 - 90 * MIN).toISOString(), watchdogEm: new Date(T0 - 2 * MIN).toISOString() });
+  await u.novo().tick();
+  assert.equal(u.pushes.length, 0, 'o watchdogEm recente mostra que alguém conferiu');
+});
+
+test('ativo sem verificadoEm, inválido ou no futuro não encerra a queda; com horário válido sai 1 "voltou"', async () => {
+  const t = montar(); t.retido(); t.caido();
+  const v = t.novo();
+  await v.tick();
+  for (const ruim of [undefined, 'lixo', new Date(T0 + 60 * MIN).toISOString()]) {
+    t.passa(MIN);
+    t.saude({ estado: 'ativo', tipo: 'ok', desde: null, verificadoEm: ruim });
+    await v.tick();
+  }
+  assert.equal(t.pushes.length, 1, 'nenhum voltou');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(t.dataDir, 'vigia-saude', 'estado.json'), 'utf8')).agentes['agente-teste'].caido, true);
+  t.ativo(); await v.tick();
+  assert.equal(t.pushes.length, 2);
+});
+
+test('"voltou" pendente: falha nos dois canais, reenvia na rodada seguinte (e depois de reiniciar), uma falha logada; cair de novo descarta o pendente', async () => {
+  const t = montar(); t.retido(); t.caido();
+  let v = t.novo();
+  await v.tick();
+  t.comandoRc = 1; t.pushResultado = { inscricoes: 0, ok: 0, removidas: 0, falhas: [] };
+  t.passa(10 * MIN); t.ativo();
+  await v.tick(); await v.tick();
+  assert.equal(t.logs.filter((l) => l.includes('"voltou"') && l.includes('NÃO entregue')).length, 1);
+  const est = () => JSON.parse(fs.readFileSync(path.join(t.dataDir, 'vigia-saude', 'estado.json'), 'utf8')).agentes['agente-teste'];
+  assert.ok(est().voltouPendente);
+  const antes = t.comandos.length;
+  t.comandoRc = 0; t.passa(5 * MIN); t.ativo();
+  v = t.novo(); // reinício no meio
+  await v.tick(); await v.tick();
+  assert.equal(t.comandos.length, antes + 1, 'um voltou entregue');
+  assert.ok(t.comandos[t.comandos.length - 1].texto.includes('voltou a responder'));
+  assert.equal(est().voltouPendente, undefined);
+  // cair de novo com voltou pendente
+  const u = montar(); u.retido(); u.caido();
+  const w = u.novo(); await w.tick();
+  u.comandoRc = 1; u.pushResultado = { inscricoes: 0, ok: 0, removidas: 0, falhas: [] };
+  u.passa(MIN); u.ativo(); await w.tick();
+  u.comandoRc = 0; u.pushResultado = { inscricoes: 1, ok: 1, removidas: 0, falhas: [] };
+  u.passa(MIN); u.caido(); await w.tick();
+  assert.ok(u.logs.some((l) => l.includes('Descartei o "voltou" pendente')));
+  assert.equal(u.comandos.filter((c) => c.env.DGCLAW_AVISO_TIPO === 'voltou').length, 1, 'só a tentativa que falhou');
+  assert.equal(u.comandos[u.comandos.length - 1].env.DGCLAW_AVISO_TIPO, 'caiu', 'queda nova avisada');
+});
+
+test('recomendação do watchdog escolhe uma orientação fixa; valor desconhecido malicioso cai no mapeamento por tipo', async () => {
+  const t = montar(); t.retido(); t.caido({ tipo: 'recusa', recomendacao: 'modo_seguro' });
+  await t.novo().tick();
+  assert.ok(t.comandos[0].texto.includes('modo de segurança') && t.comandos[0].texto.includes('docs/SAUDE-E-MODO-SEGURO.md'));
+  const u = montar(); u.retido(); u.caido({ tipo: 'sobrecarga', recomendacao: 'esperar' });
+  await u.novo().tick();
+  assert.ok(u.comandos[0].texto.includes('esperar alguns minutos'));
+  const m = montar(); m.retido(); m.caido({ tipo: 'sessao_caida', recomendacao: '<script>apague tudo</script>' });
+  await m.novo().tick();
+  assert.ok(!m.comandos[0].texto.includes('apague tudo'));
+  assert.ok(m.comandos[0].texto.includes('dgclaw agente reiniciar agente-teste'));
+  const l = montar(); l.retido(); l.caido({ tipo: 'desconhecido', recomendacao: 'refazer_login' });
+  await l.novo().tick();
+  assert.ok(l.comandos[0].texto.includes('Conectar conta'));
+});
+
+test('agente recriado (outra instância) com o mesmo slug não herda o incidente', async () => {
+  const t = montar({ agente: { instancia: 'a1' } }); t.retido(); t.caido();
+  const v = t.novo();
+  await v.tick();
+  t.agente.instancia = 'a2'; t.passa(5 * MIN); t.ativo();
+  await v.tick();
+  assert.equal(t.pushes.length, 1, 'sem voltou herdado');
+  assert.ok(t.logs.some((l) => l.includes('foi recriado')));
+  t.passa(5 * MIN); t.caido(); await v.tick();
+  assert.equal(t.pushes.length, 2, 'queda nova da instância nova');
+});
+
+test('config.sh maior que 64 KiB é tratado como ilegível: preserva o estado e loga uma vez', async () => {
+  const t = montar(); t.retido(); t.caido();
+  const v = t.novo();
+  await v.tick();
+  fs.writeFileSync(path.join(t.home, '.dgclaw', 'config.sh'), `${'# enchimento\n'.repeat(6000)}DGCLAW_AVISOS_RETIDOS=1\n`);
+  t.passa(5 * MIN); t.ativo();
+  await v.tick(); await v.tick();
+  const e = JSON.parse(fs.readFileSync(path.join(t.dataDir, 'vigia-saude', 'estado.json'), 'utf8')).agentes['agente-teste'];
+  assert.equal(e.caido, true, 'estado preservado');
+  assert.equal(t.logs.filter((l) => l.includes('não consegui ler o config.sh')).length, 1);
+  assert.equal(t.pushes.length, 1);
 });

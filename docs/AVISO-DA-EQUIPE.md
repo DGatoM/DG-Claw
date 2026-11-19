@@ -39,8 +39,8 @@ seguinte (a falha completa vai ao log uma vez só).
 2. **Comando da equipe (opcional).** Se existir a variável `DGCLAW_EQUIPE_AVISO_CMD` no `/etc/dgclaw/web.env`, o
    painel executa esse comando com `bash -c`. O texto do aviso vai no stdin e na variável de ambiente
    `DGCLAW_AVISO_TEXTO`; também chegam `DGCLAW_AVISO_AGENTE` (o nome curto do agente) e `DGCLAW_AVISO_TIPO`
-   (`caiu` ou `voltou`). Nada é colocado dentro da string do comando. Código de saída 0 = entregue; o comando é
-   encerrado se passar de 30 segundos.
+   (`caiu` ou `voltou`). Nada é colocado dentro da string do comando. Código de saída 0 = entregue; o comando (com tudo o que ele
+   abriu) é encerrado se passar de 30 segundos.
 3. **Log do painel.** Sempre sai uma linha com o texto completo e por onde foi entregue (`journalctl -u dgclaw-web`).
 
 ## Como configurar o comando da equipe
@@ -52,13 +52,25 @@ do container de um agente.
 
 Exemplo genérico: um script que lê o texto do stdin e o manda para um webhook seu.
 
+A URL do webhook nunca vai na linha de comando (qualquer usuário do servidor a veria no `ps`). Ela fica num arquivo
+de configuração do `curl`, `/etc/dgclaw/aviso-equipe.curl` (dono root, modo 600), com uma linha só:
+
+```
+url = "https://exemplo.invalid/seu-webhook"
+```
+
+E o script, que só sai com 0 quando o webhook responde 2xx (um redirecionamento 3xx não conta como entregue):
+
 ```bash
 # /usr/local/sbin/aviso-equipe.sh  (dono root, modo 700)
 #!/bin/bash
 set -euo pipefail
-URL="$(cat /etc/dgclaw/aviso-equipe.url)"   # arquivo com o endereço do webhook, dono root, modo 600
-curl -fsS --max-time 20 -X POST --data-binary @- "$URL"
+codigo="$(curl -sS --max-time 20 --config /etc/dgclaw/aviso-equipe.curl -X POST --data-binary @- -o /dev/null -w '%{http_code}')"
+[[ "$codigo" =~ ^2[0-9][0-9]$ ]]
 ```
+
+O painel não guarda nem mostra o erro do comando (ele pode conter a URL). Se o aviso falhar, o log diz só o código de
+saída; para ver o erro, rode o script à mão como root.
 
 E a linha no `/etc/dgclaw/web.env`, acrescentada sem apagar as outras:
 

@@ -23,7 +23,6 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const U = require('./diagnostico/util');
 const { lerJsonSeguro } = require('./diagnostico/arquivos');
-const { higienizar } = require('./diagnostico/higiene');
 const { FRASES_SAUDE } = require('./diagnostico/agente');
 const { gravaArquivoSeguro } = require('./grava-seguro');
 
@@ -32,7 +31,9 @@ const PRIMEIRA_RODADA_MS = 30000;
 const VIGIA_PARADO_MS = 30 * 60000; // igual ao diagnóstico: sem conferência há mais que isso = vigia de dentro parado
 const TIMEOUT_COMANDO_MS = 30000;
 const MAX_CONFIG_BYTES = 64 * 1024;
-const MAX_STDERR_LOG = 300;
+const TOLERANCIA_FUTURO_MS = 5 * 60000; // relógio do container um pouco adiantado não invalida a conferência
+// Valores que o saude_sessao.py grava em "recomendacao"; qualquer outro é ignorado.
+const RECOMENDACOES = ['nada', 'esperar', 'reiniciar', 'modo_seguro', 'refazer_login'];
 const RX_RETIDO = /^\s*(export\s+)?DGCLAW_AVISOS_RETIDOS=["']?1["']?\s*(#.*)?$/;
 const RX_ATRIBUICAO = /^\s*(export\s+)?DGCLAW_AVISOS_RETIDOS=/;
 
@@ -45,22 +46,31 @@ function estaRetido(texto) {
   return ultima !== null && RX_RETIDO.test(ultima);
 }
 
-/** Executor padrão: bash -c com o texto no stdin. Nada é interpolado na string do comando. Nunca rejeita. */
-function executarComando({ cmd, texto, env, timeoutMs }) {
+/**
+ * Executor padrão: bash -c com o texto no stdin. Nada é interpolado na string do comando. Nunca rejeita.
+ * O comando roda em grupo de processos próprio: no prazo, o grupo inteiro é morto (um neto pendurado não prende a
+ * rodada). A saída e o erro do comando são descartados de propósito: o erro pode conter a URL de um webhook.
+ */
+function executarComando({ cmd, texto, env, timeoutMs, log }) {
   return new Promise((resolve) => {
-    let stderr = '';
-    let expirou = false;
     let terminou = false;
     let filho;
     const fim = (r) => { if (terminou) return; terminou = true; clearTimeout(prazo); resolve(r); };
-    const prazo = setTimeout(() => { expirou = true; if (filho) filho.kill('SIGKILL'); }, timeoutMs);
+    const prazo = setTimeout(() => {
+      if (filho && filho.pid) {
+        try { process.kill(-filho.pid, 'SIGKILL'); } catch (e) {
+          if (log) log('aviso', `Vigia de saúde retida: não consegui encerrar o grupo de processos do comando da equipe (${e.code || e.message}). Confira com ps se sobrou algum processo.`);
+        }
+      }
+      try { filho.stdin.destroy(); } catch (_) { /* já fechado */ }
+      fim({ rc: null, signal: 'SIGKILL', expirou: true });
+    }, timeoutMs);
     try {
-      filho = spawn('bash', ['-c', cmd], { env, stdio: ['pipe', 'ignore', 'pipe'] });
-    } catch (e) { fim({ rc: null, stderr: `não consegui iniciar o bash (${e.code || e.message})`, expirou: false }); return; }
-    filho.stderr.on('data', (c) => { if (stderr.length < 4096) stderr += c.toString('utf8'); });
+      filho = spawn('bash', ['-c', cmd], { env, stdio: ['pipe', 'ignore', 'ignore'], detached: true });
+    } catch (e) { fim({ rc: null, signal: null, expirou: false, erroInicio: `não consegui iniciar o bash (${e.code || e.message})` }); return; }
     filho.stdin.on('error', () => { /* o comando fechou o stdin sem ler: o código de saída diz se deu certo */ });
-    filho.on('error', (e) => fim({ rc: null, stderr: `não consegui iniciar o bash (${e.code || e.message})`, expirou }));
-    filho.on('close', (rc) => fim({ rc, stderr, expirou }));
+    filho.on('error', (e) => fim({ rc: null, signal: null, expirou: false, erroInicio: `não consegui iniciar o bash (${e.code || e.message})` }));
+    filho.on('close', (rc, signal) => fim({ rc, signal, expirou: false }));
     filho.stdin.end(texto);
   });
 }
@@ -75,6 +85,7 @@ function criarVigiaSaudeRetida({ registro, lerArquivo, push, relogio, log, inter
   let soMemoria = false; // arquivo de estado ilegível: não sobrescrever às cegas
   const semLeituraAvisado = new Set(); // slug: já registrei "sem leitura" nesta sequência
   const falhaLogada = new Set(); // slug: já registrei a falha completa de entrega do "caiu"
+  const voltouFalhaLogada = new Set(); // slug: já registrei a falha completa de entrega do "voltou"
   const configAvisado = new Set();
   let timerInicial = null;
   let timer = null;
@@ -118,16 +129,17 @@ function criarVigiaSaudeRetida({ registro, lerArquivo, push, relogio, log, inter
   /** 'retido' | 'nao' | 'ilegivel'. */
   function lerRetencao(ag) {
     const r = lerArquivo(ag.home_host, '.dgclaw/config.sh', { max: MAX_CONFIG_BYTES });
-    if (r.estado === 'ok') return estaRetido(r.texto) ? 'retido' : 'nao';
+    if (r.estado === 'ok' && r.tamanho <= MAX_CONFIG_BYTES) { configAvisado.delete(ag.slug); return estaRetido(r.texto) ? 'retido' : 'nao'; }
     if (r.estado === 'ausente') return 'nao';
+    const motivoLeitura = r.estado === 'ok' ? `o arquivo tem ${r.tamanho} bytes e o leitor só olha os últimos ${MAX_CONFIG_BYTES}` : r.motivo;
     if (!configAvisado.has(ag.slug)) {
       configAvisado.add(ag.slug);
-      log('aviso', `Vigia de saúde retida: não consegui ler o config.sh de ${ag.slug} (${r.motivo}). Não sei se os avisos dele estão retidos, então não mexi no estado dele. Confira a pasta .dgclaw da casa do agente.`);
+      log('aviso', `Vigia de saúde retida: não consegui ler o config.sh de ${ag.slug} (${motivoLeitura}). Não sei se os avisos dele estão retidos, então não mexi no estado dele. Confira a pasta .dgclaw da casa do agente.`);
     }
     return 'ilegivel';
   }
 
-  /** Devolve { caido, tipo, desdeMs, desdeAproximado, verificadoMs } ou null (sem leitura). */
+  /** Devolve { caido, tipo, desdeMs, desdeAproximado, verificadoMs, recomendacao } ou null (sem leitura). */
   function classificar(ag) {
     const r = lerJsonSeguro(lerArquivo, ag.home_host, '.dgclaw/logs/saude.json');
     const semLeitura = (motivo) => {
@@ -140,20 +152,24 @@ function criarVigiaSaudeRetida({ registro, lerArquivo, push, relogio, log, inter
     if (r.estado === 'ausente') return semLeitura('o arquivo .dgclaw/logs/saude.json ainda não existe');
     if (r.estado !== 'ok') return semLeitura(r.motivo);
     const d = r.dados;
+    // Primeiro a antiguidade: vale o horário mais recente e plausível entre a conferência da sessão e a do watchdog.
+    // Horário ausente, inválido ou no futuro não conta (e, sozinho, nunca prova que o agente voltou).
+    const limite = agora() + TOLERANCIA_FUTURO_MS;
+    const horarios = [d.verificadoEm, d.watchdogEm].map((v) => Date.parse(v)).filter((ms) => Number.isFinite(ms) && ms <= limite);
+    const verificadoMs = horarios.length ? Math.max(...horarios) : null;
+    if (verificadoMs !== null && agora() - verificadoMs > VIGIA_PARADO_MS) {
+      semLeituraAvisado.delete(ag.slug);
+      return { caido: true, tipo: 'vigia_parado', desdeMs: verificadoMs, desdeAproximado: false, verificadoMs, recomendacao: null };
+    }
     const est = U.dentro(d.estado, U.ENUMS.estadoSaude);
     if (!est) return semLeitura('o estado do arquivo está fora do esperado');
     if (est === 'indeterminado') return semLeitura('o vigia não conseguiu avaliar a sessão na última conferência');
-    const verificadoMs = Date.parse(d.verificadoEm);
+    if (est === 'ativo' && verificadoMs === null) return semLeitura('o horário da conferência está ausente, inválido ou no futuro, então não dá para afirmar que o agente voltou');
     semLeituraAvisado.delete(ag.slug);
-    if (est === 'ativo') {
-      if (Number.isFinite(verificadoMs) && agora() - verificadoMs > VIGIA_PARADO_MS) {
-        return { caido: true, tipo: 'vigia_parado', desdeMs: verificadoMs, desdeAproximado: false, verificadoMs };
-      }
-      return { caido: false };
-    }
+    if (est === 'ativo') return { caido: false };
     const tipo = U.dentro(d.tipo, U.ENUMS.tipoSaude) || 'desconhecido';
     const desdeMs = Date.parse(d.desde);
-    return { caido: true, tipo, desdeMs: Number.isFinite(desdeMs) ? desdeMs : null, desdeAproximado: !Number.isFinite(desdeMs), verificadoMs: Number.isFinite(verificadoMs) ? verificadoMs : null };
+    return { caido: true, tipo, desdeMs: Number.isFinite(desdeMs) ? desdeMs : null, desdeAproximado: !Number.isFinite(desdeMs), verificadoMs, recomendacao: U.dentro(d.recomendacao, RECOMENDACOES) };
   }
 
   // ── texto ─────────────────────────────────────────────────────────────────
@@ -174,23 +190,27 @@ function criarVigiaSaudeRetida({ registro, lerArquivo, push, relogio, log, inter
     return minuscula(frase.replace(/\.$/, '').replace(/Claude/g, nomeMotor(ag)));
   }
 
-  function oQueFazer(ag, tipo) {
-    if (tipo === 'login') return `refazer o login da conta do ${nomeMotor(ag)} deste agente, pela página Conectar conta do painel (menu, Conectar conta)`;
-    if (tipo === 'limite') return 'esperar o limite do plano renovar ou conferir o plano da conta do agente';
+  // Orientação fixa escrita aqui: a recomendação do arquivo só escolhe qual frase usar, nunca entra no texto.
+  function oQueFazer(ag, tipo, rec) {
+    const reiniciar = `rodar \`dgclaw agente reiniciar ${ag.slug}\``;
     if (tipo === 'vigia_parado') return `rodar \`dgclaw status\` e, se o container estiver parado, \`dgclaw agente iniciar ${ag.slug}\``;
-    return `rodar \`dgclaw agente reiniciar ${ag.slug}\``;
+    if (rec === 'modo_seguro') return 'colocar o agente em modo de segurança: abra a conversa dele no painel e use o botão de modo de segurança (passo a passo em docs/SAUDE-E-MODO-SEGURO.md)';
+    if (rec === 'refazer_login' || tipo === 'login') return `refazer o login da conta do ${nomeMotor(ag)} deste agente, pela página Conectar conta do painel (menu, Conectar conta)`;
+    if (tipo === 'limite') return 'esperar o limite do plano renovar ou conferir o plano da conta do agente';
+    if (rec === 'esperar') return `esperar alguns minutos, porque isso costuma passar sozinho; se não passar, ${reiniciar}`;
+    return reiniciar;
   }
 
   function textoCaiu(ag, reg) {
     const quando = U.quando(reg.desdeMs, tz);
     const desde = reg.desdeAproximado ? `pelo menos desde ${quando}` : `desde ${quando}`;
     const ha = U.duracaoCurta(agora() - reg.desdeMs);
-    return `O agente ${nomeLimpo(ag)} (${ag.slug}) parou de responder: ${motivo(ag, reg.tipo, reg.verificadoMs)}. Está assim ${desde} (há ${ha}). ${AVISO_RETIDO} O que fazer: ${oQueFazer(ag, reg.tipo)}.`;
+    return `O agente ${nomeLimpo(ag)} (${ag.slug}) parou de responder: ${motivo(ag, reg.tipo, reg.verificadoMs)}. Está assim ${desde} (há ${ha}). ${AVISO_RETIDO} O que fazer: ${oQueFazer(ag, reg.tipo, reg.recomendacao)}.`;
   }
 
   function textoVoltou(ag, reg) {
-    const hora = U.quando(agora(), tz).replace(/^.* às /, '');
-    const fora = U.duracaoCurta(agora() - reg.desdeMs);
+    const hora = U.quando(reg.voltouEm, tz).replace(/^.* às /, '');
+    const fora = U.duracaoCurta(reg.voltouEm - reg.desdeMs);
     return `${nomeLimpo(ag)} (${ag.slug}) voltou a responder normalmente às ${hora}. Ficou fora por ${fora} (motivo: ${motivo(ag, reg.tipo, null)}).`;
   }
 
@@ -214,11 +234,12 @@ function criarVigiaSaudeRetida({ registro, lerArquivo, push, relogio, log, inter
         const env = { DGCLAW_AVISO_TEXTO: texto, DGCLAW_AVISO_AGENTE: ag.slug, DGCLAW_AVISO_TIPO: tipoAviso };
         for (const k of ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ']) if (process.env[k]) env[k] = process.env[k];
         let r;
-        try { r = await executa({ cmd: comando, texto, env, timeoutMs: timeoutComandoMs || TIMEOUT_COMANDO_MS }); } catch (e) { r = { rc: null, stderr: e.message, expirou: false }; }
+        try { r = await executa({ cmd: comando, texto, env, timeoutMs: timeoutComandoMs || TIMEOUT_COMANDO_MS, log }); } catch (e) { r = { rc: null, signal: null, expirou: false, erroInicio: e.message }; }
         if (r.rc === 0) canais.push('comando da equipe');
         else {
-          const erro = higienizar(r.stderr || '', MAX_STDERR_LOG);
-          falhas.push(`comando da equipe: ${r.expirou ? `passou de ${(timeoutComandoMs || TIMEOUT_COMANDO_MS) / 1000} s e foi encerrado` : `saiu com código ${r.rc === null ? 'desconhecido' : r.rc}`}${erro ? ` (${erro})` : ''}`);
+          // O erro do comando não é registrado: pode conter a URL de um webhook com credencial.
+          const como = r.erroInicio ? r.erroInicio : (r.expirou ? `passou de ${(timeoutComandoMs || TIMEOUT_COMANDO_MS) / 1000} s e foi encerrado` : `saiu com código ${r.rc === null ? 'desconhecido' : r.rc}${r.signal ? ` (sinal ${r.signal})` : ''}`);
+          falhas.push(`comando da equipe: ${como}; rode o comando à mão como root para ver o erro`);
         }
       }
     }
@@ -238,11 +259,16 @@ function criarVigiaSaudeRetida({ registro, lerArquivo, push, relogio, log, inter
     if (r.entregue) { reg.avisoCaiuEntregue = true; reg.avisadoEm = agora(); falhaLogada.delete(ag.slug); } else falhaLogada.add(ag.slug);
   }
 
+  /** Devolve true se algum canal entregou. */
   async function avisaVoltou(ag, reg) {
     const texto = textoVoltou(ag, reg);
     const r = await entrega(ag, 'voltou', texto, `${nomeLimpo(ag)} voltou ao normal`, 'Voltou a responder normalmente.');
-    registraLog(ag, 'voltou', texto, r, false);
+    registraLog(ag, 'voltou', texto, r, voltouFalhaLogada.has(ag.slug));
+    if (r.entregue) voltouFalhaLogada.delete(ag.slug); else voltouFalhaLogada.add(ag.slug);
+    return r.entregue;
   }
+
+  const registroLimpo = (ag) => ({ caido: false, tipo: null, desdeMs: null, avisoCaiuEntregue: false, avisadoEm: null, instancia: ag.instancia || null });
 
   // ── uma rodada ────────────────────────────────────────────────────────────
   async function olha(ag) {
@@ -250,36 +276,55 @@ function criarVigiaSaudeRetida({ registro, lerArquivo, push, relogio, log, inter
     if (retencao === 'ilegivel') return;
     if (retencao === 'nao') {
       if (estado.agentes[ag.slug]) { delete estado.agentes[ag.slug]; salva(); }
-      semLeituraAvisado.delete(ag.slug); falhaLogada.delete(ag.slug);
+      semLeituraAvisado.delete(ag.slug); falhaLogada.delete(ag.slug); voltouFalhaLogada.delete(ag.slug);
       return;
     }
     const cls = classificar(ag);
     if (!cls) return;
-    const prev = estado.agentes[ag.slug];
+    let prev = estado.agentes[ag.slug];
+    // Agente recriado com o mesmo nome curto é outro agente: não herda o incidente do anterior.
+    if (prev && (prev.instancia || null) !== (ag.instancia || null)) {
+      log('info', `Vigia de saúde retida: ${ag.slug} tem outra instância no registro (foi recriado), então descartei o estado anterior dele e trato como a primeira vez.`);
+      delete estado.agentes[ag.slug]; falhaLogada.delete(ag.slug); voltouFalhaLogada.delete(ag.slug);
+      prev = undefined;
+    }
     if (!cls.caido) {
       if (prev && prev.caido) {
         const entregueAntes = prev.avisoCaiuEntregue;
-        estado.agentes[ag.slug] = { caido: false, tipo: prev.tipo, desdeMs: null, avisoCaiuEntregue: false, avisadoEm: prev.avisadoEm || null };
-        salva();
-        if (entregueAntes) await avisaVoltou(ag, prev);
-        else log('info', `Vigia de saúde retida: ${ag.slug} voltou ao normal, mas o aviso de que tinha caído nunca chegou a nenhum canal, então não mandei o "voltou". Estado limpo.`);
+        estado.agentes[ag.slug] = Object.assign(registroLimpo(ag), { tipo: prev.tipo, avisadoEm: prev.avisadoEm || null });
+        if (entregueAntes) {
+          // A recuperação fica pendente em disco até algum canal entregar o "voltou" (inclusive depois de um reinício).
+          estado.agentes[ag.slug].voltouPendente = { tipo: prev.tipo, desdeMs: prev.desdeMs, recomendacao: prev.recomendacao || null, voltouEm: agora() };
+        } else log('info', `Vigia de saúde retida: ${ag.slug} voltou ao normal, mas o aviso de que tinha caído nunca chegou a nenhum canal, então não mandei o "voltou". Estado limpo.`);
         falhaLogada.delete(ag.slug);
-      } else if (!prev) {
-        estado.agentes[ag.slug] = { caido: false, tipo: null, desdeMs: null, avisoCaiuEntregue: false, avisadoEm: null };
         salva();
+        prev = estado.agentes[ag.slug];
+      } else if (!prev) {
+        estado.agentes[ag.slug] = registroLimpo(ag);
+        salva();
+        return;
+      }
+      if (prev.voltouPendente) {
+        if (await avisaVoltou(ag, prev.voltouPendente)) { delete prev.voltouPendente; salva(); }
       }
       return;
     }
+    if (prev && prev.voltouPendente) {
+      log('info', `Vigia de saúde retida: ${ag.slug} caiu de novo antes de o aviso "voltou" ser entregue. Descartei o "voltou" pendente e trato como uma queda nova.`);
+      voltouFalhaLogada.delete(ag.slug);
+      prev = undefined;
+    }
     if (!prev || !prev.caido) {
-      const reg = { caido: true, tipo: cls.tipo, desdeMs: cls.desdeMs !== null ? cls.desdeMs : agora(), desdeAproximado: cls.desdeAproximado, verificadoMs: cls.verificadoMs, avisoCaiuEntregue: false, avisadoEm: null };
+      const reg = { caido: true, tipo: cls.tipo, desdeMs: cls.desdeMs !== null ? cls.desdeMs : agora(), desdeAproximado: cls.desdeAproximado, verificadoMs: cls.verificadoMs, recomendacao: cls.recomendacao, avisoCaiuEntregue: false, avisadoEm: null, instancia: ag.instancia || null };
       estado.agentes[ag.slug] = reg;
       await avisaCaiu(ag, reg);
       salva();
       return;
     }
-    // caído -> caído: só atualiza o tipo; reenvia se o "caiu" nunca foi entregue a nenhum canal.
+    // caído -> caído: só atualiza tipo e recomendação; reenvia se o "caiu" nunca foi entregue a nenhum canal.
     let mudou = false;
     if (prev.tipo !== cls.tipo) { prev.tipo = cls.tipo; mudou = true; }
+    if ((prev.recomendacao || null) !== cls.recomendacao) { prev.recomendacao = cls.recomendacao; mudou = true; }
     if (cls.verificadoMs !== null && prev.verificadoMs !== cls.verificadoMs && cls.tipo === 'vigia_parado') { prev.verificadoMs = cls.verificadoMs; mudou = true; }
     if (!prev.avisoCaiuEntregue) { await avisaCaiu(ag, prev); mudou = true; }
     if (mudou) salva();
