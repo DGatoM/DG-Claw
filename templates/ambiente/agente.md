@@ -94,17 +94,22 @@ tarefa curta direto, e mande a longa para um card do mesmo jeito.
    Assim o card usa o mesmo provedor e a mesma conta que você já usa; outra conta só se {{DONO}} pedir.
    O pedido é autossuficiente (o card não viu a conversa) e diz no fim: "ao terminar, responda com o
    caminho ou o link da entrega e um resumo de 3 linhas".
-   Se o card não abrir (o comando sai com erro), não abandone o pedido: faça a tarefa você mesmo na
-   conversa, avise {{DONO}} que vai demorar e por quê, e conte o erro do card.
+   Se o card não abrir E ficou confirmado que o pedido NÃO foi entregue (erro ao criar o card ou ao
+   entregar o texto: a mensagem diz "nenhum card foi aberto" ou "o pedido nao foi entregue"), não
+   abandone o pedido: faça a tarefa você mesmo na conversa, avise {{DONO}} que vai demorar e por quê, e
+   conte o erro do card. Com saída 8, 9, 11 ou 12 o pedido FOI entregue: não execute a tarefa pela
+   conversa principal (ela rodaria duas vezes). Confira o estado do card e avise {{DONO}}.
    O `abrir` espera até 60 segundos o pedido virar o primeiro turno do card e só então sai com 0.
    Sair com 9 quer dizer que o card existe, mas o pedido não virou turno e ele NÃO está trabalhando agora.
-   Sair com 11 quer dizer que não deu para confirmar se o card aceitou o pedido.
-   O id só é impresso quando o `abrir` sai com 0: se a variável `id` ficar vazia, leia a mensagem de erro,
-   que traz o id do card.
+   Sair com 11 quer dizer que não deu para confirmar se o card aceitou o pedido. Sair com 12 quer dizer
+   que o card aceitou o pedido, mas o turno falhou e ele está em erro (veja com `dgclaw-card ler <id>`).
+   Capture a saída e o código ANTES de pegar o id, senão o `head` esconde o código de saída:
+   `saida="$(dgclaw-card abrir ... )"; cod=$?; id="$(printf '%s\n' "$saida" | head -1)"`. O id vem na
+   primeira linha da saída; só anuncie o acompanhamento com `cod` igual a 0.
 2. Só diga a {{DONO}} que o card está trabalhando depois que o `dgclaw-card abrir` sair com 0. Aí
    responda curto: o que você abriu e que avisa quando terminar. Exemplo: "Abri um card para montar a
    apresentação. Te aviso aqui quando ficar pronta, pode continuar falando comigo." Se o `abrir` sair
-   com 9 ou 11, ou se o `dgclaw-card ler` continuar sem mensagens depois de um minuto, o pedido ainda
+   com 9, 11 ou 12, ou se o `dgclaw-card ler` continuar sem mensagens depois de um minuto, o pedido ainda
    pode entrar sozinho: NÃO feche o card e NÃO reenvie o pedido por conta própria (isso o duplicaria).
    Confira com `dgclaw-card estado <id>` e `dgclaw-card ler <id>` depois de um tempo e, se continuar sem
    turno, avise {{DONO}}. Nunca feche um card que não respondeu sem avisar {{DONO}} antes (o `fechar`
@@ -155,7 +160,8 @@ para trabalho longo, para uma sessão que precisa continuar viva, para segunda o
 ou para tarefa em paralelo. Para o que você resolve em um minuto, não abra.
 
 ```bash
-id="$(dgclaw-card abrir --provedor claude --titulo "Revisão do contrato" --pedido-arquivo /tmp/pedido.md --monitor --entregue "contrato revisado e resumo das mudanças entregue" | head -1)"
+saida="$(dgclaw-card abrir --provedor claude --titulo "Revisão do contrato" --pedido-arquivo /tmp/pedido.md --monitor --entregue "contrato revisado e resumo das mudanças entregue")"; cod=$?
+id="$(printf '%s\n' "$saida" | head -1)"   # só anuncie o acompanhamento com cod igual a 0
 dgclaw-card mandar "$id" "texto"     # recado novo no mesmo card
 dgclaw-card esperar "$id" --max 900  # volta quando o card termina o turno
 dgclaw-card ler "$id" --n 2          # as últimas respostas

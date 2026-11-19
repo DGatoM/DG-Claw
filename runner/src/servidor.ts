@@ -33,11 +33,13 @@ function visao(s: Sessao, comMeta: boolean): Record<string, unknown> {
   // `codexHome` é só leitura: o CODEX_HOME que o último spawn usou, para quem lê o rollout do disco.
   // `turnosAceitos` é só leitura: quantos pedidos o CLI já aceitou como turno desde que este runner subiu
   // (o recibo do Enter). Zero com a sessão ociosa quer dizer que nenhum pedido virou turno ainda.
-  if (!comMeta && s.papel === "principal") return { ...s.estado, codexHome: s.codexHome(), turnosAceitos: s.promptsAceitos };
+  // `turnosAceitosSessao` conta só desde o sessionId atual (zera quando a conversa troca) e vem com o id a que se refere.
+  const turnos = { turnosAceitos: s.promptsAceitos, turnosAceitosSessao: s.turnosDaSessao, turnosAceitosSessionId: s.estado.sessionId ?? null };
+  if (!comMeta && s.papel === "principal") return { ...s.estado, codexHome: s.codexHome(), ...turnos };
   return {
     ...s.estado,
     codexHome: s.codexHome(),
-    turnosAceitos: s.promptsAceitos,
+    ...turnos,
     sessao: {
       papel: s.papel,
       tipo: s.tipo,

@@ -49,13 +49,16 @@
 #   9  (so no "abrir") o card foi criado e o texto entrou na fila, mas o pedido NAO virou turno dentro da espera
 #      (--espera-turno): o card nao esta trabalhando. O pedido ainda pode entrar sozinho: nao feche e nao reenvie
 #      por conta propria; confira com "estado" e "ler" depois de um tempo e, se continuar sem turno, avise o dono.
-#  10  (so no "fechar") nao foi possivel comprovar que o card teve turno (nunca teve, ou a consulta falhou);
-#      fechar pode jogar fora o pedido. Repita com --forcar se for isso mesmo.
+#  10  (so no "fechar") nao foi possivel comprovar que o card trabalhou: sem recibo de turno da conversa atual
+#      (turnosAceitosSessao) e sem resposta do assistente nela (so o pedido do usuario nao basta), ou a consulta
+#      falhou. Fechar pode jogar fora o pedido. Repita com --forcar se for isso mesmo.
 #  11  (so no "abrir") o card foi criado e o pedido entregue, mas nao consegui confirmar se ele aceitou o pedido
 #      (consulta recusada, erro do runner, de rede, resposta sem JSON ou sem o contador turnosAceitos). Nao e 9 nem 0:
 #      veja "dgclaw-card estado <id>" antes de dizer qualquer coisa ao dono.
 #      Com --monitor, o monitor e ligado logo depois de entregar o pedido, antes da espera pelo turno; assim os
-#      codigos 9 e 11 tambem ficam com monitor. Falha ao ligar o monitor sai com 8.
+#      codigos 9, 11 e 12 tambem ficam com monitor. Falha ao ligar o monitor sai com 8.
+#  12  (so no "abrir") o card aceitou o pedido (houve turno), mas o turno falhou e o card esta em erro. Veja o que
+#      ele fez com "dgclaw-card ler <id>" e conte ao dono. Nao e 0: nao anuncie que o trabalho esta indo bem.
 set -euo pipefail
 umask 077
 
@@ -87,7 +90,7 @@ carregar_token() {
 HTTP=""; RESP=""
 chamar() {
   local metodo="$1" caminho="$2" corpo="${3:-}" cfg saida
-  cfg="$(printf 'url = "%s%s"\nrequest = "%s"\nheader = "Authorization: Bearer %s"\nmax-time = 60\nwrite-out = "\\n%%{http_code}"\n' "$BASE" "$caminho" "$metodo" "$TOKEN")"
+  cfg="$(printf 'url = "%s%s"\nrequest = "%s"\nheader = "Authorization: Bearer %s"\nmax-time = %s\nwrite-out = "\\n%%{http_code}"\n' "$BASE" "$caminho" "$metodo" "$TOKEN" "${CARD_MAX_TEMPO:-60}")"
   if [ -n "$corpo" ]; then
     corpo="${corpo//\\/\\\\}"; corpo="${corpo//\"/\\\"}"
     cfg+="$(printf '\nheader = "Content-Type: application/json"\ndata = "%s"' "$corpo")"
@@ -238,40 +241,63 @@ cmd_abrir() {
   [ -z "$MON_OUT" ] || echo "$MON_OUT"
 }
 
-# Espera o pedido virar turno: turnosAceitos > 0 ou status working. Sem turno no prazo (e com a consulta
-# funcionando), sai com 9. Se nao deu para OBSERVAR o estado (HTTP 401/403/5xx, rede, JSON invalido, sem o
-# contador turnosAceitos), sai com 11: nunca 9 nem 0, porque nao se sabe se o card aceitou o pedido.
+# Espera o pedido virar turno: turnosAceitosSessao > 0 (turnos da conversa ATUAL) ou status working. Sem turno no
+# prazo (e com a consulta funcionando), sai com 9. Se nao deu para OBSERVAR o estado (HTTP 401/403/5xx, rede,
+# consulta que estourou o tempo, JSON invalido, sem o contador), sai com 11: nunca 9 nem 0, porque nao se sabe se
+# o card aceitou o pedido. Card em erro: 12 (o pedido foi aceito, mas o turno falhou).
+# Cada consulta e cada pausa ficam limitadas ao tempo que resta do prazo (minimo 1 s para a consulta).
 esperar_primeiro_turno() { # $1 id ; $2 segundos
-  local inicio=$SECONDS passo="${DGCLAW_CARD_INTERVALO:-5}" turnos status falha=""
+  local inicio=$SECONDS passo="${DGCLAW_CARD_INTERVALO:-5}" turnos status falha="" resta
   [ "$passo" = 5 ] && passo=1
   while :; do
     falha=""
-    if ! chamar GET "/api/agents/$1"; then
-      falha="o runner nao respondeu (erro de rede)"
+    resta=$(( $2 - (SECONDS - inicio) )); [ "$resta" -ge 1 ] || resta=1
+    if ! CARD_MAX_TEMPO="$resta" chamar GET "/api/agents/$1"; then
+      falha="o runner nao respondeu a consulta do estado (erro de rede ou tempo esgotado)"
     elif [ "$HTTP" != 200 ]; then
       falha="o runner respondeu HTTP $HTTP: $(campo .error)"
     elif ! printf '%s' "$RESP" | jq -e '.data | type == "object"' >/dev/null 2>&1; then
       falha="a resposta do runner nao e um JSON com o estado do card"
     else
-      turnos="$(campo .data.turnosAceitos)"; status="$(campo .data.status)"
+      turnos="$(campo .data.turnosAceitosSessao)"; status="$(campo .data.status)"
       if ! [[ "$turnos" =~ ^[0-9]+$ ]]; then
-        falha="a resposta do runner nao traz o contador turnosAceitos (runner antigo ou resposta incompleta)"
         # Esse campo nao aparece com o tempo: nao adianta esperar o prazo todo.
-        sem_confirmacao "$1" "$falha"
+        sem_confirmacao "$1" "a resposta do runner nao traz o contador turnosAceitosSessao (runner antigo ou resposta incompleta)"
       fi
-      if [ "$turnos" != 0 ] || [ "$status" = working ]; then return 0; fi
       if [ "$status" = errored ]; then
         avisar_monitor
+        if [ "$turnos" != 0 ]; then
+          CODIGO=12 die "o card $1 aceitou o pedido, mas o turno falhou e o card parou com erro: $(campo .data.error). Veja o que ele chegou a fazer com 'dgclaw-card ler $1' e conte ao dono o que aconteceu. Nao diga ao dono que o trabalho esta indo bem."
+        fi
         CODIGO=6 die "o card $1 foi criado, mas parou com erro antes de o pedido virar turno: $(campo .data.error). Veja 'dgclaw-card estado $1'. Nao diga ao dono que ele esta trabalhando."
       fi
+      if [ "$turnos" != 0 ] || [ "$status" = working ]; then return 0; fi
     fi
     if [ $((SECONDS - inicio)) -ge "$2" ]; then
       [ -z "$falha" ] || sem_confirmacao "$1" "$falha"
       avisar_monitor
       CODIGO=9 die "o card $1 foi criado, mas o pedido ainda nao virou turno em $2 segundos: ele NAO esta trabalhando agora. O pedido pode ainda entrar sozinho: nao feche o card e nao reenvie por conta propria (isso pode duplicar o pedido). Confira com 'dgclaw-card estado $1' e 'dgclaw-card ler $1' depois de um tempo; se continuar sem turno, avise o dono. Nao diga ao dono que o card esta trabalhando antes de ver o primeiro turno."
     fi
-    sleep "$passo"
+    resta=$(( $2 - (SECONDS - inicio) ))
+    if [ "$resta" -lt 1 ] || [ "$(awk -v a="$passo" -v b="$resta" 'BEGIN{print (a>b)}')" = 1 ]; then passo="$resta"; fi
+    [ "$passo" != 0 ] && sleep "$passo"
+    passo="${DGCLAW_CARD_INTERVALO:-5}"; [ "$passo" = 5 ] && passo=1
   done
+}
+
+# Diz se a conversa ATUAL do card tem pelo menos uma resposta do assistente. Retorno 0 = tem; 1 = nao tem
+# (MOTIVO_CONV vazio); 2 = nao deu para saber (MOTIVO_CONV diz por que).
+MOTIVO_CONV=""
+conversa_tem_resposta() { # $1 id
+  MOTIVO_CONV=""
+  if ! chamar GET "/api/agents/$1/conversation?limit=30"; then
+    MOTIVO_CONV="o runner nao respondeu a leitura da conversa"; return 2
+  elif [ "$HTTP" != 200 ]; then
+    MOTIVO_CONV="a leitura da conversa voltou HTTP $HTTP"; return 2
+  elif ! printf '%s' "$RESP" | jq -e '.data | type == "array"' >/dev/null 2>&1; then
+    MOTIVO_CONV="a resposta da conversa nao e uma lista"; return 2
+  fi
+  [ "$(printf '%s' "$RESP" | jq '[.data[] | select(.role == "assistant")] | length')" != 0 ]
 }
 
 avisar_monitor() { [ -z "${MON_OUT:-}" ] || erro "$MON_OUT"; }
@@ -328,10 +354,16 @@ cmd_estado() {
   validar_id "${1:-}"
   local id="$1" status titulo fila reason prov auth modelo turnos semturno=""
   chamar_ou_sair GET "/api/agents/$id"
-  turnos="$(campo .data.turnosAceitos)"
-  [ "$turnos" != 0 ] || semturno=1
+  turnos="$(campo .data.turnosAceitosSessao)"
   status="$(campo .data.status)"; titulo="$(campo .data.sessao.titulo)"; fila="$(campo .data.sessao.fila)"
   reason="$(campo .data.error)"
+  # Zero turnos desde que o runner subiu (ou desde a ultima troca de conversa) NAO quer dizer sem primeiro turno:
+  # se a conversa atual ja tem resposta do assistente, o card trabalhou (ex.: runner reiniciado).
+  if [ "$turnos" = 0 ]; then
+    local r=0
+    conversa_tem_resposta "$id" || r=$?
+    [ "$r" != 1 ] || semturno=1
+  fi
   chamar_ou_sair GET "/api/provedor?sessao=$id"
   prov="$(campo .provedor)"; auth="$(campo .auth)"; modelo="$(campo .modelo)"
   [ -z "$semturno" ] || [ "$status" = working ] || status="${status:-desconhecido} (sem primeiro turno ainda: o pedido nao virou turno)"
@@ -404,7 +436,7 @@ cmd_ler() {
 explicar_conversa_vazia() { # $1 id
   local id="$1" status fila turnos
   if chamar GET "/api/agents/$id" && [[ "$HTTP" == 2* ]]; then
-    status="$(campo .data.status)"; fila="$(campo .data.sessao.fila)"; fila="${fila:-0}"; turnos="$(campo .data.turnosAceitos)"
+    status="$(campo .data.status)"; fila="$(campo .data.sessao.fila)"; fila="${fila:-0}"; turnos="$(campo .data.turnosAceitosSessao)"
     if [ "$fila" != 0 ]; then
       echo "O card $id ainda nao tem mensagens: o pedido esta na fila ($fila) e ainda nao virou turno. Espere com: dgclaw-card esperar $id"
     elif [ "$status" = resumable ]; then
@@ -455,21 +487,19 @@ cmd_fechar() {
     elif [ "$HTTP" != 200 ]; then
       motivo="a consulta do estado do card voltou HTTP $HTTP"
     else
-      turnos="$(campo .data.turnosAceitos)"
-      if ! [[ "$turnos" =~ ^[0-9]+$ ]]; then
-        motivo="a resposta do runner nao traz o contador turnosAceitos"
-      elif [ "$turnos" != 0 ]; then
-        prova=1
-      elif ! chamar GET "/api/agents/$id/conversation?limit=1"; then
-        motivo="o card tem zero turnos aceitos e o runner nao respondeu a leitura da conversa"
-      elif [ "$HTTP" != 200 ]; then
-        motivo="o card tem zero turnos aceitos e a leitura da conversa voltou HTTP $HTTP"
-      elif ! printf '%s' "$RESP" | jq -e '.data | type == "array"' >/dev/null 2>&1; then
-        motivo="o card tem zero turnos aceitos e a resposta da conversa nao e uma lista"
-      elif [ "$(printf '%s' "$RESP" | jq '.data | length')" != 0 ]; then
-        prova=1  # conversa com mensagens: o card ja trabalhou (o contador zera quando o runner reinicia)
+      turnos="$(campo .data.turnosAceitosSessao)"
+      if [[ "$turnos" =~ ^[0-9]+$ ]] && [ "$turnos" != 0 ]; then
+        prova=1  # recibo de turno da conversa ATUAL
       else
-        motivo="o card nunca teve um turno: o pedido dele ainda nao foi aceito"
+        # Sem recibo (zero turnos, ou runner sem o contador): so vale uma resposta do assistente na conversa atual.
+        # O pedido do usuario sozinho na conversa nao prova nada: pode ser so o texto digitado.
+        local r=0
+        conversa_tem_resposta "$id" || r=$?
+        if [ "$r" = 0 ]; then prova=1
+        elif [ "$r" = 2 ]; then motivo="nao ha recibo de turno e $MOTIVO_CONV"
+        elif [[ "$turnos" =~ ^[0-9]+$ ]]; then motivo="o card nunca teve um turno: nao ha recibo de turno nem resposta do agente na conversa atual"
+        else motivo="a resposta do runner nao traz o contador turnosAceitosSessao e a conversa atual nao tem resposta do agente"
+        fi
       fi
     fi
     if [ -z "$prova" ]; then

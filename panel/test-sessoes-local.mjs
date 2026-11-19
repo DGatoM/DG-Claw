@@ -233,6 +233,9 @@ try {
     nova('card-td', { status: 'resumable', turnosAceitos: 0, msgs: [], sessionId: null });
     // Card restaurado depois de reiniciar o runner: o contador voltou a zero, mas a conversa da sessão atual tem resposta no disco.
     nova('card-tr', { status: 'idle', turnosAceitos: 0, msgs: [{ role: 'user', text: 'pedido antigo' }, { role: 'assistant', text: 'Já respondi isto antes do reinício.' }] });
+    // Runner que manda turnosAceitosSessao: vale o da conversa atual, não o total do processo.
+    nova('card-ts', { status: 'idle', turnosAceitos: 5, turnosAceitosSessao: 0, msgs: [] });
+    nova('card-sp', { status: 'spawning', turnosAceitos: 0, turnosAceitosSessao: 0, msgs: [] });
     nova('card-tu', { status: 'idle', turnosAceitos: 0, msgs: [{ role: 'user', text: 'só o pedido, sem resposta' }] });
     const todos = await lerJson(await p.pedir('/api/sessoes?grupo=todos'));
     const por = Object.fromEntries(todos.json.itens.map((i) => [i.id, i]));
@@ -241,18 +244,23 @@ try {
     ok(por['card-i1'].grupo === 'concluido', 'runner que não manda turnosAceitos continua como antes');
     ok(por['card-tr'].estado !== 'esperando_primeiro_turno' && por['card-tr'].grupo === 'concluido', 'card restaurado (turnosAceitos 0) com resposta do agente no disco NÃO aparece como esperando o primeiro turno');
     ok(por['card-tu'].estado === 'esperando_primeiro_turno', 'só o pedido do usuário no disco, sem resposta do agente, continua esperando o primeiro turno');
+    ok(por['card-ts'].estado === 'esperando_primeiro_turno', 'turnosAceitosSessao 0 manda, mesmo com turnosAceitos > 0 (conversa nova)');
+    ok(por['card-sp'].grupo === 'trabalhando' && /terminal ainda está abrindo/.test(por['card-sp'].motivo) && !/trabalhando agora/.test(por['card-sp'].motivo), 'spawning sem recibo: o terminal ainda está abrindo, não "trabalhando"');
+    const vsp = await lerJson(await p.pedir('/api/sessoes/card-sp/conversa'));
+    ok(/terminal ainda está abrindo/.test(vsp.json.motivo_vazio), 'conversa vazia de spawning sem recibo: motivo do terminal abrindo');
     ok(/na fila/.test(por['card-tf'].motivo) && /dormindo/.test(por['card-td'].motivo), 'o motivo distingue fila e dormindo');
     const ativos = await lerJson(await p.pedir('/api/sessoes'));
     ok(['card-t0', 'card-tf', 'card-td'].every((id) => ativos.json.itens.some((i) => i.id === id)), 'o filtro padrão "Ativas" mostra o card sem primeiro turno, inclusive o dormindo');
     const v0 = await lerJson(await p.pedir('/api/sessoes/card-t0/conversa'));
     ok(v0.json.mensagens.length === 0 && /não está trabalhando/.test(v0.json.motivo_vazio) && !/ainda não tem mensagens/.test(v0.json.motivo_vazio), 'conversa vazia de pedido digitado e não aceito: motivo');
+    ok(/Aguarde/.test(v0.json.motivo_vazio) && !/reenvi|Mande o pedido de novo|feche o card|Retomar/i.test(v0.json.motivo_vazio), 'a mensagem manda aguardar e conferir, sem sugerir reenviar nem fechar');
     const vf = await lerJson(await p.pedir('/api/sessoes/card-tf/conversa'));
     ok(/na fila/.test(vf.json.motivo_vazio), 'conversa vazia com pedido na fila: motivo');
     const vd = await lerJson(await p.pedir('/api/sessoes/card-td/conversa'));
     ok(/dormindo/.test(vd.json.motivo_vazio), 'conversa vazia de sessão dormindo: motivo');
     const vf1 = await lerJson(await p.pedir('/api/sessoes/card-f1/conversa'));
     ok(vf1.json.mensagens.length === 1 && vf1.json.motivo_vazio === undefined, 'conversa com mensagens não traz motivo');
-    for (const id of ['card-t0', 'card-t1', 'card-tf', 'card-td', 'card-tr', 'card-tu']) sessoes.delete(id);
+    for (const id of ['card-t0', 'card-t1', 'card-tf', 'card-td', 'card-tr', 'card-tu', 'card-ts', 'card-sp']) sessoes.delete(id);
   }
 
   console.log('\n4. Criar');

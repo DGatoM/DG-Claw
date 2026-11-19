@@ -85,6 +85,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       // de que o texto virou turno em vez de ficar escrito na caixa. Quem espera
       // por ele é o enviarComRecibo().
       s.promptsAceitos += 1;
+      s.turnosDaSessao += 1;
       s.turnoComecouEm = Date.now();
       s.mudar({ status: "working", hookLatched: false, statusReason: "hook:UserPromptSubmit" });
       break;

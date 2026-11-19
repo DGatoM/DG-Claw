@@ -250,13 +250,14 @@ function registrar(router, { CONFIG }) {
     return s.tipo === 'bastidores' ? 'bastidores' : 'card';
   }
 
-  /** O pedido de um card que nunca virou turno: o runner conta `turnosAceitos` (0 = nenhum pedido foi aceito
-   *  pelo CLI) e a conversa não tem nada. Runner antigo não manda o campo: aí não dá para afirmar nada.
+  /** O pedido de um card que nunca virou turno: o runner conta `turnosAceitosSessao` (turnos aceitos desde o
+   *  sessionId atual; 0 = nenhum pedido foi aceito pelo CLI nesta conversa; sem ele, usa `turnosAceitos`) e a conversa não tem nada. Runner antigo não manda o campo: aí não dá para afirmar nada.
    *  O contador volta a zero quando o runner reinicia: se a sessão atual já tem resposta do agente no disco
    *  (`fala`, lida do transcript em falaDe), o card trabalhou e não está esperando o primeiro turno. */
   function semPrimeiroTurno(ag, fala) {
     if (fala && fala.fonte === 'transcript') return false;
-    return papelDe(ag) === 'card' && ag.turnosAceitos === 0 && !espacos(ag.lastMessage);
+    const turnos = ag.turnosAceitosSessao !== undefined ? ag.turnosAceitosSessao : ag.turnosAceitos;
+    return papelDe(ag) === 'card' && turnos === 0 && !espacos(ag.lastMessage);
   }
 
   /** {grupo, estado, motivo, tem_terminal} a partir do status do runner. */
@@ -274,6 +275,10 @@ function registrar(router, { CONFIG }) {
           ? 'esperando o primeiro turno: sessão dormindo, o pedido ainda não virou turno'
           : 'esperando o primeiro turno: o pedido ainda não foi aceito',
       };
+    }
+    // Terminal ainda abrindo e sem recibo: o pedido nem chegou ao CLI, então não é "trabalhando no primeiro turno".
+    if (st === 'spawning' && semPrimeiroTurno(ag, fala)) {
+      return { grupo: 'trabalhando', estado: 'trabalhando', motivo: 'o terminal ainda está abrindo: o pedido ainda não virou turno', tem_terminal: true };
     }
     switch (st) {
       case 'waiting_input':
@@ -479,9 +484,13 @@ function registrar(router, { CONFIG }) {
 
   function motivoDaConversaVazia(it) {
     if (it.estado === 'esperando_primeiro_turno') {
-      if (/na fila/.test(it.motivo)) return 'O pedido está na fila e ainda não virou turno. Assim que o CLI aceitar, a conversa aparece aqui.';
-      if (/dormindo/.test(it.motivo)) return 'A sessão está dormindo e o pedido ainda não virou turno. Mande um recado ou use Retomar para acordá-la.';
-      return 'O pedido foi digitado, mas o CLI ainda não o aceitou como turno: o card não está trabalhando. Mande o pedido de novo ou feche o card.';
+      const espera = ' Aguarde e confira o estado daqui a pouco: o pedido pode ainda entrar sozinho.';
+      if (/na fila/.test(it.motivo)) return `O pedido está na fila e ainda não virou turno.${espera}`;
+      if (/dormindo/.test(it.motivo)) return `A sessão está dormindo e o pedido ainda não virou turno.${espera}`;
+      return `O pedido foi digitado, mas o CLI ainda não o aceitou como turno: o card não está trabalhando agora.${espera}`;
+    }
+    if (it.status_bunker === 'spawning' && /terminal ainda está abrindo/.test(it.motivo)) {
+      return 'O terminal ainda está abrindo e o pedido ainda não virou turno. Aguarde e confira o estado daqui a pouco.';
     }
     if (it.grupo === 'fechado') return 'A sessão está dormindo, sem terminal aberto. Ela acorda com um recado ou com Retomar.';
     if (it.grupo === 'trabalhando') return 'A sessão está trabalhando no primeiro turno e a conversa ainda não gravou nada.';

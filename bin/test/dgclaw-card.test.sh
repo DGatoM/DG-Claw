@@ -106,16 +106,19 @@ ok "--espera-turno 0 desliga a espera (saida 0 mesmo sem turno)" $([ $c = 0 ] &&
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno abc >/dev/null 2>&1; ok "--espera-turno invalido recusado" $([ $? = 1 ] && echo 0 || echo 1)
 
 # --- 9 com --monitor: o monitor ja foi cadastrado antes da espera -----------------------------------
+# Estado e log do monitor ficam no diretorio temporario do teste, nunca no HOME real (nenhum outro teste da
+# bateria chama o monitor: so os que passam --monitor, todos abaixo desta linha).
+export DGCLAW_MONITOR_ESTADO="$T/monitor/estado.json" DGCLAW_MONITOR_LOG="$T/monitor/log"
 subir sem-turno
-rm -rf "$HOME/.dgclaw"
+rm -rf "$T/monitor"
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 1 --monitor --entregue "relatorio salvo" >"$T/o" 2>"$T/e"; c=$?
 ok "9 com --monitor sai com 9" $([ $c = 9 ] && echo 0 || echo 1)
-grep -q "card-abc123" "$HOME/.dgclaw/estado/modo-monitor.json" 2>/dev/null; ok "o monitor ficou cadastrado mesmo no caminho do 9" $?
+grep -q "card-abc123" "$DGCLAW_MONITOR_ESTADO" 2>/dev/null; ok "o monitor ficou cadastrado mesmo no caminho do 9" $?
 grep -q "Monitorando o card card-abc123" "$T/e"; ok "o caminho do 9 diz que o monitor esta ligado" $?
 
 # --- falha ao cadastrar o monitor: erro explicito (8) com o que fazer ------------------------------
 subir normal
-rm -rf "$HOME/.dgclaw"
+rm -rf "$T/monitor"
 DGCLAW_MONITOR_DONO=card-abc123 "$BIN" abrir --provedor codex --titulo x --pedido oi --monitor --entregue "feito" >"$T/o" 2>"$T/e"; c=$?
 ok "monitor que nao liga sai com 8" $([ $c = 8 ] && echo 0 || echo 1)
 grep -q "monitor NAO ligou" "$T/e" && grep -q "dgclaw-monitor add card-abc123" "$T/e"; ok "a falha do monitor diz o motivo e o comando para ligar a mao" $?
@@ -137,7 +140,7 @@ grep -q "turnosAceitos" "$T/e"; ok "o 11 sem contador cita o contador" $?
 subir leitura-403
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 1 --monitor --entregue "feito" >"$T/o" 2>"$T/e"; c=$?
 ok "11 com --monitor sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
-grep -q "card-abc123" "$HOME/.dgclaw/estado/modo-monitor.json" 2>/dev/null; ok "o monitor tambem ficou cadastrado no caminho do 11" $?
+grep -q "card-abc123" "$DGCLAW_MONITOR_ESTADO" 2>/dev/null; ok "o monitor tambem ficou cadastrado no caminho do 11" $?
 
 # --- fechar sem prova de turno: consulta falhou ou sem contador -> 10 ----------------------------------
 subir leitura-503
@@ -156,6 +159,33 @@ subir normal
 "$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
 "$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
 ok "fechar card que teve turno fecha sem --forcar" $([ $c = 0 ] && echo 0 || echo 1)
+
+# --- fechar: so o pedido do usuario na conversa nao prova turno; resposta do agente (runner reiniciado) prova ---
+subir so-pedido
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 0 >/dev/null 2>&1
+"$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
+ok "fechar com so o pedido do usuario na conversa recusa com 10" $([ $c = 10 ] && echo 0 || echo 1)
+! grep -q '"metodo":"DELETE"' "$LOG"; ok "so o pedido do usuario: nenhum DELETE" $?
+subir restaurado
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 0 >/dev/null 2>&1
+"$BIN" estado card-abc123 >"$T/o" 2>"$T/e"; ! grep -q "sem primeiro turno" "$T/o"; ok "estado de card restaurado (resposta do agente na conversa) nao diz 'sem primeiro turno'" $?
+"$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
+ok "fechar card restaurado com resposta do agente fecha sem --forcar" $([ $c = 0 ] && echo 0 || echo 1)
+
+# --- abrir: card em erro depois de aceitar o pedido sai com 12 ----------------------------------------------
+subir erro-turno
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
+ok "pedido aceito e turno que falhou (errored) sai com 12" $([ $c = 12 ] && echo 0 || echo 1)
+grep -q "aceitou o pedido, mas o turno falhou" "$T/e" && grep -q "dgclaw-card ler card-abc123" "$T/e"; ok "o 12 diz o que houve e manda ler" $?
+! grep -q "Card aberto" "$T/o"; ok "12 nao imprime 'Card aberto'" $?
+
+# --- espera: consulta que demora mais que o prazo e limitada, e sai com 11 ------------------------------------
+subir lento-leitura
+ini=$SECONDS
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
+dur=$((SECONDS - ini))
+ok "consulta que demora sai com 11 (e nao 9)" $([ $c = 11 ] && echo 0 || echo 1)
+ok "a espera respeita o prazo (levou ${dur}s, menos que a demora de 6 s da consulta)" $([ "$dur" -le 5 ] && echo 0 || echo 1)
 
 # --- limite (429) ---------------------------------------------------------------------------------
 subir limite

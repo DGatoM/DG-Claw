@@ -22,6 +22,20 @@ pedido se perdeu. O que mudou:
   (se o monitor não ligar, a saída é 8, com o motivo e o comando para ligar à mão). Se o `abrir` não conseguir ler o
   estado do card (recusa 401 ou 403, erro 5xx, falha de rede, resposta inválida ou sem o contador `turnosAceitos`),
   sai com o código novo 11, "não consegui confirmar se o card aceitou o pedido", e nunca com 9 nem 0.
+- O contador de turnos agora é da conversa atual: o runner informa `turnosAceitosSessao` (com o id da conversa a que se
+  refere), que volta a zero quando a sessão troca para uma conversa nova. O `dgclaw-card` (`abrir`, `estado`, `fechar`)
+  e a aba Sessões usam essa mesma regra: um card restaurado depois de reiniciar o runner, com resposta do agente na
+  conversa atual, conta como tendo trabalhado.
+- `dgclaw-card abrir` tem um código novo, 12, para o card que aceitou o pedido mas cujo turno falhou (o card está em
+  erro): a mensagem manda ler o que ele fez com `dgclaw-card ler <id>`. Cada consulta da espera pelo primeiro turno
+  respeita o tempo que resta do prazo; se a última consulta estourar sem resposta válida, a saída é 11.
+- `dgclaw-card fechar` só fecha sem `--forcar` quando há recibo de turno da conversa atual ou pelo menos uma resposta
+  do agente nela. Só o pedido do usuário na conversa não basta (código 10).
+- As instruções do agente e a skill de cards passaram a dizer que a tarefa só vai para a conversa principal quando ficou
+  confirmado que o pedido NÃO foi entregue ao card. Com os códigos 8, 9, 11 e 12 o pedido foi entregue e não se repete
+  a tarefa. Os exemplos também capturam a saída e o código do `abrir` antes de pegar o id, para não perder o código.
+- Na aba Sessões, o card sem primeiro turno manda aguardar e conferir o estado (o pedido pode ainda entrar sozinho), sem
+  sugerir reenviar nem fechar, e um card com o terminal ainda abrindo não aparece como trabalhando no primeiro turno.
 - `dgclaw-card estado` diz "sem primeiro turno ainda" e `dgclaw-card ler` diz o motivo da conversa vazia (na fila,
   digitado e sem turno, ou dormindo). `dgclaw-card fechar` só fecha sem `--forcar` quando comprova que o card já
   trabalhou. Se o card nunca teve turno, ou se a consulta falhar (erro de rede, HTTP diferente de 200, resposta sem o
