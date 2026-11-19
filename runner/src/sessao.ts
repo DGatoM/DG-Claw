@@ -37,11 +37,13 @@ import { motorDe } from "./provedores/motores.js";
 import { parar, pararEEsperar, recusarPorRestricaoComContencao, reviver, subir, suspender, trocarPorSessaoLimpa } from "./sessao/ciclo.js";
 import { conferirContaComRestricoes } from "./restricoes-conta.js";
 import { ctxLeve, montarAmbienteBase } from "./sessao/configuracao.js";
-import { PAUSA_TECLA_PERGUNTA_MS, QUIETO_PARA_OLHAR_TRANSCRIPT_MS, RECIBO_VIGIA_PASSOS_MS, VIGIA_LOGIN_EXPIRADO_MS } from "./sessao/constantes.js";
+import {
+  BOOT_TIMER_MS, PAUSA_TECLA_PERGUNTA_MS, PRAZO_SEM_HOOKS_MS, QUIETO_PARA_OLHAR_TRANSCRIPT_MS, RECIBO_VIGIA_PASSOS_MS, TETO_BOOT_SEM_SINAL_MS, VIGIA_LOGIN_EXPIRADO_MS,
+} from "./sessao/constantes.js";
 import { digitarEEnviar, vencerTelaDeConfianca } from "./sessao/digitacao.js";
 import { MedidorDeUso } from "./uso.js";
 import { type PayloadDeHook, receberHook } from "./sessao/eventos.js";
-import { enfileirarQuandoOcioso, talvezSoltarFila } from "./sessao/fila.js";
+import { type SemRecibo, enfileirarQuandoOcioso, itensNaoEntregues, recuperarDoDisco, talvezSoltarFila } from "./sessao/fila.js";
 import { encerrarIncidenteDeLogin, entregarRecadoDeLogin, marcarLoginExpirado, retomarAposLoginExpirado } from "./sessao/login.js";
 import { ESC } from "./sessao/telas.js";
 
@@ -79,6 +81,12 @@ export interface OpcoesDaSessao {
   reintentoTelaBloqueadaMs?: number;
   /** Pausa entre as teclas da resposta de uma pergunta de escolha (ver responderPergunta). Testes usam valor curto. */
   pausaTeclaPerguntaMs?: number;
+  /** Quando o boot-timer olha se o SessionStart chegou (padrão 8 s). Testes usam valor curto. */
+  bootTimerMs?: number;
+  /** Teto da espera pelo SessionStart ou pela tela pronta antes de soltar a fila sem sinal (padrão 30 s). Testes usam valor curto. */
+  tetoBootSemSinalMs?: number;
+  /** Quanto tempo depois do spawn, sem nenhum hook, o Claude passa a ser tratado como "agente sem hooks" (padrão 60 s). Testes usam valor curto. */
+  prazoSemHooksMs?: number;
   /** Intervalos da vigia que insiste no Enter quando as tentativas normais não geraram recibo. Testes usam valores curtos. */
   reciboVigiaPassosMs?: number[];
   /** Comandos extras do evento UserPromptSubmit, depois do hook do runner. */
@@ -166,9 +174,27 @@ export class Sessao extends EventEmitter {
   filaQuandoIdle: ItemDaFila[] = [];
   readonly arquivoDaFila: string;
   /** O item que está sendo digitado agora. Continua no disco até a digitação terminar:
-   *  se o runner cair no meio, o texto sai de novo no próximo boot (repetir uma
-   *  mensagem é melhor que perder a de um cliente). */
+   *  se o runner cair no meio, no próximo boot ele aparece marcado como digitado e fica retido (incerto):
+   *  nunca é digitado de novo sozinho, mas também nunca se perde. */
   itemEmVoo: ItemDaFila | null = null;
+  /** Textos já digitados que o CLI ainda não confirmou (sem recibo). Vão junto no arquivo da fila, marcados
+   *  como digitados, e ficam retidos (incertos, nunca digitados de novo) se o terminal sair antes do recibo (ver sessao/fila.ts). */
+  semRecibo: SemRecibo[] = [];
+  /** O comando de barra (/compact, /clear) digitado que ainda espera o recibo próprio (PreCompact para o /compact).
+   *  Não entra em `semRecibo` (não tem UserPromptSubmit), mas fica no arquivo da fila até o recibo ou até ser retido
+   *  como incerto; a vigia do Enter o enxerga pelo próprio item que recebe. */
+  barraPendente: SemRecibo | null = null;
+  /** Fim do último texto colado: os envios de texto de um mesmo terminal são serializados nesta cadeia
+   *  (ver digitarEEnviar), para a fila e o POST /input não se intercalarem. */
+  cadeiaDeEnvio: Promise<void> = Promise.resolve();
+  /** true depois que o log disse que a suspensão da digitação continua (uma vez por suspensão). */
+  suspensaoLogada = false;
+  /** Quando o dono escreveu no terminal e um pedido ficou retido por isso: a digitação automática fica suspensa até
+   *  chegar um recibo ou um turno começar e terminar (ver suspenderPorRascunho). null quando não está suspensa. */
+  digitacaoSuspensaEm: number | null = null;
+  /** Pedidos retidos sem confirmação (`incerto`): ficam no arquivo da fila, nunca são enviados sozinhos e não
+   *  bloqueiam os próximos. */
+  retidos: ItemDaFila[] = [];
   /** true enquanto um item da fila está sendo digitado, para dois idles seguidos
    *  não soltarem dois itens por cima um do outro. */
   soltandoFila = false;
@@ -182,6 +208,9 @@ export class Sessao extends EventEmitter {
   /** Vigia do Enter sem recibo (ver vigiarReciboAtrasado): um timer por vez e os intervalos dela. */
   vigiaDoRecibo: NodeJS.Timeout | null = null;
   readonly reciboVigiaPassosMs: number[];
+  readonly bootTimerMs: number;
+  readonly tetoBootSemSinalMs: number;
+  readonly prazoSemHooksMs: number;
   ultimaAtividade = Date.now();
   /** Quando o spawn atual foi uma RETOMADA, e quando ele começou. É o que
    *  permite separar "a sessão não abre" de "o agente trabalhou e saiu". */
@@ -241,11 +270,15 @@ export class Sessao extends EventEmitter {
     this.vigiaLoginExpiradoMs = opcoes.vigiaLoginExpiradoMs ?? VIGIA_LOGIN_EXPIRADO_MS;
     this.reintentoTelaBloqueadaMs = opcoes.reintentoTelaBloqueadaMs ?? 5_000;
     this.reciboVigiaPassosMs = opcoes.reciboVigiaPassosMs ?? RECIBO_VIGIA_PASSOS_MS;
+    this.bootTimerMs = opcoes.bootTimerMs ?? BOOT_TIMER_MS;
+    this.tetoBootSemSinalMs = opcoes.tetoBootSemSinalMs ?? TETO_BOOT_SEM_SINAL_MS;
+    this.prazoSemHooksMs = opcoes.prazoSemHooksMs ?? PRAZO_SEM_HOOKS_MS;
     this.pausaTeclaPerguntaMs = opcoes.pausaTeclaPerguntaMs ?? PAUSA_TECLA_PERGUNTA_MS;
     this.arquivoDeEstado = opcoes.arquivoDeEstado ?? STATE_FILE;
     this.pastaDeEstado = opcoes.pastaDeEstado ?? PASTA_DE_ESTADO;
     this.arquivoDaFila = caminhoDaFila(this.pastaDeEstado, descritor.id);
     this.filaQuandoIdle = carregarFila(this.arquivoDaFila, this.a("fila"));
+    recuperarDoDisco(this);
     if (this.filaQuandoIdle.length) {
       log.info(
         this.a("fila"),
@@ -320,11 +353,11 @@ export class Sessao extends EventEmitter {
 
   /** A fila de texto que ainda não foi entregue ao agente: o item em digitação e os que esperam. */
   pendentesDaFila(): ItemDaFila[] {
-    return this.itemEmVoo ? [this.itemEmVoo, ...this.filaQuandoIdle] : [...this.filaQuandoIdle];
+    return itensNaoEntregues(this);
   }
 
   tamanhoDaFila(): number {
-    return this.filaQuandoIdle.length;
+    return itensNaoEntregues(this).length;
   }
 
   marcarAtividade(): void {
@@ -799,13 +832,13 @@ export class Sessao extends EventEmitter {
   }
 
   /** Digita e envia, com recibo do Enter (ver sessao/digitacao.ts). */
-  digitarEEnviar(texto: string, daFila = false): Promise<void> {
-    return digitarEEnviar(this, texto, daFila);
+  digitarEEnviar(texto: string, daFila = false, envio: SemRecibo | null = null): Promise<boolean> {
+    return digitarEEnviar(this, texto, daFila, envio);
   }
 
   /** Responde à tela de confiança de pasta do Codex (ver sessao/digitacao.ts). */
-  vencerTelaDeConfianca(daFila = false): Promise<void> {
-    return vencerTelaDeConfianca(this, daFila);
+  vencerTelaDeConfianca(daFila = false, proc: Sessao["proc"] = this.proc): Promise<void> {
+    return vencerTelaDeConfianca(this, daFila, proc);
   }
 
   /** Guarda um texto para digitar quando o agente ficar ocioso (ver sessao/fila.ts). */

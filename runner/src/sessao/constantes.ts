@@ -46,6 +46,14 @@ export const SILENCIO_DA_MASCARA_MS = 50;
 export const QUIETO_DE_BOOT_MS = 1_500;
 /** Depois deste tempo sem rollout, o Codex provavelmente nem abriu a conversa. */
 export const ROLLOUT_AUSENTE_MS = 60_000;
+/** Claude: quando o boot-timer olha se o SessionStart chegou. Sem hook e sem a tela mostrar o prompt pronto, a
+ *  fila continua presa até TETO_BOOT_SEM_SINAL_MS (um Claude travado também parece "quieto"). */
+export const BOOT_TIMER_MS = 8_000;
+export const TETO_BOOT_SEM_SINAL_MS = 30_000;
+/** Claude: sem NENHUM hook na vida da sessão, só depois deste tempo desde o spawn ele é tratado como agente
+ *  sem hooks registrados (sem recibo possível). Antes disso, "ainda não chegou" não é "não existe": o recibo é
+ *  esperado e a vigia do Enter fica armada. */
+export const PRAZO_SEM_HOOKS_MS = 60_000;
 
 /** Mensagem que esperou na fila mais que isto chega ao agente com um aviso de atraso (ver avisoDeAtraso). */
 export const AVISO_DE_FILA_APOS_MS = 20_000;

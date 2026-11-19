@@ -25,6 +25,40 @@ comum nada muda. Relatado por aluno da mentoria.
 
 A versão nova do Codex só chega aos seus agentes depois que a imagem deles é reconstruída. O `dgclaw atualizar` já faz isso sozinho (a etapa "reconstruindo a imagem dos agentes", que leva de 10 a 20 minutos), então basta pedir ao Admin, no chat: "atualiza o DG Claw". Quem atualizou só o código e não reconstruiu a imagem continua com o Codex antigo: rode `dgclaw imagem construir --agora` e depois `dgclaw agente recriar <nome>` para cada agente, porque a imagem nova só vale quando o container é recriado. Suas chaves, logins, conversas e agentes continuam como estavam.
 
+**Correção no runner: pedido digitado sem confirmação não some e nunca é reenviado sozinho.** Um pedido enviado a
+um agente podia sumir quando o Claude Code não abria o turno (por exemplo, com os hooks travados) e o runner era
+reiniciado: o texto já tinha saído da fila, a conversa nunca tinha sido gravada e o agente subia vazio. Agora o runner só
+dá o pedido por entregue quando o Claude (`UserPromptSubmit`) ou o Codex (`task_started`) confirma que o aceitou. Antes
+de digitar, ele grava o pedido no arquivo da fila como digitado; se a gravação falhar (disco cheio, por exemplo), não
+digita nada e o pedido continua na frente da fila. Sem a confirmação, o pedido fica pendente, e a fila não solta o
+seguinte enquanto houver um pendente. Se o terminal sair, a retomada falhar, a sessão subir como nova, o provedor ou a
+conta mudarem, o runner reiniciar ou os Enters acabarem sem o agente abrir o turno, o pedido fica retido no arquivo da
+fila, marcado como incerto, e **nunca é digitado de novo sozinho**, para o agente não executar duas vezes o mesmo pedido.
+Ele também não trava os pedidos seguintes. O log avisa com o código e o tamanho do pedido (nunca o texto), diz onde o
+texto está guardado e o que fazer: conferir na conversa do agente se o pedido foi executado e, se não foi, reenviá-lo
+pela conversa. Se você escrever no terminal do agente enquanto um pedido espera a confirmação, o runner para de apertar o
+Enter, retém o pedido e suspende a digitação automática até você dar o Enter ou o agente terminar um turno. Os comandos de
+barra (`/compact`, `/clear`) também são gravados antes de digitar e, se o runner cair no meio, ficam retidos em vez de
+serem executados de novo. O runner também deixou de dar o Claude por "sem hooks" nos primeiros 60 s depois de abrir, de
+soltar a fila no boot sem o `SessionStart` ou o prompt na tela (teto de 30 s, com aviso no log) e de tentar `--resume` de
+uma conversa que comprovadamente não existe no disco: sem o histórico ele sobe a sessão nova direto, guardando a anterior
+em `previousSessionId`, e um erro de leitura do disco mantém o `--resume`. O log de "a sessão viva mudou por dentro"
+passou a trazer o evento e o `source` do hook, só quando são valores conhecidos. Funciona igual no Claude e no Codex.
+
+**Correção no runner: o Enter só se repete com o texto na caixa, e a fila de pedidos fica mais segura contra queda.** O
+runner repetia o Enter quando o agente não confirmava um pedido, sem olhar o que estava na tela, e podia aprovar uma
+permissão ou mandar um rascunho seu. Agora ele só repete o Enter se o mesmo texto continua na caixa de digitação. Com
+um diálogo aberto, outro texto ou uma tela que ele não reconhece, ele não aperta nada e guarda o pedido como incerto.
+Se a caixa já está vazia, ele só espera a confirmação. A digitação automática, quando suspensa porque a caixa pode ter
+texto, só volta quando a caixa aparece vazia com o agente parado: uma confirmação que chega não basta. Cada envio agora
+leva o seu próprio pedido e o seu próprio terminal: dois textos para o mesmo terminal (a fila e uma chamada direta) não
+se misturam mais, e, se o terminal for trocado no meio do envio, o runner para de escrever e guarda o pedido. O arquivo
+da fila passa a ser gravado com `fsync` (no arquivo e na pasta) e na versão 2, que um runner antigo recusa em vez de
+executar um pedido incerto. Claude sem nenhum hook por mais de 60 s deixa de dar o pedido por entregue: ele fica guardado
+como incerto. O comando de barra continua guardado em disco até a confirmação própria dele. Pedidos digitados sem
+confirmação passam a aparecer na contagem da fila do painel. A busca da conversa para retomar não para mais num erro em
+uma pasta de projeto. Funciona igual no Claude e no Codex.
+
 ## [1.1.0] - 2026-11-18
 
 - **Correção no aviso de versão nova: o número agora sobe a cada release e, quando é igual, o aviso mostra o commit.** O

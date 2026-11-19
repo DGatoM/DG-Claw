@@ -40,7 +40,7 @@ function naFila(s: Sessao): Array<{ em: number; msg: string | null }> {
 
 function visao(s: Sessao, comMeta: boolean): Record<string, unknown> {
   const fila = naFila(s);
-  const extra = { naFila: fila, naFilaTotal: s.tamanhoDaFila() + (s.itemEmVoo ? 1 : 0) };
+  const extra = { naFila: fila, naFilaTotal: s.tamanhoDaFila() };
   // `codexHome` é só leitura: o CODEX_HOME que o último spawn usou, para quem lê o rollout do disco.
   if (!comMeta && s.papel === "principal") return { ...s.estado, codexHome: s.codexHome(), ...extra };
   return {
@@ -397,7 +397,23 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             return;
           }
           if (enviar) {
-            await sessao.digitarEEnviar(texto);
+            const confirmado = await sessao.digitarEEnviar(texto);
+            if (!confirmado) {
+              // 502, e não 4xx: o texto PODE ter sido escrito no terminal (um 4xx diria "comprovadamente não entrou"
+              // e o chamador reenviaria, repetindo o pedido). Quem chama deve conferir a conversa antes de reenviar.
+              json(
+                res,
+                {
+                  success: false,
+                  error: `Não sei se o agente ${sessao.slug} recebeu o texto: o terminal mudou ou o envio foi interrompido (por um diálogo, outro texto na caixa ou um reinício) depois de o texto poder ter sido digitado. A entrega é incerta.`,
+                  howToFix: "O runner ainda pode concluir a entrega nos próximos ~2 minutos: espere, confira a conversa do agente e só reenvie se o pedido não aparecer.",
+                  code: "ENTREGA_INCERTA",
+                  data: { enviado: false, submit: enviar, chars: texto.length },
+                },
+                502,
+              );
+              return;
+            }
           } else {
             sessao.escrever(texto);
           }

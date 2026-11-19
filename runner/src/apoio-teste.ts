@@ -233,3 +233,13 @@ export async function portaLivre(): Promise<number> {
     });
   });
 }
+
+/** Grava o transcript de uma conversa do Claude no CLAUDE_CONFIG_DIR de teste. O runner só retoma (--resume) um id
+ *  cujo histórico existe no disco; o Claude falso não grava transcript, então o teste que espera uma retomada o faz aqui. */
+export function gravarTranscriptDoClaude(sessionId: string): string {
+  const pasta = path.join(process.env.CLAUDE_CONFIG_DIR as string, "projects", "proj-teste");
+  fs.mkdirSync(pasta, { recursive: true });
+  const arquivo = path.join(pasta, `${sessionId}.jsonl`);
+  fs.writeFileSync(arquivo, JSON.stringify({ type: "user", message: { role: "user", content: "oi" } }) + "\n");
+  return arquivo;
+}

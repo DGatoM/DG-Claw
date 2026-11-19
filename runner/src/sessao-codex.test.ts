@@ -97,7 +97,7 @@ test("Codex: o Enter sem recibo é repetido (o primeiro foi tratado como colagem
   await esperarAte(() => s.estado.status === "idle", 6_000);
   await s.digitarEEnviar("texto que precisa de dois Enters");
   await esperarAte(() => lerLinhasJson(amb.logDosClis).some((l) => l.bin === "codex" && l.texto === "texto que precisa de dois Enters"), 4_000, "o prompt entrar");
-  assert.match(lerTexto(amb.logDoRunner), /o Enter 1\/3 não virou turno em 3000ms; batendo na tecla de novo/);
+  assert.match(lerTexto(amb.logDoRunner), /o Enter 1\/3 não virou turno em 3000ms; o mesmo texto continua na caixa, batendo na tecla de novo/);
   assert.ok(entradasDe(id).length >= 1);
 });
 
@@ -392,4 +392,161 @@ test("Codex login expirado: auth.json regravado depois do aviso reinicia RETOMAN
   await esperarAte(() => s.estado.status === "idle", 8_000, "voltar a idle");
   assert.equal(s.estado.loginExpiradoEm, null);
   assert.equal(s.recusaDeEntrada(), null);
+});
+
+// --- pedido digitado sem recibo (incidente de 18/11/2026), no Codex --------------------------------------------
+
+const promptsDe = (texto: string) =>
+  lerLinhasJson(amb.logDosClis).filter((l) => l.bin === "codex" && l.modo === "prompt" && l.texto === texto).length;
+const filaEmDisco = (s: { arquivoDaFila: string }): Array<Record<string, unknown>> => {
+  try {
+    return JSON.parse(fs.readFileSync(s.arquivoDaFila, "utf8")).itens;
+  } catch {
+    return [];
+  }
+};
+const matarOTerminal = (s: { proc: unknown }) => (s.proc as { kill(): void }).kill();
+
+test("Codex sem recibo: o pedido digitado sem task_started fica pendente e, com o terminal morto, fica retido e NUNCA é digitado de novo", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  logarCodex(amb);
+  const { s } = await nova({}, undefined, { reciboVigiaPassosMs: [300, 300] });
+  process.env.FAKE_CODEX_IGNORE_ENTERS = "999";
+  await s.subir("nova");
+  delete process.env.FAKE_CODEX_IGNORE_ENTERS;
+  await esperarAte(() => s.estado.status === "idle", 6_000);
+  s.enfileirarQuandoOcioso("pedido-codex-que-some-1");
+  await esperarAte(() => /ainda não confirmou que aceitou o pedido/.test(lerTexto(amb.logDoRunner).slice(marcaDoLog)), 40_000, "o aviso de pedido sem recibo");
+  assert.equal(promptsDe("pedido-codex-que-some-1"), 0, "o Codex ignorou todos os Enters");
+  assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.digitado]), [["pedido-codex-que-some-1", true]]);
+
+  matarOTerminal(s);
+  await esperarAte(() => s.estado.status === "resumable" || s.estado.status === "stopped", 8_000, "o terminal morrer");
+  assert.equal(s.semRecibo.length, 0);
+  assert.equal(s.filaQuandoIdle.length, 0, "não volta para a fila");
+  assert.deepEqual(s.retidos.map((i) => [i.texto, i.incerto]), [["pedido-codex-que-some-1", true]]);
+  assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), /ficou retido sem confirmação: o terminal (saiu|foi encerrado)/);
+
+  await s.subir("retomar");
+  await esperarAte(() => s.estado.status === "idle", 10_000);
+  await dormir(2_500);
+  assert.equal(promptsDe("pedido-codex-que-some-1"), 0, "não foi enviado sozinho");
+  assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.incerto]), [["pedido-codex-que-some-1", true]]);
+});
+
+test("Codex: mesmo com o id da conversa e o rollout sem o pedido, o pedido sem recibo fica retido e não sai sozinho", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  logarCodex(amb);
+  const { s } = await nova({}, undefined, { reciboVigiaPassosMs: [300, 300] });
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000);
+  await s.digitarEEnviar("primeira-conversa-codex");
+  await esperarAte(() => s.estado.sessionId !== null && s.estado.status === "idle", 10_000, "o turno acabar com o id conhecido");
+  matarOTerminal(s);
+  await esperarAte(() => s.estado.status === "resumable", 8_000);
+  process.env.FAKE_CODEX_IGNORE_ENTERS = "999"; // o Codex retomado ignora todos os Enters
+  await s.subir("retomar");
+  delete process.env.FAKE_CODEX_IGNORE_ENTERS;
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  s.enfileirarQuandoOcioso("pedido-codex-seguro-1");
+  await esperarAte(() => /ainda não confirmou que aceitou o pedido/.test(lerTexto(amb.logDoRunner).slice(marcaDoLog)), 40_000, "o aviso de pedido sem recibo");
+  matarOTerminal(s);
+  await esperarAte(() => s.estado.status === "resumable", 8_000);
+  await s.subir("retomar");
+  await esperarAte(() => s.estado.status === "idle", 10_000);
+  await dormir(2_500);
+  assert.equal(s.semRecibo.length, 0);
+  assert.equal(s.filaQuandoIdle.length, 0);
+  assert.equal(promptsDe("pedido-codex-seguro-1"), 0, "o Codex ignorou os Enters e o pedido não foi digitado de novo");
+  assert.deepEqual(s.retidos.map((i) => [i.texto, i.incerto]), [["pedido-codex-seguro-1", true]]);
+});
+
+test("Codex: a retomada passa ao vigia o rollout já achado, mesmo mais antigo que a janela de busca do vigia", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000);
+  await s.digitarEEnviar("conversa-antiga-codex");
+  await esperarAte(() => s.estado.sessionId !== null && s.estado.status === "idle", 10_000);
+  const uuid = s.estado.sessionId!;
+  matarOTerminal(s);
+  await esperarAte(() => s.estado.status === "resumable", 8_000);
+  // O rollout vai para um dia antigo, atrás de 50 pastas de dias mais novos (a busca do vigia olha só as 45 mais novas).
+  const atual = acharRolloutPorId(uuid, amb.codexHome)!;
+  const antiga = path.join(amb.codexHome, "sessions", "2020", "01", "01");
+  fs.mkdirSync(antiga, { recursive: true });
+  fs.renameSync(atual, path.join(antiga, path.basename(atual)));
+  for (let d = 1; d <= 50; d++) fs.mkdirSync(path.join(amb.codexHome, "sessions", "2025", "01", String(d).padStart(2, "0")), { recursive: true });
+  assert.equal(acharRolloutPorId(uuid, amb.codexHome), null, "a busca padrão do vigia não alcança o rollout");
+  await s.subir("retomar");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const antes = s.promptsAceitos;
+  await s.digitarEEnviar("segunda-na-antiga");
+  await esperarAte(() => s.promptsAceitos > antes, 10_000, "o vigia ler o rollout antigo e dar o recibo");
+});
+
+test("Codex com recibo: o pedido que abriu turno (task_started) não é reentregue depois do terminal morrer e subir de novo", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000);
+  s.enfileirarQuandoOcioso("pedido-codex-com-recibo-1");
+  await esperarAte(() => promptsDe("pedido-codex-com-recibo-1") === 1, 30_000, "o pedido ser digitado");
+  await esperarAte(() => s.semRecibo.length === 0 && filaEmDisco(s).length === 0 && !s.soltandoFila, 10_000, "o recibo limpar o pendente");
+  await esperarAte(() => s.estado.sessionId !== null, 6_000);
+  matarOTerminal(s);
+  await esperarAte(() => s.estado.status === "resumable", 8_000);
+  assert.equal(s.filaQuandoIdle.length, 0);
+  await s.subir("retomar");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  await dormir(4_000);
+  assert.equal(promptsDe("pedido-codex-com-recibo-1"), 1);
+});
+
+test("Codex com recibo atrasado: o task_started que chega depois dos 3 Enters tira o pedido do pendente e não duplica", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  logarCodex(amb);
+  const { s } = await nova({}, undefined, { reciboVigiaPassosMs: [500, 500] });
+  process.env.FAKE_CODEX_IGNORE_ENTERS = "3";
+  await s.subir("nova");
+  delete process.env.FAKE_CODEX_IGNORE_ENTERS;
+  await esperarAte(() => s.estado.status === "idle", 6_000);
+  s.enfileirarQuandoOcioso("pedido-codex-atrasado-1");
+  await esperarAte(() => /ainda não confirmou que aceitou o pedido/.test(lerTexto(amb.logDoRunner).slice(marcaDoLog)), 40_000, "o aviso de pedido sem recibo");
+  await esperarAte(() => /o recibo do texto digitado \(\d+ caracteres\) chegou atrasado/.test(lerTexto(amb.logDoRunner).slice(marcaDoLog)), 10_000, "o recibo atrasado");
+  assert.equal(promptsDe("pedido-codex-atrasado-1"), 1);
+  await esperarAte(() => s.semRecibo.length === 0 && filaEmDisco(s).length === 0, 8_000);
+  await esperarAte(() => s.estado.sessionId !== null, 6_000);
+  matarOTerminal(s);
+  await esperarAte(() => s.estado.status === "resumable", 8_000);
+  assert.equal(s.filaQuandoIdle.length, 0, "o pedido não volta para a fila");
+  await s.subir("retomar");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  await dormir(3_000);
+  assert.equal(promptsDe("pedido-codex-atrasado-1"), 1, "nunca duplicado");
+});
+
+test("Codex: id sem rollout no disco sobe a sessão NOVA direto (sem 'codex resume' que falha)", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  logarCodex(amb);
+  const { s, id } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000);
+  s.parar("reboot simulado");
+  const fantasma = "11111111-2222-4333-8444-555555555555";
+  s.mudar({ sessionId: fantasma });
+  assert.equal(await s.subir("retomar"), "nova");
+  assert.equal(s.estado.previousSessionId, fantasma);
+  await esperarAte(() => entradasDe(id).length >= 2, 5_000, "o Codex reabrir");
+  assert.equal(entradasDe(id)[1].argv[0] === "resume", false, "nem tentou o resume");
+  assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), new RegExp(`não retomo a sessão ${fantasma}: o histórico dela não está no disco \\(rollout do Codex`));
+});
+
+test("Codex: pasta de sessões que não abre (erro de leitura, não ENOENT) mantém o 'codex resume' em vez de abandonar a conversa", async () => {
+  const { inspecionarRolloutPorId } = await import("./provedores/codex-rollout.js");
+  const casa = fs.mkdtempSync(path.join(amb.raiz, "codex-ilegivel-"));
+  fs.writeFileSync(path.join(casa, "sessions"), "nao e uma pasta"); // readdir dá ENOTDIR: não é ausência comprovada
+  const fantasma = "11111111-2222-4333-8444-555555555556";
+  assert.equal(inspecionarRolloutPorId(fantasma, casa).estado, "inconclusivo");
+  assert.equal(inspecionarRolloutPorId(fantasma, path.join(casa, "outra")).estado, "nao-existe", "ENOENT é ausência comprovada");
 });

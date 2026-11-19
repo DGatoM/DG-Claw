@@ -5,7 +5,7 @@ import http from "node:http";
 import WebSocket from "ws";
 import path from "node:path";
 import {
-  chaveFalsa, chaveFalsaOpenai, dormir, esperarAte, lerLinhasJson, lerTexto, logarClaude, logarCodex, portaLivre, prepararAmbiente,
+  chaveFalsa, chaveFalsaOpenai, dormir, esperarAte, lerLinhasJson, lerTexto, gravarTranscriptDoClaude, logarClaude, logarCodex, portaLivre, prepararAmbiente,
 } from "./apoio-teste.js";
 
 const amb = prepararAmbiente("servidor", {
@@ -237,6 +237,7 @@ test("login expirado: o turno é recusado com 409 LOGIN_EXPIRADO, a tecla passa,
   await req("POST", `/api/agents/${ID}/reiniciar`);
   await esperarAte(() => principal.estado.status === "idle", 8_000, "idle com a conta conectada");
   const sessionId = principal.estado.sessionId!;
+  gravarTranscriptDoClaude(sessionId);
   (principal as unknown as { marcarLoginExpirado(o: string, q: number | null, d: string | null): void }).marcarLoginExpirado("teste", null, null);
 
   const g = await req("GET", `/api/agents/${ID}`);

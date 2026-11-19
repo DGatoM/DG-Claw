@@ -4,7 +4,7 @@ import { mascarar } from "../mascara.js";
 import { RX_LOGIN_EXPIRADO } from "../transcript.js";
 import { spawn } from "./ciclo.js";
 import { STOP_CONFIRM_MS } from "./constantes.js";
-import { talvezSoltarFila } from "./fila.js";
+import { confirmarRecibos, talvezSoltarFila } from "./fila.js";
 import { conferirLoginExpiradoNoTranscript, marcarLoginExpirado } from "./login.js";
 import { nonceConfere } from "./telas.js";
 
@@ -25,6 +25,10 @@ export interface PayloadDeHook extends PayloadDeEvento {
   nonce?: string;
 }
 
+/** Os eventos de hook que o runner trata (os `case` de aplicarEvento) e as origens de SessionStart do Claude Code. */
+const EVENTOS_CONHECIDOS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "PreCompact", "Stop", "StopBloqueado", "StopFailure"];
+const ORIGENS_CONHECIDAS = ["startup", "resume", "clear", "compact"];
+
 /** Recebe o POST do handler de hook (o do Claude ou o `notify` do Codex). Nonce errado é
  *  descartado: é hook de um PTY já morto, ou de um processo que não é este. O evento SÓ
  *  muda o status: nunca injeta texto, nunca dispara comando e nunca devolve conteúdo. */
@@ -42,7 +46,12 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
   // dentro (um `/resume` digitado no TUI), caso em que o id que guardamos
   // ficaria apontando para uma conversa que ninguém mais escreve.
   if (payload.sessionId && payload.sessionId !== s.estado.sessionId) {
-    log.info(s.a("hook"), `a sessão viva mudou por dentro: ${s.estado.sessionId} -> ${payload.sessionId}`);
+    // Quem causou: o evento e o source do hook (SessionStart com source=resume/clear/compact/startup...).
+    // Só valores conhecidos do protocolo entram no log: o que vem do hook não é confiável e não deve virar texto de log.
+    const evento = payload.event ? (EVENTOS_CONHECIDOS.includes(payload.event) ? payload.event : "outro") : null;
+    const origem = payload.source ? (ORIGENS_CONHECIDAS.includes(payload.source) ? payload.source : "outro") : null;
+    const causa = [evento ? `evento ${evento}` : null, origem ? `source ${origem}` : null].filter(Boolean).join(", ");
+    log.info(s.a("hook"), `a sessão viva mudou por dentro: ${s.estado.sessionId} -> ${payload.sessionId}${causa ? ` (${causa})` : ""}`);
     s.mudar({
       sessionId: payload.sessionId,
       previousSessionId: s.estado.sessionId ?? s.estado.previousSessionId ?? null,
@@ -85,6 +94,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       // de que o texto virou turno em vez de ficar escrito na caixa. Quem espera
       // por ele é o enviarComRecibo().
       s.promptsAceitos += 1;
+      confirmarRecibos(s);
       s.turnoComecouEm = Date.now();
       s.mudar({ status: "working", hookLatched: false, statusReason: "hook:UserPromptSubmit" });
       break;

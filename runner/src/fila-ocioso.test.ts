@@ -48,3 +48,88 @@ test("fila vazia apaga o arquivo", () => {
   assert.equal(fs.existsSync(arq), false);
   gravarFila(arq, [], "teste"); // apagar o que não existe não pode lançar
 });
+
+test("o arquivo é gravado com versao 2 e a leitura aceita as versões 1 e 2", () => {
+  const estado = pastaTemporaria("fila");
+  const arq = caminhoDaFila(estado, "v");
+  gravarFila(arq, [{ texto: "a", em: 1, digitado: true, incerto: true }], "teste");
+  assert.equal(JSON.parse(fs.readFileSync(arq, "utf8")).versao, 2);
+  assert.deepEqual(carregarFila(arq, "teste").map((i) => [i.texto, i.digitado, i.incerto]), [["a", true, true]]);
+});
+
+test("item vindo da versão 1 não tem digitado nem incerto, mesmo que o arquivo os traga", () => {
+  const estado = pastaTemporaria("fila");
+  const arq = caminhoDaFila(estado, "v1");
+  fs.mkdirSync(path.dirname(arq), { recursive: true });
+  fs.writeFileSync(arq, JSON.stringify({ versao: 1, itens: [{ texto: "antigo", em: 5, digitado: true, incerto: true }] }));
+  const itens = carregarFila(arq, "teste");
+  assert.equal(itens.length, 1);
+  assert.equal(itens[0]!.texto, "antigo");
+  assert.equal("digitado" in itens[0]!, false);
+});
+
+test("fila versão 1 não vazia: o primeiro item entra como incerto e os demais seguem comuns, na ordem", () => {
+  const estado = pastaTemporaria("fila");
+  const arq = caminhoDaFila(estado, "v1b");
+  fs.mkdirSync(path.dirname(arq), { recursive: true });
+  fs.writeFileSync(arq, JSON.stringify({ versao: 1, itens: [{ texto: "em voo", em: 1 }, { texto: "segundo", em: 2 }, { texto: "terceiro", em: 3 }] }));
+  assert.deepEqual(carregarFila(arq, "teste").map((i) => [i.texto, i.incerto === true]), [["em voo", true], ["segundo", false], ["terceiro", false]]);
+  const v2 = caminhoDaFila(estado, "v2b");
+  fs.writeFileSync(v2, JSON.stringify({ versao: 2, itens: [{ texto: "a", em: 1 }] }));
+  assert.equal(carregarFila(v2, "teste")[0]!.incerto, undefined, "versão 2 não muda");
+});
+
+test("versão desconhecida do arquivo é tratada como corrompida (guardada, fila vazia)", () => {
+  const estado = pastaTemporaria("fila");
+  const arq = caminhoDaFila(estado, "v3");
+  fs.mkdirSync(path.dirname(arq), { recursive: true });
+  fs.writeFileSync(arq, JSON.stringify({ versao: 3, itens: [{ texto: "x", em: 1 }] }));
+  assert.deepEqual(carregarFila(arq, "teste"), []);
+  assert.equal(fs.readdirSync(path.dirname(arq)).some((n) => n.includes(".corrompido-")), true);
+});
+
+test("a gravação faz fsync do temporário antes do rename e da pasta depois; só então devolve true", () => {
+  const estado = pastaTemporaria("fila");
+  const arq = caminhoDaFila(estado, "fs");
+  const chamadas: string[] = [];
+  const fsync = fs.fsyncSync;
+  const rename = fs.renameSync;
+  (fs as unknown as { fsyncSync: (fd: number) => void }).fsyncSync = (fd: number) => { chamadas.push("fsync"); return fsync(fd); };
+  (fs as unknown as { renameSync: (a: string, b: string) => void }).renameSync = (a: string, b: string) => { chamadas.push("rename"); return rename(a, b); };
+  try {
+    assert.equal(gravarFila(arq, [{ texto: "a", em: 1 }], "teste"), true);
+  } finally {
+    (fs as unknown as { fsyncSync: typeof fsync }).fsyncSync = fsync;
+    (fs as unknown as { renameSync: typeof rename }).renameSync = rename;
+  }
+  assert.deepEqual(chamadas, ["fsync", "rename", "fsync"], "fsync do arquivo, rename, fsync da pasta");
+});
+
+test("se o fsync falha, a gravação não conta como sucesso e nenhum temporário sobra", () => {
+  const estado = pastaTemporaria("fila");
+  const arq = caminhoDaFila(estado, "fs-falha");
+  const fsync = fs.fsyncSync;
+  (fs as unknown as { fsyncSync: (fd: number) => void }).fsyncSync = () => { throw Object.assign(new Error("EIO simulado"), { code: "EIO" }); };
+  try {
+    assert.equal(gravarFila(arq, [{ texto: "a", em: 1 }], "teste"), false);
+  } finally {
+    (fs as unknown as { fsyncSync: typeof fsync }).fsyncSync = fsync;
+  }
+  assert.equal(fs.existsSync(arq), false);
+  assert.deepEqual(fs.readdirSync(path.dirname(arq)), [], "nenhum .tmp sobra");
+});
+
+test("gravar: writeSync que grava só parte dos bytes não deixa o arquivo da fila truncado", () => {
+  const estado = pastaTemporaria("fila");
+  const arq = caminhoDaFila(estado, "parcial");
+  const original = fs.writeSync;
+  // Simula um writeSync que só aceita 7 bytes por chamada.
+  (fs as unknown as { writeSync: unknown }).writeSync = (fd: number, buf: Buffer, off: number, len: number) =>
+    original(fd, buf, off, Math.min(7, len));
+  try {
+    assert.equal(gravarFila(arq, [{ texto: "um texto bem mais comprido que sete bytes", em: 1 }], "teste"), true);
+  } finally {
+    (fs as unknown as { writeSync: unknown }).writeSync = original;
+  }
+  assert.deepEqual(carregarFila(arq, "teste").map((i) => i.texto), ["um texto bem mais comprido que sete bytes"]);
+});

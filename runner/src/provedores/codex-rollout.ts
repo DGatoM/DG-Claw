@@ -378,3 +378,47 @@ export function mensagensDoRollout(arquivo: string, quantas = 6, segredos?: Iter
   }
   return fora.slice(-Math.max(1, quantas));
 }
+
+export type InspecaoDoRollout =
+  | { estado: "achou"; arquivo: string }
+  | { estado: "nao-existe" }
+  | { estado: "inconclusivo"; motivo: string };
+
+/** Como acharRolloutPorId (em TODOS os dias com sessão), mas separa "não existe" (a pasta de sessões foi varrida e o
+ *  id não está nela, ou ela não existe: ENOENT) de "não deu para saber" (qualquer outro erro ao ler uma pasta). Quem
+ *  abandona uma conversa com base na ausência precisa dessa diferença. */
+export function inspecionarRolloutPorId(sessionId: string, codexHome: string): InspecaoDoRollout {
+  if (!SO_UUID_RE.test(sessionId)) return { estado: "nao-existe" };
+  const sufixo = `-${sessionId.toLowerCase()}.jsonl`;
+  const ler = (dir: string): string[] | "ausente" => {
+    try {
+      return fs.readdirSync(dir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return "ausente";
+      throw err;
+    }
+  };
+  try {
+    const raiz = path.join(codexHome, "sessions");
+    const anos = ler(raiz);
+    if (anos === "ausente") return { estado: "nao-existe" };
+    for (const ano of anos.filter((d) => /^\d{4}$/.test(d)).sort().reverse()) {
+      const meses = ler(path.join(raiz, ano));
+      if (meses === "ausente") continue;
+      for (const mes of meses.filter((d) => /^\d{2}$/.test(d)).sort().reverse()) {
+        const dias = ler(path.join(raiz, ano, mes));
+        if (dias === "ausente") continue;
+        for (const dia of dias.filter((d) => /^\d{2}$/.test(d)).sort().reverse()) {
+          const dir = path.join(raiz, ano, mes, dia);
+          const arquivos = ler(dir);
+          if (arquivos === "ausente") continue;
+          const f = arquivos.find((e) => e.toLowerCase().endsWith(sufixo));
+          if (f) return { estado: "achou", arquivo: path.join(dir, f) };
+        }
+      }
+    }
+    return { estado: "nao-existe" };
+  } catch (err) {
+    return { estado: "inconclusivo", motivo: err instanceof Error ? err.message : String(err) };
+  }
+}
