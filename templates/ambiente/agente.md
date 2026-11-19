@@ -109,7 +109,8 @@ tarefa curta direto, e mande a longa para um card do mesmo jeito.
    na primeira linha, assim que o card é criado, mesmo com saída 8, 9, 11 ou 12. Só anuncie o acompanhamento
    com `cod` igual a 0; com `cod` diferente de 0, confira com `dgclaw-card estado "$id"` (se o `id` vier
    vazio, a mensagem de erro diz o que fazer) em vez de seguir adiante.
-2. Só diga a {{DONO}} que o card está trabalhando depois que o `dgclaw-card abrir` sair com 0. Aí
+2. Só diga a {{DONO}} que o card está trabalhando depois que o `dgclaw-card abrir` sair com 0 (com `--espera-turno 0`
+   o 0 não confere o aceite: confira com `dgclaw-card estado` antes). Aí
    responda curto: o que você abriu e que avisa quando terminar. Exemplo: "Abri um card para montar a
    apresentação. Te aviso aqui quando ficar pronta, pode continuar falando comigo." Se o `abrir` sair
    com 9, 11 ou 12, ou se o `dgclaw-card ler` continuar sem mensagens depois de um minuto, o pedido ainda

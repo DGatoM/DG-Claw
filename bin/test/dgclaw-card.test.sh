@@ -220,6 +220,7 @@ subir sem-login
 ok "sem login sai com 5" $([ $c = 5 ] && echo 0 || echo 1)
 grep -q "o Codex deste agente ainda nao esta conectado" "$T/e" && grep -q "cartao Modelo e autenticacao" "$T/e"; ok "sem login vira a frase para o dono" $?
 grep -q '"metodo":"DELETE"' "$LOG"; ok "sem login fecha o card recem criado (nao ocupa vaga)" $?
+[ "$(head -1 "$T/o")" = "card-abc123" ] && grep -q "foi fechado porque o agente esta sem login" "$T/e"; ok "sem login: o id sai assim que o card existe e o aviso diz que ele foi fechado" $?
 
 # --- input falha depois de criar: 4xx prova que nao entrou; 5xx ou resposta perdida e entrega incerta ---------------
 subir input-recusado
@@ -270,6 +271,12 @@ subir sem-login-delete-falha
 "$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
 ok "sem login com DELETE falho ainda sai com 5" $([ $c = 5 ] && echo 0 || echo 1)
 grep -q "nao confirmei a remocao do card card-abc123" "$T/e" && [ "$(head -1 "$T/o")" = "card-abc123" ]; ok "DELETE nao 2xx informa o id e a remocao nao confirmada" $?
+
+# --- --espera-turno 0: sai com 0, mas nao afirma que o card esta trabalhando --------------------------------------
+subir sem-turno
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 0 >"$T/o" 2>"$T/e"; c=$?
+ok "--espera-turno 0 sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
+grep -q "NAO foi verificado" "$T/o" && ! grep -q "Card aberto" "$T/o"; ok "--espera-turno 0 diz que o aceite nao foi verificado e nao imprime 'Card aberto'" $?
 
 # --- ler: pedido guardado na fila de card parado -> Retomar ----------------------------------------------------
 subir fila-parada

@@ -285,6 +285,10 @@ function registrar(router, { CONFIG }) {
     if (st === 'spawning' && semPrimeiroTurno(ag, fala)) {
       return { grupo: 'trabalhando', estado: 'trabalhando', motivo: 'o terminal ainda está abrindo: o pedido ainda não virou turno', tem_terminal: true };
     }
+    // Terminal ativo sem recibo (ex.: compactando): o pedido ainda não virou turno, então não é "trabalhando no primeiro turno".
+    if (st === 'working' && semPrimeiroTurno(ag, fala)) {
+      return { grupo: 'trabalhando', estado: 'trabalhando', motivo: 'o terminal está ativo (por exemplo, compactando), mas o pedido ainda não virou turno', tem_terminal: true };
+    }
     switch (st) {
       case 'waiting_input':
         return { grupo: 'esperando_voce', estado: ag.pendingPermission ? 'pedindo_permissao' : 'esperando_resposta', motivo: 'esperando sua decisão', tem_terminal: true };
@@ -501,6 +505,9 @@ function registrar(router, { CONFIG }) {
       return 'O terminal ainda está abrindo e o pedido ainda não virou turno. Aguarde e confira o estado daqui a pouco.';
     }
     if (it.grupo === 'fechado') return 'A sessão está dormindo, sem terminal aberto. Ela acorda com um recado ou com Retomar.';
+    if (it.grupo === 'trabalhando' && /ainda não virou turno/.test(it.motivo)) {
+      return 'O terminal está ativo (por exemplo, compactando a conversa), mas o pedido ainda não virou turno. Aguarde e confira o estado daqui a pouco, sem reenviar.';
+    }
     if (it.grupo === 'trabalhando') return 'A sessão está trabalhando no primeiro turno e a conversa ainda não gravou nada.';
     return 'Esta sessão ainda não tem mensagens.';
   }

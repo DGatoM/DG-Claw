@@ -235,6 +235,9 @@ cmd_abrir() {
   id="$(campo .data.id)"
   [ -n "$id" ] || CODIGO=6 die "o runner criou o card mas nao devolveu o id (resposta inesperada). Veja 'dgclaw-card listar'."
   [[ "$id" =~ ^[A-Za-z0-9._-]+$ ]] || CODIGO=6 die "o runner devolveu um id de card com caracteres invalidos. Veja 'dgclaw-card listar'."
+  # O id sai uma vez no stdout assim que o card existe, antes do /input: se este processo for interrompido na
+  # entrega, quem chamou ja tem o id para consultar o card.
+  echo "$id"
 
   # O /input pode falhar depois do card existir. Sem login, o card nao serve para nada: fecha para nao ocupar vaga.
   # Se a chamada falhar, HTTP fica 000 e o case abaixo cai no ramo de erro, que avisa e sai.
@@ -247,18 +250,16 @@ cmd_abrir() {
       code="$(campo .code)"
       if [ "$code" = "SEM_LOGIN" ] || [ "$code" = "SEM_CHAVE" ]; then
         if ! chamar DELETE "/api/sessoes/$id"; then
-          echo "$id"; erro "aviso: o card $id ficou aberto porque o runner nao respondeu ao pedido de fechamento. Feche com: dgclaw-card fechar $id --forcar."
+          erro "aviso: o card $id ficou aberto porque o runner nao respondeu ao pedido de fechamento. Feche com: dgclaw-card fechar $id --forcar."
         else
           case "$HTTP" in
-            2??) ;;
-            *) echo "$id"; erro "aviso: nao confirmei a remocao do card $id (o runner respondeu HTTP $HTTP ao pedido de fechamento). O card pode ter ficado aberto. Confira com 'dgclaw-card listar' e feche com: dgclaw-card fechar $id --forcar." ;;
+            2??) erro "aviso: o card $id foi fechado porque o agente esta sem login; o id acima nao vale mais." ;;
+            *) erro "aviso: nao confirmei a remocao do card $id (o runner respondeu HTTP $HTTP ao pedido de fechamento). O card pode ter ficado aberto. Confira com 'dgclaw-card listar' e feche com: dgclaw-card fechar $id --forcar." ;;
           esac
         fi
         HTTP="$http_input"; RESP="$resp_input"
         falha_geral
       fi
-      # O id sai uma vez no stdout assim que o card existe e nao foi fechado por nos.
-      echo "$id"
       case "$http_input:$code" in
         503:SEM_CAPACIDADE|500:NAO_ACORDOU)
           # Recusa do runner por falta de capacidade ou por nao conseguir acordar a sessao: veio antes da fila.
@@ -289,15 +290,17 @@ cmd_abrir() {
           CODIGO=$([ "$http_input" = "000" ] && echo 2 || echo 6) die "entrega incerta: o card $id foi criado e nao sei se o pedido entrou ($causa). O card pode ja estar trabalhando. Confira com 'dgclaw-card estado $id' e 'dgclaw-card ler $id', conte ao dono o que viu e NAO reenvie o pedido nem faca a tarefa pela conversa principal.$aviso_mon" ;;
       esac ;;
   esac
-  # Ate aqui o id ainda nao saiu: sai agora (uma vez so), antes de qualquer espera que possa terminar com 8, 9, 11 ou 12.
-  echo "$id"
   # O /input responde 202 assim que o texto entra na fila, antes de o CLI aceitar o pedido como turno.
   # So dizemos "card aberto" depois de ver o primeiro turno; senao o agente avisa o dono de um trabalho que nao existe.
   # O monitor entra ANTES da espera: se o pedido nao virar turno (9) ou a consulta falhar (11), o card ja tem vigia.
   MON_OUT=""
   [ "$monitor" = 0 ] || ligar_monitor "$id" "$entregue" "$cada"
-  [ "$espera" = 0 ] || esperar_primeiro_turno "$id" "$espera"
-  echo "Card aberto em $(nome_do_provedor "$provedor"). Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
+  if [ "$espera" = 0 ]; then
+    echo "Card criado em $(nome_do_provedor "$provedor") e pedido entregue a fila. Com --espera-turno 0 o aceite do pedido NAO foi verificado: nao diga ao dono que o card esta trabalhando antes de conferir com 'dgclaw-card estado $id'."
+  else
+    esperar_primeiro_turno "$id" "$espera"
+    echo "Card aberto em $(nome_do_provedor "$provedor"). Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
+  fi
   [ -z "$MON_OUT" ] || echo "$MON_OUT"
 }
 

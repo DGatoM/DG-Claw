@@ -125,7 +125,8 @@ fi
 ```
 
 Card de tarefa longa nasce SEMPRE com `--monitor --entregue "<critério>"`, no mesmo turno. Só diga ao
-dono que o card está trabalhando depois que o `dgclaw-card abrir` sair com 0. O id sai na primeira linha
+dono que o card está trabalhando depois que o `dgclaw-card abrir` sair com 0 (com `--espera-turno 0` o 0 não
+confere o aceite: confira com `dgclaw-card estado` antes). O id sai na primeira linha
 assim que o card é criado, mesmo com saída diferente de 0. Se sair com 9 (o pedido não virou turno), 11
 (não deu para confirmar) ou 12 (o turno falhou), ou se a mensagem disser "entrega incerta", o pedido pode
 ter sido entregue: não faça a tarefa pela conversa principal, não feche o card e não reenvie por conta

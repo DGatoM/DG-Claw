@@ -55,7 +55,8 @@ fi
 - Capture a saída e o código antes de pegar o id: com `| head -1` direto, o código de saída do `abrir` se perde.
   O id sai uma vez, na primeira linha, assim que o card é criado, mesmo quando o `abrir` termina com 8, 9, 11 ou 12.
   O `abrir` só imprime "Card aberto" e só sai com 0 quando o pedido virou o primeiro turno do card (espera até
-  60 s). Só siga para o `esperar` e só avise o dono com `cod` igual a 0. Com `cod` diferente de 0, confira com
+  60 s). Com `--espera-turno 0` o `abrir` sai com 0 sem conferir o aceite (diz "Card criado", não "Card aberto"):
+  aí confira com `dgclaw-card estado "$id"` antes de avisar o dono. Só siga para o `esperar` e só avise o dono com `cod` igual a 0. Com `cod` diferente de 0, confira com
   `dgclaw-card estado "$id"` e conte ao dono, sem repetir o pedido.
 - `esperar` serve para card CURTO ou segunda opinião, em que a resposta sai em poucos minutos. Para tarefa
   longa, a sessão principal NÃO espera: abre o card com `--monitor`, fica livre para conversar com o dono
