@@ -576,13 +576,27 @@ CADDY_SITE_ARQUIVO=""
 CADDY_SITE_COPIA=""
 CADDY_SITE_SHA=""    # sha256 do que o instalador gravou (so no encode em arquivo personalizado)
 CADDY_SITE_BACKUP="" # copia durabil de antes (idem)
+CADDY_SITE_IDENT=""  # "inode dono grupo modo" do arquivo gravado (idem)
 
 # caddy_restaurar_site: desfaz a ultima escrever_site_caddy (a validacao do Caddy recusou o arquivo novo).
 # Se o arquivo mudou depois de gravado pelo instalador (alguem editou no meio), nao restaura por cima: avisa.
 caddy_restaurar_site() {
+    local tmp
     [ "$CADDY_SITE_MUDOU" = 1 ] && [ -n "$CADDY_SITE_ARQUIVO" ] || return 0
-    if [ -n "$CADDY_SITE_SHA" ] && [ "$(sha256sum <"$CADDY_SITE_ARQUIVO" | cut -d' ' -f1)" != "$CADDY_SITE_SHA" ]; then
-        aviso "${CADDY_SITE_ARQUIVO#"$R"} mudou depois que o instalador o gravou; nao voltei a copia por cima para nao apagar essa edicao. A copia de antes esta em ${CADDY_SITE_BACKUP#"$R"}."
+    if [ -n "$CADDY_SITE_SHA" ]; then
+        # Arquivo gravado pelo encode em site personalizado: so volta se ainda for exatamente o que gravamos
+        # (arquivo comum, nao link, mesmo inode, dono, grupo, modo e conteudo). Senao alguem mexeu: preserva.
+        if [ -L "$CADDY_SITE_ARQUIVO" ] || [ ! -f "$CADDY_SITE_ARQUIVO" ] \
+            || [ "$(stat -c '%i %u %g %a' "$CADDY_SITE_ARQUIVO")" != "$CADDY_SITE_IDENT" ] \
+            || [ "$(sha256sum <"$CADDY_SITE_ARQUIVO" | cut -d' ' -f1)" != "$CADDY_SITE_SHA" ]; then
+            aviso "${CADDY_SITE_ARQUIVO#"$R"} mudou depois que o instalador o gravou; nao voltei a copia por cima para nao apagar essa edicao. A copia de antes esta em ${CADDY_SITE_BACKUP#"$R"}."
+            return 0
+        fi
+        # Troca atomica de um arquivo preparado na mesma pasta, com o modo e o dono do original.
+        tmp="$(mktemp "$(dirname "$CADDY_SITE_ARQUIVO")/.$(basename "$CADDY_SITE_ARQUIVO").XXXXXX")" || return 0
+        if cp --preserve=all "$CADDY_SITE_COPIA" "$tmp" && mv -f "$tmp" "$CADDY_SITE_ARQUIVO"; then return 0; fi
+        rm -f "$tmp"
+        aviso "nao consegui voltar ${CADDY_SITE_ARQUIVO#"$R"} ao que era. A copia de antes esta em ${CADDY_SITE_BACKUP#"$R"}."
         return 0
     fi
     if [ -n "$CADDY_SITE_COPIA" ] && [ -f "$CADDY_SITE_COPIA" ]; then
@@ -604,18 +618,23 @@ caddy_gerar_com_encode() {
     awk -v porta="$porta" -v tipos="$tipos" '
         { linhas[NR] = $0 }
         END {
-            abre = 0; fecha = 0; proxy = 0; alvo = 0
+            abre = 0; fecha = 0; proxy = 0; alvo = 0; primeiro = 0; ultimo = 0
             for (n = 1; n <= NR; n++) {
                 l = linhas[n]; t = l; sub(/^[ \t]+/, "", t); sub(/[ \t]+#.*$/, "", t); sub(/[ \t\r]+$/, "", t)
                 if (t == "" || t ~ /^#/) continue
+                if (!primeiro) primeiro = n
+                ultimo = n
                 if (t ~ /^import([ \t]|$)/ || t ~ /^encode([ \t{]|$)/) exit 1
-                if (t ~ /\{$/) abre++
-                else if (t == "}") fecha++
+                if (t ~ /<</ || index(t, "`") > 0) exit 1
+                q = t; if (gsub(/"/, "", q) % 2 == 1) exit 1
+                if (t ~ /\{$/) { abre++; if (n != primeiro) exit 1 }
+                else if (t == "}") { fecha++; lastclose = n }
                 if (t ~ /reverse_proxy/) {
                     proxy++
                     if (l ~ ("^(\t|    )reverse_proxy 127\\.0\\.0\\.1:" porta "[ \t\r]*$")) alvo = n
                 }
             }
+            if (lastclose != ultimo) exit 1
             if (abre != 1 || fecha != 1 || proxy != 1 || alvo == 0) exit 1
             for (n = 1; n <= NR; n++) {
                 if (n == alvo) {
@@ -641,11 +660,13 @@ caddy_gerar_com_encode() {
 #  - o candidato sai da copia de antes, e a troca so acontece se o original continua igual a ela, no conteudo e
 #    na identidade (inode, dono, grupo, modo, tamanho, data).
 caddy_acrescentar_encode() {
-    local alvo="$1" porta="$2" pasta="$DG_ETC/caddy-copias" cand durabil rest antes
+    local alvo="$1" porta="$2" pasta="$DG_ETC/caddy-copias" cand durabil rest antes sha ident
     [ -f "$alvo" ] && [ ! -L "$alvo" ] || return 1
+    [ "$(stat -c %h "$alvo")" = 1 ] || return 1
     [ -z "$(tail -c 1 "$alvo")" ] || return 1
-    { (umask 077; mkdir -p "$pasta") && chmod 700 "$pasta"; } 2>/dev/null || return 1
-    antes="$(stat -c '%i %u %g %a %s %Y' "$alvo")" || return 1
+    [ ! -L "$pasta" ] || return 1
+    { (umask 077; mkdir -p "$pasta") && [ -d "$pasta" ] && [ ! -L "$pasta" ] && [ "$(stat -c %u "$pasta")" = 0 ] && chmod 700 "$pasta"; } 2>/dev/null || return 1
+    antes="$(stat -c '%i %u %g %a %s %.9Y %.9Z' "$alvo")" || return 1
     durabil="$(mktemp "$pasta/$(basename "$alvo").antes-encode-$(date +%Y%m%d-%H%M%S).XXXXXX")" || return 1
     rest="$(mktemp "$pasta/restaurar.XXXXXX")" || { rm -f "$durabil"; return 1; }
     cand="$(mktemp "$(dirname "$alvo")/.$(basename "$alvo").XXXXXX")" || { rm -f "$durabil" "$rest"; return 1; }
@@ -653,12 +674,15 @@ caddy_acrescentar_encode() {
         && cp --preserve=all "$alvo" "$rest" 2>/dev/null \
         && cp --preserve=all "$alvo" "$cand" 2>/dev/null \
         && caddy_gerar_com_encode "$durabil" "$porta" "$cand" \
-        && [ "$(stat -c '%i %u %g %a %s %Y' "$alvo")" = "$antes" ] \
+        && sha="$(sha256sum <"$cand" | cut -d' ' -f1)" && [ -n "$sha" ] \
+        && ident="$(stat -c '%i %u %g %a' "$cand")" \
+        && [ "$(stat -c '%i %u %g %a %s %.9Y %.9Z' "$alvo")" = "$antes" ] \
         && cmp -s "$alvo" "$durabil" \
         && mv -f "$cand" "$alvo"; then
         CADDY_SITE_COPIA="$rest"
         CADDY_SITE_BACKUP="$durabil"
-        CADDY_SITE_SHA="$(sha256sum <"$alvo" | cut -d' ' -f1)"
+        CADDY_SITE_SHA="$sha"
+        CADDY_SITE_IDENT="$ident"
         CADDY_SITE_MUDOU=1
         CADDY_SITE_ARQUIVO="$alvo"
         info "${alvo#"$R"} tem personalizacoes suas: acrescentei so o bloco de compressao (encode) e mantive o resto como estava. A copia de antes ficou em ${durabil#"$R"} (so o root le)"
@@ -679,6 +703,7 @@ escrever_site_caddy() {
     CADDY_SITE_COPIA=""
     CADDY_SITE_SHA=""
     CADDY_SITE_BACKUP=""
+    CADDY_SITE_IDENT=""
     if [ ! -f "$cf" ] || grep -q '^# DG Claw' "$cf" || caddyfile_e_padrao "$cf"; then
         alvo="$cf"
     else

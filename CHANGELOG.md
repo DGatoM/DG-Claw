@@ -13,7 +13,7 @@ mostrava um aviso. Agora, quando o site é simples (um único bloco, sem `handle
 `reverse_proxy` e nenhum `encode`), o instalador acrescenta apenas o bloco de compressão logo antes do `reverse_proxy` e
 mantém todo o resto como estava, inclusive o modo e o dono do arquivo. A cópia de antes fica em `/etc/dgclaw/caddy-copias`
 (pasta só do root), porque o Caddyfile pode ter chaves que outros usuários não devem ler. O arquivo é validado antes de recarregar e, se o Caddy
-recusar a validação, volta ao que era (a menos que o arquivo tenha sido editado nesse meio tempo: aí o instalador avisa e não apaga a sua edição). Arquivos com formato mais elaborado, ou que sejam links simbólicos, continuam
+recusar a validação, volta ao que era (a menos que o arquivo tenha sido editado nesse meio tempo: aí o instalador avisa e não apaga a sua edição). Arquivos com formato mais elaborado, ou que sejam links (simbólicos ou com mais de um nome), continuam
 intactos, com o aviso de como acrescentar à mão.
 
 **Correção da fila de mensagens: um "ok" que esperou na fila não é mais lido como aprovação de outra coisa.** Quando você

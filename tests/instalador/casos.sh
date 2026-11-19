@@ -1574,6 +1574,46 @@ caso_caddy_encode_validacao_que_falha_volta_o_arquivo_do_dono() {
     limpar_cenario
 }
 
+caso_caddy_encode_recusa_formas_que_o_instalador_nao_interpreta() {
+    local c
+    # 1) site sem chaves externas, com handle: o unico bloco e do handle
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy"
+    printf '# DG Claw: gerado pelo install.sh.\n%s\nhandle /api/* {\n    reverse_proxy 127.0.0.1:8300\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    afirma "termina com sucesso (sem chaves do site)" instalacao_basica
+    afirma "intacto (sem chaves do site)" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    limpar_cenario
+    # 2) respond com texto multilinha que contem a linha de exemplo
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy"
+    printf '# DG Claw: gerado pelo install.sh.\n%s {\n\trespond <<EOT\n\treverse_proxy 127.0.0.1:8300\n\tEOT\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    afirma "termina com sucesso (heredoc)" instalacao_basica
+    afirma "intacto (heredoc)" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    limpar_cenario
+    # 3) arquivo com dois nomes (hard link): o mv romperia o vinculo
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/outro"
+    printf '# DG Claw: gerado pelo install.sh.\n%s {\n\theader X-Minha-Linha "do dono"\n\treverse_proxy 127.0.0.1:8300\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    ln "$RAIZ/etc/caddy/Caddyfile" "$TMP/outro/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    afirma "termina com sucesso (hard link)" instalacao_basica
+    afirma "intacto (hard link)" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    limpar_cenario
+    # 4) pasta das copias que e um link simbolico: nao segue
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$RAIZ/etc/dgclaw" "$TMP/alvo-do-link"
+    ln -s "$TMP/alvo-do-link" "$RAIZ/etc/dgclaw/caddy-copias"
+    printf '# DG Claw: gerado pelo install.sh.\n%s {\n\theader X-Minha-Linha "do dono"\n\treverse_proxy 127.0.0.1:8300\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    afirma "termina com sucesso (pasta e link)" instalacao_basica
+    afirma "intacto (pasta e link)" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    c="$(find "$TMP/alvo-do-link" -type f | wc -l)"
+    igual "$c" 0 || { echo "      FALHOU: gravou copias atras do link"; FALHAS=$((FALHAS + 1)); }
+    limpar_cenario
+}
+
 caso_caddy_arquivo_personalizado_complexo_e_preservado() {
     novo_cenario
     mkdir -p "$RAIZ/etc/caddy"
