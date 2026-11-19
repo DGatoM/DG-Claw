@@ -9,6 +9,7 @@ import inject as inj  # _lib já está no sys.path (ver auto-compact.py)
 from .ambiente import env, escalation_marks, log, resolve_compact_mode, resolve_session_dir, resolve_slug, resolve_state_file, resolve_threshold, resolve_workspace
 from .ciclo import esperar_assentar_e_fechar, fechar_ciclo_pendente
 from .estado import _antes, _modo_seguro, cooldown_remaining, load_state, notify_owner, save_state
+from .guardas import acabou_de_compactar, agente_ocupado_no_bunker, cooldown_com_recuo
 from .injecao import inject_compact
 from .modo_restart import do_restart_compact
 from .poke import resume_poke_enabled, write_resume_poke
@@ -134,11 +135,20 @@ def main():
         log("abaixo do teto — nada a fazer")
         return 0
 
-    # 3) cooldown (--ignore-cooldown fura so o cooldown; a checagem de ociosidade fica)
+    # 3) cooldown (--ignore-cooldown fura so o cooldown; a checagem de ociosidade fica).
+    # Depois de DGCLAW_COMPACT_FAIL_ALERT falhas seguidas o cooldown dobra a cada falha (teto 4 h):
+    # insistir a cada ciclo numa sessao que nao compacta so empilha /compact.
     if not (args.force or args.ignore_cooldown):
-        rem = cooldown_remaining(st, cooldown_min)
+        try:
+            fail_k = max(1, int(float(env("DGCLAW_COMPACT_FAIL_ALERT", "2"))))
+        except (TypeError, ValueError):
+            fail_k = 2
+        falhas = int(st.get("consecutive_fail", 0) or 0)
+        cd = cooldown_com_recuo(cooldown_min, falhas, fail_k)
+        rem = cooldown_remaining(st, cd)
         if rem > 0:
-            log(f"acima do teto, mas em cooldown ({rem:.0f}min restantes) — pulando")
+            extra = f" (recuo depois de {falhas} falha(s) seguidas)" if cd != cooldown_min else ""
+            log(f"acima do teto, mas em cooldown ({rem:.0f}min restantes{extra}) — pulando")
             return 0
 
     # 4) ociosidade COM ESCALADA. Antes a checagem era binaria: se a sessao parecia
@@ -179,6 +189,18 @@ def main():
                                   state_file, st, args.dry_run, transcript=transcript,
                                   snap=snap, nivel=("CRITICO" if args.force else nivel),
                                   idle_eff=(0 if args.force else idle_eff))
+
+    # 4.2) guardas do runner (so modo bunker, e --force as ignora): nao enfileirar /compact atras de
+    # trabalho nem logo depois de uma compactacao. Saem sem gravar last_compact_ts nem contar falha.
+    if not args.force:
+        motivo = agente_ocupado_no_bunker()
+        if motivo:
+            log(motivo)
+            return 0
+        if inj.resolve_mode() == "bunker" and acabou_de_compactar(session_dir):
+            log("acabou de compactar (compact_boundary recente no transcript); "
+                "nao enfileiro outro /compact, tento no proximo ciclo")
+            return 0
 
     # 4.5) a injecao ANTERIOR surtiu efeito? Se ja injetamos antes e NENHUM compact_boundary
     # apareceu desde entao (e ainda estamos acima do teto), o /compact foi engolido (sessao

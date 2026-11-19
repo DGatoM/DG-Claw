@@ -291,6 +291,72 @@ test("Stop perdido: waiting_input mudo não muda, mesmo com o fim do turno no tr
   assert.equal(s.estado.status, "waiting_input");
 });
 
+const RECUSA_DO_COMPACT = {
+  type: "system",
+  subtype: "local_command",
+  content: "<local-command-stdout>Not enough messages to compact.</local-command-stdout>",
+  commandRun: { command: "compact", args: "" },
+};
+
+test("PreCompact: o CLI recusa o /compact (transcript com local_command e sem compact_boundary) e o agente volta a idle soltando a fila", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("PreCompact");
+  assert.equal(s.estado.statusReason, "hook:PreCompact");
+  transcript([[RECUSA_DO_COMPACT, 100]]);
+  const antes = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length;
+  s.enfileirarQuandoOcioso("mensagem atrás do /compact recusado");
+  await esperarAte(() => s.estado.status === "idle", 5_000, "a recusa do compact virar idle");
+  assert.equal(s.estado.statusReason, "transcript:compact recusado pelo CLI");
+  await esperarAte(
+    () => lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length > antes,
+    12_000,
+    "a fila soltar o texto no CLI",
+  );
+  assert.ok(lerTexto(amb.logDoRunner).includes("Not enough messages to compact."), "o aviso traz o texto do CLI");
+});
+
+test("PreCompact: recusa ANTERIOR ao PreCompact não vale", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  transcript([[RECUSA_DO_COMPACT, -60_000]]);
+  hook("PreCompact");
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+  assert.equal(s.estado.statusReason, "hook:PreCompact");
+});
+
+test("PreCompact: compact normal termina pelo SessionStart source=compact, como sempre", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("PreCompact");
+  assert.equal(s.estado.status, "working");
+  hook("SessionStart", { source: "compact" });
+  await esperarAte(() => s.estado.status === "idle", 12_000, "o fim do compact virar idle");
+  assert.notEqual(s.estado.statusReason, "transcript:compact recusado pelo CLI");
+});
+
+test("PreCompact: com compact_boundary depois do local_command a regra da recusa não dispara", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("PreCompact");
+  transcript([[RECUSA_DO_COMPACT, 100], [{ type: "system", subtype: "compact_boundary" }, 200]]);
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+  assert.equal(s.estado.statusReason, "hook:PreCompact");
+});
+
+test("PreCompact: rede de segurança, sem SessionStart nem recusa no transcript e terminal quieto, volta a idle e solta a fila", async () => {
+  const { s, hook } = await novaComRedeCurta(600, { compactSemFimMs: 1_000, compactQuietoRedeMs: 500 });
+  hook("PreCompact");
+  const antes = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length;
+  s.enfileirarQuandoOcioso("mensagem atrás do PreCompact sem fim");
+  await esperarAte(() => s.estado.status === "idle", 8_000, "a rede de segurança do PreCompact");
+  assert.equal(s.estado.statusReason, "timeout:PreCompact sem SessionStart");
+  assert.ok(lerTexto(amb.logDoRunner).includes("PreCompact sem SessionStart há"), "o aviso explica o que aconteceu");
+  await esperarAte(
+    () => lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length > antes,
+    12_000,
+    "a fila soltar o texto no CLI",
+  );
+});
+
 test("AskUserQuestion: PreToolUse vira waiting_input/pergunta, a resposta (PostToolUse) volta a working e zera o motivo", async () => {
   const { s, hook } = await novaComRedeCurta(60_000);
   const settings = JSON.parse(fs.readFileSync(path.join(amb.estado, s.id, "runner-hooks", `${s.id}.settings.json`), "utf8"));

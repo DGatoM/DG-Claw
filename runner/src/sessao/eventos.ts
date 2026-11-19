@@ -143,10 +143,13 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       break;
     case "PreCompact":
       // O compact é o único trabalho que começa e não termina em Stop. Quem
-      // devolve o agente para idle é o SessionStart source=compact, lá em cima.
+      // devolve o agente para idle é o SessionStart source=compact, lá em cima. Se o CLI recusar o /compact
+      // ("Not enough messages to compact.") ele manda o PreCompact e nada mais: quem resolve é a vigia do
+      // Stop perdido (vigias.ts), olhando o transcript, com uma rede de tempo por cima.
       cancelarStopPendente(s);
       s.compactsIniciados += 1;
       s.compactando = s.proc;
+      s.compactComecouEm = Date.now();
       s.mudar({ status: "working", hookLatched: false, statusReason: "hook:PreCompact" });
       break;
     case "Stop":

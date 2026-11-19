@@ -38,6 +38,12 @@ Duas coberturas, ambas com o MESMO cap anti-storm:
      O diagnostico vai para <ws>/.dgclaw/logs/saude.json (o painel e o doctor leem) e para o
      ledger do Pulso com id `saude`.
 
+  4) FILA PARADA (19/11/2026): mensagens esperando na fila do runner com o agente "working" (ou
+     outro estado que nao e idle nem waiting_input) e o card sem mudar de estado ha mais de
+     DGCLAW_FILA_PARADA_MIN (15) min. Um PreCompact recusado pelo CLI deixou um agente nesse estado por
+     horas, com este vigia dizendo "VIVA e saudavel". Restart normal (mesma conversa), com o mesmo cap
+     anti-storm e respeitando auto-recovery=off. So no mundo bunker (a fila e do runner).
+
   ONDE O RESTART ACONTECE: no mundo bunker (card do Bunker ou runner proprio, que e o caso
   da jaula) o restart e por HTTP (_lib/reinicio.py: parar + /resume), e nao systemctl. O
   watchdog da jaula roda como usuario comum e cada `systemctl restart` falhava (119 vezes
@@ -68,6 +74,8 @@ Env:
   DGCLAW_WATCHDOG_MAX_RESTARTS (opcional) cap de restarts na janela. Default 3.
   DGCLAW_WATCHDOG_WINDOW_MIN   (opcional) janela do cap, em min. Default 60.
   DGCLAW_WATCHDOG_POKE_GRACE_MIN (opcional) "poke recente" = poke ha <= isso min. Default 30.
+  DGCLAW_FILA_PARADA_MIN (opcional) minutos da mensagem mais antiga da fila E do card sem mudar de
+                            estado para contar como fila parada (so runner). Default 15.
   DGCLAW_OWNER_TELEGRAM_ID / TELEGRAM_STATE_DIR  consumidos por notify-owner.sh.
 
 Cron sugerido: */5 * * * *  (timer systemd a cada ~5min).
@@ -354,6 +362,57 @@ def gravar_saude(logs_dir: Path, diag: dict, acao: str, now) -> None:
         FALHAS.append(f"nao consegui gravar saude.json em {logs_dir}: {e}")
 
 
+def fila_parada(card, now_ms: float, limite_min: int, transcript_epoch=None):
+    """O card do runner esta com a fila presa? Devolve {n, idade_min, status, motivo} ou None.
+
+    Presa = tem item na fila E o agente nao esta idle (vai soltar sozinho) nem waiting_input (quem
+    espera ali e a pessoa) E a mensagem mais antiga espera ha mais de `limite_min` E o card nao muda de
+    estado (updatedAt, epoch ms) ha mais de `limite_min` E o transcript (ultimo turno, epoch s) tambem
+    esta mudo ha mais de `limite_min`: uma ferramenta longa nao muda o card, mas o turno vivo escreve
+    no transcript. Sem `em` legivel nao afirma nada."""
+    if not card:
+        return None
+    try:
+        total = int(card.get("naFilaTotal") or 0)
+    except (TypeError, ValueError):
+        return None
+    status = card.get("status")
+    if total <= 0 or status in ("idle", "waiting_input"):
+        return None
+    ems = [i.get("em") for i in (card.get("naFila") or []) if isinstance(i, dict)
+           and isinstance(i.get("em"), (int, float))]
+    atualizado = card.get("updatedAt")
+    if not ems or not isinstance(atualizado, (int, float)):
+        return None
+    idade_fila = (now_ms - min(ems)) / 60000.0
+    parado_ha = (now_ms - atualizado) / 60000.0
+    if idade_fila <= limite_min or parado_ha <= limite_min:
+        return None
+    if transcript_epoch is not None and (now_ms / 1000.0 - transcript_epoch) / 60.0 <= limite_min:
+        return None
+    return {"n": total, "idade_min": int(idade_fila), "status": status,
+            "motivo": card.get("statusReason") or "sem motivo"}
+
+
+def cuidar_da_fila_parada(card, diag, ctx, transcript_epoch=None):
+    """Fila presa no runner: restart normal (mesma conversa) pelo mesmo caminho dos outros, com o cap
+    anti-storm; auto-recovery=off so observa. attempt_restart ja avisa o dono (reinicio, cap estourado
+    ou falha). Devolve (tratado, veredito, diag_para_a_saude)."""
+    f = fila_parada(card, time.time() * 1000, env_int("DGCLAW_FILA_PARADA_MIN", 15), transcript_epoch)
+    if not f:
+        return False, "", diag
+    resumo = (f"{f['n']} mensagem(ns) esperando ha {f['idade_min']} min com o agente em "
+              f"{f['status']} ({f['motivo']})")
+    diag = dict(diag, estado="atencao", tipo="fila_parada",
+                frase=f"A fila esta parada: {resumo}.")
+    state, state_path, now = ctx["state"], ctx["state_path"], ctx["now"]
+    motivo = f"ficou com a fila parada: {resumo}"
+    if ctx["auto_recovery"] == "off":
+        return True, observe_only(ctx["service"], motivo, state, state_path), diag
+    return True, attempt_restart(ctx["service"], motivo, state, state_path, now,
+                                 ctx["max_restarts"], ctx["window_min"]), diag
+
+
 def _avisar_uma_vez(state, state_path, chave, msg) -> str:
     """Avisa o dono so uma vez por incidente. A chave so e gravada se o aviso CHEGOU:
     aviso que falhou e tentado de novo na proxima rodada, em vez de dar por avisado.
@@ -551,6 +610,16 @@ def rodada() -> str:
                                   state, state_path, now, max_restarts, window_min)
         log(f"sessao '{name}' MORTA, {service} ENABLED -> {verdict}")
         return verdict
+
+    # ── 1.5) FILA PARADA (so runner): mensagens presas com o agente "working" que nao anda ──
+    if inject.resolve_mode() == "bunker":
+        card = inject._bunker_estado()
+        t_fila = ultimo_turno_epoch(slug) or latest_transcript_mtime(session_dir)
+        tratado, verdict, diag_fila = cuidar_da_fila_parada(card, diag, ctx, t_fila)
+        if tratado:
+            gravar_saude(logs_dir, diag_fila, verdict, now)
+            log(f"sessao '{name}' VIVA mas com a FILA PARADA -> {verdict}")
+            return verdict
 
     # ── 2) TURNO TRAVADO (sessao viva, mas transcript parado apos um poke recente) ──
     # Sessao viva e saudavel -> rearma o aviso de storm E o de auto-recovery=off (normalizou).

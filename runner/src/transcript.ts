@@ -198,6 +198,52 @@ export function turnoEncerradoNoTranscript(
   return { encerrado: false, motivo: "nenhuma linha JSON válida no fim do transcript" };
 }
 
+/**
+ * O CLI recusou o último `/compact`? Quando a conversa é curta demais ("Not enough messages to compact."), o
+ * Claude Code dispara o hook PreCompact, grava uma linha `system/local_command` com `commandRun.command` "compact"
+ * e NÃO dispara SessionStart nem Stop. A recusa é a linha mais recente desse tipo, mais nova que `desdeMs` (o
+ * instante do PreCompact), sem nenhuma `system/compact_boundary` depois dela (o compact de verdade grava a fronteira).
+ * Sem arquivo ou sem a linha, não afirma nada.
+ */
+export function compactRecusadoNoTranscript(
+  sessionId: string,
+  desdeMs: number,
+  configDir?: string | null,
+): { recusado: boolean; texto: string } {
+  const arquivo = acharArquivoDaSessao(sessionId, configDir);
+  if (!arquivo) return { recusado: false, texto: "" };
+  let cauda: string;
+  try {
+    cauda = lerCauda(arquivo);
+  } catch (err) {
+    log.aviso("conversa", `não consegui ler o fim de ${arquivo}: ${err instanceof Error ? err.message : err}`);
+    return { recusado: false, texto: "" };
+  }
+  let recusa: string | null = null;
+  for (const linha of cauda.split("\n")) {
+    if (!linha.trim()) continue;
+    let o: { type?: string; subtype?: string; timestamp?: string; content?: unknown; commandRun?: { command?: unknown } };
+    try {
+      const lido: unknown = JSON.parse(linha);
+      if (!lido || typeof lido !== "object" || Array.isArray(lido)) continue;
+      o = lido as typeof o;
+    } catch {
+      continue;
+    }
+    if (o.type !== "system") continue;
+    if (o.subtype === "compact_boundary") {
+      recusa = null;
+      continue;
+    }
+    if (o.subtype !== "local_command" || o.commandRun?.command !== "compact") continue;
+    const quando = o.timestamp ? Date.parse(o.timestamp) : NaN;
+    if (!Number.isFinite(quando) || quando < desdeMs) continue;
+    const bruto = typeof o.content === "string" ? o.content : "";
+    recusa = bruto.replace(/<\/?local-command-stdout>/g, "").replace(/\s+/g, " ").trim().slice(0, 160);
+  }
+  return recusa === null ? { recusado: false, texto: "" } : { recusado: true, texto: recusa };
+}
+
 /** O texto que o Claude Code mostra (e devolve em `claude -p`) quando o OAuth da conta morreu. */
 export const RX_LOGIN_EXPIRADO =
   /login expired|please run \/login|oauth session expired|could not be refreshed|failed to authenticate|invalid api key/i;
