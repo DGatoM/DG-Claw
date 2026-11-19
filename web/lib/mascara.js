@@ -43,9 +43,11 @@ const PADROES_DADOS = [
 // Cabeçalho Cookie/Set-Cookie: o nome fica, o valor inteiro (vários pares separados por ';') sai escondido.
 const COOKIE = /\b((?:Set-)?Cookie[ \t]{0,20}:[ \t]{0,20})[^\r\n]+/gi;
 
-// Depois de espaço ou quebra de linha, o valor nunca é o nome da próxima atribuição (NOME=valor ou nome: valor): `ZAPI_INSTANCE=` vazio não engole
-// o `ZAPI_TOKEN=` seguinte (o token continua sendo mascarado pela própria atribuição dele).
-const ATRIBUICAO = /((?:api[_-]?key|secret|token|passw(?:or)?d|senha|credential|auth|zapi[_-]?instance)[A-Za-z0-9_.-]*["']?\s*[=:](?:\s+(?![A-Za-z_][A-Za-z0-9_.-]*["']?[ \t]*(?:=(?=[^=\s])|:(?=\s))))?)("[^"\n]*"|'[^'\n]*'|[^\s"'&;|]+)/gi;
+const ATRIBUICAO = /((?:api[_-]?key|secret|token|passw(?:or)?d|senha|credential|auth)[A-Za-z0-9_.-]*["']?\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s"'&;|]+)/gi;
+
+// ID da instância da Z-API. Padrão próprio, fora de ATRIBUICAO: só pega valor não vazio na mesma linha, então um
+// `ZAPI_INSTANCE=` vazio não engole a atribuição seguinte (que continua mascarada pela regra dela).
+const ZAPI_INSTANCE = /(\bzapi[_-]?instance["']?[ \t]*[=:][ \t]*)("[^"\n]+"|'[^'\n]+'|[A-Za-z0-9]{6,}(?![A-Za-z0-9_=:-]))/gi;
 
 function mascarar(texto) {
   if (texto == null) return '';
@@ -55,6 +57,8 @@ function mascarar(texto) {
   r = r.replace(COOKIE, '$1' + OCULTO);
   ATRIBUICAO.lastIndex = 0;
   r = r.replace(ATRIBUICAO, (_, nome, valor) => (valor === OCULTO ? nome + valor : nome + OCULTO));
+  ZAPI_INSTANCE.lastIndex = 0;
+  r = r.replace(ZAPI_INSTANCE, '$1' + OCULTO);
   return r;
 }
 

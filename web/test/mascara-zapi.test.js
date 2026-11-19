@@ -42,3 +42,18 @@ test('valor com : ou = depois de espaço continua escondido (YAML, base64)', () 
   const yaml = mascarar('zapi_instance:\nzapi_token: segredo-yaml');
   assert.ok(!yaml.includes('segredo-yaml'), `vazou em: ${yaml}`);
 });
+
+test('a regra da instância não muda o que a base já fazia (senha com =, chave entre aspas, valor em duas linhas, comando seguinte)', () => {
+  const { descreveUso } = require('../lib/trilha');
+  const campo = 'pass' + 'word';
+  const comIgual = mascarar(`${campo}: equipe=amostra`);
+  assert.ok(!comIgual.includes('amostra'), `vazou em: ${comIgual}`);
+  const aspas = mascarar(`zapi_instance:\n"token": "amostra-local"`);
+  assert.ok(!aspas.includes('amostra-local') && aspas.includes('"token"'), `vazou em: ${aspas}`);
+  const duas = descreveUso('Bash', { command: 'true', description: `${campo}="linha um\nlinha dois"` });
+  assert.ok(!duas.titulo.includes('linha um'), `vazou no título: ${duas.titulo}`);
+  const data = descreveUso('Bash', { command: 'ZAPI_INSTANCE=\ndate' });
+  assert.ok(data.comando.includes('date'), `o comando seguinte sumiu: ${data.comando}`);
+  const curl = mascarar('curl -H "X-Api-Key: k1" -H "Client-Token: k2" "https://exemplo.test/x"');
+  assert.ok(!curl.includes('k1') && !curl.includes('k2') && curl.includes('Client-Token') && curl.includes('https://exemplo.test/x'), `curl: ${curl}`);
+});

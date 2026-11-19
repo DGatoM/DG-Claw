@@ -25,7 +25,7 @@ function descreveUso(nome, inp) {
     const comando = typeof i.command === 'string' ? i.command : '';
     if (!comando.trim()) return null;
     const desc = typeof i.description === 'string' ? i.description.trim() : '';
-    return { ferramenta: 'Bash', titulo: corta(umaLinha(mascarar(desc || comando)), MAX_TITULO), comando: corta(mascarar(comando), MAX_COMANDO) };
+    return { ferramenta: 'Bash', titulo: corta(mascarar(umaLinha(desc || comando)), MAX_TITULO), comando: corta(mascarar(comando), MAX_COMANDO) };
   }
   const arq = String(i.file_path || i.notebook_path || i.path || '').trim();
   const verbo = nome === 'Write' ? 'gravou' : 'editou';
@@ -50,7 +50,7 @@ const MAX_OPCOES = 8;
 function descrevePerguntas(inp) {
   const qs = inp && Array.isArray(inp.questions) ? inp.questions : null;
   if (!qs || !qs.length || qs.length > MAX_PERGUNTAS) return null;
-  const texto = (v, n) => corta(umaLinha(mascarar(typeof v === 'string' ? v : '')), n);
+  const texto = (v, n) => corta(mascarar(umaLinha(typeof v === 'string' ? v : '')), n);
   const saida = [];
   for (const q of qs) {
     if (!q || typeof q !== 'object' || typeof q.question !== 'string' || !q.question.trim()) return null;
