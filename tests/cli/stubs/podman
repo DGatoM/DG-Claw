@@ -109,6 +109,8 @@ case "${1:-}" in
                 if [ "$q" -gt 0 ]; then echo "$q $p" > "$d/cpu.max"; else echo "max $p" > "$d/cpu.max"; fi
                 # cgroup-sem-swap: o kernel sem contabilidade de swap nao tem o arquivo.
                 [ -f "$est/cgroup-sem-swap" ] && rm -f "$d/memory.swap.max"
+                # cpu-nao-relido: o cpu.max some depois do update (os outros controladores continuam legiveis).
+                [ -f "$est/cpu-nao-relido" ] && [ -f "$est/update-feito" ] && rm -f "$d/cpu.max"
             fi
             echo "/machine.slice/libpod-$nome.scope"; exit 0
         fi
@@ -159,6 +161,11 @@ case "${1:-}" in
             esac
             shift 2
         done
+        # update-*-acima: o cgroup fica ACIMA do pedido; update-swap-mais: o swap passa a ser mais permissivo que antes.
+        [ -f "$est/update-mem-acima" ] && { mem=$((mem + 1073741824)); swap=$((swap + 1073741824)); }
+        [ -f "$est/update-cpu-acima" ] && quota=$((quota * 2))
+        [ -f "$est/update-pids-acima" ] && pids=$((pids + 500))
+        [ -f "$est/update-swap-mais" ] && swap=$((swap + 1073741824))
         # update-swap-vira-max: o swap finito vira sem limite (-1) depois do update, mesmo sem o reparo ter mexido nele.
         [ -f "$est/update-swap-vira-max" ] && swap=-1
         echo "$mem $quota $periodo $pids $swap" > "$est/lim-$nome" ;;
@@ -197,6 +204,9 @@ case "${1:-}" in
             done
             exit 0
         fi
+        # Rotinas proprias do agente: estado/self-tar (um tar de verdade) e o que `tar -cf -` devolve; `tar -xf -` so consome.
+        if printf '%s ' "$@" | grep -q 'tar -cf -' && [ -f "$est/self-tar" ]; then cat "$est/self-tar"; exit 0; fi
+        if printf '%s ' "$@" | grep -q 'tar -C /etc/systemd/system -xf -'; then cat >/dev/null; exit 0; fi
         # `exec <container> dpkg-query ...`: pacotes do container (estado/pacotes-container).
         if printf '%s ' "$@" | grep -q dpkg-query; then
             if [ -f "$est/pacotes-sem-dpkg" ]; then exit 1; fi

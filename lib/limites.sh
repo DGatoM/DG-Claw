@@ -213,6 +213,7 @@ limites_ajustar_existente() {
     [ "$ATU_CPU_OK" = 1 ] || aviso "nao consegui ler as CPUs do container $c (cpu.max no cgroup do host); elas nao foram ajustadas."
     [ "$ATU_PIDS_OK" = 1 ] || aviso "nao consegui ler o limite de processos do container $c (pids.max no cgroup do host); ele nao foi ajustado."
     local swap_antes_b="$ATU_SWAP_B" swap_ilim_antes="$ATU_SWAP_ILIM"
+    local leu_mem_antes="$ATU_MEM_OK" leu_cpu_antes="$ATU_CPU_OK" leu_pids_antes="$ATU_PIDS_OK"
     # O que era FINITO (lido e sem `max`) antes do update: se algum virar sem limite depois, e falha.
     local fin_mem_antes=0 fin_swap_antes=0 fin_cpu_antes=0 fin_pids_antes=0
     [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_ILIM" != 1 ] && fin_mem_antes=1
@@ -262,27 +263,55 @@ limites_ajustar_existente() {
         return 1
     fi
     info "depois: $(_limites_resumo_atual)"
-    local subiram=() abaixo=() sumiram=()
+    local subiram=() abaixo=() sumiram=() falhas=()
+    # Todo controlador que estava legivel antes (ou recebeu ajuste) e nao foi relido agora e FALHA: o teto efetivo dele e
+    # desconhecido, mesmo que os outros tenham respondido.
+    [ "$leu_mem_antes" = 1 ] && [ "$ATU_MEM_OK" != 1 ] && falhas+=("nao consegui reler a memoria (memory.max e memory.swap.max) do container $c depois do podman update; nao sei como ela ficou")
+    [ "$leu_cpu_antes" = 1 ] && [ "$ATU_CPU_OK" != 1 ] && falhas+=("nao consegui reler as CPUs (cpu.max) do container $c depois do podman update; nao sei como elas ficaram")
+    [ "$leu_pids_antes" = 1 ] && [ "$ATU_PIDS_OK" != 1 ] && falhas+=("nao consegui reler o limite de processos (pids.max) do container $c depois do podman update; nao sei como ele ficou")
     # Um limite que era finito e foi relido como "max" sumiu (nao e aumento), tenha o reparo querido mexer nele ou nao.
     [ "$fin_mem_antes" = 1 ] && [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_ILIM" = 1 ] && sumiram+=("memoria")
     [ "$fin_swap_antes" = 1 ] && [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_SWAP_ILIM" = 1 ] && sumiram+=("swap")
     [ "$fin_cpu_antes" = 1 ] && [ "$ATU_CPU_OK" = 1 ] && [ "$ATU_CPU_ILIM" = 1 ] && sumiram+=("CPUs")
     [ "$fin_pids_antes" = 1 ] && [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS_ILIM" = 1 ] && sumiram+=("processos")
-    if [ "$quer_mem" = 1 ] && [ "$ATU_MEM_ILIM" != 1 ]; then
-        # Subiu = memoria no alvo e swap como era (ilimitado continua ilimitado; senao os mesmos bytes).
-        if [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_B" -ge $((LIM_MEM_MB * 1048576)) ] \
-            && [ "$ATU_SWAP_ILIM" = "$swap_ilim_antes" ] && { [ "$ATU_SWAP_ILIM" = 1 ] || [ "$ATU_SWAP_B" -eq "$swap_antes_b" ]; }; then subiram+=("memoria")
+    # Swap que ficou mais permissivo que antes (finito que cresceu, inclusive de 0 a positivo) e falha propria do swap.
+    local swap_mais=0
+    if [ "$ATU_MEM_OK" = 1 ] && [ "$leu_mem_antes" = 1 ] && [ "$swap_ilim_antes" != 1 ] && [ "$ATU_SWAP_ILIM" != 1 ] \
+        && [ "$ATU_SWAP_B" -gt "$swap_antes_b" ]; then
+        swap_mais=1
+        falhas+=("o swap do container $c ficou mais permissivo depois do podman update: esperado no maximo $swap_antes_b bytes, observado $ATU_SWAP_B bytes")
+    fi
+    if [ "$quer_mem" = 1 ] && [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_ILIM" != 1 ]; then
+        local mem_pedida=$((LIM_MEM_MB * 1048576))
+        if [ "$ATU_MEM_B" -gt "$mem_pedida" ]; then
+            falhas+=("a memoria do container $c ficou acima do pedido depois do podman update: esperado $mem_pedida bytes, observado $ATU_MEM_B bytes")
+        elif [ "$ATU_MEM_B" -eq "$mem_pedida" ]; then
+            # Subiu = memoria exatamente no alvo e swap como era (ilimitado continua ilimitado; senao os mesmos bytes).
+            if [ "$ATU_SWAP_ILIM" = "$swap_ilim_antes" ] && { [ "$ATU_SWAP_ILIM" = 1 ] || [ "$ATU_SWAP_B" -eq "$swap_antes_b" ]; }; then subiram+=("memoria")
+            elif [ "$swap_mais" != 1 ]; then abaixo+=("memoria"); fi
         else abaixo+=("memoria"); fi
     fi
-    if [ "$quer_cpu" = 1 ] && [ "$ATU_CPU_ILIM" != 1 ]; then
-        if [ "$ATU_CPU_OK" = 1 ] && [ $((ATU_CPU_QUOTA * 10)) -ge $((LIM_CPUS_DEC * ATU_CPU_PERIODO)) ]; then subiram+=("CPUs"); else abaixo+=("CPUs"); fi
+    if [ "$quer_cpu" = 1 ] && [ "$ATU_CPU_OK" = 1 ] && [ "$ATU_CPU_ILIM" != 1 ]; then
+        local cpu_obs=$((ATU_CPU_QUOTA * 10)) cpu_esp=$((LIM_CPUS_DEC * ATU_CPU_PERIODO))
+        if [ $((cpu_obs * 100)) -gt $((cpu_esp * 101)) ]; then
+            falhas+=("as CPUs do container $c ficaram acima do pedido depois do podman update: esperado cpu.max de $((cpu_esp / 10)) a cada $ATU_CPU_PERIODO (${LIM_CPUS_ARG} CPUs), observado $ATU_CPU_QUOTA a cada $ATU_CPU_PERIODO")
+        elif [ $((cpu_obs * 100)) -ge $((cpu_esp * 99)) ]; then subiram+=("CPUs")
+        else abaixo+=("CPUs"); fi
     fi
-    if [ "$quer_pids" = 1 ] && [ "$ATU_PIDS_ILIM" != 1 ]; then
-        if [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS" -ge "$LIMITE_PIDS" ]; then subiram+=("processos"); else abaixo+=("processos"); fi
+    if [ "$quer_pids" = 1 ] && [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS_ILIM" != 1 ]; then
+        if [ "$ATU_PIDS" -gt "$LIMITE_PIDS" ]; then
+            falhas+=("o limite de processos do container $c ficou acima do pedido depois do podman update: esperado $LIMITE_PIDS, observado $ATU_PIDS")
+        elif [ "$ATU_PIDS" -eq "$LIMITE_PIDS" ]; then subiram+=("processos")
+        else abaixo+=("processos"); fi
     fi
     local rc=0
+    for f in "${falhas[@]}"; do
+        aviso "FALHA: $f. Veja com: podman inspect $c"
+        rc=1
+    done
     for f in "${sumiram[@]}"; do
-        aviso "FALHA: o limite de $f do container $c sumiu; rode de novo \`dgclaw agente reparar $1\`. Era finito e, depois do podman update, o cgroup passou a mostrar sem limite (max); isso nao e um aumento. Veja com: podman inspect $c"
+        # shellcheck disable=SC2016 # as crases fazem parte do texto
+        aviso "FALHA: o limite de $f do container $c sumiu. Era finito e, depois do podman update, o cgroup passou a mostrar sem limite (max); isso nao e um aumento. Rodar \`dgclaw agente reparar $1\` de novo nao devolve o limite (ele passaria a tratar o sem limite como escolha sua). Para o teto voltar, recrie o agente: \`dgclaw agente recriar $1\`. Veja com: podman inspect $c"
         rc=1
     done
     for f in "${abaixo[@]}"; do

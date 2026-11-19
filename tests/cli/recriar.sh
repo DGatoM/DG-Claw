@@ -464,5 +464,16 @@ PATH="$PATH_ANTES"
 nega "etapa interna do reparo falhou: o recriar sai com erro" test "$rc_rep" -eq 0
 nega "e nao anuncia 'recriado com a imagem atual'" grep -q 'recriado com a imagem atual' "$TMP/rec.txt"
 afirma "a falha simulada aparece na saida" grep -q 'falha simulada' "$TMP/rec.txt"
+nega "a falha nao liga os timers (nenhum enable --now)" grep -q 'enable --now' "$STUB_LOG"
+afirma "a mensagem diz que as rotinas ficaram desligadas e como religar" grep -q 'ficaram DESLIGADAS.*dgclaw agente reparar rita' "$TMP/rec.txt"
+
+# 21) controle positivo: com o reparo bem-sucedido, o recriar liga os timers (enable --now)
+echo imagem-v29 >"$STUB_ESTADO/imagem-id"
+: >"$STUB_ESTADO/diff-dgclaw-rita"
+mkdir -p "$TMP/selft" && : >"$TMP/selft/dgclaw-rita-self-1.timer" && tar -C "$TMP/selft" -cf "$STUB_ESTADO/self-tar" dgclaw-rita-self-1.timer
+recriar rita
+igual "reparo ok: o recriar termina com 0" "0" "$?"
+afirma "reparo ok: liga o timer com enable --now" grep -q 'enable --now dgclaw-rita-self-1.timer' "$STUB_LOG"
+rm -f "$STUB_ESTADO/self-tar"
 
 fim

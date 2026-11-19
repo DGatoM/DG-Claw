@@ -310,7 +310,11 @@ echo "2147483648 100000 100000 1024 4294967296" >"$STUB_ESTADO/lim-dgclaw-a4"
 nao_zero=$?
 nega "a primeira chamada termina com codigo diferente de zero" test "$nao_zero" -eq 0
 # shellcheck disable=SC2016 # as crases fazem parte do texto procurado
-afirma "e diz FALHA, qual limite, e o comando para rodar de novo" grep -q 'FALHA: o limite de CPUs do container dgclaw-a4 sumiu; rode de novo `dgclaw agente reparar a4`' "$TMP/rep.txt"
+afirma "e diz FALHA e qual limite" grep -q 'FALHA: o limite de CPUs do container dgclaw-a4 sumiu' "$TMP/rep.txt"
+# shellcheck disable=SC2016 # as crases fazem parte do texto procurado
+afirma "manda recriar o agente" grep -q 'recrie o agente: `dgclaw agente recriar a4`' "$TMP/rep.txt"
+# shellcheck disable=SC2016
+afirma "e diz que repetir o reparo nao devolve o limite" grep -q 'dgclaw agente reparar a4` de novo nao devolve o limite' "$TMP/rep.txt"
 rm -f "$STUB_ESTADO/update-cpu-vira-max"
 : >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
 igual "a segunda chamada termina com 0" "0" "$?"
@@ -326,6 +330,31 @@ rm -f "$STUB_ESTADO/update-feito"
 nega "o reparar termina com codigo diferente de zero" test "$?" -eq 0
 afirma "o aviso diz que o limite de swap sumiu" grep -q 'FALHA: o limite de swap do container dgclaw-a4 sumiu' "$TMP/rep.txt"
 rm -f "$STUB_ESTADO/update-swap-vira-max"
+
+echo "um controlador legivel antes e nao relido depois e falha, mesmo com os outros respondendo"
+maquina 8 2
+echo "2147483648 100000 100000 1024 4294967296" >"$STUB_ESTADO/lim-dgclaw-a4"
+rm -f "$STUB_ESTADO/update-feito"; touch "$STUB_ESTADO/cpu-nao-relido"
+: >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
+nega "o reparar termina com codigo diferente de zero" test "$?" -eq 0
+afirma "diz qual controlador nao foi relido" grep -q 'FALHA: nao consegui reler as CPUs (cpu.max) do container dgclaw-a4' "$TMP/rep.txt"
+rm -f "$STUB_ESTADO/cpu-nao-relido" "$STUB_ESTADO/update-feito"
+
+echo "teto acima do pedido e falha com esperado e observado; swap mais permissivo e falha propria"
+for caso in mem cpu pids; do
+    echo "2147483648 100000 100000 1024 4294967296" >"$STUB_ESTADO/lim-dgclaw-a4"
+    rm -f "$STUB_ESTADO/update-feito"; touch "$STUB_ESTADO/update-$caso-acima"
+    : >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
+    nega "$caso acima do pedido: codigo diferente de zero" test "$?" -eq 0
+    afirma "$caso acima do pedido: diz esperado e observado" grep -q 'FALHA: .*acima do pedido.*esperado .*observado' "$TMP/rep.txt"
+    rm -f "$STUB_ESTADO/update-$caso-acima" "$STUB_ESTADO/update-feito"
+done
+echo "2147483648 100000 100000 1024 4294967296" >"$STUB_ESTADO/lim-dgclaw-a4"
+touch "$STUB_ESTADO/update-swap-mais"
+: >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
+nega "swap mais permissivo: codigo diferente de zero" test "$?" -eq 0
+afirma "swap mais permissivo: falha propria do swap com esperado e observado" grep -q 'FALHA: o swap do container dgclaw-a4 ficou mais permissivo.*esperado no maximo.*observado' "$TMP/rep.txt"
+rm -f "$STUB_ESTADO/update-swap-mais" "$STUB_ESTADO/update-feito"
 
 echo "releitura que falha depois do update e falha"
 echo "2147483648 100000 100000 1024 4294967296" >"$STUB_ESTADO/lim-dgclaw-a4"

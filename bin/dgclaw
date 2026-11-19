@@ -1974,8 +1974,12 @@ agente_recriar() {
     ( set -e; agente_reparar "$slug" )
     rep_rc=$?
     if [ "$tinha_e" = 1 ]; then set -e; fi
+    if [ "$rep_rc" -ne 0 ]; then
+        # Reparo incompleto: os timers ficam desligados, para nenhuma rotina disparar com a configuracao pela metade.
+        aviso "o reparo do agente $slug nao terminou (codigo $rep_rc), entao as rotinas dele (timers dgclaw-$slug-self-*) ficaram DESLIGADAS ate a recriacao dar certo. Corrija o erro acima e rode: dgclaw agente reparar $slug. Para religar as rotinas guardadas em $unidades (a lista fica la, nao a apague): podman exec -i dgclaw-$slug tar -C /etc/systemd/system -xf - < $unidades; podman exec dgclaw-$slug systemctl daemon-reload; e para cada timer: podman exec dgclaw-$slug systemctl enable --now <nome>.timer"
+        return "$rep_rc"
+    fi
     devolver_unidades_self "$slug" "$unidades"
-    [ "$rep_rc" -eq 0 ] || return "$rep_rc"
     ok "agente $slug recriado com a imagem atual (casa, cofre e portas intactos)"
 }
 
