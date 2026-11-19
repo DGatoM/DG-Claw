@@ -25,6 +25,10 @@ export interface PayloadDeHook extends PayloadDeEvento {
   nonce?: string;
 }
 
+/** Os eventos de hook que o runner trata (os `case` de aplicarEvento) e as origens de SessionStart do Claude Code. */
+const EVENTOS_CONHECIDOS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "PreCompact", "Stop", "StopBloqueado", "StopFailure"];
+const ORIGENS_CONHECIDAS = ["startup", "resume", "clear", "compact"];
+
 /** Recebe o POST do handler de hook (o do Claude ou o `notify` do Codex). Nonce errado é
  *  descartado: é hook de um PTY já morto, ou de um processo que não é este. O evento SÓ
  *  muda o status: nunca injeta texto, nunca dispara comando e nunca devolve conteúdo. */
@@ -43,7 +47,10 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
   // ficaria apontando para uma conversa que ninguém mais escreve.
   if (payload.sessionId && payload.sessionId !== s.estado.sessionId) {
     // Quem causou: o evento e o source do hook (SessionStart com source=resume/clear/compact/startup...).
-    const causa = [payload.event ? `evento ${payload.event}` : null, payload.source ? `source ${payload.source}` : null].filter(Boolean).join(", ");
+    // Só valores conhecidos do protocolo entram no log: o que vem do hook não é confiável e não deve virar texto de log.
+    const evento = payload.event ? (EVENTOS_CONHECIDOS.includes(payload.event) ? payload.event : "outro") : null;
+    const origem = payload.source ? (ORIGENS_CONHECIDAS.includes(payload.source) ? payload.source : "outro") : null;
+    const causa = [evento ? `evento ${evento}` : null, origem ? `source ${origem}` : null].filter(Boolean).join(", ");
     log.info(s.a("hook"), `a sessão viva mudou por dentro: ${s.estado.sessionId} -> ${payload.sessionId}${causa ? ` (${causa})` : ""}`);
     s.mudar({
       sessionId: payload.sessionId,

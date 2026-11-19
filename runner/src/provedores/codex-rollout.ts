@@ -378,3 +378,35 @@ export function mensagensDoRollout(arquivo: string, quantas = 6, segredos?: Iter
   }
   return fora.slice(-Math.max(1, quantas));
 }
+
+/** O rollout tem este pedido como mensagem do USUÁRIO? Mesma regra de pedidoNoTranscript (só turnos de `desdeMs`
+ *  em diante; null quando não deu para ler). Nunca registra o texto. */
+export function pedidoNoRollout(arquivo: string, texto: string, desdeMs: number): boolean | null {
+  let cru: string;
+  try {
+    cru = fs.readFileSync(arquivo, "utf8");
+  } catch {
+    return null;
+  }
+  const norm = (x: string) => x.replace(/\s+/g, " ").trim();
+  const alvo = norm(texto);
+  if (!alvo) return false;
+  for (const linha of cru.split("\n")) {
+    if (!linha.trim()) continue;
+    let o: { timestamp?: string; type?: string; payload?: { type?: string; role?: string; content?: unknown; message?: unknown } };
+    try {
+      o = JSON.parse(linha) as typeof o;
+    } catch {
+      continue;
+    }
+    const p = o.payload;
+    let doUsuario = "";
+    if (o.type === "response_item" && p?.type === "message" && p.role === "user") doUsuario = textoDosBlocos(p.content);
+    else if (o.type === "event_msg" && p?.type === "user_message" && typeof p.message === "string") doUsuario = p.message;
+    if (!doUsuario) continue;
+    const quando = typeof o.timestamp === "string" ? Date.parse(o.timestamp) : NaN;
+    if (Number.isFinite(quando) && quando < desdeMs - 1_000) continue;
+    if (norm(doUsuario).includes(alvo)) return true;
+  }
+  return false;
+}

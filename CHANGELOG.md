@@ -7,17 +7,26 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
-**Correção no runner: pedido digitado sem confirmação volta para a fila.** Um pedido enviado a um agente podia sumir
-quando o Claude Code não abria o turno (por exemplo, com os hooks travados) e o runner era reiniciado: o texto já tinha
-saído da fila, a conversa nunca tinha sido gravada e o agente subia vazio. Agora o runner só dá o pedido por entregue
-quando o Claude (`UserPromptSubmit`) ou o Codex (`task_started`) confirma que o aceitou. Sem essa confirmação ele fica
-pendente, também no arquivo da fila em disco, e se o terminal sair, a retomada falhar ou a sessão subir como nova, ele
-volta para a frente da fila e é digitado de novo uma única vez. Pedido confirmado nunca é repetido, e comando de barra
-(`/compact`, `/clear`) fica de fora. O runner também deixou de dar o Claude por "sem hooks" nos primeiros 60 s depois
-de abrir (antes disso ele espera a confirmação e insiste no Enter), de soltar a fila no boot sem o `SessionStart` ou o
-prompt na tela (teto de 30 s, com aviso no log) e de tentar `--resume` de uma conversa que não existe no disco: sem o
-histórico ele sobe a sessão nova direto, guardando a anterior em `previousSessionId`. O log de "a sessão viva mudou por
-dentro" passou a trazer o evento e o `source` do hook. Funciona igual no Claude e no Codex.
+**Correção no runner: pedido digitado sem confirmação não some, e só é reenviado quando é seguro.** Um pedido enviado a
+um agente podia sumir quando o Claude Code não abria o turno (por exemplo, com os hooks travados) e o runner era
+reiniciado: o texto já tinha saído da fila, a conversa nunca tinha sido gravada e o agente subia vazio. Agora o runner só
+dá o pedido por entregue quando o Claude (`UserPromptSubmit`) ou o Codex (`task_started`) confirma que o aceitou. Sem essa
+confirmação ele fica pendente, também no arquivo da fila em disco, e a fila não solta o pedido seguinte enquanto houver um
+pendente. Se o terminal sair, a retomada falhar ou a sessão subir como nova, o pedido só é digitado de novo quando é
+seguro: a primeira tentativa foi no mesmo provedor e na mesma conta, ainda não houve repetição, e o histórico da conversa
+(o transcript do Claude ou o rollout do Codex) foi lido e não mostra o pedido. Em qualquer outro caso (histórico que não
+deu para ler, provedor ou conta diferentes, digitação interrompida no meio, outra escrita no terminal durante a repetição
+do Enter, segunda tentativa) o pedido fica retido no arquivo da fila, marcado como incerto, não é enviado sozinho e não
+trava os pedidos seguintes. O log avisa que um pedido ficou retido, com o código e o tamanho (nunca o texto), e o que fazer:
+conferir na conversa do agente se ele foi executado e, se não foi, reenviá-lo pela conversa. Se o histórico mostra que o
+pedido foi recebido e só o recibo se perdeu, ele não é repetido. Pedido confirmado nunca é repetido, e comando de barra
+(`/compact`, `/clear`) fica de fora. O runner também deixou de dar o Claude por "sem hooks" nos primeiros 60 s depois de
+abrir (antes disso ele espera a confirmação e insiste no Enter, parando se alguém escrever no terminal), de soltar a fila
+no boot sem o `SessionStart` ou o prompt na tela (teto de 30 s, com aviso no log) e de tentar `--resume` de uma conversa
+que não existe no disco: sem o histórico ele sobe a sessão nova direto, guardando a anterior em `previousSessionId`. O log
+de "a sessão viva mudou por dentro" passou a trazer o evento e o `source` do hook, só quando são valores conhecidos. Funciona
+igual no Claude e no Codex.
+
 ## [1.1.0] - 2026-11-18
 
 - **Correção no aviso de versão nova: o número agora sobe a cada release e, quando é igual, o aviso mostra o commit.** O

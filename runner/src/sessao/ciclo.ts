@@ -10,10 +10,11 @@ import { conferirContaComRestricoes } from "../restricoes-conta.js";
 import { montarCtx } from "./configuracao.js";
 import { RESUME_MORREU_CEDO_MS } from "./constantes.js";
 import { acharRolloutPorId } from "../provedores/codex-rollout.js";
+import { configDirDoClaude } from "../provedores/claude.js";
 import { codexHomeDe } from "../provedores/codex.js";
-import { acharArquivoDaSessao } from "../transcript.js";
+import { inspecionarArquivoDaSessao } from "../transcript.js";
 import { cancelarQuietoDeBoot, cancelarStopPendente } from "./eventos.js";
-import { cancelarReintentoDaFila, devolverSemRecibo } from "./fila.js";
+import { cancelarReintentoDaFila, devolverSemRecibo, reterOsDeOutroProvedor } from "./fila.js";
 import { conferirLoginExpiradoNoTranscript, encerrarIncidenteDeLogin } from "./login.js";
 import { semAnsi } from "./telas.js";
 import { aoReceberDados, descarregarMascara } from "./terminal.js";
@@ -75,15 +76,27 @@ export function reviver(s: Sessao): Promise<void> {
   return op;
 }
 
-/** O histórico do id existe no disco? Claude: o mesmo transcript que o painel lê (transcript.ts). Codex: o
- *  rollout, em qualquer dia com sessão (o limite de 45 dias da busca do vigia não serve aqui, porque uma conversa
- *  antiga ainda abre e abandoná-la por engano é pior que a falha de 4 s). */
-function conversaExisteNoDisco(s: Sessao, ctx: CtxMotor, sessionId: string): boolean {
+/** O histórico do id existe no disco? Claude: o mesmo transcript que o painel lê (transcript.ts), procurado na pasta de
+ *  configuração que o motor realmente usa (configDirDoClaude). Codex: o rollout, em qualquer dia com sessão (o limite
+ *  de 45 dias da busca do vigia não serve aqui, porque uma conversa antiga ainda abre e abandoná-la por engano é pior
+ *  que a falha de 4 s); o caminho achado vai para o vigia, que não o procuraria de novo só nos últimos 45 dias.
+ *  Se a inspeção do disco for inconclusiva (erro de leitura, e não "não existe"), conta como existente: mantém o
+ *  --resume em vez de abandonar uma conversa por causa de um erro de disco. */
+function conversaNoDisco(s: Sessao, ctx: CtxMotor, sessionId: string): { existe: boolean; rollout: string | null } {
   if (s.motor.provedor === "codex") {
     const home = ctx.env.CODEX_HOME ?? codexHomeDe({ auth: ctx.escolha.auth, env: ctx.env, cwd: ctx.cwd, id: ctx.id });
-    return acharRolloutPorId(sessionId, home, Number.MAX_SAFE_INTEGER) !== null;
+    const rollout = acharRolloutPorId(sessionId, home, Number.MAX_SAFE_INTEGER);
+    return { existe: rollout !== null, rollout };
   }
-  return acharArquivoDaSessao(sessionId, ctx.env.CLAUDE_CONFIG_DIR) !== null;
+  const r = inspecionarArquivoDaSessao(sessionId, configDirDoClaude(ctx));
+  if (r.estado === "inconclusivo") {
+    log.aviso(
+      s.a("pty"),
+      `não consegui conferir se o histórico da sessão ${sessionId} está no disco (${r.motivo}); mantenho o --resume em vez de abandonar a conversa`,
+    );
+    return { existe: true, rollout: null };
+  }
+  return { existe: r.estado === "achou", rollout: null };
 }
 
 async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPedido: number): Promise<"retomar" | "nova"> {
@@ -130,13 +143,10 @@ async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPe
 
   const { escolha, problemas, catalogo } = s.lerEscolha();
   for (const p of problemas) log.erro(s.a("escolha"), p.motivo, p.comoResolver);
-  const motorMudou = s.motor.provedor !== escolha.provedor;
   s.escolhaVigente = escolha;
   s.motor = motorDe(escolha.provedor);
-  if (motorMudou) {
-    s.hooksVivos = false;
-    s.estado.hookActive = false;
-  }
+  // O pedido digitado sem recibo no CLI ou na conta antigos não entra sozinho no terminal novo.
+  reterOsDeOutroProvedor(s);
 
   // O id guardado só abre no CLI e na conta que o criaram. Sem `escolha` gravada (estado
   // de antes desta função existir) o CLI era o Claude.
@@ -241,7 +251,10 @@ async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPe
 
   // Um id que nunca gravou conversa (a sessão morreu antes de o primeiro pedido virar turno) não abre: o
   // `--resume` falharia em segundos e só então subiria uma sessão nova. Já sobe a nova, sem a falha.
-  if (modo === "retomar" && s.estado.sessionId && !conversaExisteNoDisco(s, ctx, s.estado.sessionId)) {
+  let rolloutDaRetomada: string | null = null;
+  const conversa = modo === "retomar" && s.estado.sessionId ? conversaNoDisco(s, ctx, s.estado.sessionId) : null;
+  if (conversa) rolloutDaRetomada = conversa.rollout;
+  if (conversa && !conversa.existe) {
     log.aviso(
       s.a("pty"),
       `não retomo a sessão ${s.estado.sessionId}: o histórico dela não está no disco (${s.motor.provedor === "codex" ? "rollout do Codex" : "transcript do Claude"} sem esse id), ` +
@@ -280,7 +293,7 @@ async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPe
     );
   }
   s.modoDoUltimoSpawn = modo;
-  await spawn(s, ctx, args);
+  await spawn(s, ctx, args, modo === "retomar" ? rolloutDaRetomada : null);
 
   // Depois do spawn, e não antes: o `mudar` do spawn põe `spawning`, e este
   // aqui é que fica valendo. Sem isto o boot-timer de 8s marcaria `idle` e o
@@ -292,7 +305,7 @@ async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPe
   return modo;
 }
 
-export async function spawn(s: Sessao, ctx: CtxMotor, args: string[]): Promise<void> {
+export async function spawn(s: Sessao, ctx: CtxMotor, args: string[], rolloutDaRetomada: string | null = null): Promise<void> {
   const cwd = ctx.cwd;
   const binario = s.motor.binario;
 
@@ -326,12 +339,16 @@ export async function spawn(s: Sessao, ctx: CtxMotor, args: string[]): Promise<v
   s.bufferBytes = 0;
   s.caudaDaTela = "";
   s.spawnEm = Date.now();
+  // Hooks vivos é uma prova DESTE terminal: o do spawn anterior não vale para o novo (semHooksDeVerdade e o
+  // recibo dependem disso).
+  s.hooksVivos = false;
+  s.estado.hookActive = false;
   s.mudar({ status: "spawning", statusReason: "runner:spawn" });
   // O id da conversa só vale para este CLI e esta conta: grava de quem é, para o boot seguinte decidir.
   gravarEstado({ escolha: ctx.escolha }, s.arquivoDeEstado);
 
   const pararVigias: Array<() => void> = [];
-  if (s.motor.provedor === "codex") pararVigias.push(vigiarRolloutDoCodex(s, esteProc, ctx));
+  if (s.motor.provedor === "codex") pararVigias.push(vigiarRolloutDoCodex(s, esteProc, ctx, rolloutDaRetomada));
 
   // Uma máscara por spawn: o que o CLI escreve passa por ela antes de chegar ao buffer da tela e ao painel.
   const mascara = new MascaraDeFluxo(s.segredosParaMascara());

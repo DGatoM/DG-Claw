@@ -1,6 +1,7 @@
 import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
+import { reter, talvezSoltarFila } from "./fila.js";
 import { INTERVALO_MS, PEDACO, RECIBO_ENTER_TENTATIVAS } from "./constantes.js";
 import { ehDialogoDeAutoMode, telaDeConfiancaDoCodex } from "./telas.js";
 
@@ -129,9 +130,22 @@ export async function enviarComRecibo(s: Sessao, comandoDeBarra = false): Promis
   const proc = s.proc;
   for (let tentativa = 1; tentativa <= RECIBO_ENTER_TENTATIVAS; tentativa++) {
     if (!s.proc || s.proc !== proc) return false;
+    // Antes de CADA repetição do Enter: se alguém escreveu no terminal depois do Enter anterior (o dono pelo
+    // terminal, ou um texto novo), a caixa já não é a deste pedido e um Enter a mais poderia mandar um rascunho.
+    // Para de repetir e deixa o pedido como entrega incerta (a fila o retém).
+    if (tentativa > 1 && s.entradasManuais !== entradasEsperadas) {
+      log.aviso(
+        s.a("entrada"),
+        `parei de repetir o Enter (${tentativa - 1}/${RECIBO_ENTER_TENTATIVAS} sem recibo): houve outra escrita no terminal depois do primeiro Enter, e a caixa já não é a mesma; ` +
+          `não sei se o pedido foi recebido`,
+      );
+      if (s.envioAtual) s.envioAtual.interrompido = true;
+      return false;
+    }
     const antes = s.promptsAceitos;
     const compactAntes = s.compactsIniciados;
     s.escrever("\r");
+    if (s.envioAtual) s.envioAtual.enterEscrito = true;
     entradasEsperadas = s.entradasManuais;
     const recebeu = await esperarRecibo(s, antes, espera, comandoDeBarra ? compactAntes : undefined);
     if (recebeu) return true;
@@ -201,6 +215,12 @@ function vigiarReciboAtrasado(
         s.a("entrada"),
         "parei de insistir no Enter: houve outra escrita no terminal depois do texto, e a caixa já não é a mesma",
       );
+      // O pedido pendente não tem como ser provado nem repetido com segurança: fica retido e a fila segue.
+      const pendente = s.semRecibo[0];
+      if (pendente?.aguardando) {
+        reter(s, pendente.item, "a repetição do Enter parou porque houve outra escrita no terminal");
+        talvezSoltarFila(s);
+      }
       return;
     }
     if (s.estado.status === "idle") {

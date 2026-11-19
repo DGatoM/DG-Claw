@@ -32,21 +32,76 @@ function pastaDeProjetos(configDir?: string | null): string {
  * calculado custa uma janela de conversa vazia sem nenhum erro no caminho.
  */
 export function acharArquivoDaSessao(sessionId: string, configDir?: string | null): string | null {
+  const r = inspecionarArquivoDaSessao(sessionId, configDir);
+  if (r.estado === "inconclusivo") {
+    log.aviso("conversa", `não consegui varrer ${pastaDeProjetos(configDir)}: ${r.motivo}`);
+  }
+  return r.estado === "achou" ? r.arquivo : null;
+}
+
+export type InspecaoDoTranscript =
+  | { estado: "achou"; arquivo: string }
+  | { estado: "nao-existe" }
+  | { estado: "inconclusivo"; motivo: string };
+
+/** Como acharArquivoDaSessao, mas separa "não existe" (a pasta foi varrida e o id não está nela) de "não deu para
+ *  saber" (erro ao ler o disco). Quem decide algo grave com base na ausência precisa dessa diferença. */
+export function inspecionarArquivoDaSessao(sessionId: string, configDir?: string | null): InspecaoDoTranscript {
   const raiz = pastaDeProjetos(configDir);
   try {
-    if (!fs.existsSync(raiz)) return null;
-    for (const dir of fs.readdirSync(raiz)) {
+    let entradas: string[];
+    try {
+      entradas = fs.readdirSync(raiz);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return { estado: "nao-existe" };
+      throw err;
+    }
+    for (const dir of entradas) {
       const alvo = path.join(raiz, dir, `${sessionId}.jsonl`);
-      if (fs.existsSync(alvo)) return alvo;
+      if (fs.existsSync(alvo)) return { estado: "achou", arquivo: alvo };
     }
     // Algumas instalações gravam o jsonl solto na raiz.
     const solto = path.join(raiz, `${sessionId}.jsonl`);
-    if (fs.existsSync(solto)) return solto;
-    return null;
+    if (fs.existsSync(solto)) return { estado: "achou", arquivo: solto };
+    return { estado: "nao-existe" };
   } catch (err) {
-    log.aviso("conversa", `não consegui varrer ${raiz}: ${err instanceof Error ? err.message : err}`);
+    return { estado: "inconclusivo", motivo: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Texto sem diferença de espaço, para comparar o pedido digitado com o que o histórico guardou. */
+export function normalizarParaComparar(texto: string): string {
+  return texto.replace(/\s+/g, " ").trim();
+}
+
+/** O histórico (transcript do Claude) tem este pedido como turno do USUÁRIO? Só olha turnos gravados a partir de
+ *  `desdeMs` (quando o pedido entrou na fila), para um texto repetido de ontem não passar por este. Devolve null
+ *  quando não deu para ler o arquivo. Nunca registra o texto. */
+export function pedidoNoTranscript(arquivo: string, texto: string, desdeMs: number): boolean | null {
+  let cru: string;
+  try {
+    cru = fs.readFileSync(arquivo, "utf8");
+  } catch {
     return null;
   }
+  const alvo = normalizarParaComparar(texto);
+  if (!alvo) return false;
+  for (const linha of cru.split("\n")) {
+    if (!linha.trim()) continue;
+    let d: Record<string, unknown>;
+    try {
+      d = JSON.parse(linha) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (d.isSidechain === true) continue;
+    const msg = d.message as { role?: string; content?: unknown } | undefined;
+    if (msg?.role !== "user") continue;
+    const quando = typeof d.timestamp === "string" ? Date.parse(d.timestamp) : NaN;
+    if (Number.isFinite(quando) && quando < desdeMs - 1_000) continue;
+    if (normalizarParaComparar(textoDoConteudo(msg.content)).includes(alvo)) return true;
+  }
+  return false;
 }
 
 function textoDoConteudo(conteudo: unknown): string {

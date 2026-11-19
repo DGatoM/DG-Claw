@@ -180,6 +180,12 @@ export class Sessao extends EventEmitter {
   /** Textos já digitados que o CLI ainda não confirmou (sem recibo). Vão junto no arquivo da fila, marcados
    *  como digitados, e voltam para a frente dela se o terminal sair antes do recibo (ver sessao/fila.ts). */
   semRecibo: SemRecibo[] = [];
+  /** O envio em curso (do primeiro caractere ao fim da espera do recibo), para a digitação avisar a fila de que o
+   *  Enter foi escrito ou de que a repetição parou. */
+  envioAtual: SemRecibo | null = null;
+  /** Pedidos retidos sem confirmação (`incerto`): ficam no arquivo da fila, nunca são enviados sozinhos e não
+   *  bloqueiam os próximos. */
+  retidos: ItemDaFila[] = [];
   /** true enquanto um item da fila está sendo digitado, para dois idles seguidos
    *  não soltarem dois itens por cima um do outro. */
   soltandoFila = false;

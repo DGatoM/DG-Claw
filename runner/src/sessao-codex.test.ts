@@ -423,13 +423,67 @@ test("Codex sem recibo: o pedido digitado sem task_started fica pendente e, com 
   matarOTerminal(s);
   await esperarAte(() => s.estado.status === "resumable" || s.estado.status === "stopped", 8_000, "o terminal morrer");
   assert.equal(s.semRecibo.length, 0);
-  assert.deepEqual(s.filaQuandoIdle.map((i) => [i.texto, i.reentregue]), [["pedido-codex-que-some-1", true]]);
+  assert.deepEqual(s.filaQuandoIdle.map((i) => [i.texto, i.digitado, i.tentativa]), [["pedido-codex-que-some-1", true, 1]]);
 
+  // Sem o id da conversa (o Codex nunca abriu o turno, o rollout não existe) não há histórico para conferir: o
+  // pedido NÃO sai sozinho, fica retido (incerto) e o log diz o que fazer.
   await s.subir("retomar");
-  await esperarAte(() => promptsDe("pedido-codex-que-some-1") === 1, 30_000, "o pedido sair de novo");
-  await esperarAte(() => s.semRecibo.length === 0 && s.filaQuandoIdle.length === 0 && filaEmDisco(s).length === 0, 10_000, "o recibo (task_started) limpar o pendente e o disco");
+  await esperarAte(() => s.retidos.length === 1, 30_000, "o pedido ficar retido");
+  await esperarAte(() => s.estado.status === "idle", 10_000);
   await dormir(2_500);
-  assert.equal(promptsDe("pedido-codex-que-some-1"), 1, "entregue uma única vez");
+  assert.equal(promptsDe("pedido-codex-que-some-1"), 0, "não foi enviado sozinho");
+  assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.incerto]), [["pedido-codex-que-some-1", true]]);
+  assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), /ficou retido sem confirmação: não deu para ler o histórico da conversa/);
+});
+
+test("Codex: com o id da conversa e o rollout sem o pedido, a reentrega é segura e sai UMA vez", async () => {
+  const marcaDoLog = lerTexto(amb.logDoRunner).length;
+  logarCodex(amb);
+  const { s } = await nova({}, undefined, { reciboVigiaPassosMs: [300, 300] });
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000);
+  await s.digitarEEnviar("primeira-conversa-codex");
+  await esperarAte(() => s.estado.sessionId !== null && s.estado.status === "idle", 10_000, "o turno acabar com o id conhecido");
+  matarOTerminal(s);
+  await esperarAte(() => s.estado.status === "resumable", 8_000);
+  process.env.FAKE_CODEX_IGNORE_ENTERS = "999"; // o Codex retomado ignora todos os Enters
+  await s.subir("retomar");
+  delete process.env.FAKE_CODEX_IGNORE_ENTERS;
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  s.enfileirarQuandoOcioso("pedido-codex-seguro-1");
+  await esperarAte(() => /ainda não confirmou que aceitou o pedido/.test(lerTexto(amb.logDoRunner).slice(marcaDoLog)), 40_000, "o aviso de pedido sem recibo");
+  matarOTerminal(s);
+  await esperarAte(() => s.estado.status === "resumable", 8_000);
+  await s.subir("retomar");
+  await esperarAte(() => promptsDe("pedido-codex-seguro-1") === 1, 30_000, "o pedido sair de novo, por ser seguro");
+  await esperarAte(() => s.semRecibo.length === 0 && s.filaQuandoIdle.length === 0 && filaEmDisco(s).length === 0, 10_000, "o recibo limpar o pendente e o disco");
+  await dormir(2_500);
+  assert.equal(promptsDe("pedido-codex-seguro-1"), 1);
+  assert.equal(s.retidos.length, 0);
+});
+
+test("Codex: a retomada passa ao vigia o rollout já achado, mesmo mais antigo que a janela de busca do vigia", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000);
+  await s.digitarEEnviar("conversa-antiga-codex");
+  await esperarAte(() => s.estado.sessionId !== null && s.estado.status === "idle", 10_000);
+  const uuid = s.estado.sessionId!;
+  matarOTerminal(s);
+  await esperarAte(() => s.estado.status === "resumable", 8_000);
+  // O rollout vai para um dia antigo, atrás de 50 pastas de dias mais novos (a busca do vigia olha só as 45 mais novas).
+  const atual = acharRolloutPorId(uuid, amb.codexHome)!;
+  const antiga = path.join(amb.codexHome, "sessions", "2020", "01", "01");
+  fs.mkdirSync(antiga, { recursive: true });
+  fs.renameSync(atual, path.join(antiga, path.basename(atual)));
+  for (let d = 1; d <= 50; d++) fs.mkdirSync(path.join(amb.codexHome, "sessions", "2025", "01", String(d).padStart(2, "0")), { recursive: true });
+  assert.equal(acharRolloutPorId(uuid, amb.codexHome), null, "a busca padrão do vigia não alcança o rollout");
+  await s.subir("retomar");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const antes = s.promptsAceitos;
+  await s.digitarEEnviar("segunda-na-antiga");
+  await esperarAte(() => s.promptsAceitos > antes, 10_000, "o vigia ler o rollout antigo e dar o recibo");
 });
 
 test("Codex com recibo: o pedido que abriu turno (task_started) não é reentregue depois do terminal morrer e subir de novo", async () => {

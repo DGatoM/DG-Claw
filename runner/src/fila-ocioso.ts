@@ -14,11 +14,22 @@ export interface ItemDaFila {
   texto: string;
   /** epoch ms de quando entrou na fila. */
   em: number;
-  /** Só no disco: o texto foi digitado no terminal e o CLI ainda não confirmou que o aceitou (sem recibo).
-   *  Ao carregar, volta para a frente da fila e sai de novo uma vez (ver recuperarDoDisco). */
+  /** Identificador curto, só para o log dizer de qual pedido fala (nunca o texto). */
+  id?: string;
+  /** Só no disco: uma tentativa de digitar o texto no terminal começou e o CLI ainda não confirmou que o aceitou
+   *  (sem recibo). É gravado ANTES da primeira escrita no terminal. Ao carregar, o texto só sai de novo se for
+   *  seguro (ver avaliarReentrega em sessao/fila.ts). */
   digitado?: boolean;
-  /** O texto já foi entregue de novo uma vez depois de ficar sem recibo; uma segunda falha o descarta. */
-  reentregue?: boolean;
+  /** Quantas tentativas de digitar o texto já começaram. O limite é de duas (uma repetição), mesmo entre processos. */
+  tentativa?: number;
+  /** O provedor e a forma de pagar da primeira tentativa: a reentrega só vale no mesmo CLI e na mesma conta. */
+  provedor?: string;
+  conta?: string;
+  /** A conversa em que o texto foi digitado: é o histórico dela que prova se o pedido foi recebido. */
+  sessaoId?: string | null;
+  /** O pedido pode ter sido recebido ou não e não deu para provar: fica guardado no arquivo, NÃO é enviado
+   *  sozinho e não bloqueia os próximos. */
+  incerto?: boolean;
 }
 
 /** Nome de arquivo seguro: só [A-Za-z0-9._-], o resto vira "_". */
@@ -50,11 +61,16 @@ export function carregarFila(caminho: string, area: string): ItemDaFila[] {
     const dado = JSON.parse(bruto) as { versao?: unknown; itens?: unknown };
     if (dado?.versao !== 1 || !Array.isArray(dado.itens)) throw new Error("formato inesperado (esperava versao 1 e uma lista de itens)");
     const itens: ItemDaFila[] = [];
-    for (const it of dado.itens as Array<{ texto?: unknown; em?: unknown; digitado?: unknown; reentregue?: unknown }>) {
+    for (const it of dado.itens as Array<Record<string, unknown>>) {
       if (typeof it?.texto !== "string") throw new Error("item sem texto em formato de string");
       const item: ItemDaFila = { texto: it.texto, em: typeof it.em === "number" ? it.em : Date.now() };
+      if (typeof it.id === "string") item.id = it.id;
       if (it.digitado === true) item.digitado = true;
-      if (it.reentregue === true) item.reentregue = true;
+      if (typeof it.tentativa === "number" && Number.isFinite(it.tentativa)) item.tentativa = it.tentativa;
+      if (typeof it.provedor === "string") item.provedor = it.provedor;
+      if (typeof it.conta === "string") item.conta = it.conta;
+      if (typeof it.sessaoId === "string" || it.sessaoId === null) item.sessaoId = it.sessaoId;
+      if (it.incerto === true) item.incerto = true;
       itens.push(item);
     }
     return itens;

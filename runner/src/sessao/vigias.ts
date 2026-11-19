@@ -68,7 +68,7 @@ export function pararVigiaDoStopPerdido(s: Sessao): void {
 }
 
 /** Codex: status e id da sessão vêm do rollout. Devolve a função que para o vigia. */
-export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMotor): () => void {
+export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMotor, rolloutConhecido: string | null = null): () => void {
   const home = ctx.env.CODEX_HOME ?? codexHomeDe({ auth: ctx.escolha.auth, env: ctx.env, cwd: ctx.cwd, id: ctx.id });
   const desde = s.spawnEm;
   let arquivo: string | null = null;
@@ -80,7 +80,7 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
       if (arquivo) return arquivo;
       const conhecido = s.estado.sessionId;
       if (conhecido) {
-        arquivo = acharRolloutPorId(conhecido, home);
+        arquivo = rolloutConhecido ?? acharRolloutPorId(conhecido, home);
       } else {
         const achado = descobrirRollout(ctx.cwd, desde, home, s.idsEmUso());
         if (achado) {
