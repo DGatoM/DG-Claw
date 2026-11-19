@@ -12,6 +12,7 @@ const JANELA_MS = 10 * 60 * 1000;
 const MAX_POSTS = 10;
 const RX_TOKEN = /^[A-Za-z0-9_-]{43}$/;
 const RX_LINHA_HASH = /^(\s*(?:export\s+)?)DGCLAW_PANEL_PASSWORD_HASH\s*=.*$/m;
+const RX_USUARIO_PAINEL = /^\s*(?:export\s+)?DGCLAW_PANEL_USER\s*=\s*['"]?[^'"\s#]/m; // o usuário do painel com valor
 
 const sha256buf = (v) => crypto.createHash('sha256').update(v).digest();
 
@@ -34,7 +35,7 @@ function gravaAtomico(arquivo, texto) {
   }
 }
 
-function criarPrimeiroAcesso({ config, auth, log, agora }) {
+function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy }) {
   const relogio = agora || (() => Date.now());
   const arquivo = caminhoArquivo(config);
   const webEnv = caminhoWebEnv(config);
@@ -56,20 +57,148 @@ function criarPrimeiroAcesso({ config, auth, log, agora }) {
     return JSON.parse(fs.readFileSync(arquivo, 'utf8'));
   }
 
-  function gravaHashNoEnv(hash) {
+  function gravaHashNoEnv(hash) { gravaAtomico(webEnv, textoComHash(hash, false)); }
+
+  /** O web.env com a linha do hash trocada. exigirExistente: na troca do dono o web.env tem de continuar lá;
+   *  recriar só com o hash trancaria o próximo login. */
+  function textoComHash(hash, exigirExistente) {
+    // Edição linha a linha: troca só a linha do hash e mantém o resto do web.env como está.
     if (hash.includes("'")) throw new Error('o hash gerado contém aspas simples e não pode ser gravado no web.env');
     let texto = '';
-    try { texto = fs.readFileSync(webEnv, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+    try { texto = fs.readFileSync(webEnv, 'utf8'); } catch (e) { if (e.code !== 'ENOENT' || exigirExistente) throw e; }
     const linha = `DGCLAW_PANEL_PASSWORD_HASH='${hash}'`;
-    if (RX_LINHA_HASH.test(texto)) texto = texto.replace(RX_LINHA_HASH, (_, pre) => `${pre}${linha}`);
-    else texto = texto + (texto && !texto.endsWith('\n') ? '\n' : '') + `${linha}\n`;
-    gravaAtomico(webEnv, texto);
+    if (RX_LINHA_HASH.test(texto)) {
+      // Fica uma definição só: a nova entra no lugar da primeira e as outras saem (o dotenv usaria a última).
+      let primeira = true;
+      // A definição que fica é sempre a canônica (início da linha, sem export), que é o que o instalador procura.
+      texto = texto.replace(/^(\s*(?:export\s+)?)DGCLAW_PANEL_PASSWORD_HASH\s*=.*(?:\r?\n|$)/gm, () => {
+        if (!primeira) return '';
+        primeira = false;
+        return `${linha}\n`;
+      });
+    } else texto = texto + (texto && !texto.endsWith('\n') ? '\n' : '') + `${linha}\n`;
+    return texto;
+  }
+
+  /** O web.env precisa existir e ser arquivo comum: ausente, link simbólico, dispositivo ou FIFO não recebem o hash. */
+  function destinoInvalido() {
+    let st;
+    try { st = fs.lstatSync(webEnv); } catch (e) {
+      // Sem o web.env o próximo reinício perde o usuário do painel e tranca o login: recusa antes de gravar.
+      if (e.code === 'ENOENT') return { motivo: 'não existe (a configuração do painel precisa ser restaurada antes)' };
+      return { motivo: `não pôde ser examinado (${e.code || e.message})` };
+    }
+    if (st.isFile()) return null;
+    const tipo = st.isSymbolicLink() ? 'é um link simbólico' : st.isFIFO() ? 'é um FIFO' : st.isDirectory() ? 'é uma pasta' : 'não é um arquivo comum';
+    return { motivo: tipo };
   }
 
   const erro = (status, msg, extra) => ({ status, corpo: Object.assign({ ok: false, erro: msg }, extra || {}) });
+  let trocandoDono = false;
+
+  /** Troca da senha do dono logado: confere a atual (mesmo limitador do login), grava só o hash no web.env e abre sessão nova.
+   *  As demais sessões caem em auth.definirHash. Mesmas regras de força do primeiro acesso. */
+  async function trocarSenhaDono(dados, ip, req, sessao) {
+    const { atual, nova, confirmacao } = dados || {};
+    if (typeof atual !== 'string' || !atual) return erro(400, 'Digite a senha atual.');
+    if (typeof nova !== 'string') return erro(400, 'Digite a senha nova.');
+    if (typeof confirmacao !== 'string' || nova.normalize('NFKC') !== confirmacao.normalize('NFKC')) return erro(400, 'As senhas não conferem.');
+    // Pontos de código na digitada e na forma que o scrypt usa (NFKC): as duas precisam chegar a 12.
+    const tamNova = Math.min([...nova].length, [...nova.normalize('NFKC')].length);
+    if (tamNova < 12) return erro(400, `A senha precisa ter pelo menos 12 caracteres (a sua tem ${tamNova}).`);
+    if (nova.toLowerCase() === 'admin') return erro(400, 'Essa senha é fácil demais de adivinhar. Escolha outra.');
+    const norm = (v) => String(v).normalize('NFKC'); // a mesma normalização do scrypt em lib/auth.js
+    if (norm(nova) === norm(atual)) return erro(400, 'A senha nova precisa ser diferente da atual.');
+    if (trocandoDono) return erro(409, 'Já há uma troca de senha em andamento. Espere alguns segundos e tente de novo.');
+    trocandoDono = true;
+    try {
+      if (config.hashPorFora) {
+        log('aviso', `Troca de senha do dono recusada: o hash da senha vem do ambiente do serviço e não do ${webEnv}.`);
+        return erro(409, `A senha deste painel é definida fora do web.env, no ambiente do serviço (por exemplo, uma linha Environment= na unidade do systemd). Trocar por aqui não valeria depois de reiniciar, então nada foi gravado. Faça a troca lá (ou tire essa definição e use o web.env) e reinicie o serviço.`);
+      }
+      const destino = destinoInvalido();
+      if (destino) {
+        log('erro', `Troca de senha do dono recusada: ${webEnv} ${destino.motivo}.`);
+        return erro(409, `Não dá para trocar a senha por aqui: ${webEnv} ${destino.motivo}. Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para deixar o web.env como arquivo comum (ou rode no servidor: sudo dgclaw senha).`);
+      }
+      const v = await auth.verificaSenha(auth.usuario, atual, ip);
+      if (!v.ok) {
+        if (v.limite) { log('aviso', `Troca de senha do dono bloqueada por excesso de tentativas (ip ${ip}).`); return erro(429, v.erro, { retryAfter: v.retryAfter }); }
+        if (v.trancado) return erro(403, v.erro);
+        log('aviso', `Troca de senha do dono recusada (ip ${ip}): senha atual não confere.`);
+        return v.campo ? erro(403, 'A senha atual não confere.') : erro(500, v.erro);
+      }
+      let hash;
+      try {
+        hash = await auth.gerarHash(nova);
+      } catch (e) {
+        if (e.ocupado) return erro(429, e.message, { retryAfter: 2 });
+        log('erro', `Troca de senha do dono: falha ao gerar o hash (${e.message}).`);
+        return erro(500, 'Não consegui processar a senha agora. Tente de novo em instantes.');
+      }
+      // Depois dos awaits: a sessão que autorizou o pedido ainda tem de valer.
+      const agoraSessao = auth.sessaoDoPedido(req);
+      if (!agoraSessao || agoraSessao.papel !== 'dono' || agoraSessao.usuario !== sessao.usuario) return erro(401, 'A sua sessão deixou de valer enquanto você trocava a senha. Entre de novo.');
+      // O web.env pode ter mudado durante os awaits: confere de novo antes de consumir o link de recuperação.
+      const destinoAgora = destinoInvalido();
+      if (destinoAgora) {
+        log('erro', `Troca de senha do dono recusada: ${webEnv} ${destinoAgora.motivo} (mudou durante a troca).`);
+        return erro(409, `Não dá para trocar a senha por aqui: ${webEnv} ${destinoAgora.motivo}. Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env como arquivo comum (ou rode no servidor: sudo dgclaw senha).`);
+      }
+      // O arquivo novo fica pronto (e conferido) ANTES de consumir o link: falta de espaço ou um web.env sem o
+      // usuário do painel não podem custar o link de recuperação.
+      let texto;
+      try {
+        texto = textoComHash(hash, true);
+      } catch (e) {
+        log('erro', `Troca de senha do dono: não consegui ler ${webEnv} (${e.code || e.message}). A senha antiga continua valendo.`);
+        return erro(409, `Não consegui ler o web.env (${e.code || e.message}). Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env (ou rode no servidor: sudo dgclaw senha).`);
+      }
+      if (!RX_USUARIO_PAINEL.test(texto)) {
+        log('erro', `Troca de senha do dono recusada: ${webEnv} não define DGCLAW_PANEL_USER; depois de reiniciar, o login ficaria trancado.`);
+        return erro(409, `O web.env não tem o usuário do painel (DGCLAW_PANEL_USER). Com a senha gravada nele, o próximo reinício trancaria o login, então nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env (ou rode no servidor: sudo dgclaw senha).`);
+      }
+      const tmp = `${webEnv}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+      try {
+        fs.writeFileSync(tmp, texto, { mode: 0o600 });
+        fs.chmodSync(tmp, 0o600);
+      } catch (e) {
+        try { fs.unlinkSync(tmp); } catch (_) { /* não existia */ }
+        log('erro', `Troca de senha do dono: não consegui preparar o web.env novo (${e.code || e.message}). A senha antiga continua valendo.`);
+        return erro(500, `Não consegui gravar a senha no servidor (${e.code || e.message}). A senha antiga continua valendo e o link de recuperação pendente continua valendo; peça ao Admin para conferir o espaço e a permissão da pasta de configuração.`);
+      }
+      // Antes de publicar: o link de primeiro acesso pendente deixa de valer (como na troca pelo terminal).
+      // Se não der para apagar, a troca não acontece e a senha antiga continua valendo.
+      try {
+        fs.rmSync(arquivo, { force: true });
+      } catch (e) {
+        try { fs.unlinkSync(tmp); } catch (_) { /* já saiu */ }
+        log('erro', `Troca de senha do dono: não consegui invalidar o link de primeiro acesso pendente em ${arquivo} (${e.code || e.message}). A senha antiga continua valendo.`);
+        return erro(500, `Não consegui invalidar o link de recuperação pendente (${e.code || e.message}). A senha antiga continua valendo; peça ao Admin para conferir a permissão da pasta de configuração.`);
+      }
+      try {
+        fs.renameSync(tmp, webEnv);
+      } catch (e) {
+        try { fs.unlinkSync(tmp); } catch (_) { /* já saiu */ }
+        log('erro', `Troca de senha do dono: não consegui gravar a senha em ${webEnv} (${e.code || e.message}). A senha antiga continua valendo.`);
+        return erro(500, `Não consegui gravar a senha no servidor (${e.code || e.message}). A senha antiga continua valendo; peça ao Admin para conferir a permissão do arquivo de configuração.`);
+      }
+      const r = auth.definirHash(hash);
+      if (!r.ok) {
+        log('erro', `Troca de senha do dono: o hash gerado não foi aceito (${r.erro}).`);
+        return erro(500, `O servidor não aceitou o hash gerado (${r.erro}). Rode no servidor: sudo dgclaw senha`);
+      }
+      // As outras sessões já caíram; os WebSockets do proxy que seguem abertos precisam ser conferidos agora, não em até 30 s.
+      if (revalidarProxy) revalidarProxy();
+      const s = auth.criaSessao(auth.usuario, req);
+      log('info', `${auth.usuario} trocou a senha do painel pelo painel (ip ${ip}); as outras sessões foram derrubadas.`);
+      return { status: 200, corpo: { ok: true, destino: '/' }, cookies: s.cookies };
+    } finally { trocandoDono = false; }
+  }
 
   return {
     arquivo,
+    trocarSenhaDono,
     async consumir(dados, ip, req) {
       const { token, senha, confirmacao } = dados || {};
       const espera = limite(ip || '?');
@@ -100,8 +229,9 @@ function criarPrimeiroAcesso({ config, auth, log, agora }) {
       if (!(Number(dado.expira) > relogio())) return erro(410, 'Este link expirou. Gere outro com: sudo dgclaw primeiro-acesso');
 
       if (typeof senha !== 'string') return erro(400, 'Digite a senha.');
-      if (senha !== confirmacao) return erro(400, 'As senhas não conferem.');
-      if (senha.length < 12) return erro(400, `A senha precisa ter pelo menos 12 caracteres (a sua tem ${senha.length}).`);
+      if (typeof confirmacao !== 'string' || senha.normalize('NFKC') !== confirmacao.normalize('NFKC')) return erro(400, 'As senhas não conferem.');
+      const tamSenha = Math.min([...senha].length, [...senha.normalize('NFKC')].length);
+      if (tamSenha < 12) return erro(400, `A senha precisa ter pelo menos 12 caracteres (a sua tem ${tamSenha}).`);
       if (senha.toLowerCase() === 'admin') return erro(400, 'Essa senha é fácil demais de adivinhar. Escolha outra.');
 
       let hash;

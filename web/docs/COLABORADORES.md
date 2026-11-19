@@ -175,7 +175,7 @@ Vale para qualquer sessão: `{ok, usuario, papel, agente, nome, trocar_senha}`. 
 
 ### `POST /api/v1/eu/senha`
 
-Só o colaborador troca a própria senha (o dono recebe `403` e é mandado para `sudo dgclaw senha`). Corpo: `{"atual": "…", "nova": "…", "confirmacao": "…"}`. A `atual` só é exigida depois que a senha temporária já foi trocada. A `nova` tem de 10 a 128 caracteres, é diferente da atual (ou da temporária) e igual à `confirmacao`.
+Só o colaborador troca a própria senha (o dono recebe `403`; ele troca a dele em `POST /api/v1/dono/senha`, pela tela Trocar senha do painel, ou por `sudo dgclaw senha`). Corpo: `{"atual": "…", "nova": "…", "confirmacao": "…"}`. A `atual` só é exigida depois que a senha temporária já foi trocada. A `nova` tem de 10 a 128 caracteres, é diferente da atual (ou da temporária) e igual à `confirmacao`.
 
 Resposta `200`: `{"ok": true, "destino": "/a/ana"}`, e um cookie novo substitui o da sessão (as outras sessões da pessoa caem). Erros: `400` (regra da senha), `403` (senha atual errada), `429` (muitas senhas sendo processadas ao mesmo tempo).
 

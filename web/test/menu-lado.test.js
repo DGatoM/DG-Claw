@@ -147,11 +147,11 @@ test('organizaMenu: o Admin (sem painel) só tem os grupos com algo dentro; cola
   const admin = M.organizaMenu(M.montaItens({ id: 'admin', tipo: 'admin', tem_painel: false }, false));
   assert.deepEqual(admin.grupos.map(g => g.id), ['dia', 'ferramentas', 'operacao', 'seguranca']);
   assert.deepEqual(admin.grupos.find(g => g.id === 'operacao').itens.map(i => i.chave), ['logs'], 'Logs só no Admin');
-  assert.deepEqual(admin.grupos.find(g => g.id === 'seguranca').itens.map(i => i.chave), ['seguranca', 'avisos', 'suporte'], 'o Admin não convida colaborador');
+  assert.deepEqual(admin.grupos.find(g => g.id === 'seguranca').itens.map(i => i.chave), ['seguranca', 'avisos', 'suporte', 'senha'], 'o Admin não convida colaborador, mas o dono troca a senha dele');
   assert.deepEqual(admin.conexoes, []);
   const colab = M.organizaMenu(M.montaItens(AG, true));
   const chaves = [...colab.fixos, ...colab.grupos.flatMap(g => g.itens), ...colab.rodape, ...colab.conexoes].map(i => i.chave);
-  for (const nao of ['cofre', 'lembretes', 'avisos', 'seguranca', 'anonimizar', 'colaboradores', 'tela']) assert.ok(!chaves.includes(nao), nao);
+  for (const nao of ['cofre', 'lembretes', 'avisos', 'seguranca', 'anonimizar', 'colaboradores', 'senha', 'tela']) assert.ok(!chaves.includes(nao), nao);
   assert.ok(chaves.includes('sessoes') && chaves.includes('conectar'));
   assert.ok(!colab.grupos.some(g => g.id === 'seguranca'), 'grupo sem item não aparece');
 });
