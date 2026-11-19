@@ -262,6 +262,7 @@ try {
     ok(/na fila/.test(vf.json.motivo_vazio), 'conversa vazia com pedido na fila: motivo');
     const vd = await lerJson(await p.pedir('/api/sessoes/card-td/conversa'));
     ok(/dormindo/.test(vd.json.motivo_vazio), 'conversa vazia de sessão dormindo: motivo');
+    ok(/não vai entrar sozinho/.test(vd.json.motivo_vazio) && /Confira a conversa/.test(vd.json.motivo_vazio) && !/Aguarde/.test(vd.json.motivo_vazio), 'dormindo sem terminal e sem fila: não manda aguardar, manda conferir a conversa');
     const vq = await lerJson(await p.pedir('/api/sessoes/card-tq/conversa'));
     ok(/pedido guardado/.test(vq.json.motivo_vazio) && /Retomar/.test(vq.json.motivo_vazio) && !/Aguarde/.test(vq.json.motivo_vazio) && /sem reenviar/.test(vq.json.motivo_vazio), 'pedido na fila e sessão sem terminal: manda usar Retomar, sem aguardar nem reenviar');
     ok(por['card-tp'].estado === 'esperando_primeiro_turno' && por['card-tp'].tem_terminal === false, 'status stopped com fila positiva vale como esperando o primeiro turno, sem terminal');

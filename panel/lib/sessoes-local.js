@@ -505,6 +505,10 @@ function registrar(router, { CONFIG }) {
         return 'Há um pedido guardado na fila, mas a sessão está sem terminal aberto. Use Retomar para processar o pedido, sem reenviar o texto.';
       }
       if (/na fila/.test(it.motivo)) return `O pedido está na fila e ainda não virou turno.${espera}`;
+      // Sem terminal e sem item na fila, nada vai entregar o pedido sozinho.
+      if (it.tem_terminal === false) {
+        return 'A sessão está dormindo, sem terminal aberto e sem pedido na fila: o pedido não vai entrar sozinho. Confira a conversa antes de decidir se reenvia.';
+      }
       if (/dormindo/.test(it.motivo)) return `A sessão está dormindo e o pedido ainda não virou turno.${espera}`;
       return `O pedido foi digitado, mas o CLI ainda não o aceitou como turno: o card não está trabalhando agora.${espera}`;
     }
