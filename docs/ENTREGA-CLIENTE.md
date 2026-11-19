@@ -11,8 +11,11 @@ No servidor do cliente, como root:
 
 ```bash
 sudo bash scripts/smoke-entrega.sh <agente>
-sudo bash scripts/smoke-entrega.sh <agente> --video <url de um vídeo curto do YouTube>
 ```
+
+O script automatiza os passos 1, 3, 7, 8 e 11, e parte dos passos 5 e 6 (o microfone e os nomes do cofre; o
+perfil da Tela e a configuração do `yt-dlp`). Ele **não** cruza as skills com o cofre e **não** baixa nada do
+YouTube: esses dois ficam à mão, com os comandos nos passos 5 e 6.
 
 - Cada item imprime `OK`, `AVISO`, `FALHA`, `INCONCLUSIVO` ou `PENDENTE`, com a causa e o que fazer.
   `INCONCLUSIVO` quer dizer que a leitura deu erro e o script não sabe: não é `OK` nem `FALHA`, e
@@ -20,8 +23,9 @@ sudo bash scripts/smoke-entrega.sh <agente> --video <url de um vídeo curto do Y
 - O código de saída é diferente de zero se houver `FALHA`. `AVISO`, `INCONCLUSIVO` e `PENDENTE` não
   reprovam, mas cada um precisa ser resolvido (o inconclusivo, conferido à mão) ou justificado antes da
   entrega.
-- O relatório só tem mensagens fixas. A saída bruta de dentro do container (yt-dlp, reparar, journal) é
-  descartada na origem e nunca vai para a tela.
+- O relatório só tem mensagens fixas. Nenhum texto vindo do container (caminho, nome escolhido pelo agente,
+  saída de comando) entra nele: só contagens validadas e o que o servidor já conhece. Toda leitura de dentro
+  do container tem limite de bytes; resposta grande demais ou fora do formato é `INCONCLUSIVO`.
 - No fim sai a lista "conferir à mão", que é a parte deste guia que o script não alcança.
 - O item 11 roda `dgclaw agente reparar <agente>` e reinicia o runner do agente. Use `--sem-reparar`
   para pular esse passo (e então faça o item 11 à mão).
@@ -61,20 +65,22 @@ O script confere, para `dgclaw-<agente>`:
 | --- | --- | --- |
 | Processos | `pids.max` do cgroup do container, lido no servidor (`podman inspect -f '{{.State.CgroupPath}}'`, caminho validado, arquivo em `/sys/fs/cgroup<caminho>`), e `PidsLimit` do `podman inspect` | 4096 ou mais. Menos que isso, ou `max` (sem limite), é `FALHA`. Caminho ou arquivo ilegível é `INCONCLUSIVO` |
 | Memória | `memory.max` do mesmo cgroup e `MemTotal` do servidor | `max` (sem limite) é `FALHA`. Mais de 2 GB quando a VPS tem mais RAM. Senão, `AVISO` com o comando `podman update --memory <N>g` |
-| CPU | `podman inspect -f '{{.HostConfig.NanoCpus}}'` e `nproc` | Mais de 1 quando a VPS tem mais núcleos. Senão, `AVISO` com `podman update --cpus <N>` |
+| CPU | `cpu.max` do mesmo cgroup (quota dividida pelo período; `max` é sem limite) e `nproc` | Mais de 1 quando a VPS tem mais núcleos. Senão, `AVISO` com `podman update --cpus <N>`. Arquivo ilegível é `INCONCLUSIVO` |
 | `TasksMax` do runner | `systemctl show -p TasksMax` dentro do container | 2400 ou mais. Menos que isso é `FALHA` |
 | `OOMPolicy` do runner | `systemctl show -p OOMPolicy` dentro do container, validado contra a lista `continue`, `stop`, `kill` | `continue` (a partir da 1.1.1; antes disso sai `AVISO`). Valor fora da lista é `AVISO`, sem repetir o que veio |
 | Reinícios do runner | `NRestarts` da unidade `dgclaw-runner` | 0. Mais que isso é `FALHA` |
-| Falta de memória (OOM) | `journalctl` do runner e do kernel, últimos 7 dias | Nenhuma linha de "out of memory" ou "oom-kill". Qualquer uma é `FALHA`. Se o `journalctl` der erro, é `INCONCLUSIVO`, que é diferente de "zero eventos" |
+| Falta de memória (OOM) | `journalctl` do runner e `journalctl _TRANSPORT=kernel --since "7 days ago"` (o `-k` olharia só o boot atual), últimos 7 dias | Nenhuma linha de "out of memory" ou "oom-kill". Qualquer uma é `FALHA`. Se o `journalctl` der erro, é `INCONCLUSIVO`, que é diferente de "zero eventos". Se o journal do kernel guarda menos de 7 dias, o relatório diz a cobertura real |
 
 Atenção: `podman update` vale até o container ser recriado (`dgclaw agente recriar`). Se a VPS é grande,
 suba o limite, confira com o smoke e avise o time para repetir isso depois de qualquer recriação.
 
-**Recriar o agente sem perder nada.** As dicas do script usam `dgclaw agente recriar <agente>` **sem**
-`--forcar`. Sem a opção, o comando lista o que existe só dentro do container (pacotes instalados à mão,
-arquivos fora da casa) e para. Olhe essa lista e decida com o dono antes de qualquer perda. Quando a
-correção pedir imagem nova, rode `dgclaw imagem construir --agora` e confira que terminou com sucesso
-antes de recriar.
+**Recriar o agente sem perder nada.** O `dgclaw agente recriar <agente>` pode recriar o container na hora,
+então ele não é uma simples listagem. Antes dele, olhe só em leitura o que existe dentro do container:
+`podman diff dgclaw-<agente>` (o que mudou dentro dele) e `podman inspect dgclaw-<agente>`. Decida com o
+dono antes de qualquer perda e só então rode o `recriar`, sempre **sem** `--forcar`: sem a opção, se houver
+algo só dentro do container (pacotes instalados à mão, arquivos fora da casa), ele para e não recria.
+Quando a correção pedir imagem nova, rode `dgclaw imagem construir --agora` e confira que terminou com
+sucesso antes de recriar.
 
 ### 4. Card de teste, nos dois motores (à mão)
 
@@ -88,42 +94,40 @@ antes de recriar.
 - **Esperado:** resposta no primeiro turno, sem card parado com o pedido na caixa.
 - **Se falhar:** veja o item 3 (limites) e o item 11 (sessão principal).
 
-### 5. Cofre (automático, com parte à mão)
+### 5. Cofre (microfone automático, skills à mão)
 
-São dois itens separados.
-
-- **Microfone:** o serviço Web lê a chave do próprio arquivo de ambiente (`/etc/dgclaw/web.env`). O script
-  confere só se existe uma linha com `GROQ_API_KEY`, `OPENAI_API_KEY` ou `ELEVENLABS_API_KEY` com algum
-  valor, e nunca imprime o valor. Nenhuma das três é `FALHA`; arquivo ilegível é `INCONCLUSIVO`.
-- **Credenciais das skills:** `dgclaw agente cofre <agente> listar`. O script usa a versão `--json` e lê só
-  o nome de cada chave ativa. Ele cruza esses nomes com as chaves citadas nas skills instaladas, varrendo
-  `.claude/skills` e `.agents/skills` **dentro do container**, como o usuário `agente`
-  (`podman exec --user agente`), com prazo, limite de volume e sem seguir link. Os nomes aceitam sublinhados
-  internos (por exemplo `TELEGRAM_BOT_TOKEN`). Erro de leitura da varredura é `INCONCLUSIVO`, nunca "tudo
-  certo".
-- **Esperado:** toda chave que uma skill instalada cita (por exemplo `ELEVENLABS_API_KEY` ou
+- **Microfone (automático):** o serviço Web lê a chave do próprio arquivo de ambiente (`/etc/dgclaw/web.env`).
+  O script lê o arquivo como texto (nunca o executa) e só confere se a **última** atribuição de
+  `GROQ_API_KEY` tem valor. Aspas vazias contam como vazio, e uma atribuição antiga com valor seguida de uma
+  vazia também é `FALHA`. Ele nunca imprime o valor. Arquivo ilegível é `INCONCLUSIVO`.
+- **Nomes do cofre (automático):** o script roda `dgclaw agente cofre <agente> listar --json` e mostra só o
+  nome de cada chave ativa. Ele não afirma que as chaves das skills estão lá.
+- **Skills contra o cofre (à mão):** liste os nomes com `dgclaw agente cofre <agente> listar` e confira contra
+  o que as skills do cliente citam. Para ver o que uma skill cita, como o usuário `agente`:
+  `podman exec --user agente dgclaw-<agente> grep -rhoE '\b[A-Z][A-Z0-9_]*_(API_KEY|TOKEN)\b' /home/agente/.claude/skills/<skill> /home/agente/.agents/skills/<skill>`
+  (a segunda pasta pode não existir). Os nomes aceitam sublinhados internos (por exemplo `TELEGRAM_BOT_TOKEN`).
+- **Esperado:** toda chave que uma skill do cliente cita (por exemplo `ELEVENLABS_API_KEY` ou
   `GEMINI_API_KEY`) está no cofre. O WhatsApp não usa chave no cofre: o pareamento é feito no painel,
   confira à mão.
 - **Se faltar:** `printf %s "$CHAVE" | dgclaw agente cofre <agente> guardar <NOME>`.
-- **À mão:** o script não distingue chave da equipe de chave do cliente. Antes da entrega, toda chave
-  provisória da equipe precisa ter sido trocada pela do cliente (guardar de novo com o mesmo nome
-  substitui). Se a skill cita uma chave que o cliente não vai usar, o `AVISO` pode ser ignorado.
+- **À mão:** toda chave provisória da equipe precisa ter sido trocada pela do cliente (guardar de novo com o
+  mesmo nome substitui). Se a skill cita uma chave que o cliente não vai usar, pode ignorar.
 
-### 6. YouTube e yt-dlp (automático, com login à mão)
+### 6. YouTube e yt-dlp (login à mão)
 
-1. **À mão:** abra a Tela do agente (veja [TELA-DO-AGENTE.md](TELA-DO-AGENTE.md)), entre no YouTube pelo
-   navegador dela com a conta do cliente e deixe a sessão aberta. A senha da Tela se troca com
-   `dgclaw agente tela-senha <agente>`.
-2. Rode o smoke com `--video <url>`: ele cria uma pasta privada dentro do container (`mktemp -d`), baixa
-   um vídeo curto com o `yt-dlp` nela, confere o arquivo final (não `.part`, tamanho maior que zero) e
-   apaga só essa pasta. A saída do `yt-dlp` é descartada; o resultado é o código de saída e o arquivo.
+1. **À mão:** abra a Tela do agente (veja [TELA-DO-AGENTE.md](TELA-DO-AGENTE.md)) e entre no YouTube pelo
+   navegador dela com uma **conta dedicada ao agente**, deixando a sessão aberta. A senha da Tela se troca
+   com `dgclaw agente tela-senha <agente>`.
+2. **Confira o login:** a partir da 1.1.1, olhe o item de diagnóstico `agente.<agente>.youtube`. Antes disso,
+   rode à mão, dentro do container, o `yt-dlp` com o perfil da Tela:
+   `podman exec --user agente dgclaw-<agente> yt-dlp --cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome" -F <url de um vídeo curto>`.
 - **Esperado:** `yt-dlp` no PATH em `/usr/local/bin` (a partir da 1.1.1; antes, em `/opt/venv/bin`, e o
-  script avisa). Não existe mais configuração global de cookies. O script confere: (a) que o
-  `/etc/yt-dlp.conf` do container tem a diretiva ativa (não comentada) `--js-runtimes node`; (b) que o perfil
-  da Tela, `/home/agente/.tela-chrome`, existe; (c) a autenticação do YouTube sai como `PENDENTE`: quem
-  confirma é o dono, pela Tela, e o diagnóstico `agente.<agente>.youtube` avisa se o login cair.
-- **Se o download falhar com pedido de login ou "não é um robô":** refaça o login na Tela com a conta do
-  cliente. Para ver o erro completo, rode a mão: `podman exec --user agente dgclaw-<agente> yt-dlp -v <url>`.
+  script avisa sem repetir o caminho). Não existe mais configuração global de cookies. O script confere:
+  (a) que o `/etc/yt-dlp.conf` do container tem a diretiva ativa (não comentada) `--js-runtimes node`;
+  (b) que o perfil da Tela, `/home/agente/.tela-chrome`, existe; (c) o login e o download saem como
+  `PENDENTE`: o script não baixa nada nem mede o login.
+- **Se pedir login ou "não é um robô":** refaça o login na Tela com a conta do agente. Para ver o erro
+  completo, repita o comando à mão acima com `-v`.
 
 ### 7. Render headless sem sobrar Chrome (automático)
 
@@ -144,18 +148,20 @@ São dois itens separados.
 - **Esperado:** presente nos dois. No servidor, ele gera as miniaturas do painel; no container, o agente
   usa para áudio, vídeo e carrossel.
 - **Se faltar no servidor:** `apt-get install -y ffmpeg`. **No container:** `dgclaw imagem construir --agora`,
-  confira que terminou com sucesso e depois `dgclaw agente recriar <agente>` (sem `--forcar`: olhe o que
-  ele lista e decida com o dono antes de qualquer perda).
+  confira que terminou com sucesso e depois recrie o agente como descrito no passo 3 (olhe antes, só em
+  leitura, e decida com o dono antes de qualquer perda).
 
 ### 9. Login do dono pelo celular (à mão)
 
 1. Abra o painel no celular (largura 390) e entre com o usuário. Teste com a primeira letra em maiúscula,
    como o teclado faz sozinho: o login precisa aceitar.
-2. Troque a senha pelo painel em `/trocar-senha` (a partir da 1.1.1; antes disso, o cliente usa a senha do
-   primeiro acesso).
-3. Entregue a senha ao cliente por canal seguro, nunca por e-mail comum nem por grupo.
+2. Entregue a senha provisória ao cliente por canal seguro, nunca por e-mail comum nem por grupo.
+3. **No fim da entrega, o próprio cliente troca a senha**, num terminal privado dele, com
+   `sudo dgclaw senha trocar` (o comando pede a senha nova duas vezes, sem mostrar o que se digita, e ela
+   precisa ter 12 caracteres ou mais) ou pelo painel em `/trocar-senha` (a partir da 1.1.1). Depois, ele
+   confirma que a senha antiga não entra mais. A equipe não fica sabendo a senha final.
 - **Esperado:** entra sem erro de "usuário não encontrado", sem rolagem horizontal e com o teclado do
-  celular sem atrapalhar o campo.
+  celular sem atrapalhar o campo. A senha antiga deixa de valer depois da troca.
 
 ### 10. Skills do cliente na pasta certa (à mão)
 
@@ -195,7 +201,8 @@ Hoje é passo manual. Para cada skill do cliente:
 
 - [ ] `scripts/smoke-entrega.sh <agente>` sai com 0 e nenhum `AVISO` ficou sem resposta
 - [ ] Os passos 2 (inclusive suporte temporário revogado e chave permanente da equipe fora do
-      `authorized_keys`), 4, 5 (chave do cliente), 6 (login), 9, 10 e 12 estão feitos e marcados
-- [ ] Nenhum `INCONCLUSIVO` ficou sem conferência à mão e o `PENDENTE` do YouTube foi confirmado pelo dono
+      `authorized_keys`), 4, 5 (skills contra o cofre e chave do cliente), 6 (login do YouTube), 9 (inclusive a
+      senha trocada pelo próprio cliente), 10 e 12 estão feitos e marcados
+- [ ] Nenhum `INCONCLUSIVO` ficou sem conferência à mão e o `PENDENTE` do YouTube foi confirmado (Tela e diagnóstico)
 - [ ] O checklist de entrega do [projeto de cliente](PROJETO-DE-CLIENTE.md#4-checklist-de-onboarding)
       (suporte desligado, senha de root trocada) também está completo

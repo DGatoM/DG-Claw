@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # smoke-entrega.sh: confere uma VPS de cliente antes da entrega. Roda no servidor, como root.
 #
-#   sudo bash scripts/smoke-entrega.sh <agente> [--video <url>] [--sem-reparar]
+#   sudo bash scripts/smoke-entrega.sh <agente> [--sem-reparar]
 #
-# Automatiza os itens 1, 3, 5, 6, 7, 8 e 11 do checklist (docs/ENTREGA-CLIENTE.md). Cada item
+# Automatiza os itens 1, 3, 5 (microfone e nomes do cofre), 6 (so o que se le sem baixar nada), 7, 8 e 11 do
+# checklist (docs/ENTREGA-CLIENTE.md). Cruzar as skills com o cofre (5) e o login do YouTube (6) ficam a mao. Cada item
 # imprime OK, AVISO, FALHA ou INCONCLUSIVO (nao deu para medir: erro de leitura nao e OK nem FALHA) com a
 # causa e o que fazer; PENDENTE e o que o dono confirma depois. O resto sai como lista "conferir a mao".
 # Saida: 0 sem FALHA (pode haver AVISO, INCONCLUSIVO e PENDENTE), 1 com ao menos uma FALHA, 2 uso errado
-# ou ferramenta ausente. A saida bruta de dentro do container nunca vai para o relatorio: as mensagens
-# sao fixas e o que vem de fora so aparece depois de validado.
+# ou ferramenta ausente. Texto vindo de dentro do container (caminho, nome, saida de comando) nunca vai para o
+# relatorio: as mensagens sao fixas e so entram contagens validadas ou o que o servidor ja conhece. Toda
+# captura de saida do container passa por limite de bytes; estourou o limite ou veio fora do formato, e INCONCLUSIVO.
 #
 # O que este script NAO faz: mostrar valor de chave do cofre (so os nomes), apagar coisa do agente
 # ou do servidor. O item 11 chama `dgclaw agente reparar` e reinicia o runner; --sem-reparar pula isso.
@@ -21,15 +23,11 @@ R="${DGCLAW_RAIZ:-}"
 CLI="${DGCLAW_CLI:-dgclaw}"
 ESPERA="${DGCLAW_SMOKE_ESPERA:-90}"
 
-USO='uso: sudo bash scripts/smoke-entrega.sh <agente> [--video <url>] [--sem-reparar]'
+USO='uso: sudo bash scripts/smoke-entrega.sh <agente> [--sem-reparar]'
 SLUG=""
-VIDEO=""
 REPARAR=1
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --video)
-            [ "$#" -ge 2 ] || { echo "faltou a URL depois de --video. $USO" >&2; exit 2; }
-            VIDEO="$2"; shift 2 ;;
         --sem-reparar) REPARAR=0; shift ;;
         --ajuda|-h) echo "$USO"; exit 0 ;;
         -*) echo "opcao desconhecida: $1. $USO" >&2; exit 2 ;;
@@ -70,23 +68,46 @@ pendente() { PENDENTES=$((PENDENTES + 1)); printf '  PENDENTE [%s] %s\n         
 # cx: comando como root dentro do container. ca: o mesmo como o usuario agente.
 cx() { timeout 60 podman exec "$C" "$@"; }
 ca() { timeout "${PRAZO:-60}" podman exec --user agente "$C" "$@"; }
-# contar_chrome: quantos processos chrome ha no container (0 se nenhum). Erro de leitura = sem saida e codigo 1.
+# capt <comando...>: roda o comando e devolve a saida, no maximo CAPLIM bytes (padrao 4096). Devolve o codigo do
+# comando; se a saida passar do limite, devolve 99 e nada (o chamador trata como INCONCLUSIVO).
+capt() {
+    local o rc
+    o="$(LC_ALL=C; "$@" 2>/dev/null | LC_ALL=C head -c "$(( ${CAPLIM:-4096} + 1 ))"; exit "${PIPESTATUS[0]}")"; rc=$?
+    [ "$(printf '%s' "$o" | LC_ALL=C wc -c)" -le "${CAPLIM:-4096}" ] || return 99
+    printf '%s' "$o"
+    return "$rc"
+}
+# so_digitos <texto> <maximo de caracteres>: verdadeiro se for um numero curto.
+so_digitos() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "${#1}" -le "$2" ]; }
+# contar_chrome: quantos processos chrome ha no container (0 se nenhum). Erro de leitura, limite estourado ou
+# formato estranho = sem saida e codigo 1.
 contar_chrome() {
     local n rc
-    n="$(cx pgrep -c chrome 2>/dev/null)"; rc=$?
-    case "$n" in ''|*[!0-9]*) return 1 ;; esac
+    n="$(capt cx pgrep -c chrome)"; rc=$?
+    so_digitos "$n" 9 || return 1
     [ "$rc" -le 1 ] || return 1
     printf '%s' "$n"
 }
-# contar_oom <comando...>: quantas linhas de falta de memoria o comando mostra. Se o proprio comando
-# falhar (journal ilegivel, container mudo), imprime nada e sai com 1: isso e INCONCLUSIVO, nao "zero".
+# contar_oom <comando...>: quantas linhas de falta de memoria o comando mostra (so o numero fica guardado, o
+# texto do journal passa direto pelo grep). Se o proprio comando falhar (journal ilegivel, container mudo),
+# imprime nada e sai com 1: isso e INCONCLUSIVO, nao "zero".
 contar_oom() {
     local r n rc
     r="$("$@" 2>/dev/null | grep -ciE 'out of memory|oom-kill|oom_kill|killed process'; printf 'rc=%s' "${PIPESTATUS[0]}")"
     rc="${r##*rc=}"; n="${r%%$'\n'*}"
     [ "$rc" = 0 ] || return 1
-    case "$n" in ''|*[!0-9]*) return 1 ;; esac
+    so_digitos "$n" 9 || return 1
     printf '%s' "$n"
+}
+# ler_cpu <caminho validado>: "<quota> <periodo>" do cpu.max do cgroup do container, no host (quota "max" = sem limite).
+ler_cpu() {
+    local v q p
+    v="$(head -c 64 "$R/sys/fs/cgroup$1/cpu.max" 2>/dev/null | head -n 1)"
+    read -r q p _ <<<"$v"
+    case "$q" in max) ;; *) so_digitos "$q" 15 || return 1 ;; esac
+    so_digitos "$p" 15 || return 1
+    [ "$p" -gt 0 ] || return 1
+    printf '%s %s' "$q" "$p"
 }
 # ler_cgroup <caminho validado> <arquivo>: o valor (numero ou "max") do arquivo do cgroup do container, no host.
 ler_cgroup() {
@@ -117,17 +138,21 @@ fi
 
 # --- 3. Limites do container e da unidade do runner ----------------------------------------------
 printf '\n3. Limites do container e do runner\n'
-RECRIAR_DICA="veja o que existe so dentro do container e decida com o dono antes de qualquer perda: dgclaw agente recriar $SLUG (sem --forcar, ele lista e para)"
-estado="$(podman inspect -f '{{.State.Status}}' "$C" 2>/dev/null)"
+RECRIAR_DICA="o dgclaw agente recriar $SLUG pode recriar o container na hora. Antes, olhe so em leitura o que existe so dentro dele (podman diff $C e podman inspect $C), decida com o dono antes de qualquer perda e so entao rode: dgclaw agente recriar $SLUG"
+estado="$(podman inspect -f '{{.State.Status}}' "$C" 2>/dev/null | head -c 64 | head -n 1)"
+case "$estado" in
+    running|created|exited|paused|stopped|stopping|configured|initialized|removing|unknown) ;;
+    '') estado=ausente ;;
+    *) estado="em estado desconhecido" ;;
+esac
 if [ "$estado" != running ]; then
-    falha 3 "o container $C esta '$(printf '%s' "${estado:-ausente}" | limpar)'." "ligue com: dgclaw agente iniciar $SLUG (se nao existir, o agente nao foi criado direito: dgclaw agente reparar $SLUG)"
+    falha 3 "o container $C esta '$estado'." "ligue com: dgclaw agente iniciar $SLUG (se nao existir, o agente nao foi criado direito: dgclaw agente reparar $SLUG)"
     CONTAINER_OK=0
 else
     CONTAINER_OK=1
-    lim="$(podman inspect -f '{{.HostConfig.PidsLimit}} {{.HostConfig.NanoCpus}}' "$C" 2>/dev/null)"
-    read -r pids_lim nano_cpus <<<"$lim"
+    lim="$(podman inspect -f '{{.HostConfig.PidsLimit}}' "$C" 2>/dev/null | head -c 64 | head -n 1)"
+    read -r pids_lim _ <<<"$lim"
     case "${pids_lim:-x}" in *[!0-9-]*) pids_lim="" ;; esac
-    case "${nano_cpus:-x}" in *[!0-9]*) nano_cpus="" ;; esac
 
     # Memoria e processos: o que vale e o cgroup do container, lido no host (max = sem limite).
     cg_path="$(podman inspect -f '{{.State.CgroupPath}}' "$C" 2>/dev/null | head -n 1)"
@@ -139,10 +164,11 @@ else
                 *) cg_ok=1 ;;
             esac ;;
     esac
-    mem_cg=""; pids_cg=""
+    mem_cg=""; pids_cg=""; cpu_cg=""
     if [ "$cg_ok" = 1 ]; then
         mem_cg="$(ler_cgroup "$cg_path" memory.max)"
         pids_cg="$(ler_cgroup "$cg_path" pids.max)"
+        cpu_cg="$(ler_cpu "$cg_path")"
     fi
 
     if [ -z "$pids_cg" ]; then
@@ -179,20 +205,26 @@ else
 
     cpus_host="$(nproc 2>/dev/null)"
     case "$cpus_host" in ''|*[!0-9]*) cpus_host=1 ;; esac
-    if [ -z "$nano_cpus" ]; then
-        aviso 3 "nao consegui ler o limite de CPU do container." "confira: podman inspect -f '{{.HostConfig.NanoCpus}}' $C"
-    elif [ "$nano_cpus" -eq 0 ]; then
-        ok 3 "CPU do container: sem limite ($cpus_host nucleos no servidor)"
-    elif [ "$nano_cpus" -le 1000000000 ] && [ "$cpus_host" -gt 1 ]; then
-        sug=$((cpus_host / 2)); [ "$sug" -ge 2 ] || sug=2
-        aviso 3 "o container tem 1 CPU e o servidor tem $cpus_host nucleos." \
-            "suba o limite: podman update --cpus $sug $C (vale ate o container ser recriado)"
+    # CPU: o que vale e o cpu.max do cgroup do container ("<quota> <periodo>", quota max = sem limite).
+    if [ -z "$cpu_cg" ]; then
+        inconclusivo 3 "nao consegui ler o limite de CPU (cpu.max) do cgroup do container $C no servidor." \
+            "confira: podman inspect -f '{{.State.CgroupPath}}' $C e leia cpu.max em /sys/fs/cgroup<esse caminho>"
     else
-        ok 3 "CPU do container: $((nano_cpus / 1000000000)) (servidor com $cpus_host nucleos)"
+        read -r cpu_q cpu_p <<<"$cpu_cg"
+        if [ "$cpu_q" = max ]; then
+            ok 3 "CPU do container: sem limite ($cpus_host nucleos no servidor)"
+        elif [ "$cpu_q" -le "$cpu_p" ] && [ "$cpus_host" -gt 1 ]; then
+            sug=$((cpus_host / 2)); [ "$sug" -ge 2 ] || sug=2
+            aviso 3 "o container tem 1 CPU (ou menos) e o servidor tem $cpus_host nucleos." \
+                "suba o limite: podman update --cpus $sug $C (vale ate o container ser recriado)"
+        else
+            cpu_c=$((cpu_q * 100 / cpu_p))
+            ok 3 "CPU do container: $((cpu_c / 100)).$(printf '%02d' $((cpu_c % 100))) (servidor com $cpus_host nucleos)"
+        fi
     fi
 
-    tasks="$(cx systemctl show -p TasksMax --value dgclaw-runner 2>/dev/null | head -n 1)"
-    case "$tasks" in infinity|''|*[!0-9]*) [ "$tasks" = infinity ] || tasks="" ;; esac
+    tasks="$(capt cx systemctl show -p TasksMax --value dgclaw-runner | head -n 1)"
+    case "$tasks" in infinity) ;; *) so_digitos "$tasks" 12 || tasks="" ;; esac
     if [ "$tasks" = infinity ] || { [ -n "$tasks" ] && [ "$tasks" -ge 2400 ]; }; then
         ok 3 "TasksMax da unidade do runner: $tasks (minimo 2400)"
     elif [ -n "$tasks" ]; then
@@ -202,7 +234,7 @@ else
         inconclusivo 3 "nao consegui ler o TasksMax do dgclaw-runner dentro do container." "confira: podman exec $C systemctl show -p TasksMax dgclaw-runner"
     fi
 
-    oom_pol="$(cx systemctl show -p OOMPolicy --value dgclaw-runner 2>/dev/null | head -n 1)"
+    oom_pol="$(capt cx systemctl show -p OOMPolicy --value dgclaw-runner | head -n 1)"
     case "$oom_pol" in
         continue) ok 3 "OOMPolicy=continue na unidade do runner" ;;
         stop|kill)
@@ -212,8 +244,8 @@ else
         *) aviso 3 "o OOMPolicy do runner veio com um valor que nao conheco (esperado: continue, stop ou kill)." "confira: podman exec $C systemctl show -p OOMPolicy dgclaw-runner" ;;
     esac
 
-    nrest="$(cx systemctl show -p NRestarts --value dgclaw-runner 2>/dev/null | head -n 1)"
-    case "$nrest" in ''|*[!0-9]*) nrest="" ;; esac
+    nrest="$(capt cx systemctl show -p NRestarts --value dgclaw-runner | head -n 1)"
+    so_digitos "$nrest" 9 || nrest=""
     if [ "$nrest" = 0 ]; then
         ok 3 "o runner nao reiniciou sozinho (NRestarts=0)"
     elif [ -n "$nrest" ]; then
@@ -223,16 +255,32 @@ else
         aviso 3 "nao consegui ler o NRestarts do runner." "confira: podman exec $C systemctl show -p NRestarts dgclaw-runner"
     fi
 
+    # Kernel do servidor: _TRANSPORT=kernel (o -k so olha o boot atual e perderia um OOM de antes de um reinicio).
+    # A cobertura real e medida pela entrada mais antiga que o journal ainda guarda dentro dos 7 dias.
     oom_c="$(contar_oom cx journalctl -u dgclaw-runner --since '7 days ago' --no-pager -q)"; rc_c=$?
-    oom_h="$(contar_oom timeout 60 journalctl -k --since '7 days ago' --no-pager -q)"; rc_h=$?
+    oom_h="$(contar_oom timeout 60 journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q)"; rc_h=$?
+    primeira="$(timeout 60 journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o short-unix 2>/dev/null | head -n 1 | head -c 64)"
+    ts_ini="${primeira%%.*}"; ts_ini="${ts_ini%% *}"
+    cobertura=""
+    if so_digitos "$ts_ini" 12; then
+        dias_k=$(( ($(date +%s) - ts_ini) / 86400 )); [ "$dias_k" -ge 0 ] || dias_k=0
+        if [ "$dias_k" -ge 6 ]; then cobertura="7 dias"
+        elif [ "$dias_k" -eq 0 ]; then cobertura="menos de 1 dia, porque e o que o journal do kernel guarda"
+        else cobertura="$dias_k dia(s), porque e o que o journal do kernel guarda"; fi
+    fi
     if [ "$rc_c" -ne 0 ] || [ "$rc_h" -ne 0 ]; then
         inconclusivo 3 "nao consegui ler o journal dos ultimos 7 dias (do runner, do kernel do servidor ou os dois). Isso nao quer dizer zero eventos de falta de memoria." \
-            "leia a mao: podman exec $C journalctl -u dgclaw-runner --since '7 days ago' --no-pager | grep -i 'out of memory' e journalctl -k --since '7 days ago' | grep -i 'out of memory'"
+            "leia a mao: podman exec $C journalctl -u dgclaw-runner --since '7 days ago' --no-pager | grep -i 'out of memory' e journalctl _TRANSPORT=kernel --since '7 days ago' | grep -i 'out of memory'"
     elif [ "$oom_c" -eq 0 ] && [ "$oom_h" -eq 0 ]; then
-        ok 3 "nenhum OOM no journal dos ultimos 7 dias (container e servidor)"
+        if [ -n "$cobertura" ]; then
+            ok 3 "nenhum OOM no journal do runner (7 dias) nem no do kernel do servidor (cobertura do kernel: $cobertura)"
+        else
+            inconclusivo 3 "nenhum OOM achado, mas o journal do kernel do servidor nao mostrou nenhuma entrada nos ultimos 7 dias, entao nao sei o que ele cobre." \
+                "confira a mao: journalctl _TRANSPORT=kernel --since '7 days ago' | head e se o journal e persistente (ls /var/log/journal)"
+        fi
     else
         falha 3 "OOM nos ultimos 7 dias: $oom_c linha(s) no journal do runner e $oom_h no kernel do servidor." \
-            "veja quem foi morto: journalctl -k --since '7 days ago' | grep -i 'out of memory'. Suba a memoria do container (podman update --memory <N>g $C) e a do plano da VPS, se for o caso."
+            "veja quem foi morto: journalctl _TRANSPORT=kernel --since '7 days ago' | grep -i 'out of memory'. Suba a memoria do container (podman update --memory <N>g $C) e a do plano da VPS, se for o caso."
     fi
 fi
 
@@ -254,84 +302,56 @@ else
 fi
 
 # --- 5. Microfone e cofre --------------------------------------------------------------------------
-printf '\n5. Microfone do chat e chaves das skills (so os nomes, nunca os valores)\n'
-# Microfone: o servico Web le a chave do proprio arquivo de ambiente (web.env). So a existencia da linha.
+printf '\n5. Microfone do chat e nomes das chaves do cofre (so os nomes, nunca os valores)\n'
+# Microfone: o servico Web le a chave do proprio arquivo de ambiente (web.env). O arquivo e lido como texto
+# (nunca executado) e so o veredito "tem valor" sai; o valor nunca e impresso. Vale a ULTIMA atribuicao.
 WEBENV="$R/etc/dgclaw/web.env"
 if [ ! -r "$WEBENV" ]; then
     inconclusivo 5 "nao consegui ler o arquivo de ambiente do servico Web ($(printf '%s' "$WEBENV" | limpar)), entao nao sei se o microfone tem chave." \
-        "confira a mao se ha GROQ_API_KEY, OPENAI_API_KEY ou ELEVENLABS_API_KEY no web.env (so a linha, sem mostrar o valor)"
+        "confira a mao a ultima linha GROQ_API_KEY do web.env (so se tem valor, sem mostrar o valor)"
 else
-    mic=""
-    for k in GROQ_API_KEY OPENAI_API_KEY ELEVENLABS_API_KEY; do
-        grep -qE "^[[:space:]]*(export[[:space:]]+)?$k=[^[:space:]]" "$WEBENV" 2>/dev/null && mic="$mic${mic:+, }$k"
-    done
-    if [ -n "$mic" ]; then
-        ok 5 "o servico Web tem chave para o microfone e o audio: $mic"
-    else
-        falha 5 "o web.env nao tem GROQ_API_KEY, OPENAI_API_KEY nem ELEVENLABS_API_KEY. Sem uma delas o microfone do chat e a transcricao de audio nao funcionam." \
-            "ponha a chave do cliente no web.env (sem mostrar o valor) e reinicie o Web: sudo systemctl restart dgclaw-web"
-    fi
+    mic="$(head -c 1048576 "$WEBENV" 2>/dev/null | LC_ALL=C awk '
+        /^[[:space:]]*(export[[:space:]]+)?GROQ_API_KEY[[:space:]]*=/ {
+            v = $0; sub(/^[^=]*=/, "", v)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
+            if (v ~ /^".*"$/ || v ~ /^\047.*\047$/) { v = substr(v, 2, length(v) - 2); gsub(/^[[:space:]]+|[[:space:]]+$/, "", v) }
+            tem = (length(v) > 0) ? 1 : 0
+        }
+        END { print tem + 0 }' 2>/dev/null)"
+    case "$mic" in
+        1) ok 5 "o servico Web tem GROQ_API_KEY com valor no web.env (microfone do chat)" ;;
+        0) falha 5 "o web.env nao tem GROQ_API_KEY com valor (ausente, vazia ou uma atribuicao vazia depois de uma com valor). Sem ela o microfone do chat e a transcricao de audio nao funcionam." \
+            "ponha a chave do cliente no web.env (sem mostrar o valor) e reinicie o Web: sudo systemctl restart dgclaw-web" ;;
+        *) inconclusivo 5 "nao consegui interpretar o web.env." "confira a mao a ultima linha GROQ_API_KEY do web.env" ;;
+    esac
 fi
 
-# Credenciais das skills: item separado, cruzado com o cofre do agente.
+# Cofre: so os NOMES das chaves ativas. Cruzar com o que as skills do cliente citam e passo a mao (item 5 do guia).
 cofre_json="$("$CLI" agente cofre "$SLUG" listar --json 2>/dev/null | head -c 1048576)"
 if ! printf '%s' "$cofre_json" | jq -e '.chaves' >/dev/null 2>&1; then
     falha 5 "nao consegui listar o cofre do agente $SLUG." "rode a mao e leia a mensagem: dgclaw agente cofre $SLUG listar"
 else
     NOMES="$(printf '%s' "$cofre_json" | jq -r '.chaves[] | select((.revogadaEm // "") == "") | .envName' | sort -u)"
     total="$(printf '%s\n' "$NOMES" | sed '/^$/d' | wc -l | tr -d ' ')"
-    ok 5 "o cofre tem $total chave(s) ativa(s): $(printf '%s\n' "$NOMES" | sed '/^$/d' | paste -sd, - | sed 's/,/, /g' | limpar)"
-    # A varredura roda DENTRO do container, como o usuario agente (nao le o disco do host, nao segue link),
-    # com prazo e limite de volume. O fim da lista traz uma marca fixa: sem ela, a leitura foi cortada.
-    # shellcheck disable=SC2016 # o script e para o sh de dentro do container
-    SCAN='
-for b in /home/agente/.claude/skills /home/agente/.agents/skills; do
-  [ -d "$b" ] && [ ! -L "$b" ] || continue
-  echo "PASTA"
-  for d in "$b"/*/; do
-    d="${d%/}"
-    [ -d "$d" ] && [ ! -L "$d" ] || continue
-    n="${d##*/}"
-    find -P "$d" -xdev -type f -size -512k \( -name "*.md" -o -name "*.sh" -o -name "*.py" -o -name "*.js" -o -name "*.mjs" \) -exec grep -hoE "\b[A-Z][A-Z0-9_]*_(API_KEY|TOKEN)\b" {} + 2>/dev/null | sort -u | head -n 40 | while IFS= read -r v; do printf "VAR %s %s\n" "$n" "$v"; done
-  done
-done
-echo FIM-DA-VARREDURA'
-    varrido="$(PRAZO=90 ca sh -c "$SCAN" 2>/dev/null | head -c 65536)"
-    if ! printf '%s\n' "$varrido" | grep -qx 'FIM-DA-VARREDURA'; then
-        inconclusivo 5 "nao consegui varrer as skills dentro do container (erro de leitura, prazo ou volume acima do limite). Nao sei se as chaves que elas citam estao no cofre." \
-            "confira a mao (item 10 do checklist): podman exec --user agente $C ls /home/agente/.claude/skills /home/agente/.agents/skills"
-    elif ! printf '%s\n' "$varrido" | grep -qx 'PASTA'; then
-        aviso 5 "nao achei a pasta de skills do agente (.claude/skills ou .agents/skills) dentro do container; nao deu para cruzar as skills com o cofre." \
-            "confira a mao (item 10 do checklist): podman exec --user agente $C ls /home/agente/.claude/skills /home/agente/.agents/skills"
-    else
-        faltou_algum=0
-        while IFS=' ' read -r marca sk nome; do
-            [ "$marca" = VAR ] || continue
-            # Nome de skill e de variavel vieram de dentro do container: so seguem se tiverem o formato esperado.
-            case "$nome" in ''|[!A-Z]*|*[!A-Z0-9_]*) continue ;; esac
-            if ! printf '%s\n' "$NOMES" | grep -qx "$nome"; then
-                faltou_algum=1
-                aviso 5 "a skill '$(printf '%s' "$sk" | limpar)' cita $nome e essa chave nao esta no cofre." \
-                    "se o cliente usa essa skill: printf %s \"\$CHAVE\" | dgclaw agente cofre $SLUG guardar $nome. Se a skill nao sera usada, ignore."
-            fi
-        done <<<"$varrido"
-        [ "$faltou_algum" = 0 ] && ok 5 "toda chave citada pelas skills instaladas esta no cofre"
-    fi
+    ok 5 "o cofre tem $total chave(s) ativa(s): $(printf '%s\n' "$NOMES" | sed '/^$/d' | paste -sd, - | sed 's/,/, /g' | limpar). Confira a mao contra as skills do cliente (passo 5 do guia)."
 fi
 
 # --- 6. yt-dlp -------------------------------------------------------------------------------------
-printf '\n6. yt-dlp e download de video\n'
+printf '\n6. yt-dlp e perfil da Tela (o login do YouTube e a mao)\n'
 if [ "$CONTAINER_OK" != 1 ]; then
     aviso 6 "yt-dlp nao conferido: o container nao esta de pe." "resolva o item 3 e rode de novo."
 else
-    ytpath="$(ca sh -c 'command -v yt-dlp' 2>/dev/null | head -n 1)"
-    if [ -z "$ytpath" ]; then
+    ytpath="$(capt ca sh -c 'command -v yt-dlp')"; rc=$?
+    ytpath="${ytpath%%$'\n'*}"
+    if [ "$rc" -eq 1 ] && [ -z "$ytpath" ]; then
         falha 6 "o yt-dlp nao esta no PATH do agente." "a imagem esta velha: dgclaw imagem construir --agora (confira que terminou com sucesso), depois $RECRIAR_DICA"
+    elif [ "$rc" -ne 0 ]; then
+        inconclusivo 6 "nao consegui perguntar ao container onde esta o yt-dlp (erro, prazo ou resposta grande demais)." "confira: podman exec --user agente $C sh -c 'command -v yt-dlp'"
     elif [ "$ytpath" = /usr/local/bin/yt-dlp ]; then
         ok 6 "yt-dlp em /usr/local/bin/yt-dlp"
     else
-        aviso 6 "o yt-dlp esta em $(printf '%s' "$ytpath" | limpar) e nao em /usr/local/bin (a partir da 1.1.1). Fora do /usr/local/bin, um processo sem o PATH do venv nao o acha." \
-            "confira que o agente o acha pelo painel (peca um download curto no card de teste). Quando a 1.1.1 sair, atualize."
+        aviso 6 "o yt-dlp do agente nao esta em /usr/local/bin (a partir da 1.1.1 ele fica la). Fora dali, um processo sem o PATH do venv nao o acha." \
+            "veja onde ele esta: podman exec --user agente $C sh -c 'command -v yt-dlp'. Quando a 1.1.1 sair, atualize."
     fi
     # (a) a diretiva --js-runtimes node, ativa (nao comentada), na configuracao global do container.
     ca grep -qE '^[[:space:]]*--js-runtimes[[:space:]]+node([[:space:]]|$)' /etc/yt-dlp.conf >/dev/null 2>&1
@@ -351,36 +371,13 @@ else
         ok 6 "o perfil da Tela existe (/home/agente/.tela-chrome)"
     elif [ "$rc" -eq 1 ]; then
         aviso 6 "o perfil da Tela (/home/agente/.tela-chrome) ainda nao existe: a Tela nunca foi aberta." \
-            "abra a Tela do agente (dgclaw agente tela $SLUG) e entre no YouTube com a conta do cliente."
+            "abra a Tela do agente (dgclaw agente tela $SLUG) e entre no YouTube com uma conta dedicada ao agente."
     else
         inconclusivo 6 "nao consegui conferir o perfil da Tela dentro do container." "confira: podman exec --user agente $C ls -ld /home/agente/.tela-chrome"
     fi
-    # (c) a autenticacao do YouTube nao se mede daqui: o dono confirma pela Tela.
-    pendente 6 "autenticacao do YouTube: quem confirma e o dono, pela Tela (o smoke nao mede o login)." \
-        "peca ao dono para abrir o YouTube na Tela e confirmar que esta logado. Se o login cair depois, o diagnostico agente.$SLUG.youtube avisa."
-    if [ -z "$VIDEO" ]; then
-        aviso 6 "o download de teste nao rodou: faltou --video <url>." \
-            "depois de entrar no YouTube pela Tela com a conta do cliente, rode de novo com: --video <url de um video curto>"
-    else
-        # Diretorio privado desta execucao, criado dentro do container; so ele e apagado no fim.
-        dir_yt="$(PRAZO=30 ca mktemp -d /tmp/smoke-entrega.XXXXXX 2>/dev/null | head -n 1)"
-        case "$dir_yt" in
-            /tmp/smoke-entrega.??????)
-                # A saida do yt-dlp e descartada na origem; o resultado e o codigo de saida e o arquivo final.
-                PRAZO=150 ca yt-dlp --no-playlist --no-progress -f 'worst[ext=mp4]/worst' --max-filesize 30M -o "$dir_yt/video.%(ext)s" -- "$VIDEO" >/dev/null 2>&1
-                rc=$?
-                # shellcheck disable=SC2016
-                if [ "$rc" -eq 0 ] && PRAZO=30 ca sh -c 'for f in "$1"/video.*; do case "$f" in *.part|*.ytdl|*.temp) ;; *) [ -s "$f" ] && exit 0 ;; esac; done; exit 1' _ "$dir_yt" >/dev/null 2>&1; then
-                    ok 6 "o yt-dlp baixou o video de teste"
-                else
-                    falha 6 "o yt-dlp falhou (codigo $rc) ou nao deixou um arquivo final com conteudo." \
-                        "se pede login ou 'nao e um robo', refaca o login do YouTube pela Tela com a conta do cliente (item 6 do checklist). Para ver o erro: podman exec --user agente $C yt-dlp -v <url>"
-                fi
-                PRAZO=30 ca rm -rf -- "$dir_yt" >/dev/null 2>&1 ;;
-            *)
-                inconclusivo 6 "nao consegui criar a pasta privada do download de teste dentro do container." "confira: podman exec --user agente $C mktemp -d /tmp/smoke-entrega.XXXXXX" ;;
-        esac
-    fi
+    # (c) o login do YouTube e o download nao se medem daqui: sao a mao (passo 6 do guia).
+    pendente 6 "login do YouTube e download: o smoke nao baixa nada nem mede o login." \
+        "entre na Tela com a conta dedicada ao agente e confira o diagnostico agente.$SLUG.youtube (a partir da 1.1.1). Antes disso, rode a mao: podman exec --user agente $C yt-dlp --cookies-from-browser \"chrome+basictext:/home/agente/.tela-chrome\" -F <url de um video curto>"
 fi
 
 # --- 7. Render headless sem sobra de Chrome --------------------------------------------------------
@@ -392,7 +389,7 @@ elif ! ca sh -c 'command -v google-chrome-stable' >/dev/null 2>&1; then
         "teste um render curto a mao, no card de teste, e confira o Chrome depois (item 7 do checklist)."
 else
     # Perfil descartavel numa pasta privada desta execucao, criada dentro do container; so ela e apagada.
-    dir_ch="$(PRAZO=30 ca mktemp -d /tmp/smoke-entrega.XXXXXX 2>/dev/null | head -n 1)"
+    dir_ch="$(PRAZO=30 capt ca mktemp -d /tmp/smoke-entrega.XXXXXX | head -n 1)"
     case "$dir_ch" in
         /tmp/smoke-entrega.??????)
             antes="$(contar_chrome)"; rc_a=$?
@@ -424,6 +421,8 @@ if [ "$REPARAR" = 0 ]; then
     aviso 11 "pulado por --sem-reparar." "rode sem essa opcao antes de entregar."
 elif [ "$CONTAINER_OK" != 1 ]; then
     falha 11 "o container $C nao esta de pe, entao nao ha o que reparar." "resolva o item 3 e rode de novo."
+elif ! so_digitos "$PORTA" 5 || [ "$PORTA" -lt 1 ] || [ "$PORTA" -gt 65535 ]; then
+    falha 11 "a porta do runner em $AGENTES_JSON nao e um numero de 1 a 65535, entao nao sei onde conferir a saude." "confira o campo runner do agente $SLUG em $AGENTES_JSON e rode: dgclaw agente reparar $SLUG"
 else
     # A saida do reparar nao entra no relatorio (so o codigo de saida): vai para o lixo na origem.
     "$CLI" agente reparar "$SLUG" >/dev/null 2>&1
@@ -439,8 +438,11 @@ else
             # processo claude/codex solto ou sessao paralela ativa nao valem. Vira so uma palavra fixa.
             t=0; respondeu=0; veredito=""
             while [ "$t" -lt "$ESPERA" ]; do
-                corpo="$(curl -fsS --max-time 3 "http://127.0.0.1:$PORTA/api/saude" 2>/dev/null | head -c 65536)"
-                if [ -n "$corpo" ]; then
+                corpo="$(CAPLIM=65536 capt curl -fsS --noproxy '*' --max-time 3 "http://127.0.0.1:$PORTA/api/saude")"; rc_curl=$?
+                if [ "$rc_curl" -eq 99 ]; then
+                    # Resposta maior que o limite: nao se interpreta.
+                    respondeu=1; veredito="ilegivel"; break
+                elif [ -n "$corpo" ]; then
                     respondeu=1
                     veredito="$(printf '%s' "$corpo" | jq -r --arg s "$SLUG" 'try (if (.agente.slug // "") != $s then "outro" elif .agente.ptyVivo != true then "parada" elif ((.agente.status // "") | IN("idle", "working", "waiting_input")) | not then "estado" else "viva" end) catch "ilegivel"' 2>/dev/null)"
                     [ "$veredito" = viva ] && break
@@ -475,11 +477,13 @@ Conferir a mao (detalhes em docs/ENTREGA-CLIENTE.md):
       authorized_keys.
   4.  Card de teste: sessao paralela, pedido curto, primeiro turno respondido, conversa aparece ao clicar.
       Repita nos dois motores (Claude e Codex).
-  5.  Chave provisoria da equipe trocada pela do cliente (o smoke so confere os nomes).
-  6.  Login do YouTube pela Tela (VNC) com a conta do cliente, antes do download de teste. O dono confirma
-      pela Tela (o smoke deixa PENDENTE).
-  9.  Login do dono pelo celular (largura 390), com usuario em maiuscula automatica; troca de senha em
-      /trocar-senha (a partir da 1.1.1); senha entregue por canal seguro.
+  5.  Cruzar os nomes do cofre (listados acima) com as chaves que as skills do cliente citam, e trocar a
+      chave provisoria da equipe pela do cliente.
+  6.  Login do YouTube pela Tela (VNC) com uma conta dedicada ao agente e o item de diagnostico
+      agente.<agente>.youtube (a partir da 1.1.1), ou o yt-dlp a mao. O smoke deixa PENDENTE e nao baixa nada.
+  9.  Login do dono pelo celular (largura 390), com usuario em maiuscula automatica. No fim, o proprio cliente
+      troca a senha em terminal privado (sudo dgclaw senha trocar) ou pelo painel e confirma que a antiga nao
+      entra mais; a equipe nao fica sabendo a senha final.
   10. Skills do cliente na pasta certa, com dono (chown) e CLAUDE_PLUGIN_ROOT resolvido.
   12. Skills com texto do cliente (assinatura, nome do programa, encerramento): sem nome de outro cliente
       nem do modelo.
