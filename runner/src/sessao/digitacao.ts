@@ -216,6 +216,8 @@ function vigiarReciboAtrasado(
       // fica guardado no arquivo da fila). Nunca é digitado de novo sozinho.
       const pendente = s.semRecibo[0];
       if (pendente?.aguardando) {
+        // O texto pode ter ficado na caixa: a digitação automática deste terminal fica suspensa (recibo ou turno novo).
+        suspenderPorRascunho(s);
         reter(s, pendente.item, `${total} Enters foram escritos e nenhum virou turno`);
         talvezSoltarFila(s);
       }

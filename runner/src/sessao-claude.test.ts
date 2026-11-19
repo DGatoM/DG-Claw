@@ -1501,15 +1501,24 @@ test("comando de barra que termina: sai do disco (não fica digitado para sempre
   assert.equal(s.retidos.length, 0);
 });
 
-test("vigia do Enter esgotada sem recibo: o pedido vai para retidos (incerto), não trava os próximos", async () => {
+test("vigia do Enter esgotada sem recibo: o pedido vai para retidos (incerto) e a digitação do terminal fica suspensa até recibo ou turno novo", async () => {
   const marcaDoLog = lerTexto(amb.logDoRunner).length;
   const { s } = await sessaoComPedidoSemRecibo("pedido-vigia-esgotada-1");
   await esperarAte(() => s.retidos.length === 1, 15_000, "a vigia esgotar e reter o pedido");
   assert.match(lerTexto(amb.logDoRunner).slice(marcaDoLog), /nenhum abriu turno: o texto ficou escrito na caixa/);
   assert.equal(s.semRecibo.length, 0);
   assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.incerto]), [["pedido-vigia-esgotada-1", true]]);
+  // O texto pode ter ficado na caixa: a digitação do terminal fica suspensa até um recibo ou um turno novo.
   s.enfileirarQuandoOcioso("depois-da-vigia-1");
-  await esperarAte(() => promptsDe("depois-da-vigia-1") === 1, 25_000, "o próximo sair");
+  await dormir(2_500);
+  assert.equal(promptsDe("depois-da-vigia-1"), 0, "o segundo não é digitado por cima do texto que ficou na caixa");
+  assert.notEqual(s.digitacaoSuspensaEm, null);
+  assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["depois-da-vigia-1"]);
+  const { confirmarRecibos, talvezSoltarFila } = await import("./sessao/fila.js");
+  s.promptsAceitos += 1; // o dono deu o Enter à mão
+  confirmarRecibos(s);
+  talvezSoltarFila(s);
+  await esperarAte(() => lerLinhasJson(amb.logDosClis).some((l) => l.bin === "claude" && l.modo === "prompt" && typeof l.texto === "string" && l.texto.endsWith("depois-da-vigia-1")), 25_000, "o próximo sair depois do recibo");
 });
 
 test("um envio sem recibo por vez: o próximo espera o pendente; o recibo confirma só o pendente e NÃO solta a fila (só o próximo idle depois do turno)", async () => {

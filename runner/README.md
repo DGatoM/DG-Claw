@@ -122,7 +122,7 @@ escrita no terminal durante a repetição do Enter e vigia do Enter esgotada sem
 `retidos`, marcado `incerto: true` no arquivo da fila. Retido não trava os próximos. O log avisa com o id
 e o tamanho (nunca o texto), diz onde o texto está guardado e o que fazer: conferir na conversa se o
 pedido foi executado e, se não foi, reenviá-lo pelo chat. Quando a vigia do Enter encontra texto alheio
-na caixa (o dono escrevendo no terminal), a digitação automática fica suspensa até chegar um recibo (ele
+na caixa (o dono escrevendo no terminal) ou se esgota sem recibo (o texto pode ter ficado na caixa), a digitação automática fica suspensa até chegar um recibo (ele
 deu o Enter) ou até um turno começar e terminar. O Claude só é tratado como agente sem hooks (sem recibo
 possível) depois de 60 s do spawn sem nenhum hook, e a prova de hooks vivos é zerada a cada spawn. A fila
 não é solta no boot sem o `SessionStart` ou o prompt na tela (teto de 30 s, com aviso no log). Antes de
