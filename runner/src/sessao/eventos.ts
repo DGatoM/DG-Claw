@@ -49,13 +49,23 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
     });
   }
 
-  if (["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "StopBloqueado", "StopFailure", "PreCompact"].includes(payload.event ?? "")) s.marcarAtividade();
+  if (["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "StopBloqueado", "StopFailure", "PreCompact"].includes(payload.event ?? "")) {
+    s.marcarAtividade();
+    s.ultimoEventoEm = Date.now();
+  }
   s.hooksVivos = true;
   if (!s.estado.hookActive) s.estado.hookActive = true;
 
   // Estado terminal não é mexido por hook: quem manda no fim é o onExit do PTY.
   if (s.estado.status === "stopped" || s.estado.status === "resumable" || s.estado.status === "errored") {
     return { ok: true };
+  }
+
+  // Qualquer hook depois do PreCompact prova que o CLI seguiu em frente (compact bom, ferramenta, prompt, fim de turno):
+  // a vigia do PreCompact sem fim (vigias.ts) deixa de valer e o motivo "hook:PreCompact" sai de cena.
+  if (payload.event !== "PreCompact" && s.compactComecouEm !== 0) {
+    s.compactComecouEm = 0;
+    if (s.estado.statusReason === "hook:PreCompact") s.mudar({ statusReason: `hook:${payload.event}` });
   }
 
   switch (payload.event) {
@@ -143,10 +153,13 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       break;
     case "PreCompact":
       // O compact é o único trabalho que começa e não termina em Stop. Quem
-      // devolve o agente para idle é o SessionStart source=compact, lá em cima.
+      // devolve o agente para idle é o SessionStart source=compact, lá em cima. Se o CLI recusar o /compact
+      // ("Not enough messages to compact.") ele manda o PreCompact e nada mais: quem resolve é a vigia do
+      // Stop perdido (vigias.ts), que só solta a fila com a recusa confirmada no transcript.
       cancelarStopPendente(s);
       s.compactsIniciados += 1;
       s.compactando = s.proc;
+      s.compactComecouEm = Date.now();
       s.mudar({ status: "working", hookLatched: false, statusReason: "hook:PreCompact" });
       break;
     case "Stop":
