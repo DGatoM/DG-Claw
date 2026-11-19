@@ -34,7 +34,7 @@ com uma linha só, `--js-runtimes node`, para o node da imagem resolver o desafi
 DG Claw não grava mais nada de `yt-dlp` na casa do agente. As instruções do agente (`templates/ambiente/agente.md`) dizem
 que o agente tira do link só o ID do vídeo (11 caracteres, link de youtube.com ou youtu.be) e monta ele mesmo a URL, sem colar o
 link recebido no comando; quando o YouTube pedir login, ele usa a chamada isolada `yt-dlp --ignore-config --no-plugin-dirs
---js-runtimes node --cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome" --no-playlist --match-filters
+--js-runtimes node --cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome/Default" --no-playlist --match-filters
 "availability=public & age_limit=0"` (só para o YouTube, só para vídeo público e sem restrição de idade, nunca com `--cookies
 arquivo`) e, se continuar pedindo login, pede ao dono para entrar pela Tela. O diagnóstico ganhou o item `agente.<slug>.youtube`: um download
 real e pequeno (vídeo de 19 s, o formato menor, teto de 5 MB, pasta temporária que é apagada) feito dentro do container como o

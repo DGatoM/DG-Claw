@@ -37,10 +37,11 @@ test('o comando de dentro: só valores fixos, baixa pouco e apaga a pasta tempor
   assert.match(SCRIPT, /--ignore-config/);
   assert.match(SCRIPT, /--no-plugin-dirs/);
   assert.match(SCRIPT, /--js-runtimes node/);
+  assert.match(SCRIPT, /TMPDIR="\$d" timeout \d+ yt-dlp [^\n]*--cookies-from-browser/, 'a cópia temporária dos cookies fica dentro da pasta apagada pelo trap');
   assert.ok(!SCRIPT.includes('--no-warnings'), 'sem --no-warnings: os avisos de cookie precisam aparecer');
-  assert.match(SCRIPT, /if \[ ! -d \/home\/agente\/\.tela-chrome \]/, 'sem a pasta do Chrome da Tela o script não usa cookies');
+  assert.match(SCRIPT, /if \[ ! -d \/home\/agente\/\.tela-chrome\/Default \]/, 'sem a pasta do Chrome da Tela o script não usa cookies');
   assert.match(SCRIPT, /exit 66/);
-  assert.match(SCRIPT, /--cookies-from-browser "chrome\+basictext:\/home\/agente\/\.tela-chrome"/);
+  assert.match(SCRIPT, /--cookies-from-browser "chrome\+basictext:\/home\/agente\/\.tela-chrome\/Default"/);
   assert.match(SCRIPT, /-f "worst\/worstvideo"/);
   assert.ok(!/-f worst /.test(SCRIPT));
   assert.match(SCRIPT, /--max-filesize 5M/);
@@ -56,7 +57,7 @@ test('o comando tenta SEM cookies primeiro e só usa os cookies depois de "sign 
   assert.match(ytdlp[0][0], /2>"\$d\/err"/, 'o stderr da primeira fica em arquivo fora da pasta de download');
   assert.ok(ytdlp[1][0].includes('--cookies-from-browser'), 'a segunda usa os cookies');
   const iLogin = linhas.findIndex((l) => /grep -qi "sign in to confirm" "\$d\/err"/.test(l));
-  const iPasta = linhas.findIndex((l) => /if \[ ! -d \/home\/agente\/\.tela-chrome \]/.test(l));
+  const iPasta = linhas.findIndex((l) => /if \[ ! -d \/home\/agente\/\.tela-chrome\/Default \]/.test(l));
   assert.ok(iLogin > ytdlp[0][1] && iLogin < iPasta && iPasta < ytdlp[1][1], 'ordem: anônima, checagem anti-robô, pasta, cookies');
   assert.match(SCRIPT, /head -c 8192 "\$d\/err" >&2/, 'falha por outro motivo repassa o stderr cortado');
   assert.match(SCRIPT, /find "\$d\/v" -type f -size \+0c/, 'exige arquivo com mais de 0 bytes');
@@ -72,7 +73,7 @@ test('pasta do Chrome ausente com download anônimo ok dá ok (script de verdade
   };
   // acha o -P do download e grava um arquivo nele
   const grava = 'while [ $# -gt 0 ]; do if [ "$1" = "-P" ]; then p="$2"; fi; shift; done; echo dado > "$p/v.mp4"';
-  if (fs.existsSync('/home/agente/.tela-chrome')) { fs.rmSync(bin, { recursive: true, force: true }); return; }
+  if (fs.existsSync('/home/agente/.tela-chrome/Default')) { fs.rmSync(bin, { recursive: true, force: true }); return; }
   let r = exec(grava);
   assert.equal(r.status, 0, r.stderr);
   r = exec('echo "ERROR: Sign in to confirm you\'re not a bot" >&2; exit 1');

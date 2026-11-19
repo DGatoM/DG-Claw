@@ -18,7 +18,7 @@ const PRAZO_EXEC_MS = (2 * PRAZO_DOWNLOAD_S + 20) * 1000; // teto de quem chama:
 const VIDEO_TESTE = 'https://www.youtube.com/watch?v=jNQXAC9IJRQ'; // "Me at the zoo": 19 s, o primeiro vídeo do YouTube, estável
 const NOME_ARQUIVO = 'youtube-saude.json';
 const LIMITE_SAIDA = 8192;               // bytes lidos de stderr e de stdout, cortados antes de qualquer regex ou log
-const PASTA_COOKIES = '/home/agente/.tela-chrome';
+const PASTA_COOKIES = '/home/agente/.tela-chrome/Default'; // só o perfil padrão da Tela: outro perfil aberto nela nunca entra no teste
 const VALIDADE_MS = 13 * 3600 * 1000;    // duas rodadas de 6 horas e uma margem: resultado mais velho que isso não é mais medida
 const SAIDA_PODMAN_FALHOU = 125;         // o próprio podman não conseguiu executar o comando (ex.: container parado)
 const SAIDA_SEM_PERFIL = 66;             // código próprio do script: a pasta do Chrome da Tela não existe
@@ -60,7 +60,8 @@ const SCRIPT = [
   'fi',
   'rm -rf "$d/v"',
   'mkdir "$d/v" || exit 70',
-  `timeout ${PRAZO_DOWNLOAD_S} yt-dlp ${OPCOES_BASE.replace('--js-runtimes node', `--js-runtimes node --cookies-from-browser "chrome+basictext:${PASTA_COOKIES}"`)} '${VIDEO_TESTE}' || exit $?`,
+  // TMPDIR dentro de "$d": a cópia temporária do banco de cookies que o yt-dlp faz some junto no trap.
+  `TMPDIR="$d" timeout ${PRAZO_DOWNLOAD_S} yt-dlp ${OPCOES_BASE.replace('--js-runtimes node', `--js-runtimes node --cookies-from-browser "chrome+basictext:${PASTA_COOKIES}"`)} '${VIDEO_TESTE}' || exit $?`,
   'if [ -z "$(find "$d/v" -type f -size +0c)" ]',
   'then',
   '  echo "nenhum arquivo foi baixado" >&2',
