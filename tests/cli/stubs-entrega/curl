@@ -1,3 +1,8 @@
 #!/usr/bin/env bash
-[ -f "${STUB_ESTADO:?}/runner-mudo" ] && exit 7
+# curl de mentira: o /api/saude do runner. runner-mudo = sem resposta; saude.json no estado = corpo escolhido.
+est="${STUB_ESTADO:?}"
+[ -f "$est/runner-mudo" ] && exit 7
+if [ -f "$est/saude.json" ]; then cat "$est/saude.json"; else
+    echo '{"ok":true,"agente":{"id":"x","slug":"ana","status":"idle","ptyVivo":true}}'
+fi
 exit 0

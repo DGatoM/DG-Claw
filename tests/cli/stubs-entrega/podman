@@ -7,34 +7,42 @@ case "${1:-}" in
         fmt="$*"
         case "$fmt" in
             *State.Status*) val estado running; echo ;;
-            *PidsLimit*) echo "$(val pids-limit 4096) $(val mem 4294967296) $(val nano 0)" ;;
+            *CgroupPath*) val cgpath /machine.slice/libpod-abc.scope; echo ;;
+            *PidsLimit*) echo "$(val pids-limit 4096) $(val nano 0)" ;;
         esac
         exit 0 ;;
     exec)
         shift
-        [ "${1:-}" = -u ] && shift 2
+        echo "podman exec $*" >>"${STUB_LOG:?}"
+        if [ "${1:-}" = --user ] || [ "${1:-}" = -u ]; then shift 2; fi
         shift # o nome do container
         args="$*"
         case "$args" in
-            "cat /sys/fs/cgroup/pids.max") val pids-max max; echo ;;
             "systemctl show -p TasksMax --value dgclaw-runner") val tasksmax 2400; echo ;;
             "systemctl show -p OOMPolicy --value dgclaw-runner") val oompolicy continue; echo ;;
             "systemctl show -p NRestarts --value dgclaw-runner") val nrestarts 0; echo ;;
             "systemctl restart dgclaw-runner") [ -f "$est/restart-falha" ] && exit 1; exit 0 ;;
-            journalctl*) [ -f "$est/oom-journal" ] && echo "kernel: Out of memory: Killed process 4242 (chrome)"; exit 0 ;;
-            "pgrep -c chrome") val chrome-n 1; echo ;;
-            pgrep\ -f*) [ -f "$est/sem-sessao" ] && exit 1; exit 0 ;;
+            journalctl*) [ -f "$est/journal-erro" ] && exit 1
+                         [ -f "$est/oom-journal" ] && echo "kernel: Out of memory: Killed process 4242 (chrome)"; exit 0 ;;
+            "pgrep -c chrome") [ -f "$est/chrome-erro" ] && exit 125; val chrome-n 1; echo ;;
             "sh -c command -v ffmpeg") [ -f "$est/sem-ffmpeg-container" ] && exit 1; echo /usr/bin/ffmpeg ;;
             "sh -c command -v yt-dlp") val yt-path /usr/local/bin/yt-dlp; echo ;;
             "sh -c command -v google-chrome-stable") echo /usr/bin/google-chrome-stable ;;
-            grep\ *yt-dlp/config) [ -f "$est/sem-yt-config" ] && exit 1; exit 0 ;;
+            "grep -qE "*/etc/yt-dlp.conf) [ -f "$est/yt-conf-erro" ] && exit 2; [ -f "$est/sem-yt-conf" ] && exit 1; exit 0 ;;
+            "test -d /home/agente/.tela-chrome") [ -f "$est/sem-perfil-tela" ] && exit 1; exit 0 ;;
+            "mktemp -d /tmp/smoke-entrega.XXXXXX") [ -f "$est/mktemp-erro" ] && exit 1; echo /tmp/smoke-entrega.abc123 ;;
             yt-dlp*) if [ -f "$est/yt-falha" ]; then echo "ERROR: Sign in to confirm you are not a bot" >&2; exit 1; fi
-                     : >"$est/video-baixado"; exit 0 ;;
-            "sh -c ls /tmp/smoke-entrega-yt.* >/dev/null 2>&1") [ -f "$est/video-baixado" ]; exit $? ;;
-            "sh -c rm -f /tmp/smoke-entrega-yt.*") rm -f "$est/video-baixado"; exit 0 ;;
+                     [ -f "$est/yt-vazio" ] || : >"$est/video-baixado"; exit 0 ;;
+            "sh -c for f in "*) [ -f "$est/video-baixado" ]; exit $? ;;
+            "rm -rf -- /tmp/smoke-entrega.abc123") rm -f "$est/video-baixado"; exit 0 ;;
             google-chrome-stable*)
                 if [ -f "$est/chrome-sobra" ]; then echo $(( $(val chrome-n 1) + 2 )) >"$est/chrome-n"; fi
                 exit 0 ;;
+            "sh -c "*FIM-DA-VARREDURA*)
+                # Roda a varredura de verdade, so que a casa do agente e uma pasta falsa em $est/home.
+                [ -f "$est/scan-erro" ] && exit 1
+                script="${args#sh -c }"
+                exec bash -c "${script//\/home\/agente/$est/home}" ;;
         esac
         exit 0 ;;
 esac
