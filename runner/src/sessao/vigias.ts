@@ -89,6 +89,7 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
           s.mudar({ sessionId: achado.id });
           // O rollout nascer é o recibo do primeiro Enter (ele só existe depois do primeiro turno).
           s.promptsAceitos += 1;
+          // turnosDaSessao NÃO sobe aqui: o task_started do mesmo turno, lido logo depois deste arquivo, já conta.
         }
       }
       if (!arquivo && !avisouAusencia && Date.now() - desde > ROLLOUT_AUSENTE_MS) {

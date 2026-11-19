@@ -946,6 +946,9 @@
   async function pollDetalhe() {
     const d = det;
     if (!d || !cfg || !cfg.ligado) return;
+    const chaveDaEspera = (it) => (it ? [it.estado, it.motivo, it.tem_terminal].join('|') : '');
+    const estadoAntes = d.item && d.item.estado;
+    const esperaAntes = chaveDaEspera(d.item);
     try {
       const res = await chama(`/api/sessoes/${encodeURIComponent(d.id)}`);
       if (det !== d) return;
@@ -968,7 +971,10 @@
       return;
     }
     renderDetalhe();
-    if (d.item && d.item.grupo === 'trabalhando') carregaConversa('poll');
+    // Durante ou ao sair de "esperando o primeiro turno" (inclusive direto para concluído ou erro), mudança de estado,
+    // de motivo ou de terminal muda a orientação da conversa vazia: recarrega mesmo fora do grupo trabalhando.
+    const saiuDaEspera = estadoAntes === 'esperando_primeiro_turno' && chaveDaEspera(d.item) !== esperaAntes;
+    if (d.item && (d.item.grupo === 'trabalhando' || saiuDaEspera)) carregaConversa('poll');
   }
 
   // ─── Conversa ─────────────────────────────────────────────────
@@ -991,6 +997,7 @@
         d.msgs = modo === 'antigos' ? lista.concat(d.msgs) : lista;
         d.antes = res.corpo.antes;
         d.truncado = !!res.corpo.truncado;
+        d.motivoVazio = typeof res.corpo.motivo_vazio === 'string' ? res.corpo.motivo_vazio : '';
         d.carregouConv = true;
       }
     } catch (e) {
@@ -1009,7 +1016,7 @@
     r.convEstado.hidden = false;
     if (d.erroConv) { r.convEstado.textContent = d.erroConv; r.convEstado.className = 'sx-msg erro'; }
     else if (!d.carregouConv) { r.convEstado.textContent = 'Carregando a conversa...'; r.convEstado.className = 'sx-vazio'; }
-    else if (!d.msgs.length) { r.convEstado.textContent = 'Esta sessão ainda não tem mensagens.'; r.convEstado.className = 'sx-vazio'; }
+    else if (!d.msgs.length) { r.convEstado.textContent = d.motivoVazio || 'Esta sessão ainda não tem mensagens.'; r.convEstado.className = 'sx-vazio'; }
     else r.convEstado.hidden = true;
     r.mais.hidden = !(d.truncado && d.antes != null && !d.erroConv);
     const sig = JSON.stringify(d.msgs);
