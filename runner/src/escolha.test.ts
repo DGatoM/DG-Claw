@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { carregarCatalogoDeTeste, pastaTemporaria } from "./apoio-teste.js";
-import { gravarProvedorJson, lerProvedorJson, provedorDoVocabulario, resolverEscolha } from "./provedores/escolha.js";
+import { gravarProvedorJson, lerProvedorJson, provedorDoVocabulario, providerDoRunner, resolverEscolha } from "./provedores/escolha.js";
 import { carregar, rotulo, validar } from "./provedores/catalogo.js";
 
 const catalogo = carregarCatalogoDeTeste();
@@ -123,4 +123,49 @@ test("o catálogo ilegível deixa só o padrão possível, com o motivo", () => 
   assert.ok(carregar().provedores.codex.disponivel);
   assert.equal(provedorDoVocabulario("local-cli"), "claude");
   assert.equal(provedorDoVocabulario("codex-cli"), "codex");
+});
+
+// ─── OpenCode: provedor que só abre cards ────────────────────────
+
+test("opencode: a conversa principal recusa o provedor e cai no próximo nível com o motivo", () => {
+  const r = resolverEscolha({
+    arquivoProvedor: arquivoProvedor(),
+    config: { provider: "opencode-cli", auth: "api" },
+    catalogo,
+  });
+  assert.equal(r.escolha.provedor, "claude");
+  assert.equal(r.escolha.origem, "padrao");
+  assert.equal(r.problemas.length, 1);
+  assert.match(r.problemas[0]!.motivo, /OpenCode/i);
+  assert.match(r.problemas[0]!.motivo, /card/i);
+});
+
+test("opencode: o vocabulário aceita opencode e opencode-cli, e o runner o chama de opencode-cli", () => {
+  assert.equal(provedorDoVocabulario("opencode"), "opencode");
+  assert.equal(provedorDoVocabulario("opencode-cli"), "opencode");
+  assert.equal(providerDoRunner("opencode"), "opencode-cli");
+});
+
+test("opencode: num card vale; a forma é api e o apelido do modelo vira o id do OpenRouter", () => {
+  const r = resolverEscolha({
+    arquivoProvedor: arquivoProvedor(),
+    sessao: { provider: "opencode", model: "glm" },
+    paraCard: true,
+    catalogo,
+  });
+  assert.deepEqual(r.problemas, []);
+  assert.equal(r.escolha.provedor, "opencode");
+  assert.equal(r.escolha.auth, "api");
+  assert.equal(r.escolha.modelo, "z-ai/glm-5.3-prime");
+});
+
+test("opencode: forma de pagar que não existe nele (assinatura) é recusada com o que fazer", () => {
+  const r = resolverEscolha({
+    arquivoProvedor: arquivoProvedor(),
+    sessao: { provider: "opencode", auth: "assinatura" },
+    paraCard: true,
+    catalogo,
+  });
+  assert.equal(r.escolha.provedor, "claude");
+  assert.equal(r.problemas.length, 1);
 });

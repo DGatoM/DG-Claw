@@ -93,3 +93,37 @@ test("nomesDoCofre: arquivo inexistente é cofre vazio; erro de leitura não der
   // Um diretório no lugar do arquivo dá EISDIR (erro que não é ENOENT): não derruba, devolve vazio.
   assert.equal(nomesDoCofre(dir).size, 0);
 });
+
+// ─── OpenCode (só cards, chave do OpenRouter) ────────────────────
+
+const OPR = "sk-or-v1-" + "9f8e7d6c5b4a".repeat(5);
+
+test("opencode/api com a chave do cofre: recebe OPENROUTER_API_KEY e as de outros provedores não passam", () => {
+  const r = montar("opencode", "api", { OPENROUTER_API_KEY: OPR, ANTHROPIC_API_KEY: ANT, OPENAI_API_KEY: OAI }, ["OPENROUTER_API_KEY"]);
+  assert.equal(r.env.OPENROUTER_API_KEY, OPR);
+  assert.equal("ANTHROPIC_API_KEY" in r.env, false);
+  assert.equal("OPENAI_API_KEY" in r.env, false);
+});
+
+test("opencode/api: base, config e permissão vindos de fora saem do ambiente do card", () => {
+  const r = montar(
+    "opencode",
+    "api",
+    { OPENROUTER_API_KEY: OPR, OPENROUTER_BASE_URL: "http://desvio.invalido/v1", OPENCODE_CONFIG: "/x.json", OPENCODE_PERMISSION: "{}", OPENCODE_CONFIG_DIR: "/y" },
+    ["OPENROUTER_API_KEY", "OPENROUTER_BASE_URL", "OPENCODE_CONFIG", "OPENCODE_PERMISSION", "OPENCODE_CONFIG_DIR"],
+  );
+  for (const nome of ["OPENROUTER_BASE_URL", "OPENCODE_CONFIG", "OPENCODE_PERMISSION", "OPENCODE_CONFIG_DIR"]) {
+    assert.equal(nome in r.env, false, `${nome} deveria sair`);
+  }
+  assert.equal(r.env.OPENROUTER_API_KEY, OPR);
+});
+
+test("claude/assinatura: a chave do OpenRouter guardada no cofre continua disponível para o agente", () => {
+  const r = montar("claude", "assinatura", { OPENROUTER_API_KEY: OPR }, ["OPENROUTER_API_KEY"]);
+  assert.equal(r.env.OPENROUTER_API_KEY, OPR, "chave de outro provedor guardada no cofre continua disponível");
+});
+
+test("claude/assinatura: a chave do OpenRouter HERDADA (fora do cofre) não passa", () => {
+  const r = montar("claude", "assinatura", { OPENROUTER_API_KEY: OPR });
+  assert.equal("OPENROUTER_API_KEY" in r.env, false);
+});

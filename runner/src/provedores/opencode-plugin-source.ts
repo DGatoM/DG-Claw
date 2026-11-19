@@ -87,14 +87,31 @@ function avisar(evento, extra) {
   fila = fila.then(() => postar(corpo)).catch(() => undefined).then(() => { naFila -= 1; });
 }
 
-export const DgclawStatus = async () => {
+// O plugin carrega uns 2 s ANTES de a TUI aceitar texto (medido na 1.19.6: carga, rajada de plugin.added e,
+// no catalog.updated, a tela pronta). Avisar a partida na carga faria o runner digitar cedo demais, então o
+// SessionStart sai no primeiro catalog.updated (com uma folga curta) ou, se ele nunca vier, depois de 8 s.
+const FOLGA_DA_TELA_MS = 800;
+const PRAZO_DA_PARTIDA_MS = 8000;
+let partiu = false;
+function partida() {
+  if (partiu) return;
+  partiu = true;
   avisar("SessionStart", { source: "startup" });
+}
+
+export const DgclawStatus = async () => {
+  const reserva = setTimeout(partida, PRAZO_DA_PARTIDA_MS);
+  if (reserva && typeof reserva.unref === "function") reserva.unref();
   return {
-    event: async ({ event }) => {
+    event: async (entrada) => {
       try {
+        const event = entrada && entrada.event;
         const tipo = event && event.type;
         const props = (event && event.properties) || {};
-        if (tipo === "session.status") {
+        if (tipo === "catalog.updated" && !partiu) {
+          const t = setTimeout(partida, FOLGA_DA_TELA_MS);
+          if (t && typeof t.unref === "function") t.unref();
+        } else if (tipo === "session.status") {
           const status = props.status && props.status.type;
           const agora = Date.now();
           if (status === "busy" && !pendente && agora - ultimoBatimento >= BATIMENTO_MS) {
@@ -120,6 +137,7 @@ export const DgclawStatus = async () => {
     },
     "chat.message": async (input) => {
       try {
+        partida();
         pendente = false;
         ultimoBatimento = Date.now();
         avisar("UserPromptSubmit", { sessionId: idDe(input && input.sessionID) });

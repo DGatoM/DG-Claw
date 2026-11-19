@@ -137,6 +137,12 @@ export interface SaidaDaEscolha {
   catalogo: Catalogo;
 }
 
+/** Sem forma de pagar escolhida vale "assinatura"; um provedor com uma forma só (OpenCode, só na API) usa a única que tem. */
+function authPadraoDe(cat: Catalogo, nome: string): string {
+  const formas = Object.keys(cat.provedores[nome]?.auth ?? {});
+  return formas.length === 1 ? formas[0]! : "assinatura";
+}
+
 export function resolverEscolha(ent: EntradaDaEscolha): SaidaDaEscolha {
   const problemas: Problema[] = [];
   const padrao: EscolhaEfetiva = { ...ESCOLHA_PADRAO, origem: "padrao" };
@@ -191,7 +197,7 @@ export function resolverEscolha(ent: EntradaDaEscolha): SaidaDaEscolha {
       continue;
     }
     try {
-      const v = validar(cat, nome, n.auth ?? "assinatura", n.model ?? "", { codexHome: ent.codexHome, paraCard: ent.paraCard === true });
+      const v = validar(cat, nome, n.auth ?? authPadraoDe(cat, nome), n.model ?? "", { codexHome: ent.codexHome, paraCard: ent.paraCard === true });
       return { escolha: { provedor: nome, auth: v.auth, modelo: v.modelo, origem: n.origem }, problemas, catalogo: cat };
     } catch (err) {
       if (!(err instanceof ErroCatalogo)) throw err;

@@ -116,6 +116,8 @@ export const motorOpenCode: Motor = {
 
     ctx.env.OPENCODE_CONFIG_DIR = pasta;
     ctx.env.OPENCODE_DISABLE_AUTOUPDATE = "1";
+    // Nada de baixar servidor de linguagem (LSP) no meio do card: o que o card precisa vem na imagem.
+    ctx.env.OPENCODE_DISABLE_LSP_DOWNLOAD = "1";
     ctx.env.DGCLAW_HOOK_AGENT = ctx.id;
     ctx.env.DGCLAW_HOOK_PORT = String(ctx.porta);
     ctx.env.DGCLAW_HOOK_NONCE = ctx.nonce;

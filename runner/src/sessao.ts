@@ -381,6 +381,8 @@ export class Sessao extends EventEmitter {
       sessao: this.escolhaDescrita,
       config: { provider: cfg.provider, model: cfg.model, auth: cfg.auth },
       codexHome: this.codexHomeParaModelos(),
+      // Só a sessão paralela (card) pode usar um provedor que abre apenas cards (OpenCode).
+      paraCard: this.papel === "paralela",
     });
   }
 
