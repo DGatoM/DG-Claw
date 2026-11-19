@@ -66,5 +66,43 @@
     return { acao: n >= 2 ? 'voltou' : 'esperar', vivas: n, ultimoAgora: foto.agora };
   }
 
-  return { avaliaVolta, AVISO_DESCANSO_MS, MARCA_AUDIO, assinaturaAviso, avisoDescansando, registraFechamento, marcaAudio, textoDaFala, separaAudio };
+  /**
+   * Baixar arquivo no app instalado no iPhone (PWA). Um link com `download` ali leva a JANELA DO APP para o arquivo e
+   * não há botão de voltar. Então o app nunca navega: busca o arquivo, entrega pela folha de compartilhamento do
+   * sistema ("Salvar em Arquivos") e, se o aparelho não compartilhar arquivo, abre uma aba do sistema, que tem o
+   * "Concluído" para voltar. O iPhone só deixa compartilhar logo depois de um toque: se a busca demorar e ele
+   * recusar (NotAllowedError), o arquivo fica pronto em `cache` e o segundo toque compartilha na hora.
+   * `deps`: { fetch, nav, criarArquivo(blob, nome, tipo), abrir(url), cache: {} }.
+   * Devolve { via: 'compartilhado' | 'aba' | 'cancelado' | 'segundo-toque' | 'erro', erro? }.
+   */
+  async function baixarNoPwaIos(url, nome, deps) {
+    const { nav, cache } = deps;
+    try {
+      let arq = cache.url === url ? cache.arq : null;
+      if (!arq) {
+        const r = await deps.fetch(url, { credentials: 'same-origin' });
+        if (!r.ok) return { via: 'erro', erro: 'o app respondeu ' + r.status };
+        const doCab = (/filename\*=UTF-8''([^;]+)/i.exec((r.headers && r.headers.get && r.headers.get('Content-Disposition')) || '') || [])[1];
+        const blob = await r.blob();
+        arq = deps.criarArquivo(blob, nome || (doCab ? decodeURIComponent(doCab) : 'arquivo'), blob.type || 'application/octet-stream');
+      }
+      if (nav && typeof nav.canShare === 'function' && typeof nav.share === 'function' && nav.canShare({ files: [arq] })) {
+        try {
+          await nav.share({ files: [arq] });
+          cache.url = null; cache.arq = null;
+          return { via: 'compartilhado' };
+        } catch (e) {
+          if (e && e.name === 'AbortError') { cache.url = null; cache.arq = null; return { via: 'cancelado' }; }
+          if (e && e.name === 'NotAllowedError') { cache.url = url; cache.arq = arq; return { via: 'segundo-toque' }; }
+          throw e;
+        }
+      }
+      deps.abrir(url + (url.includes('?') ? '&' : '?') + 'baixar=1');
+      return { via: 'aba' };
+    } catch (e) {
+      return { via: 'erro', erro: e && e.message ? e.message : String(e) };
+    }
+  }
+
+  return { avaliaVolta, AVISO_DESCANSO_MS, MARCA_AUDIO, assinaturaAviso, avisoDescansando, registraFechamento, marcaAudio, textoDaFala, separaAudio, baixarNoPwaIos };
 });

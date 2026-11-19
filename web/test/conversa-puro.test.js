@@ -66,7 +66,7 @@ test('conversa.js não usa DGConversaPuro direto: tudo passa pelo PURO, que tem 
   assert.match(fonte, /const PURO = window\.DGConversaPuro \|\|/);
   const reserva = fonte.slice(fonte.indexOf('const PURO ='), fonte.indexOf('})();', fonte.indexOf('const PURO =')));
   assert.match(reserva, /console\.warn\([^)]*conversa-puro\.js não carregou/);
-  for (const nome of ['avisoDescansando', 'registraFechamento', 'separaAudio', 'textoDaFala', 'avaliaVolta']) assert.ok(reserva.includes(nome + ':'), 'a reserva precisa ter ' + nome);
+  for (const nome of ['avisoDescansando', 'registraFechamento', 'separaAudio', 'textoDaFala', 'avaliaVolta', 'baixarNoPwaIos']) assert.ok(reserva.includes(nome + ':'), 'a reserva precisa ter ' + nome);
   // todo PURO.x usado existe no módulo real
   for (const m of fonte.matchAll(/\bPURO\.(\w+)/g)) assert.equal(typeof P[m[1]], 'function', 'PURO.' + m[1] + ' não existe em conversa-puro.js');
 });
@@ -106,4 +106,50 @@ test('avaliaVolta: login_expirado só falha depois dos 3 s (antes pode ser retra
   assert.deepEqual([v.acao, v.motivo], ['login_expirado', 'o login expirou']);
   // retrato anterior ao pedido nunca conta
   assert.equal(P.avaliaVolta(Object.assign({}, base, { decorridoMs: 4000, foto: foto(90, exp) })).acao, 'esperar');
+});
+
+// ── baixar no app instalado do iPhone ───────────────────────────────────────
+function depsBaixar(sobre) {
+  const chamadas = { abriu: [], buscou: [] };
+  const deps = Object.assign({
+    fetch: async (u) => { chamadas.buscou.push(u); return { ok: true, headers: { get: () => null }, blob: async () => ({ type: 'text/plain' }) }; },
+    criarArquivo: (blob, nome, tipo) => ({ blob, nome, tipo }),
+    abrir: (u) => chamadas.abriu.push(u),
+    cache: {},
+    nav: {},
+  }, sobre);
+  return { deps, chamadas };
+}
+
+test('baixar no PWA do iPhone: compartilha o arquivo e nunca navega a janela do app', async () => {
+  const compartilhados = [];
+  const { deps, chamadas } = depsBaixar({ nav: { canShare: () => true, share: async (d) => { compartilhados.push(d); } } });
+  const r = await P.baixarNoPwaIos('/api/v1/media/m1', 'relatorio.pdf', deps);
+  assert.equal(r.via, 'compartilhado');
+  assert.equal(compartilhados[0].files[0].nome, 'relatorio.pdf');
+  assert.deepEqual(chamadas.abriu, []);
+});
+
+test('baixar no PWA do iPhone: sem compartilhar arquivo abre aba do sistema com baixar=1', async () => {
+  const { deps, chamadas } = depsBaixar({ nav: {} });
+  const r = await P.baixarNoPwaIos('/api/v1/media/m1', 'a.pdf', deps);
+  assert.equal(r.via, 'aba');
+  assert.deepEqual(chamadas.abriu, ['/api/v1/media/m1?baixar=1']);
+});
+
+test('baixar no PWA do iPhone: cancelar a folha não é erro; recusa por falta de toque guarda o arquivo para o segundo toque', async () => {
+  let n = 0;
+  const share = async () => { n += 1; if (n === 1) { const e = new Error('x'); e.name = 'NotAllowedError'; throw e; } };
+  const { deps, chamadas } = depsBaixar({ nav: { canShare: () => true, share } });
+  assert.equal((await P.baixarNoPwaIos('/u', 'a.txt', deps)).via, 'segundo-toque');
+  assert.equal((await P.baixarNoPwaIos('/u', 'a.txt', deps)).via, 'compartilhado');
+  assert.equal(chamadas.buscou.length, 1, 'o segundo toque usa o arquivo já baixado');
+  const { deps: d2 } = depsBaixar({ nav: { canShare: () => true, share: async () => { const e = new Error('x'); e.name = 'AbortError'; throw e; } } });
+  assert.equal((await P.baixarNoPwaIos('/u', 'a.txt', d2)).via, 'cancelado');
+});
+
+test('baixar no PWA do iPhone: resposta de erro vira motivo, sem lançar', async () => {
+  const { deps } = depsBaixar({ fetch: async () => ({ ok: false, status: 404 }) });
+  const r = await P.baixarNoPwaIos('/u', 'a', deps);
+  assert.equal(r.via, 'erro'); assert.match(r.erro, /404/);
 });

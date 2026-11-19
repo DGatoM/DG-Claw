@@ -28,6 +28,7 @@ const PURO = window.DGConversaPuro || (() => {
     separaAudio: texto => ({ audio: false, texto: String(texto == null ? '' : texto) }),
     textoDaFala: texto => String(texto),
     avaliaVolta: () => ({ acao: 'indeterminado' }),
+    baixarNoPwaIos: async url => { window.open(url + (url.includes('?') ? '&' : '?') + 'baixar=1', '_blank', 'noopener'); return { via: 'aba' }; },
   };
 })();
 
@@ -1185,15 +1186,46 @@ async function pqEnvia(perg, cancelar) {
   }
 }
 
-/* Aviso de fila no balão: a mensagem foi entregue ao runner mas o agente ainda não a leu. */
+/* Aviso de fila no balão: a mensagem foi entregue ao runner mas o agente ainda não a leu. Quem manda é o runner
+   (lista `na_fila` da atividade): o aviso fica até a mensagem sair de lá, e uma mensagem que está na fila e não tem
+   balão nesta página (a página foi recarregada, ou o envio veio de outro aparelho) ganha um. Runner que não informa
+   a fila cai na regra antiga: o aviso some quando o agente fica ocioso. */
 function filaSincroniza() {
   let mudou = false;
   const est = window.atividadeFoto && window.atividadeFoto.agentes ? window.atividadeFoto.agentes[AGENTE.id] : null;
+  const lista = est && Array.isArray(est.na_fila) ? est.na_fila : null;
+  if (lista) {
+    const ids = new Set(lista.map(x => x.msg).filter(Boolean));
+    for (const p of pendentes) {
+      if (p.fila && p.msgId && !ids.has(p.msgId)) { p.fila = null; mudou = true; }
+    }
+    // balão que só existia por causa da fila (reconstruído do servidor) sai quando a mensagem sai dela: a cópia
+    // de verdade já está chegando na thread
+    const antes = pendentes.length;
+    pendentes = pendentes.filter(p => !(p.daFila && p.msgId && !ids.has(p.msgId)));
+    if (pendentes.length !== antes) mudou = true;
+    for (const x of lista) {
+      if (!x.msg || !x.texto || pendentes.some(p => p.msgId === x.msg)) continue;
+      const quando = new Date(x.em);
+      pendentes.push({
+        n: ++seqPendente, texto: x.texto, estado: 'enviada', erro: null, cid: novoClienteId(),
+        criadoEm: x.em, epLocal: x.em / 1000, ep: x.em / 1000 - 2, tentativa: 1,
+        hhmm: quando.toTimeString().slice(0, 5), dia: quando.toLocaleDateString('pt-BR'),
+        fila: 'resposta', filaEm: x.em, msgId: x.msg, daFila: true,
+      });
+      mudou = true;
+    }
+    for (const p of pendentes) {
+      if (!p.fila || !p.msgId) continue;
+      const x = lista.find(y => y.msg === p.msgId);
+      if (x && p.filaEm !== x.em) { p.filaEm = x.em; mudou = true; }
+    }
+  }
   for (const p of pendentes) {
     if (!p.fila) continue;
-    // agente ocioso e a cópia ainda não apareceu: o aviso já não vale
-    if (est && est.estado === 'ocioso') { p.fila = null; mudou = true; }
-    else mudou = true;
+    // runner sem a lista: agente ocioso e a cópia ainda não apareceu, o aviso já não vale
+    if (!lista && est && est.estado === 'ocioso') { p.fila = null; mudou = true; }
+    else mudou = true;   // o tempo de espera no balão anda sozinho
   }
   if (mudou) render();
 }
@@ -1577,7 +1609,7 @@ function metaPendente(p) {
   if (p.estado === 'enviada') {
     if (p.fila && TR) {
       const est = window.atividadeFoto && window.atividadeFoto.agentes ? window.atividadeFoto.agentes[AGENTE.id] : null;
-      const t = TR.textoFila(p.fila, !!est && est.alerta === 'permissao');
+      const t = TR.textoFila(p.fila, !!est && est.alerta === 'permissao', p.filaEm, atvAgoraMs());
       if (t) return `<span class="meta fila" title="entregue ao agente, que ainda não chegou nela">${dsIcone('check')} ${esc(p.hhmm)} · ${esc(t)}</span>`;
     }
     return `<span class="meta" title="entregue">${dsIcone('check')} ${esc(p.hhmm)}</span>`;
@@ -2977,6 +3009,32 @@ document.addEventListener('click', ev => {
   location.href = 'x-safari-' + u.href;
 });
 
+/* Baixar no app instalado no iPhone: o link com `download` levava a janela do app para o arquivo, sem volta.
+   Aqui o app não navega (ver baixarNoPwaIos em conversa-puro.js). Fora do app instalado nada muda. */
+const baixaCache = {};
+function baixaNoPwaIos(url, nome) {
+  return PURO.baixarNoPwaIos(url, nome, {
+    fetch: (u, o) => fetch(u, o), nav: navigator, cache: baixaCache,
+    criarArquivo: (blob, n, tipo) => new File([blob], n, { type: tipo }),
+    abrir: u => window.open(u, '_blank', 'noopener'),
+  }).then(r => {
+    if (r.via === 'segundo-toque') mostraAviso('O arquivo está pronto. Toque em Baixar mais uma vez para salvar.');
+    else if (r.via === 'erro') mostraAviso('Não consegui baixar o arquivo (' + r.erro + ').');
+    return r;
+  });
+}
+document.addEventListener('click', ev => {
+  if (!IOS || !document.documentElement.classList.contains('pwa')) return;
+  const a = ev.target.closest ? ev.target.closest('a[download][href]') : null;
+  if (!a) return;
+  let u;
+  try { u = new URL(a.getAttribute('href'), location.href); } catch (e) { return; }
+  if (u.origin !== location.origin) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  baixaNoPwaIos(u.href, a.getAttribute('download') || '');
+}, true);
+
 async function copiaTexto(t) {
   try {
     await navigator.clipboard.writeText(t);
@@ -4133,7 +4191,7 @@ async function mandaTexto(pend, semEsperar) {
     pend.casa = d.marca || null;   // o que vai aparecer na thread, para o balão otimista sumir
     pend.anexos = null;
   }
-  if (d && d.fila && d.fila.motivo) pend.fila = d.fila.motivo;
+  if (d && d.fila && d.fila.motivo) { pend.fila = d.fila.motivo; pend.msgId = d.fila.msg || null; pend.filaEm = atvAgoraMs(); }
   const ficou = entregue(pend, d);
   avisaEntrega(pend, true);
   if (!ficou) return true;
@@ -4772,9 +4830,22 @@ wrap.addEventListener('click', async ev => {
       return;
     }
     const nome = (/filename\*=UTF-8''([^;]+)/i.exec(r.headers.get('Content-Disposition') || '') || [])[1];
-    const url = URL.createObjectURL(await r.blob());
+    const blob = await r.blob();
+    const nomeFinal = nome ? decodeURIComponent(nome) : 'versao-final';
+    if (IOS && document.documentElement.classList.contains('pwa')) {
+      // app instalado no iPhone: compartilha o arquivo em vez de navegar a janela do app
+      const f = new File([blob], nomeFinal, { type: blob.type || 'application/octet-stream' });
+      try {
+        if (navigator.canShare && navigator.canShare({ files: [f] })) await navigator.share({ files: [f] });
+        else mostraAviso('Este aparelho não consegue salvar o arquivo de dentro do app. Abra o painel no Safari para baixar.');
+      } catch (e) {
+        if (!e || e.name !== 'AbortError') mostraAviso('Não consegui salvar o arquivo (' + (e && e.message ? e.message : 'o aparelho recusou') + ').');
+      }
+      return;
+    }
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = nome ? decodeURIComponent(nome) : 'versao-final';
+    a.href = url; a.download = nomeFinal;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 30000);
   } catch (e) {
