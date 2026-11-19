@@ -30,13 +30,24 @@
     return 'rodou ' + itens.length + ' comandos' + (erros ? ' (' + erros + ' com erro)' : '');
   }
 
-  /** Por que a mensagem está na fila, na frase que o balão mostra. */
-  function textoFila(motivo, estaEsperandoPermissao) {
+  /** Há quanto tempo a mensagem espera, em palavras ("há 3 min"). Vazio quando é pouco ou não se sabe. */
+  function esperaFila(desdeMs, agoraMs) {
+    if (typeof desdeMs !== 'number' || typeof agoraMs !== 'number') return '';
+    const seg = Math.floor((agoraMs - desdeMs) / 1000);
+    if (seg < 60) return '';
+    const min = Math.floor(seg / 60);
+    return min < 60 ? 'há ' + min + ' min' : 'há ' + Math.floor(min / 60) + ' h';
+  }
+
+  /** Por que a mensagem está na fila, na frase que o balão mostra. Com `desdeMs` e `agoraMs`, diz há quanto tempo. */
+  function textoFila(motivo, estaEsperandoPermissao, desdeMs, agoraMs) {
     if (motivo !== 'permissao' && motivo !== 'resposta' && motivo !== 'pergunta') return '';
-    if (motivo === 'pergunta') return 'na fila: o agente fez uma pergunta e espera a resposta dela';
+    const espera = esperaFila(desdeMs, agoraMs);
+    const quando = espera ? ' ' + espera : '';
+    if (motivo === 'pergunta') return 'na fila' + quando + ': o agente fez uma pergunta e espera a resposta dela';
     // se o agente passou a esperar permissão depois do envio, essa é a razão de verdade
-    if (estaEsperandoPermissao || motivo === 'permissao') return 'na fila: o agente está esperando a sua permissão';
-    return 'na fila: o agente ainda está respondendo a anterior';
+    if (estaEsperandoPermissao || motivo === 'permissao') return 'na fila' + quando + ': o agente está esperando a sua permissão';
+    return 'na fila' + quando + ': o agente ainda está respondendo a anterior';
   }
 
   /** O que o cartão de permissão descreve: "Bash: <comando>" ou um aviso de que o detalhe não veio. */
@@ -45,5 +56,5 @@
     return p.ferramenta + ': ' + (p.comando || p.titulo);
   }
 
-  return { agrupa, rotuloGrupo, textoFila, descricaoPedido, ehTrilha };
+  return { agrupa, rotuloGrupo, textoFila, esperaFila, descricaoPedido, ehTrilha };
 });

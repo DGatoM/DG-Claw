@@ -66,5 +66,85 @@
     return { acao: n >= 2 ? 'voltou' : 'esperar', vivas: n, ultimoAgora: foto.agora };
   }
 
-  return { avaliaVolta, AVISO_DESCANSO_MS, MARCA_AUDIO, assinaturaAviso, avisoDescansando, registraFechamento, marcaAudio, textoDaFala, separaAudio };
+  /**
+   * Baixar arquivo no app instalado no iPhone (PWA). Um link com `download` ali leva a JANELA DO APP para o arquivo e
+   * não há botão de voltar. Então o app nunca navega: busca o arquivo, entrega pela folha de compartilhamento do
+   * sistema ("Salvar em Arquivos") e, se o aparelho não compartilhar arquivo, abre uma aba do sistema, que tem o
+   * "Concluído" para voltar. O iPhone só deixa compartilhar ou abrir aba logo depois de um toque, e a busca pode
+   * demorar mais que isso: quando ele recusa, o arquivo fica pronto em `cache` e o SEGUNDO toque age na hora, sem
+   * buscar de novo. Sem `canShare` no aparelho nem se busca: a aba abre direto no toque.
+   * `deps`: { fetch, nav, criarArquivo(blob, nome, tipo), abrir(url), cache: {} }.
+   * Devolve { via: 'compartilhado' | 'aba' | 'cancelado' | 'segundo-toque' | 'erro', erro? }.
+   */
+  const TAMANHO_MAX_BLOB = 40 * 1024 * 1024;
+
+  async function baixarNoPwaIos(url, nome, deps) {
+    const { nav, cache } = deps;
+    const comAba = u => u + (u.includes('?') ? '&' : '?') + 'baixar=1';
+    const limpa = () => { cache.url = null; cache.arq = null; cache.modo = null; };
+    try {
+      const podeCompartilhar = !!(nav && typeof nav.canShare === 'function' && typeof nav.share === 'function');
+      if (cache.url === url && cache.modo === 'abrir') { limpa(); if (deps.bloqueado && deps.bloqueado()) return { via: 'bloqueado' }; deps.abrir(comAba(url)); return { via: 'aba' }; }
+      if (!podeCompartilhar) { deps.abrir(comAba(url)); return { via: 'aba' }; }
+      let arq = cache.url === url ? cache.arq : null;
+      if (!arq) {
+        const r = await deps.fetch(url, { credentials: 'same-origin' });
+        if (!r.ok) return { via: 'erro', erro: 'o app respondeu ' + r.status };
+        const tam = Number(r.headers && r.headers.get && r.headers.get('Content-Length'));
+        if (tam > TAMANHO_MAX_BLOB) {
+          // arquivo grande (vídeo): não vai para a memória do app. Guarda só o endereço e abre a aba no toque seguinte.
+          if (r.body && typeof r.body.cancel === 'function') r.body.cancel();
+          cache.url = url; cache.arq = null; cache.modo = 'abrir';
+          return { via: 'segundo-toque' };
+        }
+        const doCab = (/filename\*=UTF-8''([^;]+)/i.exec((r.headers && r.headers.get && r.headers.get('Content-Disposition')) || '') || [])[1];
+        let blob;
+        if (r.body && typeof r.body.getReader === 'function') {
+          // Content-Length pode faltar (resposta comprimida): conta os bytes lidos e desiste ao passar do limite
+          const leitor = r.body.getReader(); const partes = []; let lidos = 0;
+          for (;;) {
+            const { done, value } = await leitor.read();
+            if (done) break;
+            lidos += value.length;
+            if (lidos > TAMANHO_MAX_BLOB) {
+              try { await leitor.cancel(); } catch (e) { /* já encerrou */ }
+              cache.url = url; cache.arq = null; cache.modo = 'abrir';
+              return { via: 'segundo-toque' };
+            }
+            partes.push(value);
+          }
+          blob = (deps.criarBlob || ((p, t) => new Blob(p, { type: t })))(partes, (r.headers && r.headers.get && r.headers.get('Content-Type')) || 'application/octet-stream');
+        } else blob = await r.blob();
+        arq = deps.criarArquivo(blob, nome || (doCab ? decodeURIComponent(doCab) : 'arquivo'), blob.type || 'application/octet-stream');
+      }
+      // o modo escondido pode ter sido ligado enquanto o arquivo vinha: nada abre depois disso
+      if (deps.bloqueado && deps.bloqueado()) { limpa(); return { via: 'bloqueado' }; }
+      if (!nav.canShare({ files: [arq] })) {
+        // o aparelho não compartilha este tipo: a aba só abre num toque novo, então o arquivo já baixado espera por ele
+        cache.url = url; cache.arq = null; cache.modo = 'abrir';   // só o endereço: a aba busca o arquivo por conta própria
+        return { via: 'segundo-toque' };
+      }
+      try {
+        await nav.share({ files: [arq] });
+        limpa();
+        return { via: 'compartilhado' };
+      } catch (e) {
+        if (e && e.name === 'AbortError') { limpa(); return { via: 'cancelado' }; }
+        if (e && e.name === 'NotAllowedError') {
+          if (cache.url === url && cache.modo === 'compartilhar') {
+            // já era o segundo toque, com o arquivo pronto, e o aparelho recusou de novo: abre a aba, que sempre deixa salvar
+            limpa(); deps.abrir(comAba(url)); return { via: 'aba' };
+          }
+          // documento com dados restaurados não fica em memória: o segundo toque busca de novo, com a sessão de agora
+          cache.url = url; cache.arq = deps.semArquivoEmMemoria ? null : arq; cache.modo = 'compartilhar';
+          return { via: 'segundo-toque' };
+        }
+        throw e;
+      }
+    } catch (e) {
+      return { via: 'erro', erro: e && e.message ? e.message : String(e) };
+    }
+  }
+
+  return { avaliaVolta, AVISO_DESCANSO_MS, MARCA_AUDIO, assinaturaAviso, avisoDescansando, registraFechamento, marcaAudio, textoDaFala, separaAudio, baixarNoPwaIos };
 });
