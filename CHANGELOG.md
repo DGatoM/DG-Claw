@@ -10,25 +10,27 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 **Correção no download do YouTube: yt-dlp atualizado e teste de verdade na saúde.** O agente não conseguia baixar vídeo do
 YouTube por três motivos. O `yt-dlp` da imagem estava velho e sem o `yt-dlp-ejs`, que resolve o desafio de JavaScript do
 YouTube; o comando `yt-dlp` não estava no PATH do serviço do runner; e o YouTube responde "Sign in to confirm you're not a
-bot" para quem não está logado, e a Tela nunca tinha uma conta. Agora a imagem traz `yt-dlp[default]` 2026.10.26 com
-`yt-dlp-ejs` 0.8.0, um link em `/usr/local/bin/yt-dlp` e o arquivo de sistema `/etc/yt-dlp.conf` (root:root, 0644) com uma
-linha só, `--js-runtimes node`, para o node da imagem resolver o desafio. Nenhum cookie fica em configuração global, e o
+bot" para quem não está logado, e a Tela nunca tinha entrado no YouTube. Agora a imagem traz `yt-dlp` 2026.10.26 e `yt-dlp-ejs`
+0.8.0 (os dois com versão fixa), um link em `/usr/local/bin/yt-dlp` e o arquivo de sistema `/etc/yt-dlp.conf` (root:root, 0644)
+com uma linha só, `--js-runtimes node`, para o node da imagem resolver o desafio. Nenhum cookie fica em configuração global, e o
 DG Claw não grava mais nada de `yt-dlp` na casa do agente. As instruções do agente (`templates/ambiente/agente.md`) dizem
-que, quando o YouTube pedir login, ele usa `--cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome"` na própria
-chamada (só para o YouTube, nunca com `--cookies arquivo` para exportar) e, se continuar pedindo login, pede ao dono para
-entrar pela Tela. O diagnóstico ganhou o item `agente.<slug>.youtube`: um download real e pequeno (vídeo de 19 s, o formato
-menor, teto de 5 MB, pasta temporária que é apagada) feito dentro do container como o usuário agente, com
-`--ignore-config` e as opções explícitas (os cookies da Tela entram só se a pasta do Chrome existir). O resultado é guardado
-com horário em `youtube-saude.json`: o teste roda no máximo uma vez por dia (e de novo, a cada 5 minutos no máximo, só
-depois de uma falha, para quem acabou de entrar no YouTube conferir). Se o YouTube pedir login, ou o `yt-dlp` avisar que os
-cookies deixaram de valer (mesmo com o vídeo baixado), o item vira "atenção" e diz para abrir a Tela e entrar em
-youtube.com. Nada do texto de erro do `yt-dlp` vai para a tela, o log ou o arquivo: só o tipo do problema (login, ausente,
-tempo ou outro, este com o código de saída), e a saída lida é limitada a 8 KB antes de qualquer análise. A checagem roda no
-container e não depende do motor do agente: vale igual no Claude e no Codex.
-O mesmo teste também roda sozinho a cada 6 horas e, quando a conta do YouTube do agente cai, o DG Claw avisa no aparelho do
-dono. A queda fica marcada como aviso pendente (no mesmo `youtube-saude.json`) mesmo se quem a detectou foi o diagnóstico, e
-a marca só sai quando o aviso chega a pelo menos um aparelho sem falha; se o envio falhar, a rodada seguinte tenta de novo.
-Se a conta voltar, a marca some.
+que, quando o YouTube pedir login, ele usa a chamada isolada `yt-dlp --ignore-config --no-plugin-dirs --js-runtimes node
+--cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome"` (só para o YouTube, nunca com `--cookies arquivo`) e, se
+continuar pedindo login, pede ao dono para entrar pela Tela. O diagnóstico ganhou o item `agente.<slug>.youtube`: um download
+real e pequeno (vídeo de 19 s, o formato menor, teto de 5 MB, pasta temporária que é apagada) feito dentro do container como o
+usuário agente, com essa mesma chamada isolada. A tela de diagnóstico só lê o último resultado, guardado com horário em
+`youtube-saude.json`, e nunca dispara o download; quem testa é um vigia que roda a primeira vez 2 minutos depois de o painel
+subir e depois a cada 6 horas. Enquanto não há resultado, o item fica "não medido" e diz que o teste roda sozinho a cada 6
+horas. Se o YouTube pedir login, ou o `yt-dlp` avisar que os cookies deixaram de valer (mesmo com o vídeo baixado), o item vira
+"atenção" e diz para abrir a Tela e entrar em youtube.com; se a pasta do Chrome da Tela ainda não existe (a Tela nunca foi
+aberta), o item também vira "atenção", e isso não conta como download ok. Quando a infraestrutura falha (podman ausente,
+container que não aceitou o comando, erro interno), a tentativa é guardada com horário como "não medido" e o último resultado
+concluído fica preservado à parte. Nada do texto de erro do `yt-dlp` vai para a tela, o log ou o arquivo: só o tipo do problema
+(login, Tela não aberta, ausente, tempo ou outro, este com o código de saída), e a saída lida é limitada a 8 KB antes de
+qualquer análise. A checagem roda no container e não depende do motor do agente: vale igual no Claude e no Codex.
+Quando o download cai por pedido de login, o DG Claw avisa no aparelho do dono ("<agente>: o download do YouTube parou"). A queda
+fica marcada como aviso pendente (no mesmo `youtube-saude.json`), e a marca só sai quando o aviso é entregue a pelo menos um
+aparelho sem falha; se o envio falhar, a rodada seguinte tenta de novo. A marca também sai quando o download volta a funcionar.
 
 ### Como atualizar (download do YouTube)
 
@@ -37,8 +39,8 @@ Se a conta voltar, a marca some.
    Sem a imagem nova o `yt-dlp` do agente continua sem o runtime de JavaScript.
 2. **Entre no YouTube pela Tela, uma vez por agente.** Abra a Tela do agente (menu do agente, grupo Conexões, "Navegador"),
    entre em youtube.com com a sua conta e pronto: quando o YouTube pedir login, o agente usa essa sessão. Sem isso o YouTube
-   continua recusando o download, e a tela de diagnóstico mostra o aviso "O YouTube pediu login". Quando a sessão cair, o
-   mesmo aviso volta e o caminho é o mesmo.
+   continua recusando o download, e a tela de diagnóstico mostra o aviso "O YouTube pediu login". Quando o problema voltar, o
+   aviso volta e o caminho é o mesmo.
 
 ## [1.1.0] - 2026-11-18
 

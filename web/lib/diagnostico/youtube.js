@@ -1,7 +1,8 @@
 'use strict';
 // Download do YouTube do agente. Faz um download REAL e pequeno dentro do container, como o usuário agente, e
-// guarda o último resultado com horário. O teste ignora qualquer configuração do yt-dlp e passa as opções na própria
-// chamada (inclusive os cookies da Tela, quando a pasta do Chrome existe); quando a conta sai do YouTube, é aqui que o
+// guarda o último resultado com horário. Quem testa é o vigia (a cada 6 horas); a tela de diagnóstico só LÊ o último
+// resultado, nunca dispara download. O teste ignora qualquer configuração do yt-dlp e passa as opções na própria
+// chamada (inclusive os cookies da Tela, quando a pasta do Chrome existe); quando o download para de funcionar, é aqui que o
 // dono fica sabendo, em vez de o agente falhar calado no meio de um pedido. Nada do stderr do yt-dlp sai daqui: a
 // classificação devolve só um tipo de uma lista fechada (e o código de saída), e todo texto mostrado é fixo. Não depende do motor do agente (Claude ou Codex): roda no container.
 
@@ -10,17 +11,17 @@ const path = require('node:path');
 const U = require('./util');
 
 const { R, conserta } = U;
-const DIA_MS = 24 * 3600 * 1000;
-const NOVA_TENTATIVA_MS = 5 * 60 * 1000; // depois de uma falha, quem abre a saúde pode testar de novo a cada 5 min
 const PRAZO_DOWNLOAD_S = 80;             // teto dentro do container (comando `timeout`)
 const PRAZO_EXEC_MS = 100000;            // teto de quem chama, um pouco acima do de dentro
 const VIDEO_TESTE = 'https://www.youtube.com/watch?v=jNQXAC9IJRQ'; // "Me at the zoo": 19 s, o primeiro vídeo do YouTube, estável
 const NOME_ARQUIVO = 'youtube-saude.json';
 const LIMITE_SAIDA = 8192;               // bytes lidos de stderr e de stdout, cortados antes de qualquer regex ou log
 const PASTA_COOKIES = '/home/agente/.tela-chrome';
+const SAIDA_SEM_PERFIL = 66;             // código próprio do script: a pasta do Chrome da Tela não existe
 
 // Roda dentro do container, sem nenhum valor vindo de fora. A pasta é temporária e some ao final. O yt-dlp ignora
-// a configuração do usuário e dos plugins; os cookies da Tela entram só se a pasta do Chrome existir.
+// a configuração do usuário e dos plugins; os cookies vêm da pasta do Chrome da Tela; se ela
+// não existe, o script sai com 66 sem baixar nada.
 const SCRIPT = [
   'd=$(mktemp -d /tmp/yt-saude.XXXXXX) || exit 70',
   'trap \'rm -rf "$d"\' EXIT',
@@ -29,12 +30,12 @@ const SCRIPT = [
   '  echo "yt-dlp: command not found" >&2',
   '  exit 127',
   'fi',
-  'set --',
-  `if [ -d ${PASTA_COOKIES} ]`,
+  `if [ ! -d ${PASTA_COOKIES} ]`,
   'then',
-  `  set -- --cookies-from-browser "chrome+basictext:${PASTA_COOKIES}"`,
+  '  echo "perfil da Tela ausente" >&2',
+  `  exit ${SAIDA_SEM_PERFIL}`,
   'fi',
-  `timeout ${PRAZO_DOWNLOAD_S} yt-dlp --ignore-config --no-plugin-dirs --js-runtimes node "$@" --no-playlist --no-progress --socket-timeout 20 -f worst --max-filesize 5M -P "$d" -o '%(id)s.%(ext)s' '${VIDEO_TESTE}' || exit $?`,
+  `timeout ${PRAZO_DOWNLOAD_S} yt-dlp --ignore-config --no-plugin-dirs --js-runtimes node --cookies-from-browser "chrome+basictext:${PASTA_COOKIES}" --no-playlist --no-progress --socket-timeout 20 -f worst --max-filesize 5M -P "$d" -o '%(id)s.%(ext)s' '${VIDEO_TESTE}' || exit $?`,
   'if ! ls "$d" | grep -q .',
   'then',
   '  echo "nenhum arquivo foi baixado" >&2',
@@ -42,7 +43,7 @@ const SCRIPT = [
   'fi',
 ].join('\n');
 
-// Sinais de que a conta do YouTube não vale mais: o pedido de login, e o aviso de cookies inválidos (que o yt-dlp dá
+// Sinais de que o YouTube recusou o download por falta de login: o pedido de login, e o aviso de cookies inválidos (que o yt-dlp dá
 // mesmo quando consegue baixar um vídeo público).
 const RX_LOGIN = /sign in to confirm|cookies are no longer valid|cookies.{0,40}(?:invalid|expired)|please sign in|login required/i;
 const RX_AUSENTE = /yt-dlp:? (?:command )?not found|yt-dlp: no such file|executable file .*yt-dlp.* not found/i;
@@ -55,7 +56,7 @@ function cortarSaida(r) {
 
 /**
  * Classifica o resultado do comando. `r` é { codigo, stdout, stderr, erro }.
- * Devolve { tipo: 'ok' | 'login' | 'ausente' | 'tempo' | 'outro', codigo? }. `codigo` (número) só existe em 'outro'.
+ * Devolve { tipo: 'ok' | 'login' | 'sem_perfil' | 'ausente' | 'tempo' | 'outro', codigo? }. `codigo` (número) só existe em 'outro'.
  * Nunca devolve texto do stderr: o que sai daqui pode ir para log, arquivo e resposta da API.
  */
 function classificarYoutube(r) {
@@ -63,6 +64,7 @@ function classificarYoutube(r) {
   const saida = `${c.stderr}\n${c.stdout}`;
   if (RX_LOGIN.test(saida)) return { tipo: 'login' };
   if (c.codigo === 0 && !c.erro) return { tipo: 'ok' };
+  if (c.codigo === SAIDA_SEM_PERFIL) return { tipo: 'sem_perfil' };
   if (c.codigo === 127 || RX_AUSENTE.test(saida)) return { tipo: 'ausente' };
   if (c.erro === 'timeout' || c.erro === 'prazo' || c.codigo === 124) return { tipo: 'tempo' };
   return { tipo: 'outro', codigo: Number.isInteger(c.codigo) ? c.codigo : null };
@@ -70,13 +72,14 @@ function classificarYoutube(r) {
 
 const TEXTO_TIPO = {
   login: 'o YouTube pediu login',
+  sem_perfil: 'a Tela do agente ainda não foi aberta',
   ausente: 'o yt-dlp não existe no container',
   tempo: `o download passou de ${PRAZO_DOWNLOAD_S} s`,
   outro: 'o download terminou com erro',
 };
 const textoFalha = (tipo, codigo) => `${TEXTO_TIPO[tipo] || tipo}${tipo === 'outro' ? ` (código de saída ${codigo === null || codigo === undefined ? 'desconhecido' : codigo})` : ''}`;
 
-/** Estado guardado por agente, em memória e em <dataDir>/youtube-saude.json (só horário, tipo, código de saída e a marca de aviso pendente). */
+/** Estado guardado por agente, em memória e em <dataDir>/youtube-saude.json (só horário, tipo, código de saída, a marca de aviso pendente e, quando a última tentativa não rodou, o último resultado concluído). */
 function criarEstadoYoutube(ctx) {
   const arquivo = ctx.config && ctx.config.dataDir ? path.join(ctx.config.dataDir, NOME_ARQUIVO) : null;
   let dados = null;
@@ -110,8 +113,6 @@ function criarEstadoYoutube(ctx) {
       return v && typeof v === 'object' && typeof v.em === 'number' && typeof v.tipo === 'string' ? v : null;
     },
     guardar: (slug, v) => { carregar()[slug] = v; gravar(); },
-    /** Slugs com queda ainda não avisada ao dono. */
-    pendentes: () => Object.keys(carregar()).filter((k) => carregar()[k] && carregar()[k].avisoPendente === true),
     limparAviso: (slug) => { const v = carregar()[slug]; if (v && v.avisoPendente) { v.avisoPendente = false; gravar(); } },
     andando,
   };
@@ -119,62 +120,80 @@ function criarEstadoYoutube(ctx) {
 
 /**
  * Roda o teste do YouTube do agente e grava o resultado no estado (ctx.youtube). Não dispara dois testes do mesmo
- * slug ao mesmo tempo: se já há um rodando, espera esse e devolve o tipo que ele gravou. Devolve o tipo gravado, ou
- * null quando o teste não rodou (podman ausente, container que não aceitou o comando ou erro interno).
+ * slug ao mesmo tempo: se já há um rodando, espera esse e devolve o tipo que ele gravou. Devolve o tipo gravado
+ * ('nao_medido' quando a infraestrutura falhou: podman ausente, container que não aceitou ou erro interno), ou null
+ * quando nem tentou (nome fora do padrão).
  */
 function testarYoutube(ctx, ag) {
   const { agora, log } = ctx;
   const { slug } = ag;
   if (!ctx.youtube) ctx.youtube = criarEstadoYoutube(ctx);
   const est = ctx.youtube;
+  // O nome do container vem do registro; confere que é o esperado antes de chegar perto de um comando.
+  if (!U.RX_NOME_SEGURO.test(String(slug)) || ag.container !== `dgclaw-${slug}`) {
+    log('aviso', 'Diagnóstico: o teste do YouTube não rodou porque o nome do agente ou do container está fora do padrão (dgclaw-<nome>). Confira com dgclaw status.');
+    return Promise.resolve(null);
+  }
   if (est.andando.has(slug)) return est.andando.get(slug);
 
+  /** Falha de infraestrutura: guarda a tentativa (tipo nao_medido) e preserva o último resultado concluído. */
+  function registrarTentativa() {
+    const antes = est.ler(slug);
+    const concluido = antes ? (antes.tipo === 'nao_medido' ? antes.ultimoConcluido : { em: antes.em, tipo: antes.tipo, codigo: antes.codigo === undefined ? null : antes.codigo }) : null;
+    est.guardar(slug, { em: agora(), tipo: 'nao_medido', codigo: null, avisoPendente: !!(antes && antes.avisoPendente), ultimoConcluido: concluido || null });
+  }
+
   async function testar() {
-    const r = cortarSaida(await ctx.execSolto('podman', ['exec', '--user', 'agente', '-e', 'HOME=/home/agente', ag.container, 'sh', '-c', SCRIPT], { timeout: PRAZO_EXEC_MS }));
-    if (r.erro === 'ENOENT') { log('aviso', 'Diagnóstico: o comando podman não foi encontrado; o teste do YouTube não rodou.'); return null; }
+    const r = cortarSaida(await ctx.execSolto('podman', ['exec', '--user', 'agente', '-e', 'HOME=/home/agente', '--', ag.container, 'sh', '-c', SCRIPT], { timeout: PRAZO_EXEC_MS }));
+    if (r.erro === 'ENOENT') { log('aviso', 'Diagnóstico: o comando podman não foi encontrado; o teste do YouTube não rodou.'); registrarTentativa(); return 'nao_medido'; }
     const c = classificarYoutube(r);
     if (c.tipo === 'outro' && RX_CONTAINER.test(r.stderr)) {
       log('aviso', `Diagnóstico: o container ${ag.container} não aceitou o teste do YouTube (código de saída ${c.codigo === null ? 'desconhecido' : c.codigo}). Confira com dgclaw status.`);
-      return null;
+      registrarTentativa();
+      return 'nao_medido';
     }
     if (c.tipo !== 'ok') log('aviso', `Diagnóstico: o teste do YouTube do agente ${slug} falhou: ${textoFalha(c.tipo, c.codigo)}.`);
     const antes = est.ler(slug);
+    const anterior = antes && (antes.tipo === 'nao_medido' ? antes.ultimoConcluido : antes);
     let avisoPendente = !!(antes && antes.avisoPendente);
-    if (c.tipo === 'login' && !(antes && antes.tipo === 'login')) avisoPendente = true;
-    if (c.tipo === 'ok') avisoPendente = false;
+    if (c.tipo === 'login' && !(anterior && anterior.tipo === 'login')) avisoPendente = true;
+    if (c.tipo === 'ok') avisoPendente = false; // só o 'ok' limpa; 'sem_perfil' e os demais não
     est.guardar(slug, { em: agora(), tipo: c.tipo, codigo: c.tipo === 'outro' ? c.codigo : null, avisoPendente });
     return c.tipo;
   }
 
-  const p = testar().catch((e) => { log('erro', `Diagnóstico: o teste do YouTube do agente ${slug} falhou por erro interno: ${e && e.stack ? e.stack : e}`); return null; })
-    .finally(() => est.andando.delete(slug));
+  const p = testar().catch((e) => {
+    log('erro', `Diagnóstico: o teste do YouTube do agente ${slug} não rodou por erro interno (${(e && (e.code || e.name)) || 'desconhecido'}). Confira o log do DG Claw Web e tente de novo na próxima rodada.`);
+    try { registrarTentativa(); } catch (e2) { log('erro', `Diagnóstico: não consegui guardar a tentativa do teste do YouTube de ${slug} (${e2.message}).`); }
+    return 'nao_medido';
+  }).finally(() => est.andando.delete(slug));
   est.andando.set(slug, p);
   return p;
 }
 
 function tarefaYoutube(ctx, ag, container) {
-  const { agora } = ctx;
   const { slug } = ag;
   if (!ctx.youtube) ctx.youtube = criarEstadoYoutube(ctx);
   const est = ctx.youtube;
-
-  /** Dispara o teste em segundo plano (a verificação tem poucos segundos; o download pode levar mais). */
-  function disparar() { testarYoutube(ctx, ag); }
 
   return {
     sufixo: 'youtube', nome: `Download do YouTube - ${ag.nome}`, depende: container,
     async fn(dep) {
       if (dep && dep.parado === true) return R('nao_medido', 'O container está parado, então não deu para testar o download do YouTube.');
       const v = est.ler(slug);
-      const idade = v ? agora() - v.em : Infinity;
-      if (!v || idade > DIA_MS || (v.tipo !== 'ok' && idade > NOVA_TENTATIVA_MS)) disparar();
-      if (!v) return R('nao_medido', 'O teste do download do YouTube está rodando pela primeira vez. Abra o diagnóstico de novo em um minuto.');
+      if (!v) return R('nao_medido', 'Ainda não há resultado do teste do download do YouTube. O teste roda sozinho a cada 6 horas.');
       const horario = U.iso(v.em);
       const base = { ultimo_sinal: horario, evidencia: { horario, codigo_saida: null, sinal: `teste do YouTube: ${v.tipo}` } };
       if (v.tipo === 'ok') return R('ok', null, base);
+      if (v.tipo === 'nao_medido') return R('nao_medido', `A última tentativa de testar o download do YouTube (${horario}) não chegou a rodar. O teste roda sozinho a cada 6 horas.`, base);
+      if (v.tipo === 'sem_perfil') {
+        return R('atencao', 'A Tela deste agente ainda não foi aberta, então o teste do download do YouTube não tem o navegador dela para usar.', Object.assign(base, {
+          o_que_fazer: 'Abra a Tela do agente (menu do agente, grupo Conexões, "Navegador") e entre em youtube.com. O próximo teste automático confere o download.',
+        }));
+      }
       if (v.tipo === 'login') {
-        return R('atencao', 'O YouTube pediu login: a Tela deste agente não tem uma conta do YouTube logada (ou a sessão caiu), e por isso ele não consegue baixar vídeos.', Object.assign(base, {
-          o_que_fazer: 'Abra a Tela do agente (menu do agente, grupo Conexões, "Navegador"), entre em youtube.com com a conta do dono e abra este diagnóstico de novo em alguns minutos para testar.',
+        return R('atencao', 'O YouTube pediu login ao baixar o vídeo de teste, e por isso o download do YouTube parou.', Object.assign(base, {
+          o_que_fazer: 'Abra a Tela do agente (menu do agente, grupo Conexões, "Navegador") e entre em youtube.com. O próximo teste automático (a cada 6 horas) confere o download.',
         }));
       }
       if (v.tipo === 'ausente') {
@@ -185,7 +204,7 @@ function tarefaYoutube(ctx, ag, container) {
         ? `O download de teste do YouTube demorou demais (passou de ${PRAZO_DOWNLOAD_S} s).`
         : `O download de teste do YouTube falhou (código de saída ${Number.isInteger(v.codigo) ? v.codigo : 'desconhecido'}).`;
       return R('atencao', motivo, Object.assign(base, {
-        o_que_fazer: 'Tente de novo em alguns minutos (o teste se repete sozinho). Se continuar assim, mostre este item ao suporte.',
+        o_que_fazer: 'Tente de novo mais tarde (o teste se repete a cada 6 horas). Se continuar assim, mostre este item ao suporte.',
       }));
     },
   };
