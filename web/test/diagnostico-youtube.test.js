@@ -242,6 +242,24 @@ test('falha de infraestrutura (container não aceitou, podman ausente, erro inte
   m.limpa();
 });
 
+test('erro do sistema ao iniciar o podman (EACCES, EMFILE): nao_medido e o último resultado concluído fica', async () => {
+  const m = monta([
+    { codigo: 0, stdout: '', stderr: '', erro: null },
+    { codigo: null, stdout: '', stderr: '', erro: 'EACCES' },
+    { codigo: null, stdout: '', stderr: '', erro: 'EMFILE' },
+  ]);
+  await m.testa();
+  for (const cod of ['EACCES', 'EMFILE']) {
+    m.avanca(MIN);
+    assert.equal(await m.testa(), 'nao_medido', cod);
+    const v = m.ctx.youtube.ler('tina', 'i:aaa');
+    assert.equal(v.tipo, 'nao_medido', cod);
+    assert.deepEqual(v.ultimoConcluido, { em: AGORA, tipo: 'ok', codigo: null }, cod);
+    assert.ok(m.logs.some(([n, t]) => n === 'aviso' && t.includes(cod)), cod);
+  }
+  m.limpa();
+});
+
 test('container ou nome fora do padrão: não executa nada e loga mensagem fixa', async () => {
   const m = monta([]);
   for (const ag of [{ slug: 'tina', nome: 'T', container: 'outro-container' }, { slug: 'Tina;rm', nome: 'T', container: 'dgclaw-Tina;rm' }, { slug: 'a b', nome: 'T', container: 'dgclaw-a b' }]) {

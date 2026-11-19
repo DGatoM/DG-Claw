@@ -179,6 +179,12 @@ function testarYoutube(ctx, ag) {
   async function testar() {
     const r = cortarSaida(await ctx.execSolto('podman', ['exec', '--user', 'agente', '-e', 'HOME=/home/agente', '--', ag.container, 'sh', '-c', SCRIPT], { timeout: PRAZO_EXEC_MS }));
     if (r.erro === 'ENOENT') { log('aviso', 'Diagnóstico: o comando podman não foi encontrado; o teste do YouTube não rodou.'); registrarTentativa(); return 'nao_medido'; }
+    // Outro erro do sistema ao iniciar o podman (EACCES, EMFILE...): o teste nem começou.
+    if (r.codigo === null && typeof r.erro === 'string' && /^E[A-Z0-9]+$/.test(r.erro)) {
+      log('aviso', `Diagnóstico: não consegui iniciar o podman para o teste do YouTube (${r.erro}); o teste não rodou.`);
+      registrarTentativa();
+      return 'nao_medido';
+    }
     // Código 125 é do podman (ex.: "can only create exec sessions on running containers"): infraestrutura, e vale antes de qualquer análise do que o yt-dlp disse.
     if (r.codigo === SAIDA_PODMAN_FALHOU) {
       log('aviso', `Diagnóstico: o container ${ag.container} não aceitou o teste do YouTube (código de saída 125, falha do podman). Confira com dgclaw status.`);
