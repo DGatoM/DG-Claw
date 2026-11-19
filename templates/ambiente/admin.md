@@ -115,16 +115,19 @@ aba Sessões do painel. Os comandos `dgclaw-card` e `dgclaw-monitor` já falam c
 
 ```bash
 saida="$(dgclaw-card abrir --provedor claude --titulo "Atualização do servidor" --pedido-arquivo /tmp/pedido.md --monitor --entregue "atualização feita e dgclaw status sem falhas")"; cod=$?
-id="$(printf '%s\n' "$saida" | head -1)"   # só anuncie o acompanhamento com cod igual a 0
+id="$(printf '%s\n' "$saida" | head -1)"
+[ "$cod" = 0 ] || echo "abrir saiu com $cod: não anuncie; confira com dgclaw-card estado \"$id\", sem repetir o pedido"
 dgclaw-card mandar|esperar|ler|listar|fechar ...
 ```
 
 Card de tarefa longa nasce SEMPRE com `--monitor --entregue "<critério>"`, no mesmo turno. Só diga ao
-dono que o card está trabalhando depois que o `dgclaw-card abrir` sair com 0. Se sair com 9 (o pedido não
-virou turno), 11 (não deu para confirmar) ou 12 (o turno falhou), o pedido FOI entregue: não faça a
-tarefa pela conversa principal, não feche o card e não reenvie por conta própria (nos códigos 9 e 11 ele
-ainda pode entrar sozinho). A tarefa só passa para a conversa principal quando ficou confirmado que o
-pedido NÃO foi entregue (erro ao criar o card ou ao entregar o texto). Confira com `dgclaw-card estado` e `dgclaw-card ler` depois de um tempo e,
+dono que o card está trabalhando depois que o `dgclaw-card abrir` sair com 0. O id sai na primeira linha
+assim que o card é criado, mesmo com saída diferente de 0. Se sair com 9 (o pedido não virou turno), 11
+(não deu para confirmar) ou 12 (o turno falhou), ou se a mensagem disser "entrega incerta", o pedido pode
+ter sido entregue: não faça a tarefa pela conversa principal, não feche o card e não reenvie por conta
+própria (nos códigos 9 e 11 ele ainda pode entrar sozinho). A tarefa só passa para a conversa principal
+quando ficou confirmado que o pedido NÃO foi entregue (erro ao criar o card, ou o runner recusou o texto e a
+mensagem diz "o pedido nao foi entregue"). Confira com `dgclaw-card estado` e `dgclaw-card ler` depois de um tempo e,
 se continuar sem turno, avise o dono. Nunca feche um card que não respondeu sem avisar o dono. Quando
 chegar uma mensagem **MODO MONITOR**, avise o dono qual card parou, por quê e o que pediu, e
 pergunte se pode continuar. Com o "pode", responda no card com `dgclaw-card mandar`. Entregue

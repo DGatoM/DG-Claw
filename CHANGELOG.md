@@ -24,22 +24,35 @@ pedido se perdeu. O que mudou:
   sai com o código novo 11, "não consegui confirmar se o card aceitou o pedido", e nunca com 9 nem 0.
 - O contador de turnos agora é da conversa atual: o runner informa `turnosAceitosSessao` (com o id da conversa a que se
   refere), que volta a zero quando a sessão troca para uma conversa nova. O `dgclaw-card` (`abrir`, `estado`, `fechar`)
-  e a aba Sessões usam essa mesma regra: um card restaurado depois de reiniciar o runner, com resposta do agente na
-  conversa atual, conta como tendo trabalhado.
+  e a aba Sessões usam esse contador. No `estado` e na aba Sessões, um card restaurado depois de reiniciar o runner,
+  com resposta do agente na conversa atual, conta como tendo trabalhado.
 - `dgclaw-card abrir` tem um código novo, 12, para o card que aceitou o pedido mas cujo turno falhou (o card está em
   erro): a mensagem manda ler o que ele fez com `dgclaw-card ler <id>`. Cada consulta da espera pelo primeiro turno
   respeita o tempo que resta do prazo; se a última consulta estourar sem resposta válida, a saída é 11.
-- `dgclaw-card fechar` só fecha sem `--forcar` quando há recibo de turno da conversa atual ou pelo menos uma resposta
-  do agente nela. Só o pedido do usuário na conversa não basta (código 10).
+- `dgclaw-card fechar` recusa, com o código 10, só o card que nunca teve turno (`turnosAceitosSessao` igual a 0) ou
+  cujo estado não deu para ler; `--forcar` fecha mesmo assim. O `fechar` não lê mais a conversa do card.
 - As instruções do agente e a skill de cards passaram a dizer que a tarefa só vai para a conversa principal quando ficou
-  confirmado que o pedido NÃO foi entregue ao card. Com os códigos 8, 9, 11 e 12 o pedido foi entregue e não se repete
-  a tarefa. Os exemplos também capturam a saída e o código do `abrir` antes de pegar o id, para não perder o código.
+  confirmado que o pedido NÃO foi entregue ao card (o runner o recusou com uma resposta 4xx). Com os códigos 8, 9, 11 e 12
+  e com a "entrega incerta" o pedido pode ter sido entregue e nunca se repete: o agente confere com
+  `dgclaw-card estado <id>` e avisa o dono. Os exemplos capturam a saída e o código do `abrir` antes de pegar o id e,
+  com código diferente de 0, vão conferir o estado em vez de seguir adiante.
+- Entrega incerta: se o `abrir` cria o card e a resposta do envio do pedido se perde (rede, tempo esgotado) ou volta
+  com erro 5xx, a mensagem diz "entrega incerta: o card pode já estar trabalhando" e manda conferir o estado, nunca
+  reenviar. A frase "o pedido não foi entregue" só aparece quando o runner recusou o texto com uma resposta 4xx.
+- O id do card sai uma vez, na primeira linha da saída, assim que a criação é confirmada, mesmo quando o `abrir`
+  termina com 8, 9, 11 ou 12. Os códigos de saída não mudaram.
+- O `abrir` não aceita como sucesso um card com falha de turno conhecida (estado com erro, campo de erro preenchido ou
+  motivo de falha, inclusive com a sessão dormindo): sai com código diferente de 0 e a mensagem traz o motivo.
+- `--espera-turno` aceita só inteiros de 0 a 3600 (lidos em base decimal, então `08` vale 8) e é conferido antes de
+  criar o card. O prazo de cada chamada do `dgclaw-card` (`CARD_MAX_TEMPO`) passou a ser validado como inteiro de 1 a
+  3600 e vai ao `curl` como argumento, não mais dentro do arquivo de configuração que leva a chave do runner.
 - Na aba Sessões, o card sem primeiro turno manda aguardar e conferir o estado (o pedido pode ainda entrar sozinho), sem
   sugerir reenviar nem fechar, e um card com o terminal ainda abrindo não aparece como trabalhando no primeiro turno.
+  Quando há pedido guardado na fila e a sessão está dormindo, sem terminal, a mensagem diz que o pedido está guardado e
+  que Retomar o processa, sem reenviar o texto.
 - `dgclaw-card estado` diz "sem primeiro turno ainda" e `dgclaw-card ler` diz o motivo da conversa vazia (na fila,
-  digitado e sem turno, ou dormindo). `dgclaw-card fechar` só fecha sem `--forcar` quando comprova que o card já
-  trabalhou. Se o card nunca teve turno, ou se a consulta falhar (erro de rede, HTTP diferente de 200, resposta sem o
-  contador), recusa com o código 10 e pede `--forcar`.
+  digitado e sem turno, ou dormindo). Se o card nunca teve turno, ou se a consulta do estado falhar (erro de rede,
+  HTTP diferente de 200, resposta sem o contador), `dgclaw-card fechar` recusa com o código 10 e pede `--forcar`.
 - Na aba Sessões, um card sem primeiro turno aparece como "esperando o primeiro turno" (grupo Paradas, visível em
   "Ativas"), nunca como concluído. A conversa vazia mostra o motivo no lugar de "Esta sessão ainda não tem mensagens". Se o runner
   reiniciou (o contador voltou a zero) mas a conversa da sessão atual já tem resposta do agente no disco, o card

@@ -94,18 +94,21 @@ tarefa curta direto, e mande a longa para um card do mesmo jeito.
    Assim o card usa o mesmo provedor e a mesma conta que você já usa; outra conta só se {{DONO}} pedir.
    O pedido é autossuficiente (o card não viu a conversa) e diz no fim: "ao terminar, responda com o
    caminho ou o link da entrega e um resumo de 3 linhas".
-   Se o card não abrir E ficou confirmado que o pedido NÃO foi entregue (erro ao criar o card ou ao
-   entregar o texto: a mensagem diz "nenhum card foi aberto" ou "o pedido nao foi entregue"), não
+   Se o card não abrir E ficou confirmado que o pedido NÃO foi entregue (erro ao criar o card, ou o
+   runner recusou o texto: a mensagem diz "nenhum card foi aberto" ou "o pedido nao foi entregue"), não
    abandone o pedido: faça a tarefa você mesmo na conversa, avise {{DONO}} que vai demorar e por quê, e
-   conte o erro do card. Com saída 8, 9, 11 ou 12 o pedido FOI entregue: não execute a tarefa pela
-   conversa principal (ela rodaria duas vezes). Confira o estado do card e avise {{DONO}}.
+   conte o erro do card. Se a mensagem disser "entrega incerta", ou se a saída for 8, 9, 11 ou 12, o pedido
+   pode ter sido entregue: não execute a tarefa pela conversa principal (ela rodaria duas vezes) e não
+   reenvie. Confira o estado do card com `dgclaw-card estado <id>` e avise {{DONO}}.
    O `abrir` espera até 60 segundos o pedido virar o primeiro turno do card e só então sai com 0.
    Sair com 9 quer dizer que o card existe, mas o pedido não virou turno e ele NÃO está trabalhando agora.
    Sair com 11 quer dizer que não deu para confirmar se o card aceitou o pedido. Sair com 12 quer dizer
    que o card aceitou o pedido, mas o turno falhou e ele está em erro (veja com `dgclaw-card ler <id>`).
    Capture a saída e o código ANTES de pegar o id, senão o `head` esconde o código de saída:
-   `saida="$(dgclaw-card abrir ... )"; cod=$?; id="$(printf '%s\n' "$saida" | head -1)"`. O id vem na
-   primeira linha da saída; só anuncie o acompanhamento com `cod` igual a 0.
+   `saida="$(dgclaw-card abrir ... )"; cod=$?; id="$(printf '%s\n' "$saida" | head -1)"`. O id sai uma vez,
+   na primeira linha, assim que o card é criado, mesmo com saída 8, 9, 11 ou 12. Só anuncie o acompanhamento
+   com `cod` igual a 0; com `cod` diferente de 0, confira com `dgclaw-card estado "$id"` (se o `id` vier
+   vazio, a mensagem de erro diz o que fazer) em vez de seguir adiante.
 2. Só diga a {{DONO}} que o card está trabalhando depois que o `dgclaw-card abrir` sair com 0. Aí
    responda curto: o que você abriu e que avisa quando terminar. Exemplo: "Abri um card para montar a
    apresentação. Te aviso aqui quando ficar pronta, pode continuar falando comigo." Se o `abrir` sair
@@ -113,7 +116,7 @@ tarefa curta direto, e mande a longa para um card do mesmo jeito.
    pode entrar sozinho: NÃO feche o card e NÃO reenvie o pedido por conta própria (isso o duplicaria).
    Confira com `dgclaw-card estado <id>` e `dgclaw-card ler <id>` depois de um tempo e, se continuar sem
    turno, avise {{DONO}}. Nunca feche um card que não respondeu sem avisar {{DONO}} antes (o `fechar`
-   também recusa, com o código 10, um card sem turno comprovado; só `--forcar` fecha, e isso pode jogar
+   também recusa, com o código 10, um card que nunca teve turno; só `--forcar` fecha, e isso pode jogar
    o pedido fora).
 3. Fique livre. **Não use `dgclaw-card esperar` na conversa principal para tarefa longa**: ele prende
    você até o card acabar. Quem acompanha é o monitor, que te acorda quando o card para, termina, pede
@@ -161,12 +164,13 @@ ou para tarefa em paralelo. Para o que você resolve em um minuto, não abra.
 
 ```bash
 saida="$(dgclaw-card abrir --provedor claude --titulo "Revisão do contrato" --pedido-arquivo /tmp/pedido.md --monitor --entregue "contrato revisado e resumo das mudanças entregue")"; cod=$?
-id="$(printf '%s\n' "$saida" | head -1)"   # só anuncie o acompanhamento com cod igual a 0
+id="$(printf '%s\n' "$saida" | head -1)"
+[ "$cod" = 0 ] || echo "abrir saiu com $cod: não anuncie; confira com dgclaw-card estado \"$id\", sem repetir o pedido"
 dgclaw-card mandar "$id" "texto"     # recado novo no mesmo card
 dgclaw-card esperar "$id" --max 900  # volta quando o card termina o turno
 dgclaw-card ler "$id" --n 2          # as últimas respostas
 dgclaw-card listar                   # os cards abertos
-dgclaw-card fechar "$id"             # fecha (a conversa fica guardada); card sem turno pede --forcar
+dgclaw-card fechar "$id"             # fecha (a conversa fica guardada); card que nunca teve turno pede --forcar
 ```
 
 O pedido é autossuficiente: o card não viu a conversa. Traga objetivo, caminhos completos, o que

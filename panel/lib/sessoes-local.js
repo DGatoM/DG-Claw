@@ -485,6 +485,9 @@ function registrar(router, { CONFIG }) {
   function motivoDaConversaVazia(it) {
     if (it.estado === 'esperando_primeiro_turno') {
       const espera = ' Aguarde e confira o estado daqui a pouco: o pedido pode ainda entrar sozinho.';
+      if (/na fila/.test(it.motivo) && it.tem_terminal === false) {
+        return 'Há um pedido guardado na fila, mas a sessão está sem terminal aberto. Use Retomar para processar o pedido, sem reenviar o texto.';
+      }
       if (/na fila/.test(it.motivo)) return `O pedido está na fila e ainda não virou turno.${espera}`;
       if (/dormindo/.test(it.motivo)) return `A sessão está dormindo e o pedido ainda não virou turno.${espera}`;
       return `O pedido foi digitado, mas o CLI ainda não o aceitou como turno: o card não está trabalhando agora.${espera}`;

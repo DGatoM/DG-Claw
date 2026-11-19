@@ -85,6 +85,7 @@ subir sem-turno
 ok "pedido que nao vira turno sai com 9" $([ $c = 9 ] && echo 0 || echo 1)
 grep -q "card card-abc123 foi criado" "$T/e" && grep -q "NAO esta trabalhando" "$T/e" && grep -q "dgclaw-card estado card-abc123" "$T/e" && grep -q "nao reenvie por conta propria" "$T/e" && ! grep -q "reenvie com" "$T/e"; ok "a mensagem diz o id, que nao esta trabalhando, e manda conferir sem reenviar" $?
 ! grep -q "Card aberto" "$T/o"; ok "sem turno nao imprime 'Card aberto'" $?
+[ "$(head -1 "$T/o")" = "card-abc123" ] && [ "$(grep -c "card-abc123" "$T/o")" = 1 ]; ok "no 9 o id sai uma vez so, na primeira linha do stdout" $?
 "$BIN" estado card-abc123 >"$T/o" 2>"$T/e"; grep -q "sem primeiro turno ainda" "$T/o"; ok "estado de card sem turno diz 'sem primeiro turno ainda'" $?
 "$BIN" ler card-abc123 >"$T/o" 2>"$T/e"; grep -q "ainda nao virou turno" "$T/o" && grep -q "NAO esta trabalhando" "$T/o"; ok "ler de card sem turno diz o motivo (e nao so 'sem mensagens')" $?
 "$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
@@ -104,6 +105,21 @@ subir sem-turno
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 0 >"$T/o" 2>"$T/e"; c=$?
 ok "--espera-turno 0 desliga a espera (saida 0 mesmo sem turno)" $([ $c = 0 ] && echo 0 || echo 1)
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno abc >/dev/null 2>&1; ok "--espera-turno invalido recusado" $([ $? = 1 ] && echo 0 || echo 1)
+subir normal
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 99999 >"$T/o" 2>"$T/e"; c=$?
+ok "--espera-turno fora da faixa recusado com 1" $([ $c = 1 ] && echo 0 || echo 1)
+[ ! -s "$LOG" ]; ok "--espera-turno fora da faixa recusado ANTES do primeiro POST (nenhuma chamada ao runner)" $?
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 08 >"$T/o" 2>"$T/e"; c=$?
+ok "--espera-turno 08 vale 8 em base decimal (nao e erro de octal)" $([ $c = 0 ] && echo 0 || echo 1)
+
+# --- CARD_MAX_TEMPO nunca entra no arquivo de configuracao do curl ------------------------------------------
+subir normal
+CARD_MAX_TEMPO=$'60\nurl = "http://127.0.0.1:1/roubo"' "$BIN" listar >"$T/o" 2>"$T/e"; c=$?
+ok "CARD_MAX_TEMPO com quebra de linha e 'url =' e ignorado (sai com 0)" $([ $c = 0 ] && echo 0 || echo 1)
+grep -q "CARD_MAX_TEMPO precisa ser um numero inteiro" "$T/e"; ok "o valor invalido gera aviso no stderr" $?
+! grep -q "roubo" "$LOG"; ok "a url injetada em CARD_MAX_TEMPO nao foi chamada" $?
+CARD_MAX_TEMPO=99999 "$BIN" listar >/dev/null 2>"$T/e"; grep -q "CARD_MAX_TEMPO precisa" "$T/e"; ok "CARD_MAX_TEMPO fora da faixa vira o padrao, com aviso" $?
+CARD_MAX_TEMPO=08 "$BIN" listar >/dev/null 2>"$T/e"; c=$?; ok "CARD_MAX_TEMPO=08 e aceito em base decimal" $([ $c = 0 ] && ! grep -q "CARD_MAX_TEMPO" "$T/e" && echo 0 || echo 1)
 
 # --- 9 com --monitor: o monitor ja foi cadastrado antes da espera -----------------------------------
 # Estado e log do monitor ficam no diretorio temporario do teste, nunca no HOME real (nenhum outro teste da
@@ -160,17 +176,15 @@ subir normal
 "$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
 ok "fechar card que teve turno fecha sem --forcar" $([ $c = 0 ] && echo 0 || echo 1)
 
-# --- fechar: so o pedido do usuario na conversa nao prova turno; resposta do agente (runner reiniciado) prova ---
-subir so-pedido
-"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 0 >/dev/null 2>&1
-"$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
-ok "fechar com so o pedido do usuario na conversa recusa com 10" $([ $c = 10 ] && echo 0 || echo 1)
-! grep -q '"metodo":"DELETE"' "$LOG"; ok "so o pedido do usuario: nenhum DELETE" $?
+# --- fechar nao le a conversa: card restaurado (zero turnos, mas com resposta do agente na conversa) pede --forcar ---
 subir restaurado
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 0 >/dev/null 2>&1
 "$BIN" estado card-abc123 >"$T/o" 2>"$T/e"; ! grep -q "sem primeiro turno" "$T/o"; ok "estado de card restaurado (resposta do agente na conversa) nao diz 'sem primeiro turno'" $?
+: > "$LOG"
 "$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
-ok "fechar card restaurado com resposta do agente fecha sem --forcar" $([ $c = 0 ] && echo 0 || echo 1)
+ok "fechar com zero turnos recusa com 10 mesmo com resposta do agente na conversa" $([ $c = 10 ] && echo 0 || echo 1)
+! grep -q "/conversation" "$LOG"; ok "o fechar nao le a conversa" $?
+"$BIN" fechar card-abc123 --forcar >/dev/null 2>&1; ok "--forcar fecha o card restaurado" $?
 
 # --- abrir: card em erro depois de aceitar o pedido sai com 12 ----------------------------------------------
 subir erro-turno
@@ -178,6 +192,13 @@ subir erro-turno
 ok "pedido aceito e turno que falhou (errored) sai com 12" $([ $c = 12 ] && echo 0 || echo 1)
 grep -q "aceitou o pedido, mas o turno falhou" "$T/e" && grep -q "dgclaw-card ler card-abc123" "$T/e"; ok "o 12 diz o que houve e manda ler" $?
 ! grep -q "Card aberto" "$T/o"; ok "12 nao imprime 'Card aberto'" $?
+
+# --- abrir: campo de erro preenchido (card resumable com erro) nao conta como sucesso ----------------------------
+subir erro-campo
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
+ok "campo de erro preenchido sai com 12 (nao com 0)" $([ $c = 12 ] && echo 0 || echo 1)
+grep -q "o CLI caiu no meio do turno" "$T/e"; ok "a mensagem traz o motivo do erro" $?
+[ "$(head -1 "$T/o")" = "card-abc123" ]; ok "no 12 o id tambem sai na primeira linha" $?
 
 # --- espera: consulta que demora mais que o prazo e limitada, e sai com 11 ------------------------------------
 subir lento-leitura
@@ -200,11 +221,22 @@ ok "sem login sai com 5" $([ $c = 5 ] && echo 0 || echo 1)
 grep -q "o Codex deste agente ainda nao esta conectado" "$T/e" && grep -q "cartao Modelo e autenticacao" "$T/e"; ok "sem login vira a frase para o dono" $?
 grep -q '"metodo":"DELETE"' "$LOG"; ok "sem login fecha o card recem criado (nao ocupa vaga)" $?
 
-# --- input falha depois de criar ------------------------------------------------------------------
+# --- input falha depois de criar: 4xx prova que nao entrou; 5xx ou resposta perdida e entrega incerta ---------------
+subir input-recusado
+"$BIN" abrir --provedor claude --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
+ok "input recusado (4xx) sai com 6" $([ $c = 6 ] && echo 0 || echo 1)
+grep -q "card card-abc123 foi criado" "$T/e" && grep -q "nao foi entregue" "$T/e" && grep -q "dgclaw-card fechar card-abc123" "$T/e"; ok "recusa comprovada diz 'nao foi entregue' e como reenviar ou fechar" $?
+[ "$(head -1 "$T/o")" = "card-abc123" ]; ok "recusa 4xx: o id sai na primeira linha" $?
 subir input-falha
 "$BIN" abrir --provedor claude --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
-ok "input que falha sai com 6" $([ $c = 6 ] && echo 0 || echo 1)
-grep -q "card card-abc123 foi criado" "$T/e" && grep -q "dgclaw-card fechar card-abc123" "$T/e"; ok "diz que o card existe e como reenviar ou fechar" $?
+ok "input com 5xx sai com 6" $([ $c = 6 ] && echo 0 || echo 1)
+grep -q "entrega incerta: o card card-abc123" "$T/e" && grep -q "O card pode ja estar trabalhando" "$T/e" && grep -q "dgclaw-card estado card-abc123" "$T/e" && ! grep -q "nao foi entregue\|Reenvie com" "$T/e"; ok "5xx diz 'entrega incerta', manda conferir o estado e nao manda reenviar" $?
+[ "$(head -1 "$T/o")" = "card-abc123" ]; ok "entrega incerta: o id sai na primeira linha" $?
+subir input-perdido
+"$BIN" abrir --provedor claude --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
+ok "resposta do input perdida sai com 2" $([ $c = 2 ] && echo 0 || echo 1)
+grep -q "entrega incerta: o card card-abc123" "$T/e" && grep -q "NAO reenvie" "$T/e" && ! grep -q "nao foi entregue\|tente de novo" "$T/e"; ok "resposta perdida: 'entrega incerta', sem mandar tentar de novo" $?
+[ "$(head -1 "$T/o")" = "card-abc123" ]; ok "resposta perdida: o id sai na primeira linha" $?
 
 # --- Bearer errado (401) e arquivo ausente --------------------------------------------------------
 subir normal

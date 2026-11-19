@@ -231,6 +231,7 @@ try {
     nova('card-t1', { status: 'idle', turnosAceitos: 3, msgs: [{ role: 'assistant', text: 'Pronto.' }] });
     nova('card-tf', { status: 'idle', turnosAceitos: 0, msgs: [], sessao: { papel: 'paralela', tipo: 'card', chat: 'c_tf', titulo: 'Na fila', fila: 1 } });
     nova('card-td', { status: 'resumable', turnosAceitos: 0, msgs: [], sessionId: null });
+    nova('card-tq', { status: 'resumable', turnosAceitos: 0, msgs: [], sessionId: null, sessao: { papel: 'paralela', tipo: 'card', chat: 'c_tq', titulo: 'Fila dormindo', fila: 1 } });
     // Card restaurado depois de reiniciar o runner: o contador voltou a zero, mas a conversa da sessão atual tem resposta no disco.
     nova('card-tr', { status: 'idle', turnosAceitos: 0, msgs: [{ role: 'user', text: 'pedido antigo' }, { role: 'assistant', text: 'Já respondi isto antes do reinício.' }] });
     // Runner que manda turnosAceitosSessao: vale o da conversa atual, não o total do processo.
@@ -258,9 +259,11 @@ try {
     ok(/na fila/.test(vf.json.motivo_vazio), 'conversa vazia com pedido na fila: motivo');
     const vd = await lerJson(await p.pedir('/api/sessoes/card-td/conversa'));
     ok(/dormindo/.test(vd.json.motivo_vazio), 'conversa vazia de sessão dormindo: motivo');
+    const vq = await lerJson(await p.pedir('/api/sessoes/card-tq/conversa'));
+    ok(/pedido guardado/.test(vq.json.motivo_vazio) && /Retomar/.test(vq.json.motivo_vazio) && !/Aguarde/.test(vq.json.motivo_vazio) && /sem reenviar/.test(vq.json.motivo_vazio), 'pedido na fila e sessão sem terminal: manda usar Retomar, sem aguardar nem reenviar');
     const vf1 = await lerJson(await p.pedir('/api/sessoes/card-f1/conversa'));
     ok(vf1.json.mensagens.length === 1 && vf1.json.motivo_vazio === undefined, 'conversa com mensagens não traz motivo');
-    for (const id of ['card-t0', 'card-t1', 'card-tf', 'card-td', 'card-tr', 'card-tu', 'card-ts', 'card-sp']) sessoes.delete(id);
+    for (const id of ['card-t0', 'card-t1', 'card-tf', 'card-td', 'card-tq', 'card-tr', 'card-tu', 'card-ts', 'card-sp']) sessoes.delete(id);
   }
 
   console.log('\n4. Criar');

@@ -1,7 +1,7 @@
 // Runner falso para o teste do dgclaw-card. Grava cada requisicao em $LOG (uma linha JSON com
 // metodo, url, corpo e o cabecalho Authorization) e simula o ciclo de um card:
 // criado dormindo -> /input -> working -> idle com resposta do assistente.
-// Chaves de ambiente: RUNNER_BEARER (token esperado), MODO (normal|limite|sem-login|input-falha|nunca-termina|sem-turno|turno-lento|leitura-403|leitura-503|sem-contador|so-pedido|restaurado|lento-leitura|erro-turno).
+// Chaves de ambiente: RUNNER_BEARER (token esperado), MODO (normal|limite|sem-login|input-falha|nunca-termina|sem-turno|turno-lento|leitura-403|leitura-503|sem-contador|restaurado|lento-leitura|erro-turno|erro-campo|input-recusado|input-perdido).
 const http = require("http");
 const fs = require("fs");
 const LOG = process.env.LOG;
@@ -25,7 +25,7 @@ http.createServer((req, res) => {
       if (c.viraEm && Date.now() >= c.viraEm) { c.viraEm = 0; c.status = "working"; c.turnos = 1; c.polls = 0; }
       // sem-contador: runner que nao informa turnosAceitos.
       if (MODO === "sem-contador") return { id, status: c.status, sessao: { tipo: "card", titulo: c.titulo, fila: 0 } };
-      return { id, status: c.status, turnosAceitos: c.turnos, turnosAceitosSessao: c.turnos, sessao: { tipo: "card", titulo: c.titulo, fila: 0 } };
+      return { id, status: c.status, ...(c.erro ? { error: c.erro } : {}), turnosAceitos: c.turnos, turnosAceitosSessao: c.turnos, sessao: { tipo: "card", titulo: c.titulo, fila: 0 } };
     };
     let m;
     if (p === "/api/sessoes" && req.method === "POST") {
@@ -57,11 +57,15 @@ http.createServer((req, res) => {
       if (m[2] === "/input" && req.method === "POST") {
         if (MODO === "sem-login") return j(409, { success: false, code: "SEM_LOGIN", error: "O agente ainda nao entrou no Codex", howToFix: "login" });
         if (MODO === "input-falha") return j(500, { success: false, code: "ERRO_INTERNO", error: "estourou" });
+        // input-recusado: 4xx, recusa comprovadamente anterior ao enfileiramento.
+        if (MODO === "input-recusado") return j(400, { success: false, code: "PEDIDO_INVALIDO", error: "texto recusado" });
+        // input-perdido: o texto e enfileirado, mas a resposta se perde (conexao derrubada).
+        if (MODO === "input-perdido") { c.msgs.push({ role: "user", text: JSON.parse(corpo).text }); return res.socket.destroy(); }
+        // erro-campo: o card em idle com turnos 1, mas com o campo de erro preenchido (falha de turno conhecida).
+        if (MODO === "erro-campo") { c.status = "resumable"; c.turnos = 1; c.erro = "o CLI caiu no meio do turno"; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
         // sem-turno: 202 enfileirado, mas o CLI nunca aceita o pedido (nada na conversa, status parado, turnos 0).
         if (MODO === "sem-turno") return j(202, { success: true, data: { enfileirado: true, acordando: true } });
         c.msgs.push({ role: "user", text: JSON.parse(corpo).text });
-        // so-pedido: o texto esta na conversa, mas nenhum turno foi aceito (nem resposta do agente).
-        if (MODO === "so-pedido") { c.status = "idle"; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
         // restaurado: runner reiniciado (contador zerado), mas a conversa atual ja tem resposta do agente.
         if (MODO === "restaurado") { c.status = "idle"; c.msgs.push({ role: "assistant", text: "Ja respondi antes do reinicio." }); return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
         // erro-turno: o pedido virou turno e o card caiu em erro.
