@@ -1763,6 +1763,26 @@ test("estadoDaCaixa: mesmo texto, caixa vazia, diálogo e texto diferente", asyn
   assert.equal(estadoDaCaixa("╭──╮\r\n│ ❯ pedido-antigo\r\n╰──╯\r\n ❯ outro menu\r\n", "pedido-antigo"), "indeterminada", "texto acima do último prompt não conta");
   assert.equal(caixaVaziaNaTela(caixa("rascunho")), false);
   assert.equal(caixaVaziaNaTela(comDialogo), false);
+  // Revisão: o conteúdo inteiro precisa ser igual (não um sufixo) e o marcador só vale no início da linha.
+  assert.equal(estadoDaCaixa(caixa("pauta antiga da reunião"), "reunião"), "indeterminada", "sufixo não é o mesmo texto");
+  assert.equal(estadoDaCaixa(caixa("plano de estudo ›"), "qualquer pedido"), "indeterminada");
+  assert.equal(caixaVaziaNaTela(caixa("plano de estudo ›")), false, "› no fim do rascunho não é marcador");
+  assert.equal(estadoDaCaixa(caixa("plano ❯ de estudo"), "plano ❯ de estudo"), "mesmo-texto", "❯ no meio é conteúdo");
+  const dois = "╭──╮\r\n│ ❯ primeira linha\r\n│ ❯ segunda linha\r\n╰──╯\r\n? for shortcuts\r\n";
+  assert.equal(estadoDaCaixa(dois, "segunda linha"), "indeterminada", "limites ambíguos");
+});
+
+test("recibo do /compact no Claude é só o PreCompact; prompt comum aceito não vale", async () => {
+  const { esperarRecibo } = await import("./sessao/digitacao.js");
+  const falso = () => ({ hooksVivos: true, motor: { reciboPorRollout: false }, promptsAceitos: 0, compactsIniciados: 0 }) as never;
+  const a = falso();
+  const e1 = esperarRecibo(a, 0, 500, 0, true);
+  setTimeout(() => ((a as unknown as Record<string, number>).promptsAceitos += 1), 100);
+  assert.equal(await e1, false);
+  const b = falso();
+  const e2 = esperarRecibo(b, 0, 2_000, 0, true);
+  setTimeout(() => ((b as unknown as Record<string, number>).compactsIniciados += 1), 100);
+  assert.equal(await e2, true);
 });
 
 test("suspensão por rascunho: um recibo NÃO a encerra; só a caixa vazia no idle; o CLI recebe o texto completo, sem o rascunho colado", async () => {
@@ -1874,6 +1894,43 @@ test("reinício entre aceitar o envio e escrever: nada é escrito no terminal no
   assert.equal(s.semRecibo.length, 0);
   assert.equal(item.digitado, undefined, "o item não foi digitado");
   assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["pedido-do-reinicio"], "o item voltou para a frente da fila");
+});
+
+test("o agente passa a esperar resposta enquanto o envio espera a vez: nada é colado nem enviado e o item volta para a fila", async () => {
+  logarClaude(amb);
+  const { s } = await nova({}, { ...REDE_CURTA });
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const escritas: string[] = [];
+  const original = s.escrever.bind(s);
+  (s as unknown as { escrever: (t: string) => void }).escrever = (t: string) => {
+    escritas.push(t);
+  };
+  let soltar: () => void = () => {};
+  s.cadeiaDeEnvio = new Promise<void>((r) => {
+    soltar = r;
+  });
+  const item = { texto: "pedido-na-permissao", em: 1, id: "ffff6666", digitado: true };
+  const entrada: import("./sessao/fila.js").SemRecibo = { item, promptsAntes: 0, aguardando: false, enterEscrito: false, interrompido: false };
+  s.semRecibo.push(entrada);
+  s.itemEmVoo = item;
+  const envio = s.digitarEEnviar(item.texto, true, entrada);
+  const estadoAntes = s.estado.status;
+  (s.estado as { status: string }).status = "waiting_input"; // o diálogo de permissão abriu na espera
+  soltar();
+  const recebido = await envio;
+  (s.estado as { status: string }).status = estadoAntes;
+  (s as unknown as { escrever: unknown }).escrever = original;
+  assert.equal(recebido, false);
+  assert.deepEqual(escritas, [], "nem colagem nem Enter");
+  assert.equal(s.semRecibo.length, 0);
+  assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["pedido-na-permissao"]);
+});
+
+test("o 502 ENTREGA_INCERTA manda esperar e conferir antes de reenviar", () => {
+  const fonte = fs.readFileSync(new URL("./servidor.ts", import.meta.url.replace("/dist/", "/src/")), "utf8");
+  assert.match(fonte, /ainda pode concluir a entrega nos próximos ~2 minutos: espere, confira a conversa do agente e só reenvie se o pedido não aparecer/);
+  assert.doesNotMatch(fonte, /se não aparece, reenviar\./);
 });
 
 test("sem nenhum hook além do prazo: o pedido NÃO é declarado entregue e fica retido como incerto", async () => {

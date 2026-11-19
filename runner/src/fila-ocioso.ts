@@ -63,11 +63,15 @@ export function carregarFila(caminho: string, area: string): ItemDaFila[] {
       const item: ItemDaFila = { texto: it.texto, em: typeof it.em === "number" ? it.em : Date.now() };
       if (it.esperou === true) item.esperou = true;
       if (typeof it.id === "string") item.id = it.id;
-      // A versão 1 não conhecia `digitado` nem `incerto`: um item vindo dela é um pedido comum da fila.
+      // A versão 1 não conhecia `digitado` nem `incerto` (veja abaixo o tratamento do primeiro item).
       if (versao === 2 && it.digitado === true) item.digitado = true;
       if (versao === 2 && it.incerto === true) item.incerto = true;
       itens.push(item);
     }
+    // A base v1 gravava o item em voo na primeira posição, sem distingui-lo dos outros: ele pode já ter sido aceito
+    // pelo CLI antes de o runner antigo cair. Digitá-lo de novo repetiria o pedido, então o primeiro fica incerto
+    // (guardado para conferência, nunca enviado sozinho) e os demais seguem na ordem.
+    if (versao === 1 && itens.length > 0) itens[0].incerto = true;
     return itens;
   } catch (err) {
     const destino = `${caminho}.corrompido-${Date.now()}`;

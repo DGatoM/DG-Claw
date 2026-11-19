@@ -119,36 +119,53 @@ function haDialogoAberto(tela: string): boolean {
   return ehDialogoDeAutoMode(tela) || ehDialogoDeConfiancaDoClaude(tela) || ehDialogoDeBypass(tela) || telaDeConfiancaDoCodex(tela);
 }
 
-/** Olha o fim da tela e diz se a caixa de composição ainda traz o MESMO texto digitado (o final dele, de forma
- *  tolerante a quebra de linha e moldura), se está vazia, ou se não dá para saber (diálogo, menu, texto de outra
- *  pessoa, tela que não é a caixa). Só "mesmo-texto" autoriza repetir o Enter: um Enter numa caixa que mudou
- *  poderia mandar um rascunho do dono ou confirmar um diálogo de permissão. */
-export function estadoDaCaixa(tela: string, texto: string): EstadoDaCaixa {
-  if (haDialogoAberto(tela)) return "indeterminada";
-  const t = compacta(semAnsi(desdeAUltimaLimpezaDeTela(tela)));
-  const fim = compacta(texto).slice(-40);
-  if (fim.length > 0) {
-    const i = t.lastIndexOf(fim);
-    // Só vale o texto que está DEPOIS do último marcador de prompt: um pedido antigo que ficou no buffer acima
-    // de um menu redesenhado não conta.
-    const p = Math.max(t.lastIndexOf("❯"), t.lastIndexOf("›"));
-    if (i >= 0 && i > p && p >= 0) {
-      // Depois do texto só pode haver nada ou o rodapé da caixa; qualquer outra coisa é indeterminada.
-      const depois = t.slice(i + fim.length);
-      if ((depois === "" || RE_RODAPE_DA_CAIXA_VAZIA.test(depois)) && !RE_MARCA_DE_DIALOGO.test(depois)) return "mesmo-texto";
-      return "indeterminada";
+const RE_MARCADOR_NO_INICIO = /^[\s│┃|]*[❯›]/;
+const RE_LIMITE_DA_CAIXA = /^[\s│┃|]*[╭╰┌└─━]/;
+
+/** Lê a caixa de composição na tela renderizada. O marcador (❯ ou ›) só conta no INÍCIO da linha da caixa (depois da
+ *  borda e de espaços): um ❯ ou › no meio ou no fim do texto é conteúdo. O conteúdo vai do que vem depois do marcador
+ *  até o limite de baixo da caixa ou o rodapé. Devolve null quando não há caixa reconhecível e "ambigua" quando os
+ *  limites não se distinguem (outro marcador na mesma caixa). */
+function lerCaixa(tela: string): { conteudo: string; marcaDeDialogoDepois: boolean } | "ambigua" | null {
+  const linhas = semAnsi(desdeAUltimaLimpezaDeTela(tela)).split(/\r\n|\r|\n/);
+  let l = -1;
+  for (let i = linhas.length - 1; i >= 0; i--) {
+    if (RE_MARCADOR_NO_INICIO.test(linhas[i])) {
+      l = i;
+      break;
     }
   }
-  return caixaVaziaNaTela(tela) ? "vazia" : "indeterminada";
+  if (l < 0) return null;
+  // Outro marcador no começo de linha dentro da mesma caixa (sem limite nem linha em branco entre eles).
+  for (let i = l - 1; i >= 0; i--) {
+    if (linhas[i].trim() === "" || RE_LIMITE_DA_CAIXA.test(linhas[i])) break;
+    if (RE_MARCADOR_NO_INICIO.test(linhas[i])) return "ambigua";
+  }
+  const partes = [linhas[l].replace(RE_MARCADOR_NO_INICIO, "")];
+  for (let i = l + 1; i < linhas.length; i++) {
+    if (RE_LIMITE_DA_CAIXA.test(linhas[i])) break;
+    if (RE_RODAPE_DA_CAIXA_VAZIA.test(compacta(linhas[i]))) break;
+    partes.push(linhas[i]);
+  }
+  // Qualquer marca de diálogo abaixo do marcador (mesmo depois do limite ou do rodapé) torna a tela duvidosa.
+  const marcaDeDialogoDepois = RE_MARCA_DE_DIALOGO.test(compacta(linhas.slice(l + 1).join("\n")));
+  return { conteudo: compacta(partes.join("\n").replace(/[│┃]\s*$/gm, "")), marcaDeDialogoDepois };
+}
+
+/** Olha o fim da tela e diz se a caixa de composição traz EXATAMENTE o texto digitado (o conteúdo inteiro, tolerante
+ *  a quebra de linha e moldura), se está vazia, ou se não dá para saber (diálogo, menu, texto de outra pessoa, limites
+ *  da caixa ambíguos, tela que não é a caixa). Só "mesmo-texto" autoriza repetir o Enter: um Enter numa caixa que
+ *  mudou poderia mandar um rascunho do dono ou confirmar um diálogo de permissão. */
+export function estadoDaCaixa(tela: string, texto: string): EstadoDaCaixa {
+  if (haDialogoAberto(tela)) return "indeterminada";
+  const caixa = lerCaixa(tela);
+  if (caixa === null || caixa === "ambigua") return "indeterminada";
+  if (caixa.marcaDeDialogoDepois || RE_MARCA_DE_DIALOGO.test(caixa.conteudo)) return "indeterminada";
+  if (caixa.conteudo === "") return "vazia";
+  return caixa.conteudo === compacta(texto) ? "mesmo-texto" : "indeterminada";
 }
 
 /** A tela mostra a caixa de composição sem nenhum texto (só o prompt e o rodapé)? */
 export function caixaVaziaNaTela(tela: string): boolean {
-  if (haDialogoAberto(tela)) return false;
-  const t = compacta(semAnsi(desdeAUltimaLimpezaDeTela(tela)));
-  const p = Math.max(t.lastIndexOf("❯"), t.lastIndexOf("›"));
-  if (p < 0) return false;
-  const resto = t.slice(p + 1);
-  if (RE_MARCA_DE_DIALOGO.test(resto)) return false;
-  return resto === "" || RE_RODAPE_DA_CAIXA_VAZIA.test(resto);
+  return estadoDaCaixa(tela, "\u0000") === "vazia";
 }

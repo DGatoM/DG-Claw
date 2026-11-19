@@ -66,7 +66,17 @@ test("item vindo da versão 1 não tem digitado nem incerto, mesmo que o arquivo
   assert.equal(itens.length, 1);
   assert.equal(itens[0]!.texto, "antigo");
   assert.equal("digitado" in itens[0]!, false);
-  assert.equal("incerto" in itens[0]!, false);
+});
+
+test("fila versão 1 não vazia: o primeiro item entra como incerto e os demais seguem comuns, na ordem", () => {
+  const estado = pastaTemporaria("fila");
+  const arq = caminhoDaFila(estado, "v1b");
+  fs.mkdirSync(path.dirname(arq), { recursive: true });
+  fs.writeFileSync(arq, JSON.stringify({ versao: 1, itens: [{ texto: "em voo", em: 1 }, { texto: "segundo", em: 2 }, { texto: "terceiro", em: 3 }] }));
+  assert.deepEqual(carregarFila(arq, "teste").map((i) => [i.texto, i.incerto === true]), [["em voo", true], ["segundo", false], ["terceiro", false]]);
+  const v2 = caminhoDaFila(estado, "v2b");
+  fs.writeFileSync(v2, JSON.stringify({ versao: 2, itens: [{ texto: "a", em: 1 }] }));
+  assert.equal(carregarFila(v2, "teste")[0]!.incerto, undefined, "versão 2 não muda");
 });
 
 test("versão desconhecida do arquivo é tratada como corrompida (guardada, fila vazia)", () => {

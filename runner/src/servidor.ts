@@ -406,7 +406,7 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
                 {
                   success: false,
                   error: `Não sei se o agente ${sessao.slug} recebeu o texto: o terminal mudou ou o envio foi interrompido (por um diálogo, outro texto na caixa ou um reinício) depois de o texto poder ter sido digitado. A entrega é incerta.`,
-                  howToFix: "Conferir a conversa do agente antes de reenviar: se o pedido já aparece lá, não reenviar; se não aparece, reenviar.",
+                  howToFix: "O runner ainda pode concluir a entrega nos próximos ~2 minutos: espere, confira a conversa do agente e só reenvie se o pedido não aparecer.",
                   code: "ENTREGA_INCERTA",
                   data: { enviado: false, submit: enviar, chars: texto.length },
                 },

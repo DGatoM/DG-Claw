@@ -56,6 +56,13 @@ async function digitar(s: Sessao, texto: string, daFila: boolean, envio: SemReci
     if (envio && !devolverNaoDigitado(s, envio)) envio.parada = { tipo: "terminal", motivo: "o terminal foi trocado antes de começar a digitar" };
     return false;
   }
+  // Esperou a vez na cadeia: o terminal pode ter passado a esperar uma resposta (permissão, pergunta) enquanto isso, e
+  // colar o texto e apertar Enter ali responderia o diálogo. Nada foi escrito ainda, então o item volta para a fila.
+  if (s.estado.status === "waiting_input") {
+    log.aviso(s.a("entrada"), "o agente passou a esperar uma resposta (permissão ou pergunta) enquanto o pedido esperava a vez; não escrevi nada no terminal");
+    if (envio && !devolverNaoDigitado(s, envio)) envio.parada = { tipo: "caixa", motivo: "o agente está esperando uma resposta e nada foi digitado" };
+    return false;
+  }
   s.marcarAtividade();
   if (s.motor.provedor === "codex") await s.vencerTelaDeConfianca(daFila, proc);
   if (s.proc !== proc) return terminalTrocado(s, envio);
@@ -215,6 +222,8 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
   // Quantas escritas o PTY deve ter contado se só estes Enters escreveram (ver vigiarReciboAtrasado).
   let entradasEsperadas = s.entradasManuais;
   const compact = ehCompact(texto);
+  // No Claude o recibo do /compact é o PreCompact: um prompt comum aceito (de outra pessoa) não prova nada sobre ele.
+  const soCompactVale = compact && s.motor.provedor === "claude";
   for (let tentativa = 1; tentativa <= RECIBO_ENTER_TENTATIVAS; tentativa++) {
     if (s.proc !== proc) return terminalTrocado(s, envio);
     let escreveuEnter = false;
@@ -248,7 +257,7 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
       s.escrever("\r");
       entradasEsperadas = s.entradasManuais;
     }
-    const recebeu = await esperarRecibo(s, antes, espera, comandoDeBarra ? compactAntes : undefined);
+    const recebeu = await esperarRecibo(s, antes, espera, comandoDeBarra ? compactAntes : undefined, soCompactVale);
     if (recebeu) return true;
     if (escreveuEnter) {
       const proxima = tentativa < RECIBO_ENTER_TENTATIVAS ? decidirEnter(s, texto, entradasEsperadas).acao : null;
@@ -307,7 +316,8 @@ function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: number, en
   const compact = ehCompact(texto);
   const inicio = Date.now();
   const passos = s.reciboVigiaPassosMs;
-  const aceito = () => s.promptsAceitos > antes || (comandoDeBarra && s.compactsIniciados > compactAntes);
+  const soCompactVale = compact && s.motor.provedor === "claude";
+  const aceito = () => (!soCompactVale && s.promptsAceitos > antes) || (comandoDeBarra && s.compactsIniciados > compactAntes);
   // Toda escrita no PTY passa por s.escrever() e soma em entradasManuais. Se o número mudou sem ser pela
   // própria vigia, alguém mexeu na caixa (o dono pelo terminal, ou um texto novo sendo digitado): o que
   // está lá já não é o texto que esta vigia tenta enviar, e um Enter dela poderia mandar um rascunho.
@@ -394,11 +404,11 @@ export function semHooksDeVerdade(s: Sessao): boolean {
 
 /** Espera o contador de prompts aceitos passar de `antes`. Sem recibo dentro do limite, false: nem o prazo de
  *  "agente sem hooks" transforma a falta de recibo em entrega (ver semHooksDeVerdade). */
-export function esperarRecibo(s: Sessao, antes: number, limiteMs: number, compactAntes?: number): Promise<boolean> {
+export function esperarRecibo(s: Sessao, antes: number, limiteMs: number, compactAntes?: number, soCompact = false): Promise<boolean> {
   return new Promise((resolve) => {
     const inicio = Date.now();
     const olhar = () => {
-      if (s.promptsAceitos > antes) return resolve(true);
+      if (!soCompact && s.promptsAceitos > antes) return resolve(true);
       // Comando de barra (`/compact`) não dispara UserPromptSubmit: o PreCompact depois deste Enter é o
       // recibo dele. Só para esse caso: PreToolUse de um turno ANTERIOR não prova que a mensagem nova
       // entrou (ela pode estar presa na caixa), então não conta.
