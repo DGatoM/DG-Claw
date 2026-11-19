@@ -40,10 +40,12 @@ const PADROES_DADOS = [
 
 // NOME=valor, "nome": "valor", nome: valor, quando o nome sugere segredo. Mantém o nome, esconde o valor.
 // Começa na palavra-chave (sem \w* antes dela): o prefixo do nome continua no texto e o custo deixa de crescer com o tamanho da linha.
+// O espaço depois do = não cruza a linha: uma atribuição vazia (`ZAPI_INSTANCE=`) não engole a da linha seguinte.
+// O valor sem aspas é uma palavra de shell: `ZAPI_TOKEN="x"` some inteiro quando vira valor de uma atribuição vazia antes dela.
 // Cabeçalho Cookie/Set-Cookie: o nome fica, o valor inteiro (vários pares separados por ';') sai escondido.
 const COOKIE = /\b((?:Set-)?Cookie[ \t]{0,20}:[ \t]{0,20})[^\r\n]+/gi;
 
-const ATRIBUICAO = /((?:api[_-]?key|secret|token|passw(?:or)?d|senha|credential|auth|zapi[_-]?instance)[A-Za-z0-9_.-]*["']?\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s"'&;|]+)/gi;
+const ATRIBUICAO = /((?:api[_-]?key|secret|token|passw(?:or)?d|senha|credential|auth|zapi[_-]?instance)[A-Za-z0-9_.-]*["']?[ \t]*[=:][ \t]*)("[^"\n]*"|'[^'\n]*'|[^\s"'&;|]+(?:(?:"[^"\n]*"|'[^'\n]*')[^\s"'&;|]*)*)/gi;
 
 function mascarar(texto) {
   if (texto == null) return '';

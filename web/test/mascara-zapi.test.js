@@ -11,3 +11,13 @@ test('a trilha esconde o valor de ZAPI_INSTANCE, em qualquer forma de atribuiç�
     assert.ok(r.includes(OCULTO));
   }
 });
+
+test('atribuição vazia não expõe o segredo da atribuição seguinte (mesma linha ou linha de baixo)', () => {
+  const { descreveUso } = require('../lib/trilha');
+  const segredo = 'token-ficticio';
+  for (const command of [`ZAPI_INSTANCE=\nZAPI_TOKEN="${segredo}"`, `ZAPI_INSTANCE= ZAPI_TOKEN="${segredo}"`, `ZAPI_INSTANCE=\nZAPI_TOKEN=${segredo}`]) {
+    const uso = descreveUso('Bash', { command });
+    assert.ok(!uso.titulo.includes(segredo), `vazou no título: ${uso.titulo}`);
+    assert.ok(!uso.comando.includes(segredo), `vazou no comando: ${uso.comando}`);
+  }
+});
