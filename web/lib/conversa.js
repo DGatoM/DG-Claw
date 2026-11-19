@@ -443,6 +443,13 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     const desde = ant && ant.chave === chave ? ant.desde : iso(agoraMs);
     atividadeAnterior.set(agente.slug, { chave, desde });
     est.desde = est.estado === 'ocioso' ? null : desde;
+    // Só quando o runner informa a fila (runner antigo não informa): a tela usa isto para manter o aviso "na fila".
+    if (r.ok && Array.isArray(r.estado.naFila)) {
+      const parcial = typeof r.estado.naFilaTotal === 'number' && r.estado.naFilaTotal > r.estado.naFila.length;
+      est.na_fila = filaParaTela(agente.slug, r.estado.naFila, parcial);
+      // fila maior que a lista devolvida: a tela não pode tratar ausência como "já saiu"
+      if (parcial) est.na_fila_parcial = true;
+    }
     return est;
   }
 
@@ -578,14 +585,52 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
 
   // ── enviar ───────────────────────────────────────────────────────────────
   let sequencia = 0;
+  // O texto das mensagens que entraram na fila do runner (slug -> msg -> { texto }; só falas do dono). O runner só diz
+  // QUAIS mensagens ainda esperam (id e hora, sem texto); o texto fica aqui, para a tela do dono mostrar o balão
+  // "na fila" de novo depois de recarregar. Memória apenas: some quando a mensagem sai da fila ou o Web reinicia.
+  const textosNaFila = new Map();
+  const MAX_NA_FILA = 50;
+  function guardaTextoNaFila(slug, msg, texto, colaboradorId) {
+    if (colaboradorId) return;   // fala de colaborador não volta para a tela do dono nem de outro colaborador
+    let m = textosNaFila.get(slug);
+    if (!m) { m = new Map(); textosNaFila.set(slug, m); }
+    m.set(msg, { texto, em: relogio() });
+    while (m.size > MAX_NA_FILA) m.delete(m.keys().next().value);
+  }
+  /** A fila do runner no formato da tela: [{ msg, em (ms), texto? }]. O texto só vai se este Web o guardou. */
+  function filaParaTela(slug, naFilaRunner, parcial) {
+    if (!Array.isArray(naFilaRunner)) return undefined;
+    const guardados = textosNaFila.get(slug);
+    // Defesa contra runner que devolve lista enorme ou repetida: só ids válidos, sem repetir, no máximo MAX_NA_FILA.
+    const vistos = new Set();
+    const validos = [];
+    for (const x of naFilaRunner) {
+      if (!x || typeof x.em !== 'number' || !Number.isFinite(x.em)) continue;
+      const id = typeof x.msg === 'string' && x.msg.length <= 80 ? x.msg : null;
+      if (id) { if (vistos.has(id)) continue; vistos.add(id); }
+      validos.push({ msg: id, em: x.em });
+      if (validos.length >= MAX_NA_FILA) break;
+    }
+    // Só esquece o texto de quem sumiu da lista E já tem mais que o cache do estado (TTL_RUNNER_MS) de vida:
+    // um retrato do runner anterior ao envio não pode apagar uma mensagem que ainda espera. Lista parcial (fila
+    // maior que o corte): ausência não prova que saiu, então nada é esquecido.
+    if (guardados && !parcial) for (const [k, g] of Array.from(guardados.entries())) if (!vistos.has(k) && relogio() - g.em > TTL_RUNNER_MS + 3000) guardados.delete(k);
+    return validos.map((x) => {
+      const g = x.msg && guardados ? guardados.get(x.msg) : null;
+      const item = { msg: x.msg || null, em: x.em };
+      if (g) item.texto = g.texto;
+      return item;
+    });
+  }
   const erro = (status, motivo, extra) => ({ status, corpo: Object.assign({ ok: false, erro: motivo }, extra || {}) });
 
   /** Entrega o texto (já com marcadores de anexo) ao agente. Devolve { status, corpo }. */
   async function entregar(agente, textoFinal, { cru, voz, from, colaboradorId }) {
     sequencia += 1;
+    const msgId = cru ? null : `w${relogio().toString(36)}${sequencia}`;
     const payload = cru
       ? textoFinal
-      : montarEnvelope({ from: from || 'pessoa', chat: agente.chat_id, msg: `w${relogio().toString(36)}${sequencia}`, ts: new Date(relogio()).toISOString(), text: textoFinal, voz, colaboradorId });
+      : montarEnvelope({ from: from || 'pessoa', chat: agente.chat_id, msg: msgId, ts: new Date(relogio()).toISOString(), text: textoFinal, voz, colaboradorId });
     const epEnviado = relogio() / 1000 - 2;
     // O runner responde 202 "enfileirado" sempre; quem sabe se vai esperar é o estado de AGORA (sem o cache de 2 s).
     const antes = await runner.estado(agente);
@@ -597,7 +642,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     }
     const motivoFila = antes.ok && antes.estado.status === 'waiting_input' ? (antes.estado.motivo === 'pergunta' ? 'pergunta' : 'permissao')
       : antes.ok && antes.estado.status === 'working' ? 'resposta' : null;
-    const r = await runner.input(agente, { text: payload, submit: true, injectWhenIdle: true });
+    const r = await runner.input(agente, { text: payload, submit: true, injectWhenIdle: true, ...(motivoFila ? { esperou: true } : {}) });
     if (!r.ok) {
       log('erro', `Envio para ${agente.slug} não entregue (${cru ? 'comando cru' : `${textoFinal.length} caracteres`}): ${r.erro}`);
       // O código do runner (LOGIN_EXPIRADO) segue até a tela, que abre o pop-up de reconectar em vez de só dar erro.
@@ -605,7 +650,14 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     }
     log('info', `Mensagem entregue a ${agente.slug} (${cru ? 'comando cru' : `${textoFinal.length} caracteres`}).`);
     const corpo = { ok: true, ep_enviado: epEnviado, agente: agente.slug };
-    if (motivoFila) corpo.fila = { motivo: motivoFila };
+    // O texto é guardado sempre (não só quando o painel viu o agente ocupado): outro aparelho pode ter enviado
+    // com o agente ocioso, e a mensagem mesmo assim ficar atrás de outra no runner.
+    if (msgId) guardaTextoNaFila(agente.slug, msgId, textoFinal, colaboradorId);
+    if (msgId) corpo.msg = msgId;   // a tela usa o id para casar a resposta HTTP com a lista da fila, em qualquer ordem
+    if (motivoFila) {
+      corpo.fila = { motivo: motivoFila };
+      if (msgId) corpo.fila.msg = msgId;
+    }
     return { status: 200, corpo };
   }
 
