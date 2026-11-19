@@ -230,6 +230,27 @@ igual "journal acima de 1 MiB: sem FALHA, sai com 0" "0" "$?"
 afirma "journal acima de 1 MiB: INCONCLUSIVO de saida cortada" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal do runner.*saida cortada' "$TMP/s.txt"
 nega "journal cortado nao diz 'nenhum OOM'" grep -q 'nenhum OOM' "$TMP/s.txt"
 limpar_estado
+: >"$STUB_ESTADO/journal-oom-grande"
+smoke ana
+igual "OOM achado e leitura cortada em 1 MiB: sai com 1" "1" "$?"
+afirma "OOM achado e leitura cortada: FALHA com nota de contagem parcial" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias.*contagem parcial' "$TMP/s.txt"
+nega "OOM achado e leitura cortada nao vira INCONCLUSIVO de journal" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal' "$TMP/s.txt"
+limpar_estado
+: >"$STUB_ESTADO/tasks-quebras"
+smoke ana
+afirma "capt conta os bytes brutos: 2400 mais quebras acima do limite e INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] o systemctl do TasksMax.*codigo 99' "$TMP/s.txt"
+nega "capt: quebras finais nao escondem o excesso (nao vira OK)" grep -q 'OK     \[3\] TasksMax' "$TMP/s.txt"
+limpar_estado
+cgroup 17000000000 8192
+smoke ana
+igual "memory.max acima da RAM: so aviso, sai com 0" "0" "$?"
+afirma "memory.max igual ou maior que a RAM: AVISO" grep -q 'AVISO  \[3\] o container dgclaw-ana tem limite de memoria .* RAM do servidor' "$TMP/s.txt"
+limpar_estado
+{ head -c 1100000 /dev/zero | tr '\0' 'a'; printf '\nGROQ_API_KEY=\n'; } >"$ETC/web.env"
+smoke ana
+afirma "web.env acima de 1 MiB: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[5\] o web.env passa de 1 MiB' "$TMP/s.txt"
+nega "web.env cortado nao vira OK nem FALHA de microfone" grep -qE '(OK     |FALHA  )\[5\] (o servico Web|o web.env nao tem)' "$TMP/s.txt"
+limpar_estado
 : >"$STUB_ESTADO/systemctl-erro"
 smoke ana
 igual "systemctl com erro: sai com 0" "0" "$?"

@@ -66,8 +66,12 @@ ca() { timeout "${PRAZO:-60}" podman exec --user agente "$C" "$@"; }
 # capt <comando...>: roda o comando e devolve a saida, no maximo CAPLIM bytes (padrao 4096). Devolve o codigo do
 # comando; se a saida passar do limite, devolve 99 e nada (o chamador trata como INCONCLUSIVO).
 capt() {
-    local o rc
-    o="$(LC_ALL=C; "$@" 2>/dev/null | LC_ALL=C head -c "$(( ${CAPLIM:-4096} + 1 ))"; exit "${PIPESTATUS[0]}")"; rc=$?
+    local o rc rc_
+    # O "x" e o codigo de saida vao colados no fim para o $(...) nao comer as quebras de linha finais antes da
+    # contagem de bytes (senao 4097 bytes de "2400" e quebras passariam por 4 bytes).
+    o="$(LC_ALL=C; "$@" 2>/dev/null | LC_ALL=C head -c "$(( ${CAPLIM:-4096} + 1 ))"; rc_=${PIPESTATUS[0]}; printf 'x%s' "$rc_")"
+    rc="${o##*x}"; o="${o%x*}"
+    so_digitos "$rc" 3 || return 99
     [ "$(printf '%s' "$o" | LC_ALL=C wc -c)" -le "${CAPLIM:-4096}" ] || return 99
     printf '%s' "$o"
     return "$rc"
@@ -75,8 +79,9 @@ capt() {
 # so_digitos <texto> <maximo de caracteres>: verdadeiro se for um numero curto.
 so_digitos() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "${#1}" -le "$2" ]; }
 # contar_oom <comando...>: quantas linhas de falta de memoria o comando mostra (so o numero fica guardado, o
-# texto do journal passa direto pelo filtro). A leitura tem limite de 1 MiB: se passar disso, sai com 98 e nada
-# (saida cortada, INCONCLUSIVO). Se o proprio comando falhar (journal ilegivel, container mudo), sai com 1 e
+# texto do journal passa direto pelo filtro). A leitura tem limite de 1 MiB: se passar disso sem nenhuma ocorrencia
+# no que foi lido, sai com 98 e nada (saida cortada, INCONCLUSIVO); se ja achou ocorrencia, sai com 97 e a
+# contagem parcial (e FALHA, com nota de contagem parcial). Se o proprio comando falhar (journal ilegivel, container mudo), sai com 1 e
 # nada: isso e INCONCLUSIVO, nao "zero".
 contar_oom() {
     local r linha n bytes rc
@@ -85,8 +90,12 @@ contar_oom() {
     read -r n bytes _ <<<"$linha"
     so_digitos "$n" 9 || return 1
     so_digitos "$bytes" 9 || return 1
-    [ "$bytes" -le 1048577 ] || return 1
-    [ "$bytes" -le 1048576 ] || return 98
+    [ "$bytes" -le 1048578 ] || return 1
+    if [ "$bytes" -gt 1048576 ]; then
+        [ "$n" -gt 0 ] || return 98
+        printf '%s' "$n"
+        return 97
+    fi
     [ "$rc" = 0 ] || return 1
     printf '%s' "$n"
 }
@@ -186,6 +195,9 @@ else
     elif [ "$mem_cg" = max ]; then
         falha 3 "o container $C esta sem limite de memoria (memory.max=max, o servidor tem ${ram_gb} GB). Um render pesado pode derrubar o servidor inteiro." \
             "configure DGCLAW_CONTAINER_MEMORIA (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin, e recrie o container. $RECRIAR_DICA"
+    elif [ -n "$ram_kb" ] && [ "$mem_cg" -ge $((ram_kb * 1024)) ]; then
+        aviso 3 "o container $C tem limite de memoria de $((mem_cg / 1048576)) MB, que e igual ou maior que a RAM do servidor (${ram_gb} GB). O teto nao protege o servidor: um render pesado esgota a RAM antes de chegar nele." \
+            "baixe o limite: podman update --memory <N>g $C, com um valor que caiba na RAM e deixe folga para o sistema e o Admin (vale ate o container ser recriado; configure DGCLAW_CONTAINER_MEMORIA a partir da 1.1.1)"
     elif [ "$mem_cg" -le 2147483648 ] && [ "$ram_gb" -gt 4 ]; then
         sug=$((ram_gb / 2)); [ "$sug" -ge 3 ] || sug=3
         aviso 3 "o container tem 2 GB de memoria e o servidor tem ${ram_gb} GB. Render, Chrome da Tela e card paralelo apertam em 2 GB." \
@@ -259,6 +271,9 @@ else
     # A cobertura real e medida pela entrada mais antiga que o journal ainda guarda dentro dos 7 dias.
     oom_c="$(contar_oom cx journalctl -u dgclaw-runner --since '7 days ago' --no-pager -q)"; rc_c=$?
     oom_h="$(contar_oom timeout 60 journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q)"; rc_h=$?
+    parcial=""
+    if [ "$rc_c" -eq 97 ]; then rc_c=0; parcial="o journal do runner"; fi
+    if [ "$rc_h" -eq 97 ]; then rc_h=0; parcial="${parcial:+$parcial e }o journal do kernel do servidor"; fi
     primeira="$(timeout 60 journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o short-unix 2>/dev/null | head -n 1 | head -c 64)"
     ts_ini="${primeira%%.*}"; ts_ini="${ts_ini%% *}"
     cobertura=""
@@ -274,7 +289,7 @@ else
         if [ -n "$fonte_ruim" ]; then fonte_ruim="$fonte_ruim e o journal do kernel do servidor"; else fonte_ruim="o journal do kernel do servidor"; fi
     fi
     if { [ "$rc_c" -eq 0 ] && [ "${oom_c:-0}" -gt 0 ]; } || { [ "$rc_h" -eq 0 ] && [ "${oom_h:-0}" -gt 0 ]; }; then
-        falha 3 "OOM nos ultimos 7 dias: $([ "$rc_c" -eq 0 ] && echo "${oom_c:-0}" || echo "?") linha(s) no journal do runner e $([ "$rc_h" -eq 0 ] && echo "${oom_h:-0}" || echo "?") no kernel do servidor${fonte_ruim:+ ($fonte_ruim ficou ilegivel ou foi cortado, entao a conta esta incompleta)}." \
+        falha 3 "OOM nos ultimos 7 dias: $([ "$rc_c" -eq 0 ] && echo "${oom_c:-0}" || echo "?") linha(s) no journal do runner e $([ "$rc_h" -eq 0 ] && echo "${oom_h:-0}" || echo "?") no kernel do servidor${fonte_ruim:+ ($fonte_ruim ficou ilegivel ou foi cortado, entao a conta esta incompleta)}${parcial:+ (contagem parcial: a leitura de $parcial passou de 1 MiB e foi cortada, entao ha pelo menos essas linhas)}." \
             "veja quem foi morto: journalctl _TRANSPORT=kernel --since '7 days ago' | grep -i 'out of memory'. Suba a memoria do container (podman update --memory <N>g $C) e a do plano da VPS, se for o caso."
     elif [ -n "$fonte_ruim" ]; then
         inconclusivo 3 "nao consegui ler $fonte_ruim dos ultimos 7 dias (erro, prazo ou saida cortada em 1 MiB). Isso nao quer dizer zero eventos de falta de memoria." \
@@ -313,6 +328,9 @@ printf '\n5. Microfone do chat e nomes das chaves do cofre (so os nomes, nunca o
 WEBENV="$R/etc/dgclaw/web.env"
 if [ ! -r "$WEBENV" ]; then
     inconclusivo 5 "nao consegui ler o arquivo de ambiente do servico Web ($(printf '%s' "$WEBENV" | limpar)), entao nao sei se o microfone tem chave." \
+        "confira a mao a ultima linha de GROQ_API_KEY, OPENAI_API_KEY e ELEVENLABS_API_KEY no web.env (so se tem valor, sem mostrar o valor)"
+elif [ "$(head -c 1048577 "$WEBENV" 2>/dev/null | LC_ALL=C wc -c)" -gt 1048576 ]; then
+    inconclusivo 5 "o web.env passa de 1 MiB e a leitura foi cortada, entao a ultima atribuicao das chaves do microfone pode ter ficado de fora." \
         "confira a mao a ultima linha de GROQ_API_KEY, OPENAI_API_KEY e ELEVENLABS_API_KEY no web.env (so se tem valor, sem mostrar o valor)"
 else
     mic="$(head -c 1048576 "$WEBENV" 2>/dev/null | LC_ALL=C awk '

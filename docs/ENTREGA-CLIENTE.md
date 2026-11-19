@@ -52,9 +52,13 @@ Os números abaixo são os mesmos que o script imprime entre colchetes.
 - **Se a chave permanente da equipe não funcionar:** não recrie a VPS. Entre pelo acesso temporário do
   suporte (`dgclaw suporte ligar`, veja o [projeto de cliente](PROJETO-DE-CLIENTE.md#2-o-fluxo-passo-a-passo)).
 - **Na entrega, confira as duas saídas:** (1) o suporte temporário foi revogado: `sudo dgclaw suporte status`
-  diz "suporte: desligado"; (2) a chave permanente da equipe **não** está em `/root/.ssh/authorized_keys`
-  (compare as impressões digitais: `ssh-keygen -lf /root/.ssh/authorized_keys`). Se estiver, remova a
-  linha, porque o `desligar` não mexe nas chaves que não são do suporte.
+  diz "suporte: desligado"; (2) a chave permanente da equipe **não** autoriza mais o root. Confira a impressão digital dela
+  em todas as fontes que o `sshd` aceita: `sshd -T | grep -i authorizedkeys` mostra os arquivos
+  (`authorizedkeysfile` e, se houver, `authorizedkeyscommand`), e `ssh-keygen -lf <arquivo>` lista as
+  impressões de cada um. Se ela aparecer em algum, remova a linha, porque o `desligar` não mexe nas
+  chaves que não são do suporte. Depois teste uma conexão nova usando só essa chave
+  (`ssh -o IdentitiesOnly=yes -o IdentityAgent=none -i <chave da equipe> root@<servidor>`): ela precisa
+  ser recusada.
 
 ### 3. Limites do container e do runner (automático)
 
@@ -63,12 +67,12 @@ O script confere, para `dgclaw-<agente>`:
 | Item | Como confere | Esperado |
 | --- | --- | --- |
 | Processos | `pids.max` do cgroup do container, lido no servidor (`podman inspect -f '{{.State.CgroupPath}}'`, caminho validado, arquivo em `/sys/fs/cgroup<caminho>`), e `PidsLimit` do `podman inspect` | 4096 ou mais. Menos que isso, ou `max` (sem limite), é `FALHA`. Caminho ou arquivo ilegível é `INCONCLUSIVO` |
-| Memória | `memory.max` do mesmo cgroup e `MemTotal` do servidor | `max` (sem limite) é `FALHA`: configure `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin. Com 2 GB e a VPS com mais RAM, `AVISO` com o comando `podman update --memory <N>g` |
+| Memória | `memory.max` do mesmo cgroup e `MemTotal` do servidor | `max` (sem limite) é `FALHA`: configure `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin. Valor numérico igual ou maior que o `MemTotal` do servidor é `AVISO`: o teto não protege o servidor. Com 2 GB e a VPS com mais RAM, `AVISO` com o comando `podman update --memory <N>g` |
 | CPU | `cpu.max` do mesmo cgroup (quota dividida pelo período; `max` é sem limite) e `nproc` | Mais de 1 quando a VPS tem mais núcleos. Senão, `AVISO` com `podman update --cpus <N>`. Arquivo ilegível é `INCONCLUSIVO` |
 | `TasksMax` do runner | `systemctl show -p TasksMax` dentro do container | 2400 ou mais. Menos que isso é `FALHA` |
 | `OOMPolicy` do runner | `systemctl show -p OOMPolicy` dentro do container, validado contra a lista `continue`, `stop`, `kill` | `continue` (a partir da 1.1.1; antes disso sai `AVISO`). Valor fora da lista é `AVISO`, sem repetir o que veio |
 | Reinícios do runner | `NRestarts` da unidade `dgclaw-runner` | 0. Mais que isso é `FALHA` |
-| Falta de memória (OOM) | `journalctl` do runner e `journalctl _TRANSPORT=kernel --since "7 days ago"` (o `-k` olharia só o boot atual), últimos 7 dias | Nenhuma linha de "out of memory" ou "oom-kill". Qualquer uma é `FALHA`. Se o `journalctl` der erro ou a saída passar de 1 MiB, é `INCONCLUSIVO`, que é diferente de "zero eventos". Se uma fonte mostra OOM e a outra ficou ilegível, é `FALHA`, e a mensagem diz qual fonte falhou. Se o journal do kernel guarda menos de 7 dias, o relatório diz a cobertura real |
+| Falta de memória (OOM) | `journalctl` do runner e `journalctl _TRANSPORT=kernel --since "7 days ago"` (o `-k` olharia só o boot atual), últimos 7 dias | Nenhuma linha de "out of memory" ou "oom-kill". Qualquer uma é `FALHA`. Se o `journalctl` der erro ou a saída passar de 1 MiB sem nenhuma ocorrência no trecho lido, é `INCONCLUSIVO`, que é diferente de "zero eventos". Se já achou OOM antes do corte de 1 MiB, é `FALHA`, com a nota de que a contagem é parcial Se uma fonte mostra OOM e a outra ficou ilegível, é `FALHA`, e a mensagem diz qual fonte falhou. Se o journal do kernel guarda menos de 7 dias, o relatório diz a cobertura real |
 
 Atenção: `podman update` vale até o container ser recriado (`dgclaw agente recriar`). Se a VPS é grande,
 suba o limite, confira com o smoke e avise o time para repetir isso depois de qualquer recriação.
@@ -98,7 +102,7 @@ sucesso antes de recriar.
   O script lê o arquivo como texto (nunca o executa) e só confere se a **última** atribuição de
   pelo menos uma entre `ELEVENLABS_API_KEY`, `GROQ_API_KEY` e `OPENAI_API_KEY` tem valor. Aspas vazias contam
   como vazio. Se nenhuma das três tem valor (inclusive uma atribuição antiga com valor seguida de uma vazia),
-  é `FALHA`. Ele só diz os nomes que têm valor e nunca imprime o valor. Arquivo ilegível é `INCONCLUSIVO`.
+  é `FALHA`. Ele só diz os nomes que têm valor e nunca imprime o valor. Arquivo ilegível, ou maior que 1 MiB (leitura cortada), é `INCONCLUSIVO`.
 - **Nomes do cofre (automático):** o script roda `dgclaw agente cofre <agente> listar --json` e mostra só o
   nome de cada chave ativa. Ele não afirma que as chaves das skills estão lá.
 - **Skills contra o cofre (à mão):** liste os nomes com `dgclaw agente cofre <agente> listar` e confira contra
@@ -112,6 +116,10 @@ sucesso antes de recriar.
 - **À mão:** toda chave provisória da equipe precisa ter sido trocada pela do cliente: rode
   `printf %s "$CHAVE" | dgclaw agente cofre <agente> guardar <NOME> --aplicar` (guardar de novo com o
   mesmo nome substitui) e confira que o comando terminou sem erro. Se a skill cita uma chave que o cliente não vai usar, pode ignorar.
+  O painel usa uma cópia da mesma credencial em `/etc/dgclaw/web.env`, que o cofre não atualiza. Troque
+  ou remova nesse arquivo só a linha da chave provisória (`ELEVENLABS_API_KEY`, `GROQ_API_KEY` ou
+  `OPENAI_API_KEY`), preservando as outras, rode `sudo systemctl restart dgclaw-web` e teste o microfone
+  do chat com a credencial do cliente.
 
 ### 6. YouTube e yt-dlp (login à mão)
 
@@ -119,11 +127,14 @@ sucesso antes de recriar.
    navegador dela com uma **conta dedicada ao agente**, deixando a sessão aberta. A senha da Tela se troca
    com `dgclaw agente tela-senha <agente>`.
 2. **Confira o login:** a partir da 1.1.1, olhe o item de diagnóstico `agente.<agente>.youtube`. Antes disso,
-   faça à mão um download curto de verdade, numa pasta descartável dentro do container, com a mesma chamada
+   primeiro olhe na Tela qual conta do YouTube está logada e confirme que é a conta dedicada ao agente
+   (o vídeo público baixa mesmo com a sessão expirada, então o download sozinho não prova o login). Depois
+   faça à mão um download curto de verdade, numa pasta privada nova dentro do container, com a mesma chamada
    isolada que o agente usa, como usuário `agente`:
-   `podman exec --user agente dgclaw-<agente> yt-dlp --ignore-config --no-plugin-dirs --js-runtimes node --cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome/Default" --no-playlist -f "worst/worstvideo" --max-filesize 5M -P /tmp/teste-yt -- 'https://www.youtube.com/watch?v=jNQXAC9IJRQ'`.
-   Esperado: um arquivo com conteúdo em `/tmp/teste-yt` (`podman exec --user agente dgclaw-<agente> ls -l /tmp/teste-yt`).
-   Depois apague a pasta: `podman exec --user agente dgclaw-<agente> rm -rf /tmp/teste-yt`.
+   `D="$(podman exec --user agente dgclaw-<agente> mktemp -d)"` e
+   `podman exec --user agente dgclaw-<agente> yt-dlp --ignore-config --no-plugin-dirs --js-runtimes node --cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome/Default" --no-playlist -f "worst/worstvideo" --max-filesize 5M -P "$D" -- 'https://www.youtube.com/watch?v=jNQXAC9IJRQ'`.
+   Esperado: um arquivo com conteúdo na pasta (`podman exec --user agente dgclaw-<agente> ls -l "$D"`).
+   Depois apague só essa pasta: `podman exec --user agente dgclaw-<agente> rm -rf -- "$D"`.
 - **Esperado:** `yt-dlp` no PATH em `/usr/local/bin` (a partir da 1.1.1; antes, em `/opt/venv/bin`, e o
   script avisa sem repetir o caminho). Não existe mais configuração global de cookies. O script confere:
   (a) que o `/etc/yt-dlp.conf` do container tem a diretiva ativa (não comentada) `--js-runtimes node`;
@@ -168,15 +179,20 @@ sucesso antes de recriar.
 
 Hoje é passo manual. Para cada skill do cliente:
 
-1. Conferir que ela está em `<casa do agente>/.claude/skills/<skill>/`.
+1. Conferir que ela está na pasta de descoberta do motor instalado: `<casa do agente>/.claude/skills/<skill>/`
+   no Claude, e `.agents/skills/<skill>/` ou `.codex/skills/<skill>/` no Codex (caminhos em
+   [PARIDADE-CODEX.md](PARIDADE-CODEX.md)). Depois, num card de teste desse motor, peça ao agente que
+   localize a skill pelo nome e diga em que pasta ela está.
 2. Conferir o dono: `ls -ld` na pasta e nos arquivos deve mostrar o dono do agente, e não `root`. Se estiver
    `root`, corrija **dentro do container, como `agente`**, só na pasta da skill identificada, por exemplo
    `podman exec --user agente dgclaw-<agente> chown -R agente: /home/agente/.claude/skills/<skill>`
    (como `agente`, só dá para mexer no que já é dele; o que é de `root` pede ajuste da origem da cópia).
    Nada de `chown -R` como root no host, e não toque nos links das skills oficiais: o ajuste vale só para a
    pasta personalizada, com `-h` quando houver link dentro dela.
-3. Conferir que `CLAUDE_PLUGIN_ROOT` resolve: abra a skill, veja os caminhos que ela usa e rode o
-   `setup-check.sh` dela (quando tiver) como o agente.
+3. Conferir que `CLAUDE_PLUGIN_ROOT` resolve: abra a skill e veja os caminhos que ela usa. Antes de rodar
+   o `setup-check.sh` dela (quando tiver), leia o script e confira que é a versão esperada, porque o agente
+   tem `sudo` sem senha no container e o script enxerga o cofre e a sessão do navegador. Se não der para
+   conferir, rode num container descartável sem os dados do cliente. Só então rode como o agente.
 - **Esperado:** nenhum caminho aponta para fora da casa, nenhum arquivo é de `root`, e o `setup-check`
   não acusa nada ausente.
 
@@ -192,15 +208,18 @@ Hoje é passo manual. Para cada skill do cliente:
 ### 12. Texto personalizado nas skills do cliente (à mão)
 
 - **Conferir:** abra as skills que levam texto do cliente (assinatura, nome do programa, encerramento fixo)
-  e procure o que não pertence a ele: `grep -rniE '<nome de outro cliente>|<nome do modelo>' <pasta da skill>`.
+  e procure o que não pertence a ele, dentro do container e sem trazer o texto das linhas para o terminal:
+  `podman exec --user agente dgclaw-<agente> grep -rlE '<nome de outro cliente>|<nome do modelo>' /home/agente/.claude/skills/<skill>`
+  (lista só os arquivos com ocorrência) ou, com `-rc`, a contagem por arquivo. Para ver a linha, abra o
+  arquivo achado.
 - **Esperado:** nenhum nome de outro cliente e nenhum nome do modelo de onde a skill foi copiada. Leia a
   assinatura e o encerramento com o olho: o `grep` só acha o que você lembrou de procurar.
 
 ## Antes de entregar
 
 - [ ] `scripts/smoke-entrega.sh <agente>` sai com 0 e nenhum `AVISO` ficou sem resposta
-- [ ] Os passos 2 (inclusive suporte temporário revogado e chave permanente da equipe fora do
-      `authorized_keys`), 4, 5 (skills contra o cofre e chave do cliente), 6 (login do YouTube), 9 (inclusive a
+- [ ] Os passos 2 (inclusive suporte temporário revogado e chave permanente da equipe recusada
+      numa conexão nova), 4, 5 (skills contra o cofre e chave do cliente), 6 (login do YouTube), 9 (inclusive a
       senha trocada pelo próprio cliente), 10, 11 e 12 estão feitos e marcados
 - [ ] Nenhum `INCONCLUSIVO` ficou sem conferência à mão e o `PENDENTE` do YouTube foi confirmado (Tela e diagnóstico)
 - [ ] O checklist de entrega do [projeto de cliente](PROJETO-DE-CLIENTE.md#4-checklist-de-onboarding)
