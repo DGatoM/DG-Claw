@@ -574,10 +574,17 @@ caddy_site_e_gerado() {
 CADDY_SITE_MUDOU=0
 CADDY_SITE_ARQUIVO=""
 CADDY_SITE_COPIA=""
+CADDY_SITE_SHA=""    # sha256 do que o instalador gravou (so no encode em arquivo personalizado)
+CADDY_SITE_BACKUP="" # copia durabil de antes (idem)
 
 # caddy_restaurar_site: desfaz a ultima escrever_site_caddy (a validacao do Caddy recusou o arquivo novo).
+# Se o arquivo mudou depois de gravado pelo instalador (alguem editou no meio), nao restaura por cima: avisa.
 caddy_restaurar_site() {
     [ "$CADDY_SITE_MUDOU" = 1 ] && [ -n "$CADDY_SITE_ARQUIVO" ] || return 0
+    if [ -n "$CADDY_SITE_SHA" ] && [ "$(sha256sum <"$CADDY_SITE_ARQUIVO" | cut -d' ' -f1)" != "$CADDY_SITE_SHA" ]; then
+        aviso "${CADDY_SITE_ARQUIVO#"$R"} mudou depois que o instalador o gravou; nao voltei a copia por cima para nao apagar essa edicao. A copia de antes esta em ${CADDY_SITE_BACKUP#"$R"}."
+        return 0
+    fi
     if [ -n "$CADDY_SITE_COPIA" ] && [ -f "$CADDY_SITE_COPIA" ]; then
         cp -p "$CADDY_SITE_COPIA" "$CADDY_SITE_ARQUIVO"
     else
@@ -599,7 +606,7 @@ caddy_gerar_com_encode() {
         END {
             abre = 0; fecha = 0; proxy = 0; alvo = 0
             for (n = 1; n <= NR; n++) {
-                l = linhas[n]; t = l; sub(/^[ \t]+/, "", t); sub(/[ \t\r]+$/, "", t)
+                l = linhas[n]; t = l; sub(/^[ \t]+/, "", t); sub(/[ \t]+#.*$/, "", t); sub(/[ \t\r]+$/, "", t)
                 if (t == "" || t ~ /^#/) continue
                 if (t ~ /^import([ \t]|$)/ || t ~ /^encode([ \t{]|$)/) exit 1
                 if (t ~ /\{$/) abre++
@@ -627,28 +634,34 @@ caddy_gerar_com_encode() {
 # caddy_acrescentar_encode <arquivo> <porta>: acrescenta o bloco encode a um Caddyfile personalizado simples.
 # Devolve 0 se acrescentou (e preenche CADDY_SITE_*), 1 se o arquivo nao e do formato aceito ou algo impediu
 # (nesse caso nada foi alterado e o chamador so avisa). Cuidados:
-#  - link simbolico nunca e trocado por arquivo comum;
+#  - link simbolico, ou arquivo que nao termina em quebra de linha, nunca sao tocados;
 #  - o candidato nasce como copia do original (cp --preserve=all: modo, dono, ACL e xattr) e so o conteudo muda;
-#  - a copia de seguranca fica ao lado, em /etc/caddy, com o mesmo modo e dono do original (nunca em /tmp), e
-#    nao e apagada: e como o dono volta atras. A copia de restauracao (CADDY_SITE_COPIA) tambem fica em /etc/caddy;
-#  - o candidato sai da copia de seguranca, e a troca so acontece se o original continua igual a ela.
+#  - as copias (a de antes, que fica, e a de restauracao) vivem em $DG_ETC/caddy-copias, pasta do root com modo
+#    0700, com nomes unicos de mktemp: ninguem de fora le o conteudo e nenhum nome pode ser pre-plantado;
+#  - o candidato sai da copia de antes, e a troca so acontece se o original continua igual a ela, no conteudo e
+#    na identidade (inode, dono, grupo, modo, tamanho, data).
 caddy_acrescentar_encode() {
-    local alvo="$1" porta="$2" pasta durabil cand rest
-    pasta="$R/etc/caddy"
+    local alvo="$1" porta="$2" pasta="$DG_ETC/caddy-copias" cand durabil rest antes
     [ -f "$alvo" ] && [ ! -L "$alvo" ] || return 1
-    durabil="$pasta/$(basename "$alvo").antes-encode-$(date +%Y%m%d-%H%M%S)"
-    cand="$(mktemp "$(dirname "$alvo")/.$(basename "$alvo").XXXXXX")" || return 1
-    rest="$(mktemp "$pasta/.$(basename "$alvo").restaurar.XXXXXX")" || { rm -f "$cand"; return 1; }
+    [ -z "$(tail -c 1 "$alvo")" ] || return 1
+    { (umask 077; mkdir -p "$pasta") && chmod 700 "$pasta"; } 2>/dev/null || return 1
+    antes="$(stat -c '%i %u %g %a %s %Y' "$alvo")" || return 1
+    durabil="$(mktemp "$pasta/$(basename "$alvo").antes-encode-$(date +%Y%m%d-%H%M%S).XXXXXX")" || return 1
+    rest="$(mktemp "$pasta/restaurar.XXXXXX")" || { rm -f "$durabil"; return 1; }
+    cand="$(mktemp "$(dirname "$alvo")/.$(basename "$alvo").XXXXXX")" || { rm -f "$durabil" "$rest"; return 1; }
     if cp --preserve=all "$alvo" "$durabil" 2>/dev/null \
         && cp --preserve=all "$alvo" "$rest" 2>/dev/null \
         && cp --preserve=all "$alvo" "$cand" 2>/dev/null \
         && caddy_gerar_com_encode "$durabil" "$porta" "$cand" \
+        && [ "$(stat -c '%i %u %g %a %s %Y' "$alvo")" = "$antes" ] \
         && cmp -s "$alvo" "$durabil" \
         && mv -f "$cand" "$alvo"; then
         CADDY_SITE_COPIA="$rest"
+        CADDY_SITE_BACKUP="$durabil"
+        CADDY_SITE_SHA="$(sha256sum <"$alvo" | cut -d' ' -f1)"
         CADDY_SITE_MUDOU=1
         CADDY_SITE_ARQUIVO="$alvo"
-        info "${alvo#"$R"} tem personalizacoes suas: acrescentei so o bloco de compressao (encode) e mantive o resto como estava. A copia de antes ficou em ${durabil#"$R"}"
+        info "${alvo#"$R"} tem personalizacoes suas: acrescentei so o bloco de compressao (encode) e mantive o resto como estava. A copia de antes ficou em ${durabil#"$R"} (so o root le)"
         return 0
     fi
     rm -f "$cand" "$rest" "$durabil"
@@ -664,6 +677,8 @@ escrever_site_caddy() {
     CADDY_SITE_MUDOU=0
     CADDY_SITE_ARQUIVO=""
     CADDY_SITE_COPIA=""
+    CADDY_SITE_SHA=""
+    CADDY_SITE_BACKUP=""
     if [ ! -f "$cf" ] || grep -q '^# DG Claw' "$cf" || caddyfile_e_padrao "$cf"; then
         alvo="$cf"
     else
