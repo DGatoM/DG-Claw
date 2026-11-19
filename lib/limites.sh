@@ -22,13 +22,16 @@ _LIM_AMB_MEMORIA="${DGCLAW_CONTAINER_MEMORIA:-}"
 _LIM_AMB_CPUS="${DGCLAW_CONTAINER_CPUS:-}"
 
 # _limites_env_literal <NOME>: le o valor de NOME do $DG_ETC/dgclaw.env SEM executar o arquivo (nada de source/eval:
-# so a linha `NOME=valor`, a ultima vence). Como o shell faria: aspas simples ou duplas em volta sao tiradas (o que vem
+# so a linha `NOME=valor`, com ou sem `export ` na frente e com espaco no comeco, a ultima vence). Como o shell faria: aspas simples ou duplas em volta sao tiradas (o que vem
 # depois da aspa de fechamento, como um comentario, e ignorado) e, em valor sem aspas, um comentario no fim da linha
 # (espaco e `#`) e cortado. Imprime vazio se nao achou.
 _limites_env_literal() {
     local nome="$1" arq="$DG_ETC/dgclaw.env" linha val="" resto
     [ -r "$arq" ] || return 0
     while IFS= read -r linha || [ -n "$linha" ]; do
+        # Espaco no comeco da linha e o prefixo `export ` (com espacos depois) sao aceitos, como o shell aceitaria.
+        linha="${linha#"${linha%%[![:space:]]*}"}"
+        case "$linha" in export[[:space:]]*) linha="${linha#export}"; linha="${linha#"${linha%%[![:space:]]*}"}" ;; esac
         case "$linha" in "$nome="*) val="${linha#"$nome="}" ;; esac
     done <"$arq"
     case "$val" in
@@ -170,19 +173,21 @@ _limites_resumo() {
 }
 
 # Predicados "abaixo do alvo" sobre o que limites_ler_atuais leu (sem limite e sem leitura nao contam).
-_limites_mem_abaixo() { [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_B" -gt 0 ] && [ "$ATU_MEM_B" -lt $((LIM_MEM_MB * 1048576)) ]; }
-_limites_cpu_abaixo() { [ "$ATU_CPU_OK" = 1 ] && [ "$ATU_CPU_QUOTA" -gt 0 ] && [ $((ATU_CPU_QUOTA * 10)) -lt $((LIM_CPUS_DEC * ATU_CPU_PERIODO)) ]; }
-_limites_pids_abaixo() { [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS" -gt 0 ] && [ "$ATU_PIDS" -lt "$LIMITE_PIDS" ]; }
+# Recurso sem limite (max, lido como 0) conta como abaixo do alvo: recebe o teto, para o reparar restaurar um limite que sumiu.
+_limites_mem_abaixo() { [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_B" -lt $((LIM_MEM_MB * 1048576)) ]; }
+_limites_cpu_abaixo() { [ "$ATU_CPU_OK" = 1 ] && { [ "$ATU_CPU_QUOTA" -eq 0 ] || [ $((ATU_CPU_QUOTA * 10)) -lt $((LIM_CPUS_DEC * ATU_CPU_PERIODO)) ]; }; }
+_limites_pids_abaixo() { [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS" -lt "$LIMITE_PIDS" ]; }
 
 # O padrao antigo do DG Claw (antes do calculo pela maquina): 2 GiB, 1.0 CPU e 1024 processos. O reparar so mexe num recurso
-# que ainda esta nesse valor; qualquer outro valor (acima ou abaixo do calculado) conta como escolha do dono.
-_limites_mem_antiga() { [ "$ATU_MEM_B" -eq 2147483648 ]; }
-_limites_cpu_antiga() { [ "$ATU_CPU_QUOTA" -eq "$ATU_CPU_PERIODO" ]; }
-_limites_pids_antigo() { [ "$ATU_PIDS" -eq 1024 ]; }
+# que ainda esta nesse valor (ou sem limite nenhum, que e migravel do mesmo jeito); qualquer outro valor (acima ou abaixo do
+# calculado) conta como escolha do dono.
+_limites_mem_antiga() { [ "$ATU_MEM_B" -eq 2147483648 ] || [ "$ATU_MEM_B" -eq 0 ]; }
+_limites_cpu_antiga() { [ "$ATU_CPU_QUOTA" -eq "$ATU_CPU_PERIODO" ] || [ "$ATU_CPU_QUOTA" -eq 0 ]; }
+_limites_pids_antigo() { [ "$ATU_PIDS" -eq 1024 ] || [ "$ATU_PIDS" -eq 0 ]; }
 
 # limites_ajustar_existente <slug>: poe o container que ja existe no limite calculado, SEM recriar, com
-# `podman update`. So sobe o que ainda esta no padrao antigo do DG Claw (2 GiB, 1.0 CPU, 1024 processos): qualquer outro valor
-# (a pessoa aumentou ou diminuiu a mao) e o que esta sem limite ficam como estao, e o log diz que foi mantido e por que. Se o podman
+# `podman update`. So sobe o que ainda esta no padrao antigo do DG Claw (2 GiB, 1.0 CPU, 1024 processos) ou sem limite: qualquer
+# outro valor (a pessoa aumentou ou diminuiu a mao) fica como esta, e o log diz que foi mantido e por que. Se o podman
 # da maquina nao tem o `update` ou nao aceita um dos flags, avisa e segue (nunca derruba o reparar). O resultado de
 # cada recurso vem da RELEITURA do cgroup depois do update, nao do codigo de saida do podman.
 limites_ajustar_existente() {
@@ -261,8 +266,10 @@ limites_ajustar_existente() {
         if [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS" -eq 0 ]; then sumiram+=("processos")
         elif [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS" -ge "$LIMITE_PIDS" ]; then subiram+=("processos"); else abaixo+=("processos"); fi
     fi
+    local rc=0
     for f in "${sumiram[@]}"; do
-        aviso "FALHA: o limite de $f do container $c sumiu. Era finito e, depois do podman update, o cgroup passou a mostrar sem limite (max); isso nao e um aumento. Veja com: podman inspect $c, e rode dgclaw agente reparar de novo."
+        aviso "FALHA: o limite de $f do container $c sumiu; rode de novo \`dgclaw agente reparar $1\`. Era finito e, depois do podman update, o cgroup passou a mostrar sem limite (max); isso nao e um aumento. Veja com: podman inspect $c"
+        rc=1
     done
     for f in "${abaixo[@]}"; do
         aviso "$f do container $c continuou abaixo do calculado depois do podman update. O limite definitivo entra na proxima vez que o agente for recriado (por exemplo ao atualizar a imagem com dgclaw atualizar)."
@@ -270,4 +277,5 @@ limites_ajustar_existente() {
     if [ "${#subiram[@]}" -gt 0 ]; then
         ok "subiram em $c: ${subiram[*]}. O ajuste vale para o container ligado; o limite definitivo entra na proxima vez que o agente for recriado (por exemplo ao atualizar a imagem com dgclaw atualizar)."
     fi
+    return "$rc"
 }

@@ -1524,7 +1524,7 @@ regravar_config_sh() {
 
 agente_reparar() {
     exigir_slug "${1:-}" reparar
-    local slug="$1" c="dgclaw-$1" obj porta
+    local slug="$1" c="dgclaw-$1" obj porta lim_rc=0
     exigir_ferramentas jq podman curl
     obj="$(agentes_obter "$slug")"
     [ -n "$obj" ] || falha "o agente '$slug' nao esta no agentes.json." \
@@ -1534,7 +1534,8 @@ agente_reparar() {
     fi
     porta="$(printf '%s' "$obj" | jq -r '.runner | sub("^.*:"; "")')"
     passo "Conferindo os limites de memoria, CPU e processos do container"
-    limites_ajustar_existente "$slug"
+    # Limite que sumiu depois do ajuste e erro, mas o resto do reparar segue; o codigo de erro sai no fim.
+    limites_ajustar_existente "$slug" || lim_rc=1
     passo "Garantindo o gancho do Modo foco no runner.json"
     garantir_gancho_foco "$DG_CASAS/$slug/runner/runner.json" "$slug"
     passo "Garantindo o gancho do aviso de novidades no runner.json"
@@ -1555,6 +1556,7 @@ agente_reparar() {
               "veja o log: podman exec $c journalctl -u dgclaw-runner -n 50"
     fi
     if [ "$ENSAIO" != 1 ]; then tela_avisar_sem_senha "$slug"; fi
+    return "$lim_rc"
 }
 
 # Rotinas que o `reparar` (vida_script -> install-timers.sh) regrava no container novo: nao contam como
@@ -1962,8 +1964,10 @@ agente_recriar() {
     C_RECRIANDO=""
     trap - EXIT
 
-    agente_reparar "$slug"
+    local rep_rc=0
+    agente_reparar "$slug" || rep_rc=$?
     devolver_unidades_self "$slug" "$unidades"
+    [ "$rep_rc" -eq 0 ] || return "$rep_rc"
     ok "agente $slug recriado com a imagem atual (casa, cofre e portas intactos)"
 }
 

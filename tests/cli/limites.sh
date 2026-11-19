@@ -70,7 +70,7 @@ afirma "CPUs e processos sobem" grep -q '^podman update --cpus=1.8 --pids-limit=
 afirma "a memoria ficou em 8 GB" grep -q '^8589934592 ' "$STUB_ESTADO/lim-dgclaw-a8"
 echo "0 0 100000 0" >"$STUB_ESTADO/lim-dgclaw-a8"   # tudo sem limite
 : >"$STUB_LOG"; dgclaw agente reparar a8 >"$TMP/rep.txt" 2>&1
-nega "sem limite nao ganha limite" grep -q '^podman update' "$STUB_LOG"
+afirma "sem limite (max) e migravel: recebe o teto, com swap ilimitado como estava" grep -q '^podman update --memory-swap=-1 --memory=6144m --cpus=1.8 --pids-limit=4096 dgclaw-a8' "$STUB_LOG"
 
 echo "podman sem suporte ao update"
 echo "2147483648 100000 100000 1024" >"$STUB_ESTADO/lim-dgclaw-a4"
@@ -101,15 +101,14 @@ nega "memoria invalida faz o recriar falhar" test "$?" -eq 0
 afirma "a mensagem cita a variavel" grep -q 'DGCLAW_CONTAINER_MEMORIA' "$TMP/rec.txt"
 nega "o podman nao recebeu stop, rm nem create" grep -q '^podman stop\|^podman rm\|^podman create\|^podman kill' "$STUB_LOG"
 
-echo "CPU sem limite e processos baixos (-1 e 1024)"
+echo "CPU sem limite (-1) e processos baixos (1024): o que esta sem limite tambem recebe o teto"
 echo "2147483648 -1 100000 1024 4294967296" >"$STUB_ESTADO/lim-dgclaw-a4"
 : >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
-afirma "quota -1 nao derruba a leitura: sobe memoria e processos" grep -q '^podman update --memory-swap=8589934592 --memory=6144m --pids-limit=4096 dgclaw-a4' "$STUB_LOG"
-nega "CPU sem limite continua sem limite" grep -q '^podman update.*--cpus' "$STUB_LOG"
+afirma "quota -1 nao derruba a leitura: sobe memoria, CPUs e processos" grep -q '^podman update --memory-swap=8589934592 --memory=6144m --cpus=1.8 --pids-limit=4096 dgclaw-a4' "$STUB_LOG"
 afirma "mostra o antes com CPUs sem limite" grep -q 'antes:  memoria 2.0 GB, CPUs sem limite, processos 1024' "$TMP/rep.txt"
 echo "2147483648 -1 100000 -1 -1" >"$STUB_ESTADO/lim-dgclaw-a4"
 : >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
-afirma "pids -1 e swap -1 leem sem erro; so a memoria sobe, com swap ilimitado" grep -q '^podman update --memory-swap=-1 --memory=6144m dgclaw-a4' "$STUB_LOG"
+afirma "pids -1 e swap -1 leem sem erro; tudo sobe, com swap ilimitado" grep -q '^podman update --memory-swap=-1 --memory=6144m --cpus=1.8 --pids-limit=4096 dgclaw-a4' "$STUB_LOG"
 
 echo "CPU arredonda para cima (so para exibir; fora do padrao antigo nao muda)"
 echo "8589934592 5000 100000 4096 17179869184" >"$STUB_ESTADO/lim-dgclaw-a8"   # 0.05 CPU
@@ -280,5 +279,34 @@ echo "2147483648 100000 100000 1024 4294967296" >"$STUB_ESTADO/lim-dgclaw-a4"
 afirma "processos: o aviso diz que o limite sumiu" grep -q 'o limite de processos do container dgclaw-a4 sumiu' "$TMP/rep.txt"
 nega "processos nao aparecem como subiram" grep -q 'subiram em dgclaw-a4:.*processos' "$TMP/rep.txt"
 rm -f "$STUB_ESTADO/update-pids-vira-max"
+
+echo "limite que sumiu: a primeira chamada falha, a segunda (cgroup normal) reaplica o teto"
+maquina 8 2
+touch "$STUB_ESTADO/update-cpu-vira-max"
+echo "2147483648 100000 100000 1024 4294967296" >"$STUB_ESTADO/lim-dgclaw-a4"
+: >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
+nao_zero=$?
+nega "a primeira chamada termina com codigo diferente de zero" test "$nao_zero" -eq 0
+# shellcheck disable=SC2016 # as crases fazem parte do texto procurado
+afirma "e diz FALHA, qual limite, e o comando para rodar de novo" grep -q 'FALHA: o limite de CPUs do container dgclaw-a4 sumiu; rode de novo `dgclaw agente reparar a4`' "$TMP/rep.txt"
+rm -f "$STUB_ESTADO/update-cpu-vira-max"
+: >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
+igual "a segunda chamada termina com 0" "0" "$?"
+afirma "e reaplica o teto de CPUs que estava sem limite" grep -q '^podman update --cpus=1.8 dgclaw-a4' "$STUB_LOG"
+afirma "e as CPUs voltaram a 1.8" grep -q '^6442450944 180000 ' "$STUB_ESTADO/lim-dgclaw-a4"
+
+echo "dgclaw.env com espaco no comeco e com export, nos tres caminhos"
+maquina 8 2
+printf 'DGCLAW_DOMINIO=teste.exemplo.org\nexport DGCLAW_CONTAINER_MEMORIA=1g\n  DGCLAW_CONTAINER_CPUS=0.5\n' >"$ETC/dgclaw.env"
+criar_agente ex1 --nome X
+igual "criar: export e espaco inicial valem" "1g 0.5 4096" "$(limite_criado ex1)"
+echo imagem-nova-ex >"$STUB_ESTADO/imagem-id"
+: >"$STUB_LOG"; dgclaw agente recriar ex1 --forcar >"$TMP/rec.txt" 2>&1
+igual "recriar: export e espaco inicial valem" "1g 0.5 4096" "$(limite_criado ex1)"
+printf 'DGCLAW_DOMINIO=teste.exemplo.org\n \texport   DGCLAW_CONTAINER_MEMORIA=4g\n\tDGCLAW_CONTAINER_CPUS=1.5\n' >"$ETC/dgclaw.env"
+echo "2147483648 100000 100000 1024 4294967296" >"$STUB_ESTADO/lim-dgclaw-a4"
+: >"$STUB_LOG"; dgclaw agente reparar a4 >"$TMP/rep.txt" 2>&1
+afirma "reparar: export e espaco inicial valem" grep -q '^podman update --memory-swap=6442450944 --memory=4096m --cpus=1.5 --pids-limit=4096 dgclaw-a4' "$STUB_LOG"
+printf 'DGCLAW_DOMINIO=teste.exemplo.org\n' >"$ETC/dgclaw.env"
 
 fim
