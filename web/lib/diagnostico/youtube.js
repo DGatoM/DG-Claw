@@ -43,7 +43,8 @@ const SCRIPT = [
   'then',
   '  exit 0',
   'fi',
-  'if ! grep -qi "sign in to confirm" "$d/err"',
+  // Só o desafio anti-robô libera os cookies; "Sign in to confirm your age" (restrição de idade) não.
+  'if ! grep -qiE "sign in to confirm you.re not a bot" "$d/err"',
   'then',
   '  head -c 8192 "$d/err" >&2',
   '  if [ $c -eq 0 ]',
@@ -61,7 +62,7 @@ const SCRIPT = [
   'rm -rf "$d/v"',
   'mkdir "$d/v" || exit 70',
   // TMPDIR dentro de "$d": a cópia temporária do banco de cookies que o yt-dlp faz some junto no trap.
-  `TMPDIR="$d" timeout ${PRAZO_DOWNLOAD_S} yt-dlp ${OPCOES_BASE.replace('--js-runtimes node', `--js-runtimes node --cookies-from-browser "chrome+basictext:${PASTA_COOKIES}"`)} '${VIDEO_TESTE}' || exit $?`,
+  `TMPDIR="$d" timeout ${PRAZO_DOWNLOAD_S} yt-dlp ${OPCOES_BASE.replace('--js-runtimes node', `--js-runtimes node --cookies-from-browser "chrome+basictext:${PASTA_COOKIES}" --match-filters "availability=public & age_limit=0"`)} '${VIDEO_TESTE}' || exit $?`,
   'if [ -z "$(find "$d/v" -type f -size +0c)" ]',
   'then',
   '  echo "nenhum arquivo foi baixado" >&2',
