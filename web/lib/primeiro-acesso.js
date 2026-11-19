@@ -75,11 +75,12 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy }) {
     gravaAtomico(webEnv, texto);
   }
 
-  /** O web.env existente precisa ser arquivo comum: link simbólico, dispositivo ou FIFO não recebem o hash. */
+  /** O web.env precisa existir e ser arquivo comum: ausente, link simbólico, dispositivo ou FIFO não recebem o hash. */
   function destinoInvalido() {
     let st;
     try { st = fs.lstatSync(webEnv); } catch (e) {
-      if (e.code === 'ENOENT') return null; // ainda não existe: a gravação cria
+      // Sem o web.env o próximo reinício perde o usuário do painel e tranca o login: recusa antes de gravar.
+      if (e.code === 'ENOENT') return { motivo: 'não existe (a configuração do painel precisa ser restaurada antes)' };
       return { motivo: `não pôde ser examinado (${e.code || e.message})` };
     }
     if (st.isFile()) return null;

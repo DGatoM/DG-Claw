@@ -249,13 +249,15 @@ test('troca de senha do dono: hash administrado fora do web.env responde 409 e n
   } finally { await t.fechar(); }
 });
 
-for (const tipo of ['fifo', 'link']) {
-  test(`troca de senha do dono: web.env que é ${tipo === 'fifo' ? 'um FIFO' : 'um link simbólico'} responde 409 sem gravar nem apagar o link de recuperação`, async () => {
+for (const tipo of ['fifo', 'link', 'ausente']) {
+  const nomeTipo = { fifo: 'um FIFO', link: 'um link simbólico', ausente: 'ausente' }[tipo];
+  test(`troca de senha do dono: web.env ${tipo === 'ausente' ? 'ausente' : `que é ${nomeTipo}`} responde 409 sem gravar nem apagar o link de recuperação`, async () => {
     const dir = pastaTemp('sd3');
     const webEnv = path.join(dir, 'web.env');
     const real = path.join(dir, 'real.env');
     fs.writeFileSync(real, "DGCLAW_PANEL_USER=Mariana\n", { mode: 0o600 });
-    if (tipo === 'fifo') require('node:child_process').execFileSync('mkfifo', [webEnv]); else fs.symlinkSync(real, webEnv);
+    if (tipo === 'fifo') require('node:child_process').execFileSync('mkfifo', [webEnv]);
+    else if (tipo === 'link') fs.symlinkSync(real, webEnv);
     const pa = path.join(dir, 'primeiro-acesso.json');
     fs.writeFileSync(pa, '{"versao":1}\n', { mode: 0o600 });
     const t = await subirWeb({ agentes: AG, env: { DGCLAW_PANEL_USER: 'Mariana', DGCLAW_WEB_ENV: webEnv } });
@@ -263,7 +265,8 @@ for (const tipo of ['fifo', 'link']) {
       assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
       const r = await t.c.post('/api/v1/dono/senha', { json: { atual: t.senha, nova: NOVA, confirmacao: NOVA } });
       assert.equal(r.status, 409, r.texto);
-      assert.match(r.json.erro, tipo === 'fifo' ? /FIFO/ : /link simbólico/);
+      assert.match(r.json.erro, { fifo: /FIFO/, link: /link simbólico/, ausente: /não existe/ }[tipo]);
+      if (tipo === 'ausente') assert.ok(!fs.existsSync(webEnv), 'o web.env ausente não foi criado');
       assert.ok(fs.existsSync(pa), 'o link de recuperação não foi apagado');
       assert.equal(fs.readFileSync(real, 'utf8'), "DGCLAW_PANEL_USER=Mariana\n");
       assert.equal((await login(cliente(t.porta), 'Mariana', t.senha)).status, 200);
