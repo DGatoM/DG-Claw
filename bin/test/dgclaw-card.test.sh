@@ -257,8 +257,15 @@ subir working-sem-turno
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 1 >"$T/o" 2>"$T/e"; c=$?
 ok "working com contador 0 e hook:PreCompact nao confirma: sai com 9" $([ $c = 9 ] && echo 0 || echo 1)
 ! grep -q "Card aberto" "$T/o"; ok "working sem contador nao imprime 'Card aberto'" $?
+"$BIN" estado card-abc123 >"$T/o3" 2>"$T/e3"
+grep -q "working (terminal ativo" "$T/o3" && grep -q "ainda nao virou turno" "$T/o3"; ok "estado com working e contador 0 avisa que o pedido ainda nao virou turno" $?
 "$BIN" ler card-abc123 >"$T/o2" 2>"$T/e2"
 grep -q "terminal ativo" "$T/o2" && grep -q "ainda nao virou turno" "$T/o2" && ! grep -q "trabalhando no primeiro turno" "$T/o2"; ok "ler com working e contador 0 nao diz que o pedido esta no primeiro turno" $?
+
+# --- nome de ferramenta com "error" no statusReason nao e falha de turno ----------------------------------------
+subir ferramenta-com-erro-no-nome
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
+ok "ferramenta com 'error' no nome nao vira falha de turno: sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
 
 # --- StopFailure no statusReason e falha de turno --------------------------------------------------------------
 subir stop-failure

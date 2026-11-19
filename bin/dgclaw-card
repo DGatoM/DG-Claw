@@ -328,9 +328,10 @@ esperar_primeiro_turno() { # $1 id ; $2 segundos
         sem_confirmacao "$1" "a resposta do runner nao traz o contador turnosAceitosSessao (runner antigo ou resposta incompleta)"
       fi
       # Falha de turno conhecida: estado errored, campo de erro preenchido (inclusive em card dormindo/resumable)
-      # ou statusReason de falha. Nenhuma delas conta como sucesso, mesmo que haja turno ou o status seja working.
+      # ou statusReason de falha. Do statusReason vale so o nome do evento (antes do primeiro espaco): o resto pode ser
+      # o nome de uma ferramenta (ex.: "hook:PreToolUse mcp__logs__error_report"), que nao e falha. Nenhuma delas conta como sucesso, mesmo que haja turno ou o status seja working.
       erro_turno="$(campo .data.error)"; razao="$(campo .data.statusReason)"
-      if [ "$status" = errored ] || [ -n "$erro_turno" ] || printf '%s' "$razao" | grep -qiE 'falh|erro|error|sem-login|sem-chave|login-expirado|identidade-grande|StopFailure'; then
+      if [ "$status" = errored ] || [ -n "$erro_turno" ] || printf '%s' "${razao%% *}" | grep -qiE 'falh|erro|error|sem-login|sem-chave|login-expirado|identidade-grande|StopFailure'; then
         avisar_monitor
         erro_turno="${erro_turno:-${razao:-sem detalhe}}"
         if [ "$turnos" != 0 ]; then
@@ -427,7 +428,11 @@ cmd_estado() {
   fi
   chamar_ou_sair GET "/api/provedor?sessao=$id"
   prov="$(campo .provedor)"; auth="$(campo .auth)"; modelo="$(campo .modelo)"
-  [ -z "$semturno" ] || [ "$status" = working ] || status="${status:-desconhecido} (sem primeiro turno ainda: o pedido nao virou turno)"
+  if [ -n "$semturno" ] && [ "$status" = working ]; then
+    status="working (terminal ativo, por exemplo compactando; o pedido ainda nao virou turno)"
+  elif [ -n "$semturno" ]; then
+    status="${status:-desconhecido} (sem primeiro turno ainda: o pedido nao virou turno)"
+  fi
   echo "$id: ${status:-desconhecido}${fila:+ (na fila: $fila)}${titulo:+ | titulo: $titulo}"
   echo "provedor: ${prov:-?} | auth: ${auth:-?} | modelo: ${modelo:-padrao}"
   [ -z "$reason" ] || echo "aviso do runner: $reason"

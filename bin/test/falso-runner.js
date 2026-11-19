@@ -1,7 +1,7 @@
 // Runner falso para o teste do dgclaw-card. Grava cada requisicao em $LOG (uma linha JSON com
 // metodo, url, corpo e o cabecalho Authorization) e simula o ciclo de um card:
 // criado dormindo -> /input -> working -> idle com resposta do assistente.
-// Chaves de ambiente: RUNNER_BEARER (token esperado), MODO (normal|limite|sem-login|input-falha|nunca-termina|sem-turno|turno-lento|leitura-403|leitura-503|sem-contador|restaurado|lento-leitura|erro-turno|erro-campo|input-recusado|input-perdido|input-sem-capacidade|input-nao-acordou|working-sem-turno|stop-failure|sem-login-delete-falha|fila-parada).
+// Chaves de ambiente: RUNNER_BEARER (token esperado), MODO (normal|limite|sem-login|input-falha|nunca-termina|sem-turno|turno-lento|leitura-403|leitura-503|sem-contador|restaurado|lento-leitura|erro-turno|erro-campo|input-recusado|input-perdido|input-sem-capacidade|input-nao-acordou|working-sem-turno|stop-failure|ferramenta-com-erro-no-nome|sem-login-delete-falha|fila-parada).
 const http = require("http");
 const fs = require("fs");
 const LOG = process.env.LOG;
@@ -69,6 +69,8 @@ http.createServer((req, res) => {
         if (MODO === "erro-campo") { c.status = "resumable"; c.turnos = 1; c.erro = "o CLI caiu no meio do turno"; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
         // working-sem-turno: o status vira working (ex.: compactacao), mas o contador de turnos fica em 0.
         if (MODO === "working-sem-turno") { c.status = "working"; c.motivo = "hook:PreCompact"; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
+        // ferramenta-com-erro-no-nome: turno aceito, rodando uma ferramenta cujo nome tem "error" (nao e falha).
+        if (MODO === "ferramenta-com-erro-no-nome") { c.status = "working"; c.turnos = 1; c.motivo = "hook:PreToolUse mcp__logs__error_report"; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
         // stop-failure: turno falhou por limite, so o statusReason diz.
         if (MODO === "stop-failure") { c.status = "working"; c.turnos = 1; c.motivo = "hook:StopFailure rate_limit"; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
         // fila-parada: texto na fila, mas o card segue parado (sem terminal).
