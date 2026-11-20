@@ -404,6 +404,10 @@ ok "whatsapp: desligar --apagar funciona" $([ $c = 0 ] && echo 0 || echo 1)
 grep -qx "logout" "$PONTE_FALSA_LOG"; ok "whatsapp: --apagar chamou o logout da ponte" $?
 [ ! -e "$WA" ]; ok "whatsapp: --apagar apagou a pasta" $?
 grep -q "uploads/whatsapp" "$T/o"; ok "whatsapp: --apagar avisa que os uploads ficaram" $?
+# sync da pasta falha depois do rm: nao confirma a exclusao
+mkdir -p "$WA"; echo '{"versao":1,"grupos":[]}' > "$WA/grupos-liberados.json"
+PATH="$T/sync-falso:$PATH" "$BIN" canal whatsapp desligar --apagar >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: --apagar com sync que falha sai com erro e nao confirma a exclusao" $([ $c != 0 ] && ! grep -q "dados apagados" "$T/o" && grep -q "confirmar no disco" "$T/e" && echo 0 || echo 1)
 mkdir -p "$T/alvo/sessao"; echo '{"registered": true}' > "$T/alvo/sessao/creds.json"; ln -s "$T/alvo" "$WA"
 "$BIN" canal whatsapp desligar --apagar >"$T/o" 2>"$T/e"; c=$?
 ok "whatsapp: --apagar recusa pasta que e atalho" $([ $c = 1 ] && [ -f "$T/alvo/sessao/creds.json" ] && echo 0 || echo 1)

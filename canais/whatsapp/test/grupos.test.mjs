@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
+import { Readable } from 'node:stream';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { criarAdaptadorZapi } from '../lib/adaptador-zapi.mjs';
@@ -13,6 +14,7 @@ import { criarEnvioSeguro } from '../lib/envio-seguro.mjs';
 import { idDeGrupoValido, lerGruposLiberados, limparNome } from '../lib/grupos.mjs';
 import { executar } from '../enviar-zapi.mjs';
 
+const entrada = (txt) => Readable.from([Buffer.from(txt)]);
 const G1 = '120363000000000001-group';
 const G2 = '120363000000000002-group';
 const CHAVES = { instancia: 'INST123', token: 'TOK456', clientToken: 'CLI789' };
@@ -56,7 +58,7 @@ test('enviar --grupo manda o ID intacto no phone e nao mexe no envio para numero
   const c = casa();
   const g = fetchGravando();
   const opc = { uid: 1000, env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} };
-  let r = await executar(['enviar', '--grupo', G1, '--texto', 'aviso para o grupo'], opc);
+  let r = await executar(['enviar', '--grupo', G1, '--texto-stdin'], { ...opc, stdin: entrada('aviso para o grupo') });
   assert.equal(r.codigoSaida, 0);
   assert.equal(r.resposta.grupo, G1);
   assert.equal(r.resposta.para, undefined);
@@ -82,11 +84,11 @@ test('--grupo: invalido, junto com --para e sem valor saem com codigo 2', async 
   const c = casa();
   const g = fetchGravando();
   const opc = { uid: 1000, env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} };
-  let r = await executar(['enviar', '--grupo', '5511911111111', '--texto', 'x'], opc);
+  let r = await executar(['enviar', '--grupo', '5511911111111', '--texto-stdin'], { ...opc, stdin: entrada('x') });
   assert.equal(r.codigoSaida, 2);
   assert.equal(r.resposta.codigo, 'PEDIDO_INVALIDO');
   assert.match(r.resposta.erro, /-group/);
-  r = await executar(['enviar', '--grupo', G1, '--para', '+5511911111111', '--texto', 'x'], opc);
+  r = await executar(['enviar', '--grupo', G1, '--para', '+5511911111111', '--texto-stdin'], { ...opc, stdin: entrada('x') });
   assert.equal(r.codigoSaida, 2);
   assert.match(r.resposta.erro, /nunca os dois/);
   r = await executar(['enviar', '--grupo'], opc);
@@ -99,17 +101,17 @@ test('grupo nao liberado, lista ausente ou ilegivel: recusa sem chamar a Z-API',
   const g = fetchGravando();
   const c1 = casa({ liberados: [G2] });
   const opc = (c) => ({ uid: 1000, env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} });
-  let r = await executar(['enviar', '--grupo', G1, '--texto', 'aviso para o grupo'], opc(c1));
+  let r = await executar(['enviar', '--grupo', G1, '--texto-stdin'], { ...opc(c1), stdin: entrada('aviso para o grupo') });
   assert.equal(r.codigoSaida, 1);
   assert.equal(r.resposta.codigo, 'GRUPO_NAO_LIBERADO');
   assert.match(r.resposta.erro, /grupo liberar 120363000000000001-group/);
   const c2 = casa({ liberados: null }); // arquivo ausente: nenhum grupo liberado
-  r = await executar(['enviar', '--grupo', G1, '--texto', 'aviso para o grupo'], opc(c2));
+  r = await executar(['enviar', '--grupo', G1, '--texto-stdin'], { ...opc(c2), stdin: entrada('aviso para o grupo') });
   assert.equal(r.resposta.codigo, 'GRUPO_NAO_LIBERADO');
   const c3 = casa();
   for (const lixo of ['{"grupos":', '{"versao":1}', '{"versao":1,"grupos":[{"id":"abc"}]}']) {
     fs.writeFileSync(c3.arq, lixo);
-    r = await executar(['enviar', '--grupo', G1, '--texto', 'aviso para o grupo'], opc(c3));
+    r = await executar(['enviar', '--grupo', G1, '--texto-stdin'], { ...opc(c3), stdin: entrada('aviso para o grupo') });
     assert.equal(r.codigoSaida, 1);
     assert.equal(r.resposta.codigo, 'LISTA_DE_GRUPOS_ILEGIVEL', lixo);
     assert.match(r.resposta.erro, /nenhum grupo esta liberado/);
@@ -125,7 +127,7 @@ test('grupo removido durante a espera do ritmo nao sai', async () => {
   const opc = { uid: 1000, env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => { fs.writeFileSync(c.arq, JSON.stringify({ versao: 1, grupos: [] })); } };
   let r = await executar(['enviar', '--para', '+5511911111111', '--texto', 'primeira mensagem para a Ana'], opc);
   assert.equal(r.resposta.ok, true);
-  r = await executar(['enviar', '--grupo', G1, '--texto', 'segunda mensagem, agora para o grupo'], { ...opc, aleatorio: () => 0 });
+  r = await executar(['enviar', '--grupo', G1, '--texto-stdin'], { ...opc, aleatorio: () => 0, stdin: entrada('segunda mensagem, agora para o grupo') });
   assert.equal(r.resposta.codigo, 'GRUPO_NAO_LIBERADO');
   assert.equal(g.chamadas.length, 1);
   c.limpar();
@@ -138,14 +140,14 @@ test('travas: PARADO vem antes e a falha de envio para grupo trava tudo', async 
     ? { ok: false, status: 500, json: async () => ({ error: 'caiu' }) }
     : { ok: true, status: 200, json: async () => ({ messageId: 'M' + Math.random() }) });
   const opc = { uid: 1000, env: ENV, home: c.home, fetchImpl, dormir: async () => {} };
-  assert.equal((await executar(['enviar', '--grupo', G1, '--texto', 'primeiro aviso para o grupo'], opc)).codigoSaida, 0);
+  assert.equal((await executar(['enviar', '--grupo', G1, '--texto-stdin'], { ...opc, stdin: entrada('primeiro aviso para o grupo') })).codigoSaida, 0);
   falhar = true;
-  let r = await executar(['enviar', '--grupo', G1, '--texto', 'segundo aviso para o grupo'], opc);
+  let r = await executar(['enviar', '--grupo', G1, '--texto-stdin'], { ...opc, stdin: entrada('segundo aviso para o grupo') });
   assert.equal(r.resposta.codigo, 'FALHA_ENVIO');
   falhar = false;
-  r = await executar(['enviar', '--grupo', G1, '--texto', 'terceiro aviso para o grupo'], opc);
+  r = await executar(['enviar', '--grupo', G1, '--texto-stdin'], { ...opc, stdin: entrada('terceiro aviso para o grupo') });
   assert.equal(r.resposta.codigo, 'PARADO');
-  r = await executar(['enviar', '--grupo', G2, '--texto', 'aviso para grupo nao liberado'], opc);
+  r = await executar(['enviar', '--grupo', G2, '--texto-stdin'], { ...opc, stdin: entrada('aviso para grupo nao liberado') });
   assert.equal(r.resposta.codigo, 'PARADO');
   c.limpar();
 });
@@ -317,7 +319,7 @@ test('lista que e link simbolico e recusada, mesmo apontando para uma lista vali
   const r = lerGruposLiberados(c.arq);
   assert.match(r.erro, /link simbolico/);
   const g = fetchGravando();
-  const e = await executar(['enviar', '--grupo', G1, '--texto', 'oi pessoal'], { uid: 1000, env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} });
+  const e = await executar(['enviar', '--grupo', G1, '--texto-stdin'], { uid: 1000, env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {}, stdin: entrada('oi pessoal') });
   assert.equal(e.resposta.codigo, 'LISTA_DE_GRUPOS_ILEGIVEL');
   assert.equal(g.chamadas.length, 0);
   c.limpar();
@@ -328,7 +330,7 @@ test('lista com versao 2 ou sem versao e recusada antes de chamar a Z-API', asyn
     const c = casa({ liberados: null });
     fs.writeFileSync(c.arq, JSON.stringify(corpo));
     const g = fetchGravando();
-    const e = await executar(['enviar', '--grupo', G1, '--texto', 'oi pessoal'], { uid: 1000, env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} });
+    const e = await executar(['enviar', '--grupo', G1, '--texto-stdin'], { uid: 1000, env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {}, stdin: entrada('oi pessoal') });
     assert.equal(e.resposta.codigo, 'LISTA_DE_GRUPOS_ILEGIVEL');
     assert.equal(g.chamadas.length, 0);
     c.limpar();
@@ -425,7 +427,7 @@ test('enviar --grupo: recusa o Admin (DGCLAW_TIPO=admin ou uid 0) sem chamada de
     const c = casa();
     const antes = fs.readdirSync(path.join(c.home, '.dgclaw', 'whatsapp')).sort();
     const { chamadas, fetchImpl } = fetchGravando();
-    const r = await executar(['enviar', '--grupo', G1, '--texto', 'oi'], { ...opcoes, home: c.home, fetchImpl });
+    const r = await executar(['enviar', '--grupo', G1, '--texto-stdin'], { ...opcoes, home: c.home, fetchImpl, stdin: entrada('oi') });
     assert.equal(r.codigoSaida, 2);
     assert.equal(r.resposta.ok, false);
     assert.match(JSON.stringify(r.resposta), /agentes de trabalho/);
@@ -448,5 +450,17 @@ test('--texto-stdin lendo um arquivo: uma linha FIM no meio nao corta o texto', 
   assert.equal(r.codigoSaida, 0, JSON.stringify(r.resposta));
   assert.equal(chamadas.length, 1);
   assert.equal(JSON.parse(chamadas[0].init.body).message, texto);
+  c.limpar();
+});
+
+test('enviar --grupo com --texto e recusado com erro de uso, antes de tocar na rede ou criar estado', async () => {
+  const c = casa();
+  const g = fetchGravando();
+  const r = await executar(['enviar', '--grupo', G1, '--texto', 'mensagem na linha de comando'], { uid: 1000, env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} });
+  assert.equal(r.codigoSaida, 2);
+  assert.equal(r.resposta.codigo, 'USO_INVALIDO');
+  assert.match(r.resposta.erro, /--texto-stdin/);
+  assert.equal(g.chamadas.length, 0);
+  assert.equal(fs.existsSync(path.join(c.home, '.dgclaw', 'whatsapp', 'envio')), false);
   c.limpar();
 });

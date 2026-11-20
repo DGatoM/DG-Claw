@@ -50,14 +50,20 @@ confirmado e use sempre esse vínculo (nunca o nome remoto atual). Se o nome rem
 Se houver homônimo, ou a listagem vier truncada ou com grupos omitidos, pergunte ao dono qual ID usar. Só depois o envio
 confere se o ID está liberado.
 
-Grave o texto num arquivo privado com a ferramenta de escrever arquivo (Write no Claude Code, edição de arquivo ou `apply_patch` no Codex), nunca por comando de shell (nada de `echo`, `cat`, `printf` nem heredoc com o texto). Use a pasta `~/.dgclaw/tmp/` (crie com permissão 700 se não existir) e um nome como `msg-<algo>.txt`. Depois envie lendo o arquivo e apague-o:
+Reserve um arquivo exclusivo para este envio (outra sessão do mesmo agente pode estar preparando outra mensagem na mesma pasta, e um nome fixo faria uma ler o texto da outra). Primeiro crie a pasta e reserve o arquivo, com um comando que não leva o texto, e anote o caminho que ele devolve:
 
 ```bash
-node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs enviar --grupo "120363000000000000-group" --texto-stdin < ~/.dgclaw/tmp/msg-turma.txt
-rm -f ~/.dgclaw/tmp/msg-turma.txt
+mkdir -p -m 700 ~/.dgclaw/tmp && mktemp ~/.dgclaw/tmp/msg-XXXXXX.txt
 ```
 
-O texto vai por arquivo, fora do comando. `--grupo` e `--texto` não se repetem na mesma chamada.
+Depois grave o texto nesse caminho com a ferramenta de escrever arquivo (Write no Claude Code, edição de arquivo ou `apply_patch` no Codex), nunca por comando de shell (nada de `echo`, `cat`, `printf` nem heredoc com o texto). Por fim envie lendo esse mesmo caminho e apague-o, devolvendo o código de saída do envio (a limpeza não pode esconder uma falha):
+
+```bash
+ARQ="<caminho devolvido pelo mktemp>"
+node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs enviar --grupo "120363000000000000-group" --texto-stdin < "$ARQ"; rc=$?; rm -f "$ARQ"; (exit "$rc")
+```
+
+O texto vai por arquivo, fora do comando, e para grupo a CLI recusa `--texto` (código 2). `--grupo` não se repete na mesma chamada.
 
 `--grupo` e `--para` não se misturam na mesma chamada. Um grupo conta como um envio, com as mesmas travas de ritmo,
 teto e texto repetido (o mesmo texto para um grupo e para uma pessoa em 24 horas também é recusado). Aviso agendado

@@ -581,10 +581,13 @@ cmd_wa_desligar() {
   # WADIR e sempre $HOME/.dgclaw/whatsapp, a pasta que este comando mesmo cria (e nao e link: conferido acima)
   # Pega a mesma trava das alteracoes da lista de grupos (a trava fica fora de WADIR), para nenhuma alteracao em
   # andamento recriar a lista depois do rm.
+  # Depois do rm, ainda sob a trava, sync da pasta que continha whatsapp/: sem isso, uma queda da VPS logo depois
+  # poderia trazer a lista de grupos antiga de volta. So confirma a exclusao se o sync deu certo.
   if command -v flock >/dev/null 2>&1; then
-    ( flock -x 9 || exit 1; rm -rf -- "$WADIR" ) 9>>"$TRAVA_GRUPOS" || die "nao consegui apagar $WADIR com a trava da lista de grupos. Tente de novo."
+    ( flock -x 9 || exit 1; rm -rf -- "$WADIR" || exit 1; sync "$(dirname "$WADIR")" ) 9>>"$TRAVA_GRUPOS" || die "nao consegui apagar $WADIR e confirmar no disco (trava, remocao ou sync da pasta falhou). Confira a pasta e repita 'canal whatsapp desligar --apagar'."
   else
     rm -rf -- "$WADIR"
+    sync "$(dirname "$WADIR")" || die "apaguei $WADIR, mas nao consegui confirmar no disco (o sync da pasta falhou). Confira a pasta e repita 'canal whatsapp desligar --apagar'."
   fi
   echo "WhatsApp desligado e dados apagados (conexao e lista de permitidos). Os arquivos recebidos em ~/uploads/whatsapp ficaram."
 }

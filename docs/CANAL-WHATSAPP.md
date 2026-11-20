@@ -358,10 +358,10 @@ https://developer.z-api.io/group/introduction): o DG Claw não o aceita, e os gr
 
 ```
 node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs grupos
-node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs enviar --grupo 120363000000000000-group --texto-stdin < ~/.dgclaw/tmp/msg-turma.txt
+node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs enviar --grupo 120363000000000000-group --texto-stdin < "$ARQ"; rc=$?; rm -f "$ARQ"; (exit "$rc")
 ```
 
-O agente grava o texto nesse arquivo com a ferramenta de escrever arquivo (nunca por comando de shell, como `echo`, `cat`, `printf` ou heredoc), em `~/.dgclaw/tmp/` (permissão 700), e apaga o arquivo depois do envio. O texto vai por arquivo, fora do comando.
+Antes, o agente reserva um arquivo exclusivo para o envio, com `mkdir -p -m 700 ~/.dgclaw/tmp && mktemp ~/.dgclaw/tmp/msg-XXXXXX.txt` (comando sem o texto; ele anota o caminho devolvido e o usa como `ARQ`). Depois grava o texto nesse caminho com a ferramenta de escrever arquivo (nunca por comando de shell, como `echo`, `cat`, `printf` ou heredoc). Um nome fixo faria duas sessões do mesmo agente trocarem o texto uma da outra. Depois do envio o arquivo é apagado, e o código de saída da CLI é guardado antes da limpeza e devolvido depois dela, para o `rm` não esconder uma recusa. Para grupo a CLI exige `--texto-stdin` e recusa `--texto` (código 2, antes de tocar na rede), porque o texto na linha de comando ficaria visível aos outros usuários da VPS pelo `ps`.
 
 `grupos` chama `GET /instances/{instância}/token/{token}/groups`, página por página (50 por página, até 20 páginas;
 passando disso a resposta traz o campo `aviso`) e imprime `{"ok":true,"grupos":[{"id","nome","liberado"}]}`. A paginação

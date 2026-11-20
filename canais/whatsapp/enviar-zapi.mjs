@@ -2,7 +2,7 @@
 // enviar-zapi.mjs - o agente manda WhatsApp pela Z-API, SEMPRE com as travas contra banimento.
 //
 //   node enviar-zapi.mjs enviar --para +5511999999999 [--texto "..." | --texto-stdin]
-//   node enviar-zapi.mjs enviar --grupo 120363000000000000-group [--texto "..." | --texto-stdin]   (so grupo que o dono liberou)
+//   node enviar-zapi.mjs enviar --grupo 120363000000000000-group --texto-stdin < arquivo   (so grupo que o dono liberou)
 //   node enviar-zapi.mjs grupos       (lista os grupos da instancia: id, nome e se o dono liberou)
 //   node enviar-zapi.mjs status
 //   node enviar-zapi.mjs retomar      (so o dono, pelo comando dgclaw-agente canal whatsapp retomar)
@@ -48,12 +48,15 @@ async function lerStdin(entrada) {
 /** Funcao testavel: devolve { codigoSaida, resposta }. */
 export async function executar(argv, { env = process.env, home = os.homedir(), stdin = process.stdin, uid = process.getuid?.(), fetchImpl, agora, dormir, aleatorio } = {}) {
   const a = lerArgs(argv);
-  if (a.erro) return { codigoSaida: 2, resposta: falha('USO_INVALIDO', `${a.erro}; uso: enviar --para <numero> --texto "..." | enviar --grupo <id> --texto "..." | grupos | status`) };
+  if (a.erro) return { codigoSaida: 2, resposta: falha('USO_INVALIDO', `${a.erro}; uso: enviar --para <numero> --texto "..." | enviar --grupo <id> --texto-stdin < arquivo | grupos | status`) };
   // Grupos: a lista traz nomes escolhidos por terceiros e o envio usa a lista liberada pelo dono. O Admin
   // nao faz nenhum dos dois (mesmo criterio de bin/dgclaw-agente), e a recusa vem antes de criar estado ou tocar na rede.
   const ehOperacaoDeGrupo = a._[0] === 'grupos' || (a._[0] === 'enviar' && a.grupo !== undefined);
   if (ehOperacaoDeGrupo && (env.DGCLAW_TIPO === 'admin' || uid === 0)) {
     return { codigoSaida: 2, resposta: falha('SO_AGENTE', 'grupos so sao consultados e recebem envio pelos agentes de trabalho, nao pelo Admin') };
+  }
+  if (a._[0] === 'enviar' && a.grupo !== undefined && !a.textoStdin) {
+    return { codigoSaida: 2, resposta: falha('USO_INVALIDO', 'para grupo use --texto-stdin com o texto em um arquivo (enviar --grupo <id> --texto-stdin < arquivo); --texto deixaria a mensagem na linha de comando do processo') };
   }
   const dirBase = path.join(home, '.dgclaw', 'whatsapp');
   const arqGrupos = path.join(dirBase, 'grupos-liberados.json');
@@ -73,7 +76,7 @@ export async function executar(argv, { env = process.env, home = os.homedir(), s
     const r = await envio.liberarComTrava();
     return { codigoSaida: r.ok ? 0 : 1, resposta: r };
   }
-  if (cmd !== 'enviar') return { codigoSaida: 2, resposta: falha('USO_INVALIDO', 'use "enviar --para <numero> --texto ...", "enviar --grupo <id> --texto ...", "grupos" ou "status"') };
+  if (cmd !== 'enviar') return { codigoSaida: 2, resposta: falha('USO_INVALIDO', 'use "enviar --para <numero> --texto ...", "enviar --grupo <id> --texto-stdin < arquivo", "grupos" ou "status"') };
 
   const ehGrupo = a.grupo !== undefined;
   if (ehGrupo && a.para !== undefined) return { codigoSaida: 2, resposta: falha('PEDIDO_INVALIDO', 'use --para (um numero) ou --grupo (um grupo), nunca os dois na mesma chamada') };
