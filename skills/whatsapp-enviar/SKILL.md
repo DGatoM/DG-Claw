@@ -60,7 +60,7 @@ Depois grave o texto nesse caminho com a ferramenta de escrever arquivo (Write n
 
 ```bash
 ARQ="<caminho devolvido pelo mktemp>"
-node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs enviar --grupo "120363000000000000-group" --texto-stdin < "$ARQ"; rc=$?
+if node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs enviar --grupo "120363000000000000-group" --texto-stdin < "$ARQ"; then rc=0; else rc=$?; fi
 if rm -f "$ARQ"; then rm_rc=0; else rm_rc=$?; fi
 if [ "$rc" -ne 0 ]; then (exit "$rc")
 elif [ "$rm_rc" -ne 0 ]; then echo "A mensagem JA SAIU (nao reenviar). Nao consegui apagar $ARQ: apague esse arquivo." >&2; (exit "$rm_rc")

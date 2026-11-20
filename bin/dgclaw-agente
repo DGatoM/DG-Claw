@@ -10,7 +10,7 @@
 #   dgclaw-agente canal whatsapp parear <numero-secundario>   (imprime so o codigo de pareamento)
 #   dgclaw-agente canal whatsapp permitir <numero-do-dono>
 #   dgclaw-agente canal whatsapp remover <numero>
-#   dgclaw-agente canal whatsapp grupo (listar | liberar <id> [nome] | remover <id>)   (grupos em que o agente pode escrever pela Z-API)
+#   dgclaw-agente canal whatsapp grupo (listar | liberar <id> | remover <id>)   (grupos em que o agente pode escrever pela Z-API)
 #   dgclaw-agente canal whatsapp ligar
 #   dgclaw-agente canal whatsapp desligar [--apagar]
 #   dgclaw-agente canal whatsapp retomar                      (libera os envios travados pelas travas contra banimento)
@@ -316,9 +316,9 @@ gravar_permitidos() { # usa LISTA
 # este script nao sabe onde a imagem guarda o modulo). Arquivo ilegivel e erro, nunca lista vazia.
 ID_GRUPO='^[0-9]{10,30}-group$'
 
-# grupos_op <listar|liberar|remover> [id] [nome]: imprime a lista nova (JSON) no stdout e o aviso em stderr (codigo 3 = nada mudou)
+# grupos_op <listar|liberar|remover> [id]: imprime a lista nova (JSON) no stdout e o aviso em stderr (codigo 3 = nada mudou; 4 = remover de um ID ausente)
 grupos_op() {
-  GRUPOS_ARQ="$WADIR/grupos-liberados.json" GRUPOS_OP="$1" GRUPOS_ID="${2:-}" GRUPOS_NOME="${3:-}" GRUPOS_RE="$ID_GRUPO" node -e '
+  GRUPOS_ARQ="$WADIR/grupos-liberados.json" GRUPOS_OP="$1" GRUPOS_ID="${2:-}" GRUPOS_RE="$ID_GRUPO" node -e '
     const fs = require("fs");
     const arq = process.env.GRUPOS_ARQ, op = process.env.GRUPOS_OP, id = process.env.GRUPOS_ID;
     const re = new RegExp(process.env.GRUPOS_RE);
@@ -352,13 +352,12 @@ grupos_op() {
         const ruim = o.grupos.findIndex((g) => !g || typeof g.id !== "string" || !re.test(g.id));
         if (ruim >= 0) falhar("a entrada " + (ruim + 1) + " de \"grupos\" tem o campo \"id\" invalido");
       }
-      const nome = process.env.GRUPOS_NOME.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069]+/g, " ").replace(/[\[\]()<>`]/g, "").replace(/:\/\//g, ":/ /").replace(/\s+/g, " ").trim().slice(0, 100);
       const tem = o.grupos.some((g) => g.id === id);
       if (op === "liberar") {
         if (tem) { console.error("O grupo " + id + " ja estava liberado. Nada mudou."); process.exitCode = 3; process.stdout.write(JSON.stringify(o, null, 2) + "\n"); return; }
-        o.grupos.push({ id, nome, liberado_em: new Date().toISOString() });
+        o.grupos.push({ id, liberado_em: new Date().toISOString() });
       } else if (op === "remover") {
-        if (!tem) { console.error("o grupo " + id + " nao esta na lista de liberados, entao nada foi removido. Confira o ID."); process.exitCode = 1; return; }
+        if (!tem) { process.exitCode = 4; return; }
         o.grupos = o.grupos.filter((g) => g.id !== id);
       }
       process.stdout.write(JSON.stringify(o, null, 2) + "\n");
@@ -366,12 +365,12 @@ grupos_op() {
   '
 }
 
-# grupos_alterar <liberar|remover> <id> [nome]: le, altera e grava a lista com a trava segurada o tempo todo.
+# grupos_alterar <liberar|remover> <id>: le, altera e grava a lista com a trava segurada o tempo todo.
 # A trava e um arquivo proprio (whatsapp-grupos.trava), que a troca atomica nunca substitui: duas
 # alteracoes ao mesmo tempo se enfileiram e a segunda enxerga o resultado da primeira. Ela fica em $DIR, ao lado
 # da pasta whatsapp e fora dela, para que "canal whatsapp desligar --apagar" (que apaga a pasta inteira) nao
 # leve a trava junto e possa pegar a mesma trava antes de apagar. Imprime a lista nova.
-# Codigo 3 = nada mudou; 1 = recusou.
+# Codigo 3 = nada mudou; 1 = recusou. Remover um ID ausente tambem faz o sync da pasta antes de dizer que a ausencia esta confirmada.
 TRAVA_GRUPOS="$DIR/whatsapp-grupos.trava"
 grupos_alterar() {
   command -v flock >/dev/null 2>&1 || die "o comando flock nao existe aqui, e ele protege a lista de grupos contra duas alteracoes ao mesmo tempo. Avise quem mantem a imagem do agente."
@@ -389,7 +388,20 @@ grupos_alterar() {
       erro "a pasta $WADIR foi apagada (ou trocada) enquanto esta alteracao esperava. Nada foi gravado. Rode 'canal whatsapp grupo liberar' de novo se ainda quiser."
       exit 1
     fi
-    novo="$(grupos_op "$@")" || { rc=$?; [ "$rc" = 3 ] && printf '%s\n' "$novo"; exit "$rc"; }
+    novo="$(grupos_op "$@")" || {
+      rc=$?
+      if [ "$rc" = 4 ]; then
+        # ID ja ausente: a remocao pode ter sido gravada por uma tentativa anterior cujo sync falhou. So confirma a ausencia se o sync da pasta der certo.
+        if sync "$WADIR"; then
+          erro "o grupo $2 nao esta na lista de liberados (a ausencia esta confirmada no disco), entao nada foi removido. Confira o ID."
+        else
+          erro "o grupo $2 nao esta na lista, mas nao consegui confirmar no disco (o sync da pasta falhou). Repita 'canal whatsapp grupo remover' para confirmar."
+        fi
+        exit 1
+      fi
+      [ "$rc" = 3 ] && printf '%s\n' "$novo"
+      exit "$rc"
+    }
     printf '%s\n' "$novo" | escrever_atomico --duravel "$WADIR/grupos-liberados.json" || exit 1
     printf '%s\n' "$novo"
   ) 9>>"$TRAVA_GRUPOS" || rc=$?
@@ -447,17 +459,17 @@ mostrar_grupos() { # $1 = JSON da lista
 }
 
 cmd_wa_grupo() {
-  local sub="${1:-}" id nome novo rc=0
+  local sub="${1:-}" id novo rc=0
   case "$sub" in
     listar)
       novo="$(grupos_op listar)" || exit 1
       mostrar_grupos "$novo" ;;
     liberar)
       id="${2:-}"
-      [ -n "$id" ] || die "uso: dgclaw-agente canal whatsapp grupo liberar <id> [nome]  (o ID tem o formato 120363000000000000-group; o agente o acha pelo nome com 'enviar-zapi.mjs grupos')"
+      [ -n "$id" ] || die "uso: dgclaw-agente canal whatsapp grupo liberar <id>  (o ID tem o formato 120363000000000000-group; o agente o acha pelo nome com 'enviar-zapi.mjs grupos')"
       [[ "$id" =~ $ID_GRUPO ]] || die "ID de grupo invalido: recebi '${id:0:40}'. O ID tem digitos seguidos de -group, por exemplo 120363000000000000-group."
-      shift 2; nome="$*"
-      novo="$(grupos_alterar liberar "$id" "$nome")" || rc=$?
+      [ "$#" -eq 2 ] || die "uso: dgclaw-agente canal whatsapp grupo liberar <id>  (exatamente um ID, sem nome; nada foi alterado)"
+      novo="$(grupos_alterar liberar "$id")" || rc=$?
       if [ "$rc" = 3 ]; then mostrar_grupos "$novo"; return 0; fi
       [ "$rc" = 0 ] || exit 1
       echo "Grupo $id liberado."
@@ -469,7 +481,7 @@ cmd_wa_grupo() {
       novo="$(grupos_alterar remover "$id")" || exit 1
       echo "Grupo $id removido."
       mostrar_grupos "$novo" ;;
-    *) die "uso: dgclaw-agente canal whatsapp grupo (listar | liberar <id> [nome] | remover <id>)" ;;
+    *) die "uso: dgclaw-agente canal whatsapp grupo (listar | liberar <id> | remover <id>)" ;;
   esac
 }
 

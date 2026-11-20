@@ -224,31 +224,38 @@ ok "whatsapp: remover de numero ausente da erro claro" $([ $c = 1 ] && grep -q "
 # grupo: libera, nao duplica, valida o ID, remove, e arquivo ilegivel nunca vira lista vazia
 GR="$WA/grupos-liberados.json"
 "$BIN" canal whatsapp grupo listar >"$T/o" 2>&1; ok "whatsapp: grupo listar sem arquivo diz nenhum" $(grep -q "Grupos liberados: nenhum" "$T/o" && echo 0 || echo 1)
-"$BIN" canal whatsapp grupo liberar 120363000000000001-group "Turma da tarde" >"$T/o" 2>"$T/e"; c=$?
-ok "whatsapp: grupo liberar funciona" $([ $c = 0 ] && grep -q "120363000000000001-group  Turma da tarde" "$T/o" && echo 0 || echo 1)
+"$BIN" canal whatsapp grupo liberar 120363000000000001-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: grupo liberar funciona" $([ $c = 0 ] && grep -q "120363000000000001-group" "$T/o" && echo 0 || echo 1)
 [ "$(stat -c %a "$GR")" = 600 ]; ok "whatsapp: grupos-liberados.json com 600" $?
-node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1]));const g=d.grupos[0];process.exit(d.versao===1&&d.grupos.length===1&&g.id==="120363000000000001-group"&&g.nome==="Turma da tarde"&&!isNaN(Date.parse(g.liberado_em))?0:1)' "$GR"
-ok "whatsapp: grupo liberado grava id, nome e liberado_em" $?
+node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1]));const g=d.grupos[0];process.exit(d.versao===1&&d.grupos.length===1&&g.id==="120363000000000001-group"&&g.nome===undefined&&!isNaN(Date.parse(g.liberado_em))?0:1)' "$GR"
+ok "whatsapp: grupo liberado grava id e liberado_em, sem nome" $?
 "$BIN" canal whatsapp grupo liberar 120363000000000001-group >"$T/o" 2>&1; c=$?
 ok "whatsapp: liberar de novo nao duplica" $([ $c = 0 ] && grep -q "ja estava liberado" "$T/o" && [ "$(grep -c '120363000000000001-group"' "$GR")" = 1 ] && echo 0 || echo 1)
 for ruim in 5511987654321 abc 120363000000000001 "120363-group" "../x-group"; do
   "$BIN" canal whatsapp grupo liberar "$ruim" >"$T/o" 2>"$T/e"; c=$?
   ok "whatsapp: grupo liberar recusa o ID '$ruim'" $([ $c = 1 ] && grep -q "ID de grupo invalido" "$T/e" && echo 0 || echo 1)
 done
-"$BIN" canal whatsapp grupo liberar 120363000000000002-group "Nome
-com quebra" >/dev/null 2>&1
-node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1]));process.exit(d.grupos.length===2&&d.grupos[1].nome==="Nome com quebra"?0:1)' "$GR"; ok "whatsapp: nome do grupo sai sem quebra de linha" $?
+"$BIN" canal whatsapp grupo liberar 120363000000000002-group >/dev/null 2>&1
 cp "$GR" "$T/gr.antes"
+"$BIN" canal whatsapp grupo liberar 120363000000000010-group "Nome extra" >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: grupo liberar com argumento extra e erro de uso e a lista fica igual" $([ $c = 1 ] && grep -q "exatamente um ID" "$T/e" && cmp -s "$GR" "$T/gr.antes" && echo 0 || echo 1)
 "$BIN" canal whatsapp grupo remover 120363000000000002-group 120363000000000001-group >"$T/o" 2>"$T/e"; c=$?
 ok "whatsapp: grupo remover com dois IDs falha e a lista fica igual" $([ $c = 1 ] && grep -q "exatamente um ID" "$T/e" && cmp -s "$GR" "$T/gr.antes" && echo 0 || echo 1)
-"$BIN" canal whatsapp grupo liberar 120363000000000004-group "[Confirmar](https://x.example) \`a\`" >/dev/null 2>&1
-node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1]));const g=d.grupos.find((x)=>x.id==="120363000000000004-group");process.exit(g&&g.nome==="Confirmarhttps:/ /x.example a"?0:1)' "$GR"; ok "whatsapp: nome liberado sai sem marcas de link" $?
+"$BIN" canal whatsapp grupo liberar 120363000000000004-group >/dev/null 2>&1
 "$BIN" canal whatsapp grupo remover 120363000000000004-group >/dev/null 2>&1
 cp "$GR" "$T/gr.antes-sync"
 mkdir -p "$T/sync-falso"
 printf '#!/usr/bin/env bash\nexit 1\n' > "$T/sync-falso/sync"; chmod +x "$T/sync-falso/sync"
 PATH="$T/sync-falso:$PATH" "$BIN" canal whatsapp grupo remover 120363000000000002-group >"$T/o" 2>"$T/e"; c=$?
 ok "whatsapp: grupo remover com sync que falha sai com erro e nao confirma" $([ $c != 0 ] && ! grep -q "removido" "$T/o" && cmp -s "$GR" "$T/gr.antes-sync" && echo 0 || echo 1)
+# ID ja ausente: o sync da pasta e feito; falha so na primeira chamada de sync (contador em arquivo)
+rm -f "$T/sync-conta"
+mkdir -p "$T/sync-uma-vez"
+printf '#!/usr/bin/env bash\nif [ ! -e "%s" ]; then : > "%s"; exit 1; fi\nexit 0\n' "$T/sync-conta" "$T/sync-conta" > "$T/sync-uma-vez/sync"; chmod +x "$T/sync-uma-vez/sync"
+PATH="$T/sync-uma-vez:$PATH" "$BIN" canal whatsapp grupo remover 120363000000000009-group >"$T/o" 2>"$T/e"; c1=$?
+ok "whatsapp: remover ID ausente com sync que falha da erro de persistencia" $([ $c1 = 1 ] && grep -q "nao consegui confirmar no disco" "$T/e" && ! grep -q "confirmada no disco" "$T/e" && echo 0 || echo 1)
+PATH="$T/sync-uma-vez:$PATH" "$BIN" canal whatsapp grupo remover 120363000000000009-group >"$T/o" 2>"$T/e"; c2=$?
+ok "whatsapp: remover ID ausente de novo faz o sync e confirma a ausencia" $([ $c2 = 1 ] && grep -q "ausencia esta confirmada no disco" "$T/e" && echo 0 || echo 1)
 "$BIN" canal whatsapp grupo remover 120363000000000002-group >"$T/o" 2>&1; c=$?
 ok "whatsapp: grupo remover funciona" $([ $c = 0 ] && grep -q "removido" "$T/o" && ! grep -q "000002-group" "$GR" && grep -q "000001-group" "$GR" && echo 0 || echo 1)
 "$BIN" canal whatsapp grupo remover 120363000000000009-group >"$T/o" 2>"$T/e"; c=$?
