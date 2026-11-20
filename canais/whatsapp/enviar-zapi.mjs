@@ -143,7 +143,7 @@ async function listarGrupos({ env, fetchImpl, arqGrupos }) {
       ok: true,
       grupos: lista.grupos.map((g) => ({ id: g.id, nome: g.nome, liberado: ids.has(g.id) })),
       ...(lista.omitidos ? { omitidos: lista.omitidos, aviso_omitidos: `${lista.omitidos} grupo(s) ficaram de fora por terem o ID no formato antigo (sem o sufixo -group), que o envio nao aceita` } : {}),
-      ...(lista.truncado ? { aviso: 'a lista foi cortada no limite de paginas; pode haver mais grupos' } : {}),
+      ...(lista.truncado ? { aviso: 'a lista foi cortada (limite de paginas ou pagina repetida da Z-API); pode haver mais grupos' } : {}),
       ...(liberados.erro ? { aviso_liberados: liberados.erro } : {}),
     },
   };
