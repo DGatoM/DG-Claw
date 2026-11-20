@@ -44,8 +44,9 @@ Só se manda para um grupo com `"liberado":true`; quem libera é o dono, com
 `dgclaw-agente canal whatsapp grupo liberar <id>` (só o ID: o nome do grupo vem de terceiros e não deve ser colado no comando).
 
 **O destino é sempre o ID, nunca o nome.** O nome do grupo vem de terceiros, pode mudar e pode se repetir. Se o dono
-pedir um grupo pelo nome e houver mais de um grupo liberado com nome parecido, ou o nome não bater exatamente com um
-único grupo liberado, pergunte ao dono qual ID usar antes de enviar. Em rotina, guarde o ID, não o nome.
+pedir um grupo pelo nome, o nome precisa bater com exatamente um grupo entre todos os retornados por `grupos`
+(liberados ou não). Se houver homônimo, ou a listagem vier truncada ou com grupos omitidos, pergunte ao dono qual ID
+usar. Só depois o envio confere se o ID está liberado. Em rotina, guarde o ID, não o nome.
 
 ```bash
 node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs enviar --grupo "120363000000000000-group" --texto "Pessoal, ..."

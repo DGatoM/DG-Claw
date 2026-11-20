@@ -338,8 +338,8 @@ for _ in $(seq 50); do [ -e "$T/preso" ] && break; sleep 0.1; done
 "$BIN" canal whatsapp grupo liberar 120363000000000008-group >"$T/o" 2>"$T/e" &
 AP=$!
 sleep 1
-# a nova nasce antes de a velha sumir, para o sistema de arquivos nao reaproveitar o inode
-mkdir "$WA.nova"; chmod 700 "$WA.nova"; rm -rf "$WA"; mv "$WA.nova" "$WA"
+# apaga antes de recriar: sem o descritor aberto o sistema de arquivos poderia reaproveitar o inode
+rm -rf "$WA"; mkdir "$WA"; chmod 700 "$WA"
 echo ok > "$T/solta"; wait "$LP"; wait "$AP"; c=$?
 ok "whatsapp: pasta recriada durante a espera aborta e fica sem a lista" $([ $c = 1 ] && [ ! -e "$GR" ] && grep -q "foi apagada" "$T/e" && echo 0 || echo 1)
 rm -rf "$WA"; rm -f "$T/preso" "$T/solta"

@@ -361,20 +361,25 @@ TRAVA_GRUPOS="$DIR/whatsapp-grupos.trava"
 grupos_alterar() {
   command -v flock >/dev/null 2>&1 || die "o comando flock nao existe aqui, e ele protege a lista de grupos contra duas alteracoes ao mesmo tempo. Avise quem mantem a imagem do agente."
   garantir_pasta_wa
-  # Identidade da pasta (dispositivo:inode) antes de esperar a trava: se ela for apagada e recriada, o inode muda.
-  local ident; ident="$(stat -c %d:%i "$WADIR" 2>/dev/null)" || ident=""
+  # Descritor aberto para a pasta original durante a espera: enquanto ele existir o inode nao e reaproveitado,
+  # entao uma pasta apagada e recriada nunca tem a mesma identidade (dispositivo:inode).
+  local wfd rc=0
+  [ ! -L "$WADIR" ] || die "a pasta $WADIR e um link. Recusei por seguranca."
+  exec {wfd}<"$WADIR" || die "nao consegui abrir a pasta $WADIR."
   (
     flock -x 9 || exit 1
     # O desligar --apagar pode ter apagado a pasta enquanto esta alteracao esperava a trava: nao recrio nada,
     # e uma pasta recriada nesse meio tempo (outra identidade) tambem nao recebe a alteracao antiga.
-    if [ -L "$WADIR" ] || [ ! -d "$WADIR" ] || [ -z "$ident" ] || [ "$(stat -c %d:%i "$WADIR" 2>/dev/null)" != "$ident" ]; then
+    if [ -L "$WADIR" ] || [ ! -d "$WADIR" ] || [ "$(stat -L -c %d:%i "/proc/self/fd/$wfd" 2>/dev/null)" != "$(stat -c %d:%i "$WADIR" 2>/dev/null)" ]; then
       erro "a pasta $WADIR foi apagada (ou trocada) enquanto esta alteracao esperava. Nada foi gravado. Rode 'canal whatsapp grupo liberar' de novo se ainda quiser."
       exit 1
     fi
     novo="$(grupos_op "$@")" || { rc=$?; [ "$rc" = 3 ] && printf '%s\n' "$novo"; exit "$rc"; }
     printf '%s\n' "$novo" | escrever_atomico "$WADIR/grupos-liberados.json" || exit 1
     printf '%s\n' "$novo"
-  ) 9>>"$TRAVA_GRUPOS"
+  ) 9>>"$TRAVA_GRUPOS" || rc=$?
+  exec {wfd}<&-
+  return "$rc"
 }
 
 # Texto "+55..., +55..." da lista (ou "nenhum")
