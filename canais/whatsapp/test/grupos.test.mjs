@@ -234,6 +234,7 @@ test('grupos: a Z-API que ignora a pagina nao prende o loop, e o teto de paginas
   let r = await executar(['grupos'], { uid: 1000, env: ENV, home: c.home, fetchImpl: async () => { n++; return { ok: true, status: 200, json: async () => tudo }; } });
   assert.equal(r.resposta.grupos.length, 60);
   assert.equal(n, 2);
+  assert.match(r.resposta.aviso, /cortada/);
   assert.ok(r.resposta.grupos.every((g) => g.liberado === false));
   n = 0;
   const infinito = async (url) => {

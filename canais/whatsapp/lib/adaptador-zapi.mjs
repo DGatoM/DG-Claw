@@ -76,8 +76,8 @@ export function criarAdaptadorZapi({ instancia, token, clientToken, fetchImpl = 
         if (!idDeGrupoValido(id)) { omitidos += 1; continue; }
         vistos.set(id, limparNome(g.name));
       }
-      if (corpo.length < tamanhoPagina || novos === 0) break;
-      if (pagina === maxPaginas) truncado = true;
+      if (corpo.length < tamanhoPagina) break;
+      if (novos === 0 || pagina === maxPaginas) { truncado = true; break; }
     }
     return { grupos: [...vistos].map(([id, nome]) => ({ id, nome })), truncado, omitidos };
   }

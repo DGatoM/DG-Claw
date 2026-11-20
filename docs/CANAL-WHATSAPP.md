@@ -368,7 +368,7 @@ fora, e a resposta diz quantos foram no campo `omitidos` (com o `aviso_omitidos`
 grupo vem de fora: o script tira caracteres de controle e quebras de linha e corta em 100 caracteres. Os erros passam
 pela mesma limpeza de credencial do envio.
 
-**O destino é sempre o ID.** O nome do grupo vem de terceiros, pode mudar e repetir. Se o dono pedir um grupo por nome e o nome não bater com exatamente um grupo entre todos os que o `grupos` retorna (liberados ou não), ou a listagem vier truncada ou com grupos omitidos, o agente pergunta qual ID usar antes de enviar (só depois o envio confere se o ID está liberado); em rotina, guarda o ID.
+**O destino é sempre o ID.** O nome do grupo vem de terceiros, pode mudar e repetir. O nome remoto nunca basta para escolher o destino. Quando o pedido não traz o ID, o agente mostra ao dono o nome e o ID encontrados e pede confirmação antes do primeiro envio àquele grupo; depois guarda nas próprias notas o apelido que o dono usa ligado ao ID confirmado e usa sempre esse vínculo, nunca o nome remoto atual, e avisa o dono se o nome remoto do ID guardado mudar. Com homônimo, ou com a listagem truncada ou com grupos omitidos, pergunta qual ID usar (só depois o envio confere se o ID está liberado).
 
 **Quem libera é o dono.** O agente só escreve nos grupos que estão em `~/.dgclaw/whatsapp/grupos-liberados.json`,
 que o dono mexe pelo comando `dgclaw-agente canal whatsapp grupo (listar | liberar <id> | remover <id>)`. Libere sempre só com o ID: o nome do grupo vem de quem participa dele e não deve ser colado no comando.

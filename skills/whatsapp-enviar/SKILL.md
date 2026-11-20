@@ -43,10 +43,12 @@ Para texto com aspas ou várias linhas, mande pela entrada: `printf %s "$TEXTO" 
 Só se manda para um grupo com `"liberado":true`; quem libera é o dono, com
 `dgclaw-agente canal whatsapp grupo liberar <id>` (só o ID: o nome do grupo vem de terceiros e não deve ser colado no comando).
 
-**O destino é sempre o ID, nunca o nome.** O nome do grupo vem de terceiros, pode mudar e pode se repetir. Se o dono
-pedir um grupo pelo nome, o nome precisa bater com exatamente um grupo entre todos os retornados por `grupos`
-(liberados ou não). Se houver homônimo, ou a listagem vier truncada ou com grupos omitidos, pergunte ao dono qual ID
-usar. Só depois o envio confere se o ID está liberado. Em rotina, guarde o ID, não o nome.
+**O destino é sempre o ID, nunca o nome.** O nome do grupo vem de terceiros, pode mudar e pode se repetir, então o nome
+remoto nunca basta para escolher o destino. Se o pedido não traz o ID, mostre ao dono o nome e o ID encontrados e peça
+confirmação antes do PRIMEIRO envio àquele grupo; depois guarde nas suas notas o apelido que o dono usa ligado ao ID
+confirmado e use sempre esse vínculo (nunca o nome remoto atual). Se o nome remoto do ID guardado mudar, avise o dono.
+Se houver homônimo, ou a listagem vier truncada ou com grupos omitidos, pergunte ao dono qual ID usar. Só depois o envio
+confere se o ID está liberado.
 
 ```bash
 node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs enviar --grupo "120363000000000000-group" --texto "Pessoal, ..."
