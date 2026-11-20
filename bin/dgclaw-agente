@@ -568,10 +568,6 @@ cmd_wa_desligar() {
     echo "WhatsApp desligado. A conexao e a lista de permitidos continuam guardadas; basta 'canal whatsapp ligar' para voltar."
     return 0
   fi
-  if [ ! -d "$WADIR" ]; then
-    echo "WhatsApp desligado. Nao havia nada guardado para apagar."
-    return 0
-  fi
   if [ -e "$WADIR/sessao/creds.json" ]; then
     achar_ponte
     if [ ! -f "$PONTE" ] || ! timeout 30 node "$PONTE" --logout >> "$DIR/logs/whatsapp-logout.log" 2>&1; then

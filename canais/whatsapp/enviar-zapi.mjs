@@ -55,8 +55,8 @@ export async function executar(argv, { env = process.env, home = os.homedir(), s
   if (ehOperacaoDeGrupo && (env.DGCLAW_TIPO === 'admin' || uid === 0)) {
     return { codigoSaida: 2, resposta: falha('SO_AGENTE', 'grupos so sao consultados e recebem envio pelos agentes de trabalho, nao pelo Admin') };
   }
-  if (a._[0] === 'enviar' && a.grupo !== undefined && !a.textoStdin) {
-    return { codigoSaida: 2, resposta: falha('USO_INVALIDO', 'para grupo use --texto-stdin com o texto em um arquivo (enviar --grupo <id> --texto-stdin < arquivo); --texto deixaria a mensagem na linha de comando do processo') };
+  if (a._[0] === 'enviar' && a.grupo !== undefined && (a.texto !== undefined || !a.textoStdin)) {
+    return { codigoSaida: 2, resposta: falha('USO_INVALIDO', 'para grupo use somente --texto-stdin com o texto em um arquivo (enviar --grupo <id> --texto-stdin < arquivo); --texto deixaria a mensagem na linha de comando do processo') };
   }
   const dirBase = path.join(home, '.dgclaw', 'whatsapp');
   const arqGrupos = path.join(dirBase, 'grupos-liberados.json');

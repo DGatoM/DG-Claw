@@ -56,11 +56,15 @@ Reserve um arquivo exclusivo para este envio (outra sessão do mesmo agente pode
 mkdir -p -m 700 ~/.dgclaw/tmp && mktemp ~/.dgclaw/tmp/msg-XXXXXX.txt
 ```
 
-Depois grave o texto nesse caminho com a ferramenta de escrever arquivo (Write no Claude Code, edição de arquivo ou `apply_patch` no Codex), nunca por comando de shell (nada de `echo`, `cat`, `printf` nem heredoc com o texto). Por fim envie lendo esse mesmo caminho e apague-o, devolvendo o código de saída do envio (a limpeza não pode esconder uma falha):
+Depois grave o texto nesse caminho com a ferramenta de escrever arquivo (Write no Claude Code, edição de arquivo ou `apply_patch` no Codex), nunca por comando de shell (nada de `echo`, `cat`, `printf` nem heredoc com o texto). Por fim envie lendo esse mesmo caminho e apague-o. Se o envio falhou, o código devolvido é o do envio (a limpeza não pode esconder a falha). Se o envio deu certo e o `rm` falhou, o bloco avisa que a mensagem já saiu (não reenvie) e qual arquivo ficou para apagar, e sai com código diferente de 0:
 
 ```bash
 ARQ="<caminho devolvido pelo mktemp>"
-node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs enviar --grupo "120363000000000000-group" --texto-stdin < "$ARQ"; rc=$?; rm -f "$ARQ"; (exit "$rc")
+node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs enviar --grupo "120363000000000000-group" --texto-stdin < "$ARQ"; rc=$?
+if rm -f "$ARQ"; then rm_rc=0; else rm_rc=$?; fi
+if [ "$rc" -ne 0 ]; then (exit "$rc")
+elif [ "$rm_rc" -ne 0 ]; then echo "A mensagem JA SAIU (nao reenviar). Nao consegui apagar $ARQ: apague esse arquivo." >&2; (exit "$rm_rc")
+fi
 ```
 
 O texto vai por arquivo, fora do comando, e para grupo a CLI recusa `--texto` (código 2). `--grupo` não se repete na mesma chamada.

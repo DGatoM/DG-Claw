@@ -464,3 +464,17 @@ test('enviar --grupo com --texto e recusado com erro de uso, antes de tocar na r
   assert.equal(fs.existsSync(path.join(c.home, '.dgclaw', 'whatsapp', 'envio')), false);
   c.limpar();
 });
+
+test('enviar --grupo com --texto junto de --texto-stdin e recusado antes de ler o stdin, o estado ou a rede', async () => {
+  const c = casa();
+  const g = fetchGravando();
+  let leu = false;
+  const stdin = (async function* () { leu = true; yield Buffer.from('x'); })();
+  const r = await executar(['enviar', '--grupo', G1, '--texto', 'na linha de comando', '--texto-stdin'], { uid: 1000, env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {}, stdin });
+  assert.equal(r.codigoSaida, 2);
+  assert.equal(r.resposta.codigo, 'USO_INVALIDO');
+  assert.equal(leu, false);
+  assert.equal(g.chamadas.length, 0);
+  assert.equal(fs.existsSync(path.join(c.home, '.dgclaw', 'whatsapp', 'envio')), false);
+  c.limpar();
+});
