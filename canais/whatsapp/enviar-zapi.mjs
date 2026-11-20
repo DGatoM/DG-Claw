@@ -45,9 +45,13 @@ async function lerStdin(entrada) {
 }
 
 /** Funcao testavel: devolve { codigoSaida, resposta }. */
-export async function executar(argv, { env = process.env, home = os.homedir(), stdin = process.stdin, fetchImpl, agora, dormir, aleatorio } = {}) {
+export async function executar(argv, { env = process.env, home = os.homedir(), stdin = process.stdin, uid = process.getuid?.(), fetchImpl, agora, dormir, aleatorio } = {}) {
   const a = lerArgs(argv);
   if (a.erro) return { codigoSaida: 2, resposta: falha('USO_INVALIDO', `${a.erro}; uso: enviar --para <numero> --texto "..." | enviar --grupo <id> --texto "..." | grupos | status`) };
+  // A lista de grupos traz nomes escolhidos por terceiros: o Admin nao a consulta (mesmo criterio de bin/dgclaw-agente).
+  if (a._[0] === 'grupos' && (env.DGCLAW_TIPO === 'admin' || uid === 0)) {
+    return { codigoSaida: 2, resposta: falha('SO_AGENTE', 'a lista de grupos so e consultada pelos agentes de trabalho, nao pelo Admin') };
+  }
   const dirBase = path.join(home, '.dgclaw', 'whatsapp');
   const arqGrupos = path.join(dirBase, 'grupos-liberados.json');
   const registrar = (m) => process.stderr.write(`whatsapp-zapi: ${String(m).replace(/[\r\n]+/g, ' ')}\n`);
@@ -139,7 +143,7 @@ async function listarGrupos({ env, fetchImpl, arqGrupos }) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
-  const { codigoSaida, resposta } = await executar(process.argv.slice(2));
+  const { codigoSaida, resposta } = await executar(process.argv.slice(2), { uid: process.env.DGCLAW_UID !== undefined ? Number(process.env.DGCLAW_UID) : process.getuid?.() });
   process.stdout.write(JSON.stringify(resposta) + '\n');
   process.exitCode = codigoSaida;
 }

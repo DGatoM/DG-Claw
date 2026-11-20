@@ -209,7 +209,7 @@ test('grupos: pagina ate a pagina curta, tira repetido e marca o que o dono libe
     return { ok: true, status: 200, json: async () => todos.slice((p - 1) * t, p * t) };
   };
   todos[1] = { isGroup: true, name: 'Turma\n\x07da   tarde‮ ' + 'x'.repeat(200), phone: G2 };
-  const r = await executar(['grupos'], { env: ENV, home: c.home, fetchImpl });
+  const r = await executar(['grupos'], { uid: 1000, env: ENV, home: c.home, fetchImpl });
   assert.equal(r.codigoSaida, 0);
   assert.equal(r.resposta.ok, true);
   assert.equal(r.resposta.grupos.length, 120);
@@ -231,7 +231,7 @@ test('grupos: a Z-API que ignora a pagina nao prende o loop, e o teto de paginas
   const c = casa({ liberados: null });
   const tudo = Array.from({ length: 60 }, (_, i) => ({ name: `G${i}`, phone: `1203630000000${String(20000 + i)}-group` }));
   let n = 0;
-  let r = await executar(['grupos'], { env: ENV, home: c.home, fetchImpl: async () => { n++; return { ok: true, status: 200, json: async () => tudo }; } });
+  let r = await executar(['grupos'], { uid: 1000, env: ENV, home: c.home, fetchImpl: async () => { n++; return { ok: true, status: 200, json: async () => tudo }; } });
   assert.equal(r.resposta.grupos.length, 60);
   assert.equal(n, 2);
   assert.ok(r.resposta.grupos.every((g) => g.liberado === false));
@@ -241,7 +241,7 @@ test('grupos: a Z-API que ignora a pagina nao prende o loop, e o teto de paginas
     const p = Number(/page=(\d+)/.exec(url)[1]);
     return { ok: true, status: 200, json: async () => Array.from({ length: 50 }, (_, i) => ({ name: 'g', phone: `${p}00000000000${String(i).padStart(5, '0')}-group` })) };
   };
-  r = await executar(['grupos'], { env: ENV, home: c.home, fetchImpl: infinito });
+  r = await executar(['grupos'], { uid: 1000, env: ENV, home: c.home, fetchImpl: infinito });
   assert.equal(n, 20);
   assert.equal(r.resposta.grupos.length, 1000);
   assert.match(r.resposta.aviso, /cortada/);
@@ -250,20 +250,20 @@ test('grupos: a Z-API que ignora a pagina nao prende o loop, e o teto de paginas
 
 test('grupos: erro, resposta estranha e lista de liberados ilegivel; a credencial nunca aparece', async () => {
   const c = casa();
-  let r = await executar(['grupos'], { env: ENV, home: c.home, fetchImpl: async () => ({ ok: false, status: 401, json: async () => ({ error: 'bad TOK456 CLI789 INST123' }) }) });
+  let r = await executar(['grupos'], { uid: 1000, env: ENV, home: c.home, fetchImpl: async () => ({ ok: false, status: 401, json: async () => ({ error: 'bad TOK456 CLI789 INST123' }) }) });
   assert.equal(r.codigoSaida, 1);
   assert.equal(r.resposta.codigo, 'FALHA_LISTA');
   assert.match(r.resposta.erro, /HTTP 401/);
   assert.doesNotMatch(JSON.stringify(r.resposta), /TOK456|CLI789|INST123/);
-  r = await executar(['grupos'], { env: ENV, home: c.home, fetchImpl: async () => { throw new Error('boom em https://api.z-api.io/instances/INST123/token/TOK456/groups'); } });
+  r = await executar(['grupos'], { uid: 1000, env: ENV, home: c.home, fetchImpl: async () => { throw new Error('boom em https://api.z-api.io/instances/INST123/token/TOK456/groups'); } });
   assert.equal(r.resposta.codigo, 'FALHA_LISTA');
   assert.doesNotMatch(JSON.stringify(r.resposta), /TOK456|INST123/);
-  r = await executar(['grupos'], { env: ENV, home: c.home, fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ x: 1 }) }) });
+  r = await executar(['grupos'], { uid: 1000, env: ENV, home: c.home, fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ x: 1 }) }) });
   assert.match(r.resposta.erro, /formato inesperado/);
-  r = await executar(['grupos'], { env: {}, home: c.home });
+  r = await executar(['grupos'], { uid: 1000, env: {}, home: c.home });
   assert.equal(r.resposta.codigo, 'SEM_CHAVE');
   fs.writeFileSync(c.arq, '{lixo');
-  r = await executar(['grupos'], { env: ENV, home: c.home, fetchImpl: async () => ({ ok: true, status: 200, json: async () => [{ name: 'A', phone: G1 }] }) });
+  r = await executar(['grupos'], { uid: 1000, env: ENV, home: c.home, fetchImpl: async () => ({ ok: true, status: 200, json: async () => [{ name: 'A', phone: G1 }] }) });
   assert.equal(r.codigoSaida, 0);
   assert.equal(r.resposta.grupos[0].liberado, false);
   assert.match(r.resposta.aviso_liberados, /ilegivel/);
@@ -334,7 +334,7 @@ test('grupos: pagina inteira no formato antigo nao esconde a pagina seguinte, e 
     const p = Number(/page=(\d+)/.exec(url)[1]);
     return { ok: true, status: 200, json: async () => (p === 1 ? legados : p === 2 ? [{ name: 'Novo', phone: G1 }] : []) };
   };
-  const r = await executar(['grupos'], { env: ENV, home: c.home, fetchImpl });
+  const r = await executar(['grupos'], { uid: 1000, env: ENV, home: c.home, fetchImpl });
   assert.deepEqual(r.resposta.grupos.map((g) => g.id), [G1]);
   assert.equal(r.resposta.omitidos, 50);
   assert.match(r.resposta.aviso_omitidos, /50 grupo/);
@@ -359,7 +359,7 @@ test('CLI de verdade com stdout em pipe: 1000 grupos saem inteiros e o JSON faz 
   // O node liga o stdout do filho a um socket, que tem folga; para ter um pipe de verdade (64 KB) e um leitor lento,
   // a CLI roda dentro de um "sh" que a liga a "sleep 0.3; cat". Quem sai antes de terminar de escrever perde o resto.
   const filho = spawn('sh', ['-c', '"$0" --import "$1" "$2" grupos | { sleep 0.3; cat; }', process.execPath, preload, cli], {
-    env: { ...envLimpo(), ...ENV, HOME: c.home }, stdio: ['ignore', 'pipe', 'ignore'],
+    env: { ...envLimpo(), ...ENV, HOME: c.home, DGCLAW_UID: '1000' }, stdio: ['ignore', 'pipe', 'ignore'],
   });
   const partes = [];
   filho.stdout.on('data', (p) => partes.push(p));
@@ -372,4 +372,19 @@ test('CLI de verdade com stdout em pipe: 1000 grupos saem inteiros e o JSON faz 
   assert.equal(JSON.parse(saida).grupos.length, 1000);
   fs.rmSync(dir, { recursive: true, force: true });
   c.limpar();
+});
+
+test('grupos: recusa o Admin (DGCLAW_TIPO=admin ou uid 0) antes de tocar no estado e na Z-API', async () => {
+  for (const opcoes of [{ uid: 1000, env: { ...ENV, DGCLAW_TIPO: 'admin' } }, { uid: 0, env: ENV }]) {
+    const c = casa();
+    let chamadas = 0;
+    const fetchImpl = async () => { chamadas++; return { ok: true, status: 200, json: async () => [] }; };
+    const r = await executar(['grupos'], { ...opcoes, home: c.home, fetchImpl });
+    assert.equal(r.codigoSaida, 2);
+    assert.equal(r.resposta.ok, false);
+    assert.match(r.resposta.erro || r.resposta.mensagem || JSON.stringify(r.resposta), /agentes de trabalho/);
+    assert.equal(chamadas, 0);
+    assert.equal(fs.existsSync(path.join(c.home, '.dgclaw', 'whatsapp', 'envio')), false);
+    c.limpar();
+  }
 });
