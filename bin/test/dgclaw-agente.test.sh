@@ -244,6 +244,11 @@ ok "whatsapp: grupo remover com dois IDs falha e a lista fica igual" $([ $c = 1 
 "$BIN" canal whatsapp grupo liberar 120363000000000004-group "[Confirmar](https://x.example) \`a\`" >/dev/null 2>&1
 node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1]));const g=d.grupos.find((x)=>x.id==="120363000000000004-group");process.exit(g&&g.nome==="Confirmarhttps:/ /x.example a"?0:1)' "$GR"; ok "whatsapp: nome liberado sai sem marcas de link" $?
 "$BIN" canal whatsapp grupo remover 120363000000000004-group >/dev/null 2>&1
+cp "$GR" "$T/gr.antes-sync"
+mkdir -p "$T/sync-falso"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$T/sync-falso/sync"; chmod +x "$T/sync-falso/sync"
+PATH="$T/sync-falso:$PATH" "$BIN" canal whatsapp grupo remover 120363000000000002-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: grupo remover com sync que falha sai com erro e nao confirma" $([ $c != 0 ] && ! grep -q "removido" "$T/o" && cmp -s "$GR" "$T/gr.antes-sync" && echo 0 || echo 1)
 "$BIN" canal whatsapp grupo remover 120363000000000002-group >"$T/o" 2>&1; c=$?
 ok "whatsapp: grupo remover funciona" $([ $c = 0 ] && grep -q "removido" "$T/o" && ! grep -q "000002-group" "$GR" && grep -q "000001-group" "$GR" && echo 0 || echo 1)
 "$BIN" canal whatsapp grupo remover 120363000000000009-group >"$T/o" 2>"$T/e"; c=$?

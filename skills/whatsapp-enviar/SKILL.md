@@ -50,13 +50,14 @@ confirmado e use sempre esse vínculo (nunca o nome remoto atual). Se o nome rem
 Se houver homônimo, ou a listagem vier truncada ou com grupos omitidos, pergunte ao dono qual ID usar. Só depois o envio
 confere se o ID está liberado.
 
+Grave o texto num arquivo privado com a ferramenta de escrever arquivo (Write no Claude Code, edição de arquivo ou `apply_patch` no Codex), nunca por comando de shell (nada de `echo`, `cat`, `printf` nem heredoc com o texto). Use a pasta `~/.dgclaw/tmp/` (crie com permissão 700 se não existir) e um nome como `msg-<algo>.txt`. Depois envie lendo o arquivo e apague-o:
+
 ```bash
-node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs enviar --grupo "120363000000000000-group" --texto-stdin <<'FIM'
-Pessoal, ...
-FIM
+node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs enviar --grupo "120363000000000000-group" --texto-stdin < ~/.dgclaw/tmp/msg-turma.txt
+rm -f ~/.dgclaw/tmp/msg-turma.txt
 ```
 
-O texto vai pela entrada (heredoc de aspas simples), para não aparecer nos argumentos do processo, que outros usuários do servidor podem ler. `--grupo` e `--texto` não se repetem na mesma chamada.
+O texto vai por arquivo, fora do comando. `--grupo` e `--texto` não se repetem na mesma chamada.
 
 `--grupo` e `--para` não se misturam na mesma chamada. Um grupo conta como um envio, com as mesmas travas de ritmo,
 teto e texto repetido (o mesmo texto para um grupo e para uma pessoa em 24 horas também é recusado). Aviso agendado

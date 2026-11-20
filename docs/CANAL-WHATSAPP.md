@@ -358,10 +358,10 @@ https://developer.z-api.io/group/introduction): o DG Claw não o aceita, e os gr
 
 ```
 node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs grupos
-node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs enviar --grupo 120363000000000000-group --texto-stdin <<'FIM'
-...
-FIM
+node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs enviar --grupo 120363000000000000-group --texto-stdin < ~/.dgclaw/tmp/msg-turma.txt
 ```
+
+O agente grava o texto nesse arquivo com a ferramenta de escrever arquivo (nunca por comando de shell, como `echo`, `cat`, `printf` ou heredoc), em `~/.dgclaw/tmp/` (permissão 700), e apaga o arquivo depois do envio. O texto vai por arquivo, fora do comando.
 
 `grupos` chama `GET /instances/{instância}/token/{token}/groups`, página por página (50 por página, até 20 páginas;
 passando disso a resposta traz o campo `aviso`) e imprime `{"ok":true,"grupos":[{"id","nome","liberado"}]}`. A paginação

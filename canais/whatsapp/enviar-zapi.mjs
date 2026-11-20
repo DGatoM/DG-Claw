@@ -49,9 +49,11 @@ async function lerStdin(entrada) {
 export async function executar(argv, { env = process.env, home = os.homedir(), stdin = process.stdin, uid = process.getuid?.(), fetchImpl, agora, dormir, aleatorio } = {}) {
   const a = lerArgs(argv);
   if (a.erro) return { codigoSaida: 2, resposta: falha('USO_INVALIDO', `${a.erro}; uso: enviar --para <numero> --texto "..." | enviar --grupo <id> --texto "..." | grupos | status`) };
-  // A lista de grupos traz nomes escolhidos por terceiros: o Admin nao a consulta (mesmo criterio de bin/dgclaw-agente).
-  if (a._[0] === 'grupos' && (env.DGCLAW_TIPO === 'admin' || uid === 0)) {
-    return { codigoSaida: 2, resposta: falha('SO_AGENTE', 'a lista de grupos so e consultada pelos agentes de trabalho, nao pelo Admin') };
+  // Grupos: a lista traz nomes escolhidos por terceiros e o envio usa a lista liberada pelo dono. O Admin
+  // nao faz nenhum dos dois (mesmo criterio de bin/dgclaw-agente), e a recusa vem antes de criar estado ou tocar na rede.
+  const ehOperacaoDeGrupo = a._[0] === 'grupos' || (a._[0] === 'enviar' && a.grupo !== undefined);
+  if (ehOperacaoDeGrupo && (env.DGCLAW_TIPO === 'admin' || uid === 0)) {
+    return { codigoSaida: 2, resposta: falha('SO_AGENTE', 'grupos so sao consultados e recebem envio pelos agentes de trabalho, nao pelo Admin') };
   }
   const dirBase = path.join(home, '.dgclaw', 'whatsapp');
   const arqGrupos = path.join(dirBase, 'grupos-liberados.json');

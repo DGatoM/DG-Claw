@@ -88,14 +88,29 @@ js() {
     });' "$1"
 }
 
-escrever_atomico() { # $1 destino ; conteudo no stdin
-  local dest="$1" tmp
+escrever_atomico() { # [--duravel] $1 destino ; conteudo no stdin. --duravel: sync do temporario antes do mv e da pasta depois.
+  local duravel=0 dest tmp
+  if [ "${1:-}" = "--duravel" ]; then duravel=1; shift; fi
+  dest="$1"
   mkdir -p "$(dirname "$dest")"
   tmp="$(mktemp "$dest.XXXXXX")" || return 1
   # Cada passo e conferido a mao: em contexto "||" o bash ignora o set -e dentro da funcao, e uma copia
   # incompleta (disco cheio) chegaria ao mv e trocaria o arquivo bom por um pela metade.
-  if ! cat > "$tmp" || ! chmod 600 "$tmp" || ! mv -f "$tmp" "$dest"; then
+  if ! cat > "$tmp" || ! chmod 600 "$tmp"; then
     rm -f "$tmp"
+    return 1
+  fi
+  if [ "$duravel" = 1 ] && ! sync "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  if ! mv -f "$tmp" "$dest"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  # Depois do mv a lista nova ja vale; se o sync da pasta falhar, a alteracao nao e confirmada (codigo 1).
+  if [ "$duravel" = 1 ] && ! sync "$(dirname "$dest")"; then
+    erro "a lista foi gravada, mas nao consegui confirmar no disco (o sync da pasta falhou). Confira a lista e repita se preciso."
     return 1
   fi
 }
@@ -375,7 +390,7 @@ grupos_alterar() {
       exit 1
     fi
     novo="$(grupos_op "$@")" || { rc=$?; [ "$rc" = 3 ] && printf '%s\n' "$novo"; exit "$rc"; }
-    printf '%s\n' "$novo" | escrever_atomico "$WADIR/grupos-liberados.json" || exit 1
+    printf '%s\n' "$novo" | escrever_atomico --duravel "$WADIR/grupos-liberados.json" || exit 1
     printf '%s\n' "$novo"
   ) 9>>"$TRAVA_GRUPOS" || rc=$?
   exec {wfd}<&-

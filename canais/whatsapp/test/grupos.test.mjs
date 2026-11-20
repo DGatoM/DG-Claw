@@ -55,7 +55,7 @@ test('ID de grupo: so digitos seguidos de -group', () => {
 test('enviar --grupo manda o ID intacto no phone e nao mexe no envio para numero', async () => {
   const c = casa();
   const g = fetchGravando();
-  const opc = { env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} };
+  const opc = { uid: 1000, env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} };
   let r = await executar(['enviar', '--grupo', G1, '--texto', 'aviso para o grupo'], opc);
   assert.equal(r.codigoSaida, 0);
   assert.equal(r.resposta.grupo, G1);
@@ -81,7 +81,7 @@ test('o adaptador continua aceitando numero em texto simples', async () => {
 test('--grupo: invalido, junto com --para e sem valor saem com codigo 2', async () => {
   const c = casa();
   const g = fetchGravando();
-  const opc = { env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} };
+  const opc = { uid: 1000, env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} };
   let r = await executar(['enviar', '--grupo', '5511911111111', '--texto', 'x'], opc);
   assert.equal(r.codigoSaida, 2);
   assert.equal(r.resposta.codigo, 'PEDIDO_INVALIDO');
@@ -98,7 +98,7 @@ test('--grupo: invalido, junto com --para e sem valor saem com codigo 2', async 
 test('grupo nao liberado, lista ausente ou ilegivel: recusa sem chamar a Z-API', async () => {
   const g = fetchGravando();
   const c1 = casa({ liberados: [G2] });
-  const opc = (c) => ({ env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} });
+  const opc = (c) => ({ uid: 1000, env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} });
   let r = await executar(['enviar', '--grupo', G1, '--texto', 'aviso para o grupo'], opc(c1));
   assert.equal(r.codigoSaida, 1);
   assert.equal(r.resposta.codigo, 'GRUPO_NAO_LIBERADO');
@@ -122,7 +122,7 @@ test('grupo nao liberado, lista ausente ou ilegivel: recusa sem chamar a Z-API',
 test('grupo removido durante a espera do ritmo nao sai', async () => {
   const c = casa();
   const g = fetchGravando();
-  const opc = { env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => { fs.writeFileSync(c.arq, JSON.stringify({ versao: 1, grupos: [] })); } };
+  const opc = { uid: 1000, env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => { fs.writeFileSync(c.arq, JSON.stringify({ versao: 1, grupos: [] })); } };
   let r = await executar(['enviar', '--para', '+5511911111111', '--texto', 'primeira mensagem para a Ana'], opc);
   assert.equal(r.resposta.ok, true);
   r = await executar(['enviar', '--grupo', G1, '--texto', 'segunda mensagem, agora para o grupo'], { ...opc, aleatorio: () => 0 });
@@ -137,7 +137,7 @@ test('travas: PARADO vem antes e a falha de envio para grupo trava tudo', async 
   const fetchImpl = async () => (falhar
     ? { ok: false, status: 500, json: async () => ({ error: 'caiu' }) }
     : { ok: true, status: 200, json: async () => ({ messageId: 'M' + Math.random() }) });
-  const opc = { env: ENV, home: c.home, fetchImpl, dormir: async () => {} };
+  const opc = { uid: 1000, env: ENV, home: c.home, fetchImpl, dormir: async () => {} };
   assert.equal((await executar(['enviar', '--grupo', G1, '--texto', 'primeiro aviso para o grupo'], opc)).codigoSaida, 0);
   falhar = true;
   let r = await executar(['enviar', '--grupo', G1, '--texto', 'segundo aviso para o grupo'], opc);
@@ -274,7 +274,7 @@ test('grupos: erro, resposta estranha e lista de liberados ilegivel; a credencia
 test('--grupo repetido e recusado com codigo 2, sem ler a lista nem chamar a Z-API', async () => {
   const c = casa();
   const g = fetchGravando();
-  const opc = { env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} };
+  const opc = { uid: 1000, env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} };
   const r = await executar(['enviar', '--grupo', G1, '--grupo', G2, '--texto', 'x'], opc);
   assert.equal(r.codigoSaida, 2);
   assert.equal(r.resposta.codigo, 'USO_INVALIDO');
@@ -317,7 +317,7 @@ test('lista que e link simbolico e recusada, mesmo apontando para uma lista vali
   const r = lerGruposLiberados(c.arq);
   assert.match(r.erro, /link simbolico/);
   const g = fetchGravando();
-  const e = await executar(['enviar', '--grupo', G1, '--texto', 'oi pessoal'], { env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} });
+  const e = await executar(['enviar', '--grupo', G1, '--texto', 'oi pessoal'], { uid: 1000, env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} });
   assert.equal(e.resposta.codigo, 'LISTA_DE_GRUPOS_ILEGIVEL');
   assert.equal(g.chamadas.length, 0);
   c.limpar();
@@ -328,7 +328,7 @@ test('lista com versao 2 ou sem versao e recusada antes de chamar a Z-API', asyn
     const c = casa({ liberados: null });
     fs.writeFileSync(c.arq, JSON.stringify(corpo));
     const g = fetchGravando();
-    const e = await executar(['enviar', '--grupo', G1, '--texto', 'oi pessoal'], { env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} });
+    const e = await executar(['enviar', '--grupo', G1, '--texto', 'oi pessoal'], { uid: 1000, env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} });
     assert.equal(e.resposta.codigo, 'LISTA_DE_GRUPOS_ILEGIVEL');
     assert.equal(g.chamadas.length, 0);
     c.limpar();
@@ -418,4 +418,35 @@ test('grupos: recusa o Admin (DGCLAW_TIPO=admin ou uid 0) antes de tocar no esta
     assert.equal(fs.existsSync(path.join(c.home, '.dgclaw', 'whatsapp', 'envio')), false);
     c.limpar();
   }
+});
+
+test('enviar --grupo: recusa o Admin (DGCLAW_TIPO=admin ou uid 0) sem chamada de rede e sem criar estado', async () => {
+  for (const opcoes of [{ uid: 1000, env: { ...ENV, DGCLAW_TIPO: 'admin' } }, { uid: 0, env: ENV }]) {
+    const c = casa();
+    const antes = fs.readdirSync(path.join(c.home, '.dgclaw', 'whatsapp')).sort();
+    const { chamadas, fetchImpl } = fetchGravando();
+    const r = await executar(['enviar', '--grupo', G1, '--texto', 'oi'], { ...opcoes, home: c.home, fetchImpl });
+    assert.equal(r.codigoSaida, 2);
+    assert.equal(r.resposta.ok, false);
+    assert.match(JSON.stringify(r.resposta), /agentes de trabalho/);
+    assert.equal(chamadas.length, 0);
+    assert.deepEqual(fs.readdirSync(path.join(c.home, '.dgclaw', 'whatsapp')).sort(), antes);
+    assert.equal(fs.existsSync(path.join(c.home, '.dgclaw', 'whatsapp', 'envio')), false);
+    c.limpar();
+  }
+});
+
+test('--texto-stdin lendo um arquivo: uma linha FIM no meio nao corta o texto', async () => {
+  const c = casa();
+  const msg = path.join(c.home, 'msg.txt');
+  const texto = 'Pessoal, aviso importante.\nFIM\necho isso nao e comando\nAte logo.\n';
+  fs.writeFileSync(msg, texto);
+  const { chamadas, fetchImpl } = fetchGravando();
+  const r = await executar(['enviar', '--grupo', G1, '--texto-stdin'], {
+    uid: 1000, env: ENV, home: c.home, fetchImpl, stdin: fs.createReadStream(msg), dormir: async () => {},
+  });
+  assert.equal(r.codigoSaida, 0, JSON.stringify(r.resposta));
+  assert.equal(chamadas.length, 1);
+  assert.equal(JSON.parse(chamadas[0].init.body).message, texto);
+  c.limpar();
 });
