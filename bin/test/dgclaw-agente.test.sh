@@ -277,10 +277,58 @@ for rodada in 1 2 3 4 5 6 7 8; do
   node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1])).grupos.map((g)=>g.id);process.exit(d.length===1&&d[0]==="120363000000000002-group"?0:1)' "$GR" || falhou=1
 done
 ok "whatsapp: remover A e liberar B em paralelo mantem A revogado e B liberado" $falhou
-[ -f "$GR.trava" ]; ok "whatsapp: a trava da lista e um arquivo estavel ao lado dela" $?
+[ -f "$HOME/.dgclaw/whatsapp-grupos.trava" ] && [ ! -e "$GR.trava" ]; ok "whatsapp: a trava da lista e um arquivo estavel fora da pasta whatsapp" $?
 "$BIN" canal whatsapp grupo >"$T/o" 2>"$T/e"; ok "whatsapp: grupo sem subcomando mostra o uso" $([ $? = 1 ] && grep -q "listar | liberar" "$T/e" && echo 0 || echo 1)
 DGCLAW_TIPO=admin "$BIN" canal whatsapp grupo listar >/dev/null 2>&1; ok "whatsapp: admin nao mexe nos grupos (codigo 2)" $([ $? = 2 ] && echo 0 || echo 1)
 rm -f "$GR"
+
+# lista que e link simbolico: a CLI recusa, o link continua link e o alvo fica intacto
+echo '{"versao":1,"grupos":[{"id":"120363000000000001-group","nome":"Antigo","liberado_em":"x"}]}' > "$T/lista-antiga.json"
+cp "$T/lista-antiga.json" "$T/lista-antiga.antes"; ln -s "$T/lista-antiga.json" "$GR"
+"$BIN" canal whatsapp grupo liberar 120363000000000005-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: lista que e link simbolico recusa liberar, o link fica e o alvo nao muda" $([ $c = 1 ] && [ -L "$GR" ] && grep -q "link simbolico" "$T/e" && cmp -s "$T/lista-antiga.json" "$T/lista-antiga.antes" && echo 0 || echo 1)
+rm -f "$GR"
+# FIFO no caminho da lista: recusa sem travar
+mkfifo "$GR"
+timeout 15 "$BIN" canal whatsapp grupo liberar 120363000000000005-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: lista que e FIFO recusa sem travar" $([ $c = 1 ] && grep -q "nao e um arquivo comum" "$T/e" && echo 0 || echo 1)
+rm -f "$GR"
+# liberar de novo um grupo ja liberado, com lista grande (saida maior que o pipe): a saida vem inteira
+node -e 'const g=[];for(let i=0;i<3000;i++)g.push({id:"1203630000"+String(10000+i)+"-group",nome:"Grupo numero "+i,liberado_em:"x"});require("fs").writeFileSync(process.argv[1],JSON.stringify({versao:1,grupos:g}))' "$GR"
+"$BIN" canal whatsapp grupo liberar 120363000010000-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: liberar de novo com lista grande mostra a lista inteira" $([ $c = 0 ] && grep -q "3000 grupos\|3000" "$T/o" && grep -q "120363000012999-group" "$T/o" && grep -q "ja estava liberado" "$T/e" && echo 0 || echo 1)
+rm -f "$GR"
+# falha de escrita (cat falso que falha): a lista anterior fica igual e a CLI sai com erro
+echo '{"versao":1,"grupos":[{"id":"120363000000000001-group","nome":"A","liberado_em":"x"}]}' > "$GR"; cp "$GR" "$T/gr.antes"
+mkdir -p "$T/cat-falso"; printf '#!/bin/sh\nexit 1\n' > "$T/cat-falso/cat"; chmod +x "$T/cat-falso/cat"
+PATH="$T/cat-falso:$PATH" "$BIN" canal whatsapp grupo liberar 120363000000000006-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: falha ao escrever a lista sai com erro e mantem a lista anterior" $([ $c != 0 ] && cmp -s "$GR" "$T/gr.antes" && ! ls "$WA"/grupos-liberados.json.* >/dev/null 2>&1 && echo 0 || echo 1)
+# desligar --apagar pega a mesma trava da lista: com a trava presa, ele espera; solta, e apaga
+rm -f "$GR"; echo '{"versao":1,"grupos":[]}' > "$GR"
+TRAVA="$HOME/.dgclaw/whatsapp-grupos.trava"
+mkfifo "$T/solta"
+( flock -x 9; echo preso > "$T/preso"; read -r _ < "$T/solta" ) 9>>"$TRAVA" &
+LP=$!
+for _ in $(seq 50); do [ -e "$T/preso" ] && break; sleep 0.1; done
+"$BIN" canal whatsapp desligar --apagar >"$T/o" 2>"$T/e" &
+DP=$!
+sleep 1
+[ -d "$WA" ] && kill -0 "$DP" 2>/dev/null; ok "whatsapp: desligar --apagar espera a trava da lista" $?
+echo ok > "$T/solta"; wait "$LP" "$DP"
+[ ! -e "$WA" ]; ok "whatsapp: desligar --apagar apaga depois que a trava e solta" $?
+rm -f "$T/preso"
+# alteracao que estava esperando a trava quando a pasta foi apagada: aborta e nao recria a pasta
+mkdir -p "$WA"; chmod 700 "$HOME/.dgclaw" "$WA"; echo '{"versao":1,"grupos":[]}' > "$GR"
+( flock -x 9; echo preso > "$T/preso"; read -r _ < "$T/solta" ) 9>>"$TRAVA" &
+LP=$!
+for _ in $(seq 50); do [ -e "$T/preso" ] && break; sleep 0.1; done
+"$BIN" canal whatsapp grupo liberar 120363000000000007-group >"$T/o" 2>"$T/e" &
+AP=$!
+sleep 1
+rm -rf "$WA"
+echo ok > "$T/solta"; wait "$LP"; wait "$AP"; c=$?
+ok "whatsapp: alteracao que esperava a trava nao recria a pasta apagada" $([ $c = 1 ] && [ ! -e "$WA" ] && grep -q "foi apagada" "$T/e" && echo 0 || echo 1)
+rm -f "$T/preso" "$T/solta"
 
 # ligar com sessao mas sem lista; depois com tudo
 mkdir -p "$WA/sessao"; echo '{"registered": true}' > "$WA/sessao/creds.json"

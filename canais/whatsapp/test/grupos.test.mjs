@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { criarAdaptadorZapi } from '../lib/adaptador-zapi.mjs';
 import { criarEnvioSeguro } from '../lib/envio-seguro.mjs';
@@ -301,6 +301,29 @@ test('lista que e link simbolico e recusada, mesmo apontando para uma lista vali
   const e = await executar(['enviar', '--grupo', G1, '--texto', 'oi pessoal'], { env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} });
   assert.equal(e.resposta.codigo, 'LISTA_DE_GRUPOS_ILEGIVEL');
   assert.equal(g.chamadas.length, 0);
+  c.limpar();
+});
+
+test('lista com versao 2 ou sem versao e recusada antes de chamar a Z-API', async () => {
+  for (const corpo of [{ versao: 2, grupos: [{ id: G1 }] }, { grupos: [{ id: G1 }] }]) {
+    const c = casa({ liberados: null });
+    fs.writeFileSync(c.arq, JSON.stringify(corpo));
+    const g = fetchGravando();
+    const e = await executar(['enviar', '--grupo', G1, '--texto', 'oi pessoal'], { env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} });
+    assert.equal(e.resposta.codigo, 'LISTA_DE_GRUPOS_ILEGIVEL');
+    assert.equal(g.chamadas.length, 0);
+    c.limpar();
+  }
+});
+
+test('lista que e FIFO e recusada sem travar', () => {
+  const c = casa({ liberados: null });
+  execFileSync('mkfifo', [c.arq]);
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `import { lerGruposLiberados } from ${JSON.stringify(new URL('../lib/grupos.mjs', import.meta.url).href)};
+     const r = lerGruposLiberados(process.argv[1]); console.log(JSON.stringify(r));`, c.arq], { timeout: 10000, encoding: 'utf8' });
+  assert.equal(r.error, undefined, 'o leitor travou no FIFO');
+  assert.match(JSON.parse(r.stdout).erro, /nao e um arquivo comum/);
   c.limpar();
 });
 

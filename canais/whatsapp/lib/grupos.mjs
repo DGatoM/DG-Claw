@@ -31,7 +31,7 @@ export function lerGruposLiberados(arquivo) {
   let bruto;
   let fd;
   try {
-    fd = fs.openSync(arquivo, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    fd = fs.openSync(arquivo, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
     if (!fs.fstatSync(fd).isFile()) {
       return { erro: `${arquivo} nao e um arquivo comum; nenhum grupo esta liberado. O dono apaga esse item e libera de novo com "dgclaw-agente canal whatsapp grupo liberar <id>"` };
     }
@@ -50,7 +50,8 @@ export function lerGruposLiberados(arquivo) {
   } catch {
     return ilegivel('o JSON esta quebrado');
   }
-  if (!o || !Array.isArray(o.grupos)) return ilegivel('faltou o campo "grupos"');
+  if (!o || typeof o !== 'object' || !Array.isArray(o.grupos)) return ilegivel('faltou o campo "grupos"');
+  if (o.versao !== 1) return ilegivel('a versao do arquivo nao e a 1, que este modulo conhece');
   const grupos = [];
   for (let i = 0; i < o.grupos.length; i++) {
     const g = o.grupos[i];

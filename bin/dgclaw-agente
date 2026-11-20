@@ -91,10 +91,13 @@ js() {
 escrever_atomico() { # $1 destino ; conteudo no stdin
   local dest="$1" tmp
   mkdir -p "$(dirname "$dest")"
-  tmp="$(mktemp "$dest.XXXXXX")"
-  cat > "$tmp"
-  chmod 600 "$tmp"
-  mv -f "$tmp" "$dest"
+  tmp="$(mktemp "$dest.XXXXXX")" || return 1
+  # Cada passo e conferido a mao: em contexto "||" o bash ignora o set -e dentro da funcao, e uma copia
+  # incompleta (disco cheio) chegaria ao mv e trocaria o arquivo bom por um pela metade.
+  if ! cat > "$tmp" || ! chmod 600 "$tmp" || ! mv -f "$tmp" "$dest"; then
+    rm -f "$tmp"
+    return 1
+  fi
 }
 
 garantir_pasta_tg() { mkdir -p "$TGDIR"; chmod 700 "$DIR" "$TGDIR"; }
@@ -304,44 +307,71 @@ grupos_op() {
     const fs = require("fs");
     const arq = process.env.GRUPOS_ARQ, op = process.env.GRUPOS_OP, id = process.env.GRUPOS_ID;
     const re = new RegExp(process.env.GRUPOS_RE);
+    const FIM = Symbol("fim");
     const falhar = (motivo) => {
       console.error("o arquivo " + arq + " existe mas nao e uma lista valida (" + motivo + "). Corrija ou apague o arquivo e rode \x27canal whatsapp grupo liberar\x27 de novo. Nada foi alterado.");
-      process.exit(1);
+      process.exitCode = 1;
+      throw FIM;
     };
-    let o = { versao: 1, grupos: [] };
-    if (fs.existsSync(arq)) {
-      try { o = JSON.parse(fs.readFileSync(arq, "utf8")); } catch (e) { falhar("o JSON esta quebrado"); }
-      if (!o || typeof o !== "object" || Array.isArray(o) || !Array.isArray(o.grupos)) falhar("esperado {\"versao\":1,\"grupos\":[...]}");
-      if (o.versao !== 1) falhar("a versao do arquivo nao e a 1, que este comando conhece");
-      const ruim = o.grupos.findIndex((g) => !g || typeof g.id !== "string" || !re.test(g.id));
-      if (ruim >= 0) falhar("a entrada " + (ruim + 1) + " de \"grupos\" tem o campo \"id\" invalido");
-    }
-    const nome = process.env.GRUPOS_NOME.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 100);
-    const tem = o.grupos.some((g) => g.id === id);
-    if (op === "liberar") {
-      if (tem) { console.error("O grupo " + id + " ja estava liberado. Nada mudou."); process.stdout.write(JSON.stringify(o, null, 2) + "\n"); process.exit(3); }
-      o.grupos.push({ id, nome, liberado_em: new Date().toISOString() });
-    } else if (op === "remover") {
-      if (!tem) { console.error("o grupo " + id + " nao esta na lista de liberados, entao nada foi removido. Confira o ID."); process.exit(1); }
-      o.grupos = o.grupos.filter((g) => g.id !== id);
-    }
-    process.stdout.write(JSON.stringify(o, null, 2) + "\n");
+    // Sem process.exit: ele corta a saida que ainda esta no pipe quando a lista e grande.
+    (() => { try {
+      let o = { versao: 1, grupos: [] };
+      let bruto = null;
+      let fd;
+      try {
+        // Mesmo modo de abertura do envio (lib/grupos.mjs): nunca segue link e nunca trava num FIFO.
+        fd = fs.openSync(arq, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+        if (!fs.fstatSync(fd).isFile()) falhar("nao e um arquivo comum");
+        bruto = fs.readFileSync(fd, "utf8");
+      } catch (e) {
+        if (e === FIM) throw e;
+        if (e.code === "ELOOP") falhar("e um link simbolico, e a CLI nao segue link");
+        if (e.code !== "ENOENT") falhar("nao consegui ler: " + (e.code || "erro de leitura"));
+      } finally {
+        if (fd !== undefined) fs.closeSync(fd);
+      }
+      if (bruto !== null) {
+        try { o = JSON.parse(bruto); } catch (e) { falhar("o JSON esta quebrado"); }
+        if (!o || typeof o !== "object" || Array.isArray(o) || !Array.isArray(o.grupos)) falhar("esperado {\"versao\":1,\"grupos\":[...]}");
+        if (o.versao !== 1) falhar("a versao do arquivo nao e a 1, que este comando conhece");
+        const ruim = o.grupos.findIndex((g) => !g || typeof g.id !== "string" || !re.test(g.id));
+        if (ruim >= 0) falhar("a entrada " + (ruim + 1) + " de \"grupos\" tem o campo \"id\" invalido");
+      }
+      const nome = process.env.GRUPOS_NOME.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 100);
+      const tem = o.grupos.some((g) => g.id === id);
+      if (op === "liberar") {
+        if (tem) { console.error("O grupo " + id + " ja estava liberado. Nada mudou."); process.exitCode = 3; process.stdout.write(JSON.stringify(o, null, 2) + "\n"); return; }
+        o.grupos.push({ id, nome, liberado_em: new Date().toISOString() });
+      } else if (op === "remover") {
+        if (!tem) { console.error("o grupo " + id + " nao esta na lista de liberados, entao nada foi removido. Confira o ID."); process.exitCode = 1; return; }
+        o.grupos = o.grupos.filter((g) => g.id !== id);
+      }
+      process.stdout.write(JSON.stringify(o, null, 2) + "\n");
+    } catch (e) { if (e !== FIM) throw e; } })();
   '
 }
 
 # grupos_alterar <liberar|remover> <id> [nome]: le, altera e grava a lista com a trava segurada o tempo todo.
-# A trava e um arquivo proprio (grupos-liberados.json.trava), que a troca atomica nunca substitui: duas
-# alteracoes ao mesmo tempo se enfileiram e a segunda enxerga o resultado da primeira. Imprime a lista nova.
+# A trava e um arquivo proprio (whatsapp-grupos.trava), que a troca atomica nunca substitui: duas
+# alteracoes ao mesmo tempo se enfileiram e a segunda enxerga o resultado da primeira. Ela fica em $DIR, ao lado
+# da pasta whatsapp e fora dela, para que "canal whatsapp desligar --apagar" (que apaga a pasta inteira) nao
+# leve a trava junto e possa pegar a mesma trava antes de apagar. Imprime a lista nova.
 # Codigo 3 = nada mudou; 1 = recusou.
+TRAVA_GRUPOS="$DIR/whatsapp-grupos.trava"
 grupos_alterar() {
   command -v flock >/dev/null 2>&1 || die "o comando flock nao existe aqui, e ele protege a lista de grupos contra duas alteracoes ao mesmo tempo. Avise quem mantem a imagem do agente."
   garantir_pasta_wa
   (
     flock -x 9 || exit 1
+    # O desligar --apagar pode ter apagado a pasta enquanto esta alteracao esperava a trava: nao recrio nada.
+    if [ -L "$WADIR" ] || [ ! -d "$WADIR" ]; then
+      erro "a pasta $WADIR foi apagada (ou trocada) enquanto esta alteracao esperava. Nada foi gravado. Rode 'canal whatsapp grupo liberar' de novo se ainda quiser."
+      exit 1
+    fi
     novo="$(grupos_op "$@")" || { rc=$?; [ "$rc" = 3 ] && printf '%s\n' "$novo"; exit "$rc"; }
     printf '%s\n' "$novo" | escrever_atomico "$WADIR/grupos-liberados.json" || exit 1
     printf '%s\n' "$novo"
-  ) 9>>"$WADIR/grupos-liberados.json.trava"
+  ) 9>>"$TRAVA_GRUPOS"
 }
 
 # Texto "+55..., +55..." da lista (ou "nenhum")
@@ -526,7 +556,13 @@ cmd_wa_desligar() {
     fi
   fi
   # WADIR e sempre $HOME/.dgclaw/whatsapp, a pasta que este comando mesmo cria (e nao e link: conferido acima)
-  rm -rf -- "$WADIR"
+  # Pega a mesma trava das alteracoes da lista de grupos (a trava fica fora de WADIR), para nenhuma alteracao em
+  # andamento recriar a lista depois do rm.
+  if command -v flock >/dev/null 2>&1; then
+    ( flock -x 9 || exit 1; rm -rf -- "$WADIR" ) 9>>"$TRAVA_GRUPOS" || die "nao consegui apagar $WADIR com a trava da lista de grupos. Tente de novo."
+  else
+    rm -rf -- "$WADIR"
+  fi
   echo "WhatsApp desligado e dados apagados (conexao e lista de permitidos). Os arquivos recebidos em ~/uploads/whatsapp ficaram."
 }
 
