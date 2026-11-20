@@ -361,10 +361,13 @@ TRAVA_GRUPOS="$DIR/whatsapp-grupos.trava"
 grupos_alterar() {
   command -v flock >/dev/null 2>&1 || die "o comando flock nao existe aqui, e ele protege a lista de grupos contra duas alteracoes ao mesmo tempo. Avise quem mantem a imagem do agente."
   garantir_pasta_wa
+  # Identidade da pasta (dispositivo:inode) antes de esperar a trava: se ela for apagada e recriada, o inode muda.
+  local ident; ident="$(stat -c %d:%i "$WADIR" 2>/dev/null)" || ident=""
   (
     flock -x 9 || exit 1
-    # O desligar --apagar pode ter apagado a pasta enquanto esta alteracao esperava a trava: nao recrio nada.
-    if [ -L "$WADIR" ] || [ ! -d "$WADIR" ]; then
+    # O desligar --apagar pode ter apagado a pasta enquanto esta alteracao esperava a trava: nao recrio nada,
+    # e uma pasta recriada nesse meio tempo (outra identidade) tambem nao recebe a alteracao antiga.
+    if [ -L "$WADIR" ] || [ ! -d "$WADIR" ] || [ -z "$ident" ] || [ "$(stat -c %d:%i "$WADIR" 2>/dev/null)" != "$ident" ]; then
       erro "a pasta $WADIR foi apagada (ou trocada) enquanto esta alteracao esperava. Nada foi gravado. Rode 'canal whatsapp grupo liberar' de novo se ainda quiser."
       exit 1
     fi

@@ -353,8 +353,8 @@ linha JSON. Código de saída 0 enviou, 1 recusou ou falhou, 2 uso errado.
 `enviar --grupo <id>` manda um texto para um grupo. O ID tem dígitos seguidos de `-group` (por exemplo
 `120363000000000000-group`), o mesmo que a Z-API devolve em `GET /groups` e aceita no campo `phone` do `send-text`.
 O script valida o formato (código de saída 2 se estiver errado) e manda o ID intacto, sem tirar nada. `--grupo` e
-`--para` não se misturam. Só o formato novo é aceito; o formato antigo (`<número>-<número>-group`) não aparece na
-documentação consultada e é recusado.
+`--para` não se misturam. Só o formato novo é aceito. O formato legado da Z-API é `<número>-<timestamp>` (sem o `-group`, conforme
+https://developer.z-api.io/group/introduction): o DG Claw não o aceita, e os grupos com esse ID são contados como omitidos.
 
 ```
 node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs grupos
@@ -367,6 +367,8 @@ avança pelo tamanho da página que a Z-API devolveu, com ou sem filtro. Os grup
 fora, e a resposta diz quantos foram no campo `omitidos` (com o `aviso_omitidos`). O nome do
 grupo vem de fora: o script tira caracteres de controle e quebras de linha e corta em 100 caracteres. Os erros passam
 pela mesma limpeza de credencial do envio.
+
+**O destino é sempre o ID.** O nome do grupo vem de terceiros, pode mudar e repetir. Se o dono pedir um grupo por nome e o nome não bater com um único grupo liberado, o agente pergunta qual ID usar antes de enviar; em rotina, guarda o ID.
 
 **Quem libera é o dono.** O agente só escreve nos grupos que estão em `~/.dgclaw/whatsapp/grupos-liberados.json`,
 que o dono mexe pelo comando `dgclaw-agente canal whatsapp grupo (listar | liberar <id> | remover <id>)`. Libere sempre só com o ID: o nome do grupo vem de quem participa dele e não deve ser colado no comando.

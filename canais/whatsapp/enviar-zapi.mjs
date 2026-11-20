@@ -54,6 +54,8 @@ export async function executar(argv, { env = process.env, home = os.homedir(), s
   }
   const dirBase = path.join(home, '.dgclaw', 'whatsapp');
   const arqGrupos = path.join(dirBase, 'grupos-liberados.json');
+  // Consultar grupos so le: despachado antes de preparar o estado de envio, para nao criar a pasta.
+  if (a._[0] === 'grupos') return listarGrupos({ env, fetchImpl, arqGrupos });
   const registrar = (m) => process.stderr.write(`whatsapp-zapi: ${String(m).replace(/[\r\n]+/g, ' ')}\n`);
   const envio = criarEnvioSeguro({
     dir: path.join(dirBase, 'envio'), arqConfig: path.join(dirBase, 'envio.json'), agora, dormir, aleatorio, registrar,
@@ -68,7 +70,6 @@ export async function executar(argv, { env = process.env, home = os.homedir(), s
     const r = await envio.liberarComTrava();
     return { codigoSaida: r.ok ? 0 : 1, resposta: r };
   }
-  if (cmd === 'grupos') return listarGrupos({ env, fetchImpl, arqGrupos });
   if (cmd !== 'enviar') return { codigoSaida: 2, resposta: falha('USO_INVALIDO', 'use "enviar --para <numero> --texto ...", "enviar --grupo <id> --texto ...", "grupos" ou "status"') };
 
   const ehGrupo = a.grupo !== undefined;
@@ -115,6 +116,12 @@ export async function executar(argv, { env = process.env, home = os.homedir(), s
   return { codigoSaida: 0, resposta: { ok: true, ...(ehGrupo ? { grupo: a.grupo } : { para: numero }), id: r.resultado.id, disparo: r.disparo, esperou_ms: r.esperou_ms, ...(r.aviso ? { aviso: r.aviso } : {}) } };
 }
 
+/** Saida da CLI: escreve a resposta e define o codigo sem process.exit, para o pipe esvaziar por inteiro. */
+export function emitir(resposta, codigoSaida) {
+  process.stdout.write(JSON.stringify(resposta) + '\n');
+  process.exitCode = codigoSaida;
+}
+
 async function listarGrupos({ env, fetchImpl, arqGrupos }) {
   let adaptador;
   try {
@@ -143,7 +150,7 @@ async function listarGrupos({ env, fetchImpl, arqGrupos }) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
-  const { codigoSaida, resposta } = await executar(process.argv.slice(2), { uid: process.env.DGCLAW_UID !== undefined ? Number(process.env.DGCLAW_UID) : process.getuid?.() });
-  process.stdout.write(JSON.stringify(resposta) + '\n');
-  process.exitCode = codigoSaida;
+  // Na linha de comando o UID e sempre o real do sistema; a simulacao de uid so existe no parametro de executar().
+  const { codigoSaida, resposta } = await executar(process.argv.slice(2), { uid: process.getuid?.() });
+  emitir(resposta, codigoSaida);
 }

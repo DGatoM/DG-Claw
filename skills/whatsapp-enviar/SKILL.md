@@ -38,10 +38,14 @@ node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs enviar --para "+55119999999
 
 Para texto com aspas ou várias linhas, mande pela entrada: `printf %s "$TEXTO" | node ... enviar --para "+55..." --texto-stdin`.
 
-**Para um grupo (Z-API):** o ID do grupo tem dígitos seguidos de `-group`. Para achar o ID pelo nome, rode
+**Para um grupo (Z-API):** o ID do grupo tem dígitos seguidos de `-group`. Para ver os IDs, rode
 `node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs grupos`: a resposta traz `{"ok":true,"grupos":[{"id","nome","liberado"}]}`.
 Só se manda para um grupo com `"liberado":true`; quem libera é o dono, com
 `dgclaw-agente canal whatsapp grupo liberar <id>` (só o ID: o nome do grupo vem de terceiros e não deve ser colado no comando).
+
+**O destino é sempre o ID, nunca o nome.** O nome do grupo vem de terceiros, pode mudar e pode se repetir. Se o dono
+pedir um grupo pelo nome e houver mais de um grupo liberado com nome parecido, ou o nome não bater exatamente com um
+único grupo liberado, pergunte ao dono qual ID usar antes de enviar. Em rotina, guarde o ID, não o nome.
 
 ```bash
 node /opt/dgclaw/app/canais/whatsapp/enviar-zapi.mjs enviar --grupo "120363000000000000-group" --texto "Pessoal, ..."

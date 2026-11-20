@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { criarAdaptadorZapi } from '../lib/adaptador-zapi.mjs';
 import { criarEnvioSeguro } from '../lib/envio-seguro.mjs';
 import { idDeGrupoValido, lerGruposLiberados, limparNome } from '../lib/grupos.mjs';
@@ -355,11 +355,15 @@ test('CLI de verdade com stdout em pipe: 1000 grupos saem inteiros e o JSON faz 
   // Preload que redireciona o fetch para o servidor local, como a Z-API simulada.
   const preload = path.join(dir, 'preload.mjs');
   fs.writeFileSync(preload, `const f = globalThis.fetch; globalThis.fetch = (u, i) => f(String(u).replace('https://api.z-api.io', 'http://127.0.0.1:${porta}'), i);\n`);
-  const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'enviar-zapi.mjs');
+  // A CLI real usa o uid do sistema (aqui pode ser root, que o comando grupos recusa). Entao o teste roda um script
+  // pequeno que importa executar() com uid 1000 e escreve pelo mesmo emitir() da CLI, sem process.exit.
+  const cli = pathToFileURL(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'enviar-zapi.mjs')).href;
+  const script = path.join(dir, 'cli-teste.mjs');
+  fs.writeFileSync(script, `import { executar, emitir } from '${cli}';\nconst { codigoSaida, resposta } = await executar(['grupos'], { uid: 1000 });\nemitir(resposta, codigoSaida);\n`);
   // O node liga o stdout do filho a um socket, que tem folga; para ter um pipe de verdade (64 KB) e um leitor lento,
-  // a CLI roda dentro de um "sh" que a liga a "sleep 0.3; cat". Quem sai antes de terminar de escrever perde o resto.
-  const filho = spawn('sh', ['-c', '"$0" --import "$1" "$2" grupos | { sleep 0.3; cat; }', process.execPath, preload, cli], {
-    env: { ...envLimpo(), ...ENV, HOME: c.home, DGCLAW_UID: '1000' }, stdio: ['ignore', 'pipe', 'ignore'],
+  // o script roda dentro de um "sh" que o liga a "sleep 0.3; cat". Quem sai antes de terminar de escrever perde o resto.
+  const filho = spawn('sh', ['-c', '"$0" --import "$1" "$2" | { sleep 0.3; cat; }', process.execPath, preload, script], {
+    env: { ...envLimpo(), ...ENV, HOME: c.home }, stdio: ['ignore', 'pipe', 'ignore'],
   });
   const partes = [];
   filho.stdout.on('data', (p) => partes.push(p));
@@ -371,6 +375,14 @@ test('CLI de verdade com stdout em pipe: 1000 grupos saem inteiros e o JSON faz 
   assert.ok(saida.length > 65536);
   assert.equal(JSON.parse(saida).grupos.length, 1000);
   fs.rmSync(dir, { recursive: true, force: true });
+  c.limpar();
+});
+
+test('grupos nao cria a pasta de envio', async () => {
+  const c = casa({ liberados: null });
+  const r = await executar(['grupos'], { uid: 1000, env: ENV, home: c.home, fetchImpl: async () => ({ ok: true, status: 200, json: async () => [{ name: 'A', phone: G1 }] }) });
+  assert.equal(r.codigoSaida, 0);
+  assert.equal(fs.existsSync(path.join(c.home, '.dgclaw', 'whatsapp', 'envio')), false);
   c.limpar();
 });
 

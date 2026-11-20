@@ -329,6 +329,20 @@ rm -rf "$WA"
 echo ok > "$T/solta"; wait "$LP"; wait "$AP"; c=$?
 ok "whatsapp: alteracao que esperava a trava nao recria a pasta apagada" $([ $c = 1 ] && [ ! -e "$WA" ] && grep -q "foi apagada" "$T/e" && echo 0 || echo 1)
 rm -f "$T/preso" "$T/solta"
+# pasta apagada e RECRIADA enquanto a alteracao espera a trava: aborta e a pasta nova fica sem a lista
+mkfifo "$T/solta"
+mkdir -p "$WA"; chmod 700 "$HOME/.dgclaw" "$WA"; echo '{"versao":1,"grupos":[]}' > "$GR"
+( flock -x 9; echo preso > "$T/preso"; read -r _ < "$T/solta" ) 9>>"$TRAVA" &
+LP=$!
+for _ in $(seq 50); do [ -e "$T/preso" ] && break; sleep 0.1; done
+"$BIN" canal whatsapp grupo liberar 120363000000000008-group >"$T/o" 2>"$T/e" &
+AP=$!
+sleep 1
+# a nova nasce antes de a velha sumir, para o sistema de arquivos nao reaproveitar o inode
+mkdir "$WA.nova"; chmod 700 "$WA.nova"; rm -rf "$WA"; mv "$WA.nova" "$WA"
+echo ok > "$T/solta"; wait "$LP"; wait "$AP"; c=$?
+ok "whatsapp: pasta recriada durante a espera aborta e fica sem a lista" $([ $c = 1 ] && [ ! -e "$GR" ] && grep -q "foi apagada" "$T/e" && echo 0 || echo 1)
+rm -rf "$WA"; rm -f "$T/preso" "$T/solta"
 
 # ligar com sessao mas sem lista; depois com tudo
 mkdir -p "$WA/sessao"; echo '{"registered": true}' > "$WA/sessao/creds.json"
