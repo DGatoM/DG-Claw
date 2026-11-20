@@ -159,6 +159,7 @@ Quem: o agente de trabalho, a pedido do dono. O Admin recebe recusa (código de 
 | `dgclaw-agente canal whatsapp parear` | Pareia um número secundário e imprime só o código | [CANAL-WHATSAPP.md](../CANAL-WHATSAPP.md) |
 | `dgclaw-agente canal whatsapp permitir` | Libera o número do dono na lista de permitidos | [CANAL-WHATSAPP.md](../CANAL-WHATSAPP.md) |
 | `dgclaw-agente canal whatsapp remover` | Tira um número da lista de permitidos | [CANAL-WHATSAPP.md](../CANAL-WHATSAPP.md) |
+| `dgclaw-agente canal whatsapp grupo` | Lista, libera ou remove os grupos em que o agente pode escrever pela Z-API (`listar`, `liberar <id>`, `remover <id>`) | [CANAL-WHATSAPP.md](../CANAL-WHATSAPP.md) |
 | `dgclaw-agente canal whatsapp ligar` | Liga a ponte do WhatsApp | [CANAL-WHATSAPP.md](../CANAL-WHATSAPP.md) |
 | `dgclaw-agente canal whatsapp desligar` | Desliga a ponte (`--apagar` remove o pareamento) | [CANAL-WHATSAPP.md](../CANAL-WHATSAPP.md) |
 | `dgclaw-agente canal whatsapp retomar` | Libera os envios travados pelas travas contra banimento, depois de o dono conferir o número | [CANAL-WHATSAPP.md](../CANAL-WHATSAPP.md) |
