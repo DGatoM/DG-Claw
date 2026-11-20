@@ -31,6 +31,7 @@ function lerArgs(argv) {
     if (v === '--texto-stdin') a.textoStdin = true;
     else if (v === '--para' || v === '--grupo' || v === '--texto') {
       if (i + 1 >= argv.length) return { erro: `${v} precisa de um valor` };
+      if (a[v.slice(2)] !== undefined) return { erro: `${v} apareceu mais de uma vez; informe um unico destino e um unico texto` };
       a[v.slice(2)] = argv[++i];
     } else if (v.startsWith('--')) return { erro: `opcao desconhecida: ${v.slice(0, 30)}` };
     else a._.push(v);

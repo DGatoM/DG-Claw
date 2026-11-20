@@ -271,6 +271,24 @@ test('grupos: erro, resposta estranha e lista de liberados ilegivel; a credencia
   c.limpar();
 });
 
+test('--grupo repetido e recusado com codigo 2, sem ler a lista nem chamar a Z-API', async () => {
+  const c = casa();
+  const g = fetchGravando();
+  const opc = { env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {} };
+  const r = await executar(['enviar', '--grupo', G1, '--grupo', G2, '--texto', 'x'], opc);
+  assert.equal(r.codigoSaida, 2);
+  assert.equal(r.resposta.codigo, 'USO_INVALIDO');
+  assert.match(r.resposta.erro, /mais de uma vez/);
+  assert.equal(g.chamadas.length, 0);
+  c.limpar();
+});
+
+test('limparNome tira marcas de link Markdown e quebra URL', () => {
+  const n = limparNome('[Confirmar grupo](https://x.example) <https://y.example> `z`');
+  assert.equal(n, 'Confirmar grupohttps:/ /x.example https:/ /y.example z');
+  assert.doesNotMatch(n, /[\[\]()<>`]|:\/\//);
+});
+
 test('limparNome tira controle e quebra de linha e corta em 100', () => {
   assert.equal(limparNome('a\r\nb\tc\u0000d'), 'a b c d');
   assert.equal(limparNome('x'.repeat(300)).length, 100);

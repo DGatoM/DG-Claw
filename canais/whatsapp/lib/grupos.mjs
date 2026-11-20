@@ -16,9 +16,14 @@ export function motivoGrupoInvalido(entrada) {
     '(por exemplo 120363000000000000-group). Para achar o ID pelo nome, rode "enviar-zapi.mjs grupos"';
 }
 
-/** Nome de grupo vem de fora: tira controle e quebra de linha e corta no tamanho maximo. */
+/**
+ * Nome de grupo vem de fora: tira controle e quebra de linha, tira [ ] ( ) < > e crase (sem eles o painel
+ * nao monta link Markdown nem autolink <url>) e troca "://" por ":/ /" (o painel so transforma em link o que
+ * comeca com http:// ou https://) e corta no tamanho maximo.
+ */
 export function limparNome(nome) {
-  return String(nome ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, TAMANHO_MAX_NOME);
+  return String(nome ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069]+/g, ' ')
+    .replace(/[\[\]()<>`]/g, '').replace(/:\/\//g, ':/ /').replace(/\s+/g, ' ').trim().slice(0, TAMANHO_MAX_NOME);
 }
 
 /**

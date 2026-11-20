@@ -337,7 +337,7 @@ grupos_op() {
         const ruim = o.grupos.findIndex((g) => !g || typeof g.id !== "string" || !re.test(g.id));
         if (ruim >= 0) falhar("a entrada " + (ruim + 1) + " de \"grupos\" tem o campo \"id\" invalido");
       }
-      const nome = process.env.GRUPOS_NOME.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 100);
+      const nome = process.env.GRUPOS_NOME.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069]+/g, " ").replace(/[\[\]()<>`]/g, "").replace(/:\/\//g, ":/ /").replace(/\s+/g, " ").trim().slice(0, 100);
       const tem = o.grupos.some((g) => g.id === id);
       if (op === "liberar") {
         if (tem) { console.error("O grupo " + id + " ja estava liberado. Nada mudou."); process.exitCode = 3; process.stdout.write(JSON.stringify(o, null, 2) + "\n"); return; }
@@ -449,7 +449,7 @@ cmd_wa_grupo() {
       mostrar_grupos "$novo" ;;
     remover)
       id="${2:-}"
-      [ -n "$id" ] || die "uso: dgclaw-agente canal whatsapp grupo remover <id>"
+      if [ -z "$id" ] || [ "$#" -ne 2 ]; then die "uso: dgclaw-agente canal whatsapp grupo remover <id>  (exatamente um ID por chamada; nada foi alterado)"; fi
       [[ "$id" =~ $ID_GRUPO ]] || die "ID de grupo invalido: recebi '${id:0:40}'. O ID tem digitos seguidos de -group, por exemplo 120363000000000000-group."
       novo="$(grupos_alterar remover "$id")" || exit 1
       echo "Grupo $id removido."
