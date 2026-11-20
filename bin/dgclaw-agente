@@ -370,7 +370,7 @@ grupos_op() {
 # alteracoes ao mesmo tempo se enfileiram e a segunda enxerga o resultado da primeira. Ela fica em $DIR, ao lado
 # da pasta whatsapp e fora dela, para que "canal whatsapp desligar --apagar" (que apaga a pasta inteira) nao
 # leve a trava junto e possa pegar a mesma trava antes de apagar. Imprime a lista nova.
-# Codigo 3 = nada mudou; 1 = recusou. Remover um ID ausente tambem faz o sync da pasta antes de dizer que a ausencia esta confirmada.
+# Codigo 3 = nada mudou (o sync da pasta confirma antes); 1 = recusou. Remover um ID ausente tambem faz o sync da pasta antes de dizer que a ausencia esta confirmada.
 TRAVA_GRUPOS="$DIR/whatsapp-grupos.trava"
 grupos_alterar() {
   command -v flock >/dev/null 2>&1 || die "o comando flock nao existe aqui, e ele protege a lista de grupos contra duas alteracoes ao mesmo tempo. Avise quem mantem a imagem do agente."
@@ -399,7 +399,14 @@ grupos_alterar() {
         fi
         exit 1
       fi
-      [ "$rc" = 3 ] && printf '%s\n' "$novo"
+      if [ "$rc" = 3 ]; then
+        # ID ja liberado: uma tentativa anterior pode ter gravado a lista e falhado no sync. So vira "ja estava liberado" se o sync da pasta der certo agora.
+        if ! sync "$WADIR"; then
+          erro "o grupo $2 ja esta na lista, mas nao consegui confirmar no disco (o sync da pasta falhou). Repita 'canal whatsapp grupo liberar' para confirmar."
+          exit 1
+        fi
+        printf '%s\n' "$novo"
+      fi
       exit "$rc"
     }
     printf '%s\n' "$novo" | escrever_atomico --duravel "$WADIR/grupos-liberados.json" || exit 1

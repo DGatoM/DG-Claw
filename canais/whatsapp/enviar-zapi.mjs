@@ -36,6 +36,7 @@ function lerArgs(argv) {
     } else if (v.startsWith('--')) return { erro: `opcao desconhecida: ${v.slice(0, 30)}` };
     else a._.push(v);
   }
+  if (a._.length > 1) return { erro: `argumento a mais: ${String(a._[1]).slice(0, 30)}; informe um unico destino` };
   return a;
 }
 

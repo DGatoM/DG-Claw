@@ -478,3 +478,17 @@ test('enviar --grupo com --texto junto de --texto-stdin e recusado antes de ler 
   assert.equal(fs.existsSync(path.join(c.home, '.dgclaw', 'whatsapp', 'envio')), false);
   c.limpar();
 });
+
+test('enviar --grupo com um segundo ID posicional e recusado antes de ler o stdin, o estado ou a rede', async () => {
+  const c = casa();
+  const g = fetchGravando();
+  let leu = false;
+  const stdin = (async function* () { leu = true; yield Buffer.from('x'); })();
+  const r = await executar(['enviar', '--grupo', G1, '120363000000000099-group', '--texto-stdin'], { uid: 1000, env: ENV, home: c.home, fetchImpl: g.fetchImpl, dormir: async () => {}, stdin });
+  assert.equal(r.codigoSaida, 2);
+  assert.equal(r.resposta.codigo, 'USO_INVALIDO');
+  assert.equal(leu, false);
+  assert.equal(g.chamadas.length, 0);
+  assert.equal(fs.existsSync(path.join(c.home, '.dgclaw', 'whatsapp', 'envio')), false);
+  c.limpar();
+});

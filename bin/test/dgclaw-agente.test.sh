@@ -256,6 +256,21 @@ PATH="$T/sync-uma-vez:$PATH" "$BIN" canal whatsapp grupo remover 120363000000000
 ok "whatsapp: remover ID ausente com sync que falha da erro de persistencia" $([ $c1 = 1 ] && grep -q "nao consegui confirmar no disco" "$T/e" && ! grep -q "confirmada no disco" "$T/e" && echo 0 || echo 1)
 PATH="$T/sync-uma-vez:$PATH" "$BIN" canal whatsapp grupo remover 120363000000000009-group >"$T/o" 2>"$T/e"; c2=$?
 ok "whatsapp: remover ID ausente de novo faz o sync e confirma a ausencia" $([ $c2 = 1 ] && grep -q "ausencia esta confirmada no disco" "$T/e" && echo 0 || echo 1)
+# liberar: o sync da PASTA falha so na primeira vez (o do arquivo temporario passa); a segunda chamada, com o ID ja presente, faz o sync e confirma
+rm -f "$T/sync-pasta-conta"
+mkdir -p "$T/sync-pasta-uma-vez"
+printf '#!/usr/bin/env bash\nif [ -d "$1" ] && [ ! -e "%s" ]; then : > "%s"; exit 1; fi\nexit 0\n' "$T/sync-pasta-conta" "$T/sync-pasta-conta" > "$T/sync-pasta-uma-vez/sync"; chmod +x "$T/sync-pasta-uma-vez/sync"
+PATH="$T/sync-pasta-uma-vez:$PATH" "$BIN" canal whatsapp grupo liberar 120363000000000011-group >"$T/o" 2>"$T/e"; c1=$?
+ok "whatsapp: liberar com o sync da pasta falhando sai com erro de persistencia" $([ $c1 = 1 ] && grep -q "nao consegui confirmar no disco" "$T/e" && ! grep -q "liberado\." "$T/o" && echo 0 || echo 1)
+PATH="$T/sync-pasta-uma-vez:$PATH" "$BIN" canal whatsapp grupo liberar 120363000000000011-group >"$T/o" 2>"$T/e"; c2=$?
+ok "whatsapp: liberar de novo com o ID ja presente faz o sync e sai com sucesso" $([ $c2 = 0 ] && grep -q "120363000000000011-group" "$T/o" && echo 0 || echo 1)
+# sync da pasta falha nas duas: a segunda chamada (ID ja presente) tambem sai com erro
+printf '#!/usr/bin/env bash\nif [ -d "$1" ]; then exit 1; fi\nexit 0\n' > "$T/sync-falso/sync"
+"$BIN" canal whatsapp grupo remover 120363000000000011-group >/dev/null 2>&1
+PATH="$T/sync-falso:$PATH" "$BIN" canal whatsapp grupo liberar 120363000000000012-group >"$T/o" 2>"$T/e"; c1=$?
+PATH="$T/sync-falso:$PATH" "$BIN" canal whatsapp grupo liberar 120363000000000012-group >"$T/o" 2>"$T/e"; c2=$?
+ok "whatsapp: liberar com o sync da pasta falhando nas duas chamadas falha nas duas" $([ $c1 = 1 ] && [ $c2 = 1 ] && grep -q "nao consegui confirmar no disco" "$T/e" && echo 0 || echo 1)
+printf '#!/usr/bin/env bash\nexit 1\n' > "$T/sync-falso/sync"
 "$BIN" canal whatsapp grupo remover 120363000000000002-group >"$T/o" 2>&1; c=$?
 ok "whatsapp: grupo remover funciona" $([ $c = 0 ] && grep -q "removido" "$T/o" && ! grep -q "000002-group" "$GR" && grep -q "000001-group" "$GR" && echo 0 || echo 1)
 "$BIN" canal whatsapp grupo remover 120363000000000009-group >"$T/o" 2>"$T/e"; c=$?
