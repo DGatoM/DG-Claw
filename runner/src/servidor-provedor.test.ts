@@ -74,7 +74,7 @@ test("a pasta de estado recebe tudo e o descritor continua sozinho na pasta dele
 test("GET /api/provedor: formato, conferência sem e-mail nem orgId, login e canais", async () => {
   const r = await req("GET", "/api/provedor");
   assert.equal(r.status, 200);
-  assert.deepEqual(Object.keys(r.corpo).sort(), ["auth", "canais", "conferido", "disponiveis", "login", "modelo", "origem", "provedor", "rotulo", "sessao"]);
+  assert.deepEqual(Object.keys(r.corpo).sort(), ["auth", "canais", "cards", "conferido", "disponiveis", "login", "modelo", "origem", "provedor", "rotulo", "sessao"]);
   assert.equal(r.corpo.sessao, ID);
   assert.equal(r.corpo.provedor, "claude");
   assert.equal(r.corpo.auth, "assinatura");
@@ -606,4 +606,95 @@ test("GET /api/provedor?fresco=1: refaz a conferência sem o cache e diz `fresco
   assert.equal(fresco.corpo.fresco, true);
   assert.equal(fresco.corpo.conferido.ok, true);
   assert.equal("fresco" in (await req("GET", "/api/provedor?fresco=0")).corpo, false);
+});
+
+// ─── OpenCode: só cards, chave do OpenRouter ─────────────────────
+
+function cacheOpenRouterDeTeste(): void {
+  const arquivo = path.join(amb.raiz, "openrouter-cache.json");
+  fs.writeFileSync(
+    arquivo,
+    JSON.stringify({
+      buscadoEm: new Date().toISOString(),
+      modelos: [{ id: "z-ai/glm-5.3-prime", nome: "GLM", apelidos: ["glm"], entradaPorMilhao: 0.6, saidaPorMilhao: 2.2 }, { id: "outra/coisa", nome: "Coisa", apelidos: [], entradaPorMilhao: null, saidaPorMilhao: null }],
+    }),
+  );
+  process.env.DGCLAW_OPENROUTER_CACHE = arquivo;
+}
+
+test("GET /api/provedor: o OpenCode aparece em `cards` com o aviso de custo e os modelos, e fica fora de `disponiveis`", async () => {
+  cacheOpenRouterDeTeste();
+  const r = await req("GET", "/api/provedor");
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.corpo.disponiveis, ["claude", "codex"]);
+  const oc = r.corpo.cards.find((c: any) => c.id === "opencode");
+  assert.ok(oc, "o binário falso está no PATH, então o OpenCode conta como instalado");
+  assert.match(oc.aviso, /limite de gasto/);
+  assert.equal(oc.modeloPadrao, "z-ai/glm-5.3-prime");
+  assert.ok(oc.modelos.some((m: any) => m.id === "z-ai/glm-5.3-prime" && m.apelidos.includes("glm")));
+});
+
+test("POST /api/provedor: a conversa principal não troca para o OpenCode (só cards)", async () => {
+  const r = await req("POST", "/api/provedor", { provedor: "opencode", auth: "api" });
+  assert.ok(r.status >= 400 && r.status < 500, JSON.stringify(r.corpo));
+  assert.notEqual(principal.escolhaAtual().provedor, "opencode");
+});
+
+test("POST /api/sessoes: card OpenCode usa a forma api sozinho, aceita apelido e recusa modelo inexistente", async () => {
+  cacheOpenRouterDeTeste();
+  const ruim = await req("POST", "/api/sessoes", { id: "oc-ruim", provedor: "opencode", modelo: "modelo que nao existe" });
+  assert.equal(ruim.status, 400, JSON.stringify(ruim.corpo));
+  assert.equal(ruim.corpo.code, "ESCOLHA_INVALIDA");
+  assert.ok(ruim.corpo.error && ruim.corpo.howToFix);
+
+  const assinatura = await req("POST", "/api/sessoes", { id: "oc-ass", provedor: "opencode", auth: "assinatura" });
+  assert.equal(assinatura.status, 400, JSON.stringify(assinatura.corpo));
+
+  const bom = await req("POST", "/api/sessoes", { id: "oc-bom", provedor: "opencode", modelo: "glm" });
+  assert.equal(bom.status, 201, JSON.stringify(bom.corpo));
+  const pj = JSON.parse(fs.readFileSync(path.join(amb.estado, "sessoes", "oc-bom", "provedor.json"), "utf8"));
+  assert.deepEqual([pj.provedor, pj.auth, pj.modelo], ["opencode", "api", "z-ai/glm-5.3-prime"]);
+  assert.equal((await req("DELETE", "/api/sessoes/oc-bom")).status, 200);
+});
+
+test("POST /api/provedor/login: o OpenCode não tem login por conta e responde 409 com o motivo", async () => {
+  cacheOpenRouterDeTeste();
+  const c = await req("POST", "/api/sessoes", { id: "oc-login", provedor: "opencode" });
+  assert.equal(c.status, 201, JSON.stringify(c.corpo));
+  const r = await req("POST", "/api/provedor/login", { sessao: "oc-login" });
+  assert.equal(r.status, 409, JSON.stringify(r.corpo));
+  assert.equal(r.corpo.code, "LOGIN_NAO_EXISTE_NO_OPENCODE");
+  assert.match(r.corpo.howToFix, /Cofre/);
+  assert.equal((await req("DELETE", "/api/sessoes/oc-login")).status, 200);
+});
+
+test("POST /api/sessoes: agente com restrição do dono não grava card OpenCode (nenhuma vaga é gasta)", async () => {
+  cacheOpenRouterDeTeste();
+  const arq = path.join(amb.raiz, "restricoes-teste.json");
+  fs.writeFileSync(arq, JSON.stringify({ sem_bash: true, sem_enviar_arquivo: false, escrita_so_em: null }));
+  const antes = process.env.RUNNER_RESTRICOES_FILE;
+  process.env.RUNNER_RESTRICOES_FILE = arq;
+  try {
+    const r = await req("POST", "/api/sessoes", { id: "oc-restrito", provedor: "opencode", modelo: "glm" });
+    assert.equal(r.status, 409, JSON.stringify(r.corpo));
+    assert.equal(r.corpo.code, "RESTRICAO_CONTA");
+    assert.ok(r.corpo.howToFix);
+    assert.equal(fs.existsSync(path.join(amb.estado, "sessoes", "oc-restrito")), false, "nada foi gravado");
+    const lista = await req("GET", "/api/sessoes");
+    assert.equal(JSON.stringify(lista.corpo).includes("oc-restrito"), false);
+  } finally {
+    if (antes === undefined) delete process.env.RUNNER_RESTRICOES_FILE;
+    else process.env.RUNNER_RESTRICOES_FILE = antes;
+  }
+});
+
+test("POST /api/provedor: trocar o modelo de um card OpenCode vale (papel de card); na principal continua recusado", async () => {
+  cacheOpenRouterDeTeste();
+  const c = await req("POST", "/api/sessoes", { id: "oc-troca", provedor: "opencode", modelo: "glm" });
+  assert.equal(c.status, 201, JSON.stringify(c.corpo));
+  const card = await req("POST", "/api/provedor", { sessao: "oc-troca", provedor: "opencode", auth: "api", modelo: "outra/coisa", reiniciar: false });
+  assert.equal(card.status, 200, JSON.stringify(card.corpo));
+  const principalR = await req("POST", "/api/provedor", { provedor: "opencode", auth: "api", modelo: "outra/coisa", reiniciar: false });
+  assert.ok(principalR.status >= 400 && principalR.status < 500, JSON.stringify(principalR.corpo));
+  assert.equal((await req("DELETE", "/api/sessoes/oc-troca")).status, 200);
 });

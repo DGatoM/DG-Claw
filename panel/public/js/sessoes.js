@@ -198,7 +198,7 @@
       porque: 'Quem decide é você, e só com o seu login: uma chave de API não aprova pedido, porque um agente não pode autorizar o próprio pedido. A sessão não anda enquanto ninguém decidir.',
     },
     nova: {
-      corpo: 'Abre um formulário com o nome, o pedido que a sessão vai receber e, se quiser, a pasta de trabalho (dentro da pasta do agente). A pasta vira a primeira linha do pedido. Se o agente tem o Claude e o Codex disponíveis, você escolhe qual dos dois trabalha no card (o da conversa principal já vem marcado); com um só, ele usa o da conversa principal e a escolha nem aparece.',
+      corpo: 'Abre um formulário com o nome, o pedido que a sessão vai receber e, se quiser, a pasta de trabalho (dentro da pasta do agente). A pasta vira a primeira linha do pedido. Se o agente tem mais de um motor disponível, você escolhe qual trabalha no card (o da conversa principal já vem marcado); com um só, ele usa o da conversa principal e a escolha nem aparece. O OpenCode só aparece quando existe uma chave do OpenRouter no Cofre: ele abre só cards, cobra por token na sua conta do OpenRouter (pode ficar caro, defina um limite de gasto na chave) e pede o modelo, com o padrão já indicado.',
       porque: 'Quem lê o pedido não viu a sua conversa. Por isso o formulário pede que você diga o que é e onde fica, em vez de deixar a sessão adivinhar. Há um limite de sessões abertas ao mesmo tempo; se ele for atingido, a tela diz como liberar uma vaga.',
     },
     detalhe: {
@@ -371,7 +371,7 @@
   let sigLista = '';
   let sigChips = '';
   const rascunhos = new Map();
-  let novaRascunho = { nome: '', prompt: '', pasta: '', permissao: 'auto', provedor: '' };
+  let novaRascunho = { nome: '', prompt: '', pasta: '', permissao: 'auto', provedor: '', modelo: '' };
 
   // Painel sem Cloudflare Access na frente (o da agente de referência): a aba só lê. O servidor recusa toda escrita
   // com 403; aqui a tela esconde o que não funcionaria, em vez de mostrar botão que só dá erro.
@@ -651,14 +651,37 @@
     // card usa o da conversa principal e nada é mostrado. O motor da principal vem pré-selecionado.
     const prov = el('select', { id: 'sx-n-prov', title: 'O programa que vai trabalhar neste card. O da conversa principal vem marcado.' });
     const provLinha = el('label', { id: 'sx-n-prov-linha', hidden: true }, 'Motor do card', prov);
-    const guarda = () => { novaRascunho = { nome: nome.value, prompt: prompt.value, pasta: pasta.value, permissao: perm.value, provedor: provLinha.hidden ? '' : prov.value }; };
-    for (const e of [nome, prompt, pasta, perm, prov]) e.addEventListener('input', guarda);
+    // Provedor que só abre card (OpenCode com a chave do OpenRouter): aviso de custo em destaque e escolha do modelo.
+    // `cardsInfo` vem de GET /api/sessoes/provedores (campo `cards`); fica vazio se o painel ou o runner forem antigos.
+    const cardsInfo = new Map();
+    const aviso = el('p', { id: 'sx-n-aviso', class: 'sx-aviso-custo', role: 'note', hidden: true });
+    const modelo = el('input', { id: 'sx-n-modelo', list: 'sx-n-modelos', autocomplete: 'off', value: n.modelo || '', placeholder: 'Ex.: glm, kimi, deepseek, qwen, gemini ou um id do OpenRouter' });
+    const modelos = el('datalist', { id: 'sx-n-modelos' });
+    const modeloLinha = el('label', { id: 'sx-n-modelo-linha', hidden: true }, 'Modelo do card', modelo, modelos);
+    const ehCard = () => !provLinha.hidden && cardsInfo.has(prov.value);
+    const mostraCard = () => {
+      const info = ehCard() ? cardsInfo.get(prov.value) : null;
+      aviso.hidden = modeloLinha.hidden = !info;
+      if (!info) return;
+      aviso.textContent = info.aviso || 'Este motor cobra por token, direto na sua conta do OpenRouter, e pode ficar caro. Ao criar a chave, defina o limite de gasto.';
+      modelos.textContent = '';
+      for (const m of info.modelos) {
+        const apelidos = (m.apelidos || []).length ? ` (${m.apelidos.join(', ')})` : '';
+        modelos.append(el('option', { value: m.id }, `${m.nome || m.id}${apelidos}`));
+      }
+      modelo.placeholder = info.modelo_padrao ? `Vazio usa ${info.modelo_padrao}` : modelo.placeholder;
+    };
+    prov.addEventListener('change', mostraCard);
+    const guarda = () => { novaRascunho = { nome: nome.value, prompt: prompt.value, pasta: pasta.value, permissao: perm.value, provedor: provLinha.hidden ? '' : prov.value, modelo: modelo.value }; };
+    for (const e of [nome, prompt, pasta, perm, prov, modelo]) e.addEventListener('input', guarda);
     const folha = el('div', { class: 'sx-folha', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Nova sessão' },
       el('div', { class: 'sx-fcx', id: 'sx-form-nova' },
         el('h3', null, el('span', null, 'Nova sessão'), ajuda('nova', 'Como funciona a nova sessão')),
         el('label', null, 'Nome', nome),
         el('label', null, 'Pedido para o card', prompt),
         provLinha,
+        aviso,
+        modeloLinha,
         el('label', null, 'Pasta de trabalho (opcional)', pasta),
         local ? null : el('label', null, 'Permissão', perm),
         erro,
@@ -682,9 +705,10 @@
         const corpo = { nome: vNome, prompt: vPrompt, pasta: pasta.value.trim() || null };
         if (!local) corpo.permissao = perm.value;
         if (!provLinha.hidden && prov.value) corpo.provedor = prov.value;
+        if (ehCard() && modelo.value.trim()) corpo.modelo = modelo.value.trim();
         const res = await chama('/api/sessoes', { method: 'POST', timeoutMs: 80000, body: corpo });
         if (!res.ok) { falha(textoErro(res)); return; }
-        novaRascunho = { nome: '', prompt: '', pasta: '', permissao: 'auto', provedor: '' };
+        novaRascunho = { nome: '', prompt: '', pasta: '', permissao: 'auto', provedor: '', modelo: '' };
         fecha();
         carregaLista(true);
         const it = res.corpo.item || res.corpo;
@@ -697,20 +721,22 @@
     });
     document.body.append(folha);
     nome.focus();
-    carregaProvedores(prov, provLinha, n.provedor);
+    carregaProvedores(prov, provLinha, n.provedor, cardsInfo, mostraCard);
   }
 
   /** Preenche a escolha de motor do formulário. Qualquer falha (painel antigo, proxy do Bunker, rede) deixa a escolha
    *  escondida: o card usa o motor da conversa principal, como sempre, e o motivo vai para o console. */
-  async function carregaProvedores(select, linha, rascunho) {
+  async function carregaProvedores(select, linha, rascunho, cardsInfo, aoMudar) {
     try {
       const res = await chama('/api/sessoes/provedores');
       if (!res.ok) throw new Error(`o painel respondeu ${res.status}: ${textoErro(res)}`);
       const lista = Array.isArray(res.corpo.disponiveis) ? res.corpo.disponiveis : [];
       if (lista.length < 2 || !select.isConnected) return;
-      for (const p of lista) select.append(el('option', { value: p.id }, p.id === res.corpo.principal ? `${p.nome} (o da conversa principal)` : p.nome));
+      for (const c of Array.isArray(res.corpo.cards) ? res.corpo.cards : []) cardsInfo.set(c.id, c);
+      for (const p of lista) select.append(el('option', { value: p.id }, p.id === res.corpo.principal ? `${p.nome} (o da conversa principal)` : p.so_card ? `${p.nome} (só para cards)` : p.nome));
       select.value = lista.some((p) => p.id === rascunho) ? rascunho : res.corpo.principal;
       linha.hidden = false;
+      aoMudar();
     } catch (e) {
       console.warn('sessoes: não consegui saber quais motores o agente tem; o card novo usa o da conversa principal:', e.message);
     }

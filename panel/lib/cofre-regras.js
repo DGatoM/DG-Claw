@@ -68,8 +68,13 @@ const NOME_PERMITIDO = [
  * `NODE_EXTRA_CA_CERTS` movem a âncora de confiança de TLS do agente para um
  * certificado escolhido pelo dono, que é como se lê o tráfego cifrado dele
  * inteiro sem rodar uma linha de código.
+ *
+ * `OPENCODE_` cobre o OpenCode: `OPENCODE_MODELS_URL` (termina em _URL, passaria na lista de permitidos) muda de
+ * onde o CLI lê o catálogo e o endereço para onde ele manda a chave do OpenRouter; `OPENCODE_CONFIG` e
+ * `OPENCODE_CONFIG_CONTENT` trocam a configuração inteira. O runner também tira essas variáveis do
+ * ambiente do card; recusar aqui é a segunda trava.
  */
-const NOME_PREFIXO_PROIBIDO = ['LD_', 'DYLD_', 'NODE_', 'PYTHON', 'PERL', 'RUBY', 'GIT_', 'BASH_', 'NPM_', 'CLAUDE_'];
+const NOME_PREFIXO_PROIBIDO = ['LD_', 'DYLD_', 'NODE_', 'PYTHON', 'PERL', 'RUBY', 'GIT_', 'BASH_', 'NPM_', 'CLAUDE_', 'OPENCODE_'];
 /**
  * A ÚNICA EXCEÇÃO ao prefixo `CLAUDE_`, consultada ANTES dele.
  *

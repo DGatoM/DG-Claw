@@ -1,0 +1,8 @@
+{
+  "name": "dgclaw-opencode-deps",
+  "private": true,
+  "description": "Dependência que o OpenCode 1.19.6 instalaria sozinho a cada card. Instalada na imagem, com a trava revisada (package-lock.json), para o card abrir sem rede.",
+  "dependencies": {
+    "@opencode-ai/plugin": "1.19.6"
+  }
+}

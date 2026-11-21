@@ -510,7 +510,7 @@ function registrar(router, { CONFIG }) {
     return nome.trim();
   }
 
-  const NOME_DO_PROVEDOR = { claude: 'Claude', codex: 'Codex' };
+  const NOME_DO_PROVEDOR = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode' };
 
   /** O provedor da conversa principal e os que um card novo pode usar. O runner informa `disponiveis`; um runner
    *  antigo que não informa só deixa o da principal (não adivinho um motor que talvez nem esteja instalado). */
@@ -520,21 +520,31 @@ function registrar(router, { CONFIG }) {
       throw new ErroLocal(502, 'O runner não disse qual é o provedor da sessão principal (faltou "provedor" em GET /api/provedor).', { code: 'RUNNER_FORMATO' });
     }
     const lista = Array.isArray(prov.disponiveis) ? prov.disponiveis.filter((x) => typeof x === 'string' && x) : [];
-    const disponiveis = lista.includes(prov.provedor) ? lista : [prov.provedor, ...lista];
-    return { prov, disponiveis };
+    // Provedores que só abrem card (OpenCode): o runner os lista à parte, com o aviso de custo e os modelos.
+    const cards = (Array.isArray(prov.cards) ? prov.cards : []).filter((c) => c && typeof c.id === 'string' && c.id);
+    const base = lista.includes(prov.provedor) ? lista : [prov.provedor, ...lista];
+    const disponiveis = [...base, ...cards.map((c) => c.id).filter((id) => !base.includes(id))];
+    return { prov, disponiveis, cards };
   }
 
   async function rotaProvedores(req, res) {
-    const { prov, disponiveis } = await lerProvedores();
+    const { prov, disponiveis, cards } = await lerProvedores();
+    const idsDeCard = new Set(cards.map((c) => c.id));
     enviarJson(res, 200, {
       ok: true, principal: prov.provedor,
-      disponiveis: disponiveis.map((id) => ({ id, nome: NOME_DO_PROVEDOR[id] || id })),
+      disponiveis: disponiveis.map((id) => ({ id, nome: NOME_DO_PROVEDOR[id] || id, ...(idsDeCard.has(id) ? { so_card: true } : {}) })),
+      // Para o formulário de nova sessão: aviso de custo e lista de modelos do provedor que só abre card.
+      cards: cards.map((c) => ({
+        id: c.id, nome: c.nome || NOME_DO_PROVEDOR[c.id] || c.id, aviso: typeof c.aviso === 'string' ? c.aviso : '',
+        modelo_padrao: typeof c.modeloPadrao === 'string' ? c.modeloPadrao : '',
+        modelos: Array.isArray(c.modelos) ? c.modelos : [], mais_modelos: Number.isInteger(c.maisModelos) ? c.maisModelos : 0,
+      })),
     });
   }
 
-  async function criarCard({ nome, prompt, pasta, por, provedor }) {
+  async function criarCard({ nome, prompt, pasta, por, provedor, modelo }) {
     const absoluta = resolverPasta(pasta);
-    const { prov, disponiveis } = await lerProvedores();
+    const { prov, disponiveis, cards } = await lerProvedores();
     let escolhido = prov.provedor;
     if (provedor !== undefined && provedor !== null && provedor !== '') {
       if (typeof provedor !== 'string' || !disponiveis.includes(provedor)) {
@@ -549,6 +559,17 @@ function registrar(router, { CONFIG }) {
     if (escolhido === prov.provedor) {
       if (prov.auth) corpo.auth = prov.auth;
       if (prov.modelo) corpo.modelo = prov.modelo;
+    } else if (cards.some((c) => c.id === escolhido)) {
+      // Provedor que só abre card (OpenCode): só tem a forma "api", e o modelo é escolhido na criação do card.
+      corpo.auth = 'api';
+      if (modelo !== undefined && modelo !== null && modelo !== '') {
+        if (typeof modelo !== 'string' || modelo.length > 120) {
+          throw new ErroLocal(400, 'O campo "modelo" precisa ser um texto de até 120 caracteres.', {
+            como_resolver: 'Mande o id do modelo do OpenRouter (ex.: z-ai/glm-5.3-prime) ou um apelido (glm, kimi, deepseek, qwen, gemini).', code: 'MODELO_INVALIDO',
+          });
+        }
+        corpo.modelo = modelo.trim();
+      }
     }
     const criada = await runner('POST', '/api/sessoes', corpo, 'criar a sessão');
     const ag = criada.json && criada.json.data;
@@ -585,7 +606,7 @@ function registrar(router, { CONFIG }) {
     if (typeof d.prompt !== 'string' || !d.prompt.trim() || d.prompt.trim().length > PROMPT_MAX) {
       throw new ErroLocal(400, `O campo "prompt" é obrigatório (1 a ${PROMPT_MAX} caracteres).`);
     }
-    const it = await criarCard({ nome, prompt: d.prompt.trim(), pasta: d.pasta, por: quemPediu(req), provedor: d.provedor });
+    const it = await criarCard({ nome, prompt: d.prompt.trim(), pasta: d.pasta, por: quemPediu(req), provedor: d.provedor, modelo: d.modelo });
     log(`criar ${it.id} por ${quemPediu(req)}`);
     enviarJson(res, 201, { ok: true, item: it });
   }

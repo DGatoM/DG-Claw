@@ -105,7 +105,7 @@ Suspensão: a cada 60 s, paralela em `idle`, com fila vazia e parada além de
 input a acorda com `--resume`). `working`, `waiting_input` e `spawning` nunca são
 suspensas. A fila de ocioso agora é FIFO (antes o segundo texto apagava o primeiro).
 
-## Provedores (Claude e Codex)
+## Provedores (Claude e Codex, e OpenCode nos cards)
 
 Cada sessão (a principal e as paralelas) roda o CLI que o dono escolheu: **Claude Code**
 (`claude`) ou **Codex** (`codex`). O que muda de um para o outro mora em `src/provedores/`
@@ -126,6 +126,15 @@ de onde, e o que fazer, e cai para a seguinte, sem derrubar a principal):
 2. `sessoes[].provider/model/auth` no descritor (só paralelas);
 3. `config.provider/model/auth` do descritor;
 4. padrão: Claude, assinatura, modelo padrão.
+
+**OpenCode (só cards).** Terceiro provedor, marcado como `soCard` no catálogo: a conversa principal o recusa, a sessão
+paralela o aceita (`Sessao.lerEscolha` passa `paraCard`), só existe a forma `api` e a chave é `OPENROUTER_API_KEY`
+do Cofre. O motor sobe a TUI no PTY com `-m openrouter/<modelo>`; o status vem de um plugin gravado por spawn em
+`OPENCODE_CONFIG_DIR` (sem `--settings` nem `notify`), e a conversa vem de `opencode export`. `GET /api/provedor`
+lista esses provedores em `cards` (aviso de custo e modelos) e os tira de `disponiveis`. O card enxerga só a
+configuração do spawn (`XDG_CONFIG_HOME` isolado, sem config do projeto), recusa abrir com restrições do dono e usa as
+dependências pré-instaladas na imagem. Medições e limites em
+`docs/PROVEDORES.md`.
 
 **Troca de provedor.** O `runner-state.json` grava `escolha {provedor, auth, modelo}` a cada
 spawn. No boot (`subir("retomar")`), se o provedor OU a forma de pagar mudaram, o id guardado

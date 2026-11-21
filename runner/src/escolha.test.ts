@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { carregarCatalogoDeTeste, pastaTemporaria } from "./apoio-teste.js";
-import { gravarProvedorJson, lerProvedorJson, provedorDoVocabulario, resolverEscolha } from "./provedores/escolha.js";
+import { gravarProvedorJson, lerProvedorJson, provedorDoVocabulario, providerDoRunner, resolverEscolha } from "./provedores/escolha.js";
 import { carregar, rotulo, validar } from "./provedores/catalogo.js";
 
 const catalogo = carregarCatalogoDeTeste();
@@ -123,4 +123,120 @@ test("o catálogo ilegível deixa só o padrão possível, com o motivo", () => 
   assert.ok(carregar().provedores.codex.disponivel);
   assert.equal(provedorDoVocabulario("local-cli"), "claude");
   assert.equal(provedorDoVocabulario("codex-cli"), "codex");
+});
+
+// ─── OpenCode: provedor que só abre cards ────────────────────────
+
+test("opencode: a conversa principal recusa o provedor e cai no próximo nível com o motivo", () => {
+  const r = resolverEscolha({
+    arquivoProvedor: arquivoProvedor(),
+    config: { provider: "opencode-cli", auth: "api" },
+    catalogo,
+  });
+  assert.equal(r.escolha.provedor, "claude");
+  assert.equal(r.escolha.origem, "padrao");
+  assert.equal(r.problemas.length, 1);
+  assert.match(r.problemas[0]!.motivo, /OpenCode/i);
+  assert.match(r.problemas[0]!.motivo, /card/i);
+});
+
+test("opencode: o vocabulário aceita opencode e opencode-cli, e o runner o chama de opencode-cli", () => {
+  assert.equal(provedorDoVocabulario("opencode"), "opencode");
+  assert.equal(provedorDoVocabulario("opencode-cli"), "opencode");
+  assert.equal(providerDoRunner("opencode"), "opencode-cli");
+});
+
+test("opencode: num card vale; a forma é api e o apelido do modelo vira o id do OpenRouter", () => {
+  const r = resolverEscolha({
+    arquivoProvedor: arquivoProvedor(),
+    sessao: { provider: "opencode", model: "glm" },
+    paraCard: true,
+    catalogo,
+  });
+  assert.deepEqual(r.problemas, []);
+  assert.equal(r.escolha.provedor, "opencode");
+  assert.equal(r.escolha.auth, "api");
+  assert.equal(r.escolha.modelo, "z-ai/glm-5.3-prime");
+});
+
+test("opencode: forma de pagar que não existe nele (assinatura) é recusada com o que fazer", () => {
+  const r = resolverEscolha({
+    arquivoProvedor: arquivoProvedor(),
+    sessao: { provider: "opencode", auth: "assinatura" },
+    paraCard: true,
+    catalogo,
+  });
+  assert.equal(r.escolha.provedor, "claude");
+  assert.equal(r.problemas.length, 1);
+});
+
+test("opencode: modelo que saiu do catálogo mantém o provedor do card (não cai em outro) e avisa", () => {
+  const r = resolverEscolha({
+    arquivoProvedor: arquivoProvedor(),
+    sessao: { provider: "opencode", auth: "api", model: "laboratorio-que-saiu/modelo-velho" },
+    config: { provider: "claude" },
+    catalogo,
+    paraCard: true,
+    cacheOpenRouter: path.join(pastaTemporaria("escolha-sem-cache"), "nao-existe.json"),
+  } as never);
+  assert.equal(r.escolha.provedor, "opencode");
+  assert.equal(r.escolha.modelo, "laboratorio-que-saiu/modelo-velho");
+  assert.equal(r.problemas.length, 1);
+  assert.match(r.problemas[0]!.comoResolver, /outro modelo/);
+});
+
+test("opencode: forma de pagar inexistente ou herdada do protótipo continua caindo no próximo nível", () => {
+  for (const auth of ["inexistente", "constructor"]) {
+    const r = resolverEscolha({
+      arquivoProvedor: arquivoProvedor(),
+      sessao: { provider: "opencode", auth, model: "glm" },
+      catalogo,
+      paraCard: true,
+    });
+    assert.equal(r.escolha.provedor, "claude", `auth ${auth} não pode manter o opencode`);
+  }
+});
+
+test("catálogo: provedor e forma de pagar com nome do protótipo não existem", () => {
+  assert.throws(() => validar(catalogo, "constructor", "api"), /não existe/);
+  assert.throws(() => validar(catalogo, "opencode", "constructor", "", { paraCard: true }), /Forma de pagar/);
+  assert.throws(() => validar(catalogo, "claude", "__proto__"), /Forma de pagar/);
+});
+
+test("opencode: o modelo PADRÃO retirado do catálogo mantém o provedor do card (não cai no Claude)", () => {
+  const cache = path.join(pastaTemporaria("escolha-padrao-retirado"), "modelos.json");
+  fs.writeFileSync(
+    cache,
+    JSON.stringify({ buscadoEm: new Date().toISOString(), modelos: [{ id: "outra/coisa", nome: "Coisa", apelidos: [], entradaPorMilhao: null, saidaPorMilhao: null }] }),
+  );
+  const antes = process.env.DGCLAW_OPENROUTER_CACHE;
+  process.env.DGCLAW_OPENROUTER_CACHE = cache;
+  try {
+    for (const sessao of [{ provider: "opencode", auth: "api", model: "" }, { provider: "opencode", auth: "api" }]) {
+      const r = resolverEscolha({ arquivoProvedor: arquivoProvedor(), sessao, config: { provider: "claude" }, catalogo, paraCard: true });
+      assert.equal(r.escolha.provedor, "opencode", "o card segue no OpenCode");
+      assert.equal(r.escolha.modelo, catalogo.provedores.opencode!.modeloPadrao, "guarda o modelo padrão (já retirado) para o motor recusar");
+      assert.ok(r.problemas.length >= 1);
+    }
+  } finally {
+    if (antes === undefined) delete process.env.DGCLAW_OPENROUTER_CACHE;
+    else process.env.DGCLAW_OPENROUTER_CACHE = antes;
+  }
+});
+
+test("opencode: o cache em disco não redefine o apelido (glm) nem cria apelido que colide com um id", () => {
+  const cache = path.join(pastaTemporaria("escolha-apelido"), "modelos.json");
+  fs.writeFileSync(
+    cache,
+    JSON.stringify({
+      buscadoEm: new Date().toISOString(),
+      modelos: [
+        { id: "atacante/modelo-caro", nome: "Caro", apelidos: ["glm", "kimi"], entradaPorMilhao: 99, saidaPorMilhao: 99 },
+        { id: "z-ai/glm-5.3-prime", nome: "GLM", apelidos: [], entradaPorMilhao: 0.6, saidaPorMilhao: 2.2 },
+      ],
+    }),
+  );
+  const v = validar(catalogo, "opencode", "api", "glm", { paraCard: true, cacheOpenRouter: cache });
+  assert.equal(v.modelo, "z-ai/glm-5.3-prime", "o apelido continua apontando para o modelo do catálogo confiável");
+  assert.throws(() => validar(catalogo, "opencode", "api", "kimi", { paraCard: true, cacheOpenRouter: cache }), /não existe/);
 });

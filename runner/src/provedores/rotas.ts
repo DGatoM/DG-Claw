@@ -9,8 +9,9 @@ import path from "node:path";
 import { erro, json, lerCorpo } from "../http-util.js";
 import type { GerenteDeSessoes } from "../sessoes.js";
 import type { Sessao } from "../sessao.js";
-import { ErroCatalogo, rotulo, validar, type Catalogo } from "./catalogo.js";
-import { provedorDoVocabulario } from "./escolha.js";
+import { ErroCatalogo, modelos, rotulo, validar, type Catalogo } from "./catalogo.js";
+import { garantirCacheOpenRouter } from "./openrouter-modelos.js";
+import { provedorDoVocabulario, type NomeProvedor } from "./escolha.js";
 import { lerCanais } from "./canais.js";
 import { Conferidor, conferirProvedor } from "./conferido.js";
 import { ErroDeLogin, LoginAssistido } from "./login.js";
@@ -59,9 +60,10 @@ function rotuloSeguro(
   auth: string,
   modelo: string,
   codexHome: string | undefined,
+  paraCard = false,
 ): string {
   try {
-    return rotulo(cat, provedor, auth, modelo, { codexHome });
+    return rotulo(cat, provedor, auth, modelo, { codexHome, paraCard });
   } catch (err) {
     return err instanceof ErroCatalogo ? `${provedor}, ${auth} (${err.message})` : `${provedor}, ${auth}`;
   }
@@ -88,8 +90,48 @@ function binarioNoPath(nome: string, pathDoAmbiente: string | undefined): boolea
  */
 export function provedoresDisponiveis(cat: Catalogo, pathDoAmbiente: string | undefined): string[] {
   return Object.entries(cat.provedores)
-    .filter(([id, p]) => p.disponivel && provedorDoVocabulario(id) !== null && binarioNoPath(p.binario, pathDoAmbiente))
+    .filter(([id, p]) => p.disponivel && !p.soCard && provedorDoVocabulario(id) !== null && binarioNoPath(p.binario, pathDoAmbiente))
     .map(([id]) => id);
+}
+
+export interface ProvedorDeCard {
+  id: string;
+  nome: string;
+  /** O aviso de custo que o painel mostra em destaque antes de criar o card. */
+  aviso: string;
+  modeloPadrao: string;
+  modelos: Array<{ id: string; nome: string; apelidos: string[]; entradaPorMilhao: number | null; saidaPorMilhao: number | null }>;
+  /** Quantos modelos existem além dos que vieram na lista (cortada para o painel não receber milhares). */
+  maisModelos: number;
+}
+
+const TETO_DE_MODELOS_NA_RESPOSTA = 200;
+
+/**
+ * Os provedores que SÓ abrem cards (OpenCode), instalados neste agente: o painel desenha o seletor de modelo e o
+ * aviso de custo a partir daqui. Ficam fora de `disponiveis`, que é a lista da conversa principal.
+ */
+export function provedoresSoCard(cat: Catalogo, pathDoAmbiente: string | undefined): ProvedorDeCard[] {
+  return Object.entries(cat.provedores)
+    .filter(([id, p]) => p.disponivel && p.soCard && provedorDoVocabulario(id) !== null && binarioNoPath(p.binario, pathDoAmbiente))
+    .map(([id, p]) => {
+      const todos = modelos(cat, id, { soApi: true, paraCard: true });
+      const forma = Object.values(p.auth)[0];
+      return {
+        id,
+        nome: p.nome,
+        aviso: forma?.explica ?? "",
+        modeloPadrao: p.modeloPadrao ?? "",
+        modelos: todos.slice(0, TETO_DE_MODELOS_NA_RESPOSTA).map((m) => ({
+          id: m.id,
+          nome: m.nome,
+          apelidos: m.apelidos ?? [],
+          entradaPorMilhao: m.entradaPorMilhao ?? null,
+          saidaPorMilhao: m.saidaPorMilhao ?? null,
+        })),
+        maisModelos: Math.max(0, todos.length - TETO_DE_MODELOS_NA_RESPOSTA),
+      };
+    });
 }
 
 /** Devolve true quando a rota era do provedor (e já respondeu). */
@@ -112,6 +154,9 @@ export async function tratarRotasDeProvedor(
     const { escolha, catalogo } = s.lerEscolha();
     const amb = s.ambienteDaEscolha(escolha, catalogo);
     const home = amb.codexHome ?? undefined;
+    // A lista de modelos do OpenRouter se renova em segundo plano; esta resposta usa o cache ou a reserva.
+    const cards = provedoresSoCard(catalogo, amb.env.PATH ?? process.env.PATH);
+    if (cards.length) void garantirCacheOpenRouter("provedor");
     // ?fresco=1: sem o cache de 60 s, para quem vai decidir algo a partir do resultado (o Web, antes de deixar um colaborador
     // conectar conta). O campo `fresco` na resposta é o sinal de que este runner entende o pedido; runner antigo não o manda.
     const fresco = url.searchParams.get("fresco") === "1";
@@ -144,9 +189,10 @@ export async function tratarRotasDeProvedor(
       provedor: escolha.provedor,
       auth: escolha.auth,
       modelo: escolha.modelo,
-      rotulo: rotuloSeguro(catalogo, escolha.provedor, escolha.auth, escolha.modelo, home),
+      rotulo: rotuloSeguro(catalogo, escolha.provedor, escolha.auth, escolha.modelo, home, s.papel !== "principal"),
       origem: escolha.origem,
       disponiveis: provedoresDisponiveis(catalogo, amb.env.PATH ?? process.env.PATH),
+      cards,
       conferido,
       ...(fresco ? { fresco: true } : {}),
       login: login.visao(s.id),
@@ -200,16 +246,16 @@ export async function tratarRotasDeProvedor(
     try {
       // Os modelos do Codex vêm do models_cache.json do CODEX_HOME DESTA sessão (que na API é outro).
       const codexHome =
-        nomeP === "codex" && catalogo.provedores.codex?.auth[nomeA]
+        nomeP === "codex" && catalogo.provedores.codex?.auth && Object.hasOwn(catalogo.provedores.codex.auth, nomeA)
           ? (s.ambienteDaEscolha({ provedor: "codex", auth: nomeA, modelo: "" }, catalogo).codexHome ?? undefined)
           : undefined;
-      valida = validar(catalogo, nomeP, nomeA, (modelo ?? "").trim(), { codexHome });
+      valida = validar(catalogo, nomeP, nomeA, (modelo ?? "").trim(), { codexHome, paraCard: s.papel !== "principal" });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       erro(res, 400, "ESCOLHA_INVALIDA", msg, "escolher entre os provedores, formas de pagar e modelos do catálogo (GET /api/provedor mostra a escolha atual)");
       return true;
     }
-    const e = { provedor: valida.provedor as "claude" | "codex", auth: valida.auth, modelo: valida.modelo };
+    const e = { provedor: valida.provedor as NomeProvedor, auth: valida.auth, modelo: valida.modelo };
     try {
       s.definirEscolha(e);
     } catch (err) {
@@ -236,7 +282,7 @@ export async function tratarRotasDeProvedor(
       provedor: e.provedor,
       auth: e.auth,
       modelo: e.modelo,
-      rotulo: rotuloSeguro(lida.catalogo, e.provedor, e.auth, e.modelo, undefined),
+      rotulo: rotuloSeguro(lida.catalogo, e.provedor, e.auth, e.modelo, undefined, s.papel !== "principal"),
       reiniciou,
     });
     return true;
@@ -255,6 +301,16 @@ export async function tratarRotasDeProvedor(
       const s = achar(res, gerente, corpo.sessao ?? doQuery);
       if (!s) return true;
       const { escolha, catalogo } = s.lerEscolha();
+      if (escolha.provedor === "opencode") {
+        erro(
+          res,
+          409,
+          "LOGIN_NAO_EXISTE_NO_OPENCODE",
+          "O OpenCode não tem login: ele usa só a chave do OpenRouter, que não passa por esta rota.",
+          "guardar a OPENROUTER_API_KEY no Cofre do painel e reiniciar o agente",
+        );
+        return true;
+      }
       if (escolha.auth !== "assinatura") {
         erro(
           res,

@@ -145,7 +145,7 @@ function rodar(
 }
 
 export interface PedidoDeConferencia {
-  provedor: "claude" | "codex";
+  provedor: "claude" | "codex" | "opencode";
   auth: string;
   env: Record<string, string>;
   cwd?: string;
@@ -153,7 +153,21 @@ export interface PedidoDeConferencia {
   codexApiAindaSemLogin?: boolean;
 }
 
+/** OpenCode: não há comando de login para rodar, só a chave do OpenRouter no ambiente; o programa não a valida. */
+export function conferirOpenCode(env: Record<string, string>): Conferido {
+  if (env.OPENROUTER_API_KEY?.trim()) {
+    return resultado(true, "api", "Chave do OpenRouter configurada (o OpenCode não confirma se ela vale; o gasto aparece no painel do OpenRouter).");
+  }
+  return resultado(
+    false,
+    null,
+    "A chave do OpenRouter não está no ambiente deste agente. Guarde a OPENROUTER_API_KEY no Cofre do painel e reinicie o agente.",
+    "sem_credencial",
+  );
+}
+
 export async function conferirProvedor(p: PedidoDeConferencia): Promise<Conferido> {
+  if (p.provedor === "opencode") return conferirOpenCode(p.env);
   const binario = p.provedor;
   if (p.provedor === "codex" && p.auth === "api" && p.codexApiAindaSemLogin) {
     return resultado(null, "api", "A chave será registrada no Codex quando o agente subir; ainda não há o que conferir.");

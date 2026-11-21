@@ -127,6 +127,20 @@ subir normal
 DGCLAW_RUNNER_URL="http://127.0.0.1:1" "$BIN" listar >/dev/null 2>&1; c=$?
 ok "DGCLAW_RUNNER_URL e ignorada (continua falando com 127.0.0.1:RUNNER_PORT)" $([ $c = 0 ] && echo 0 || echo 1)
 
+# --- OpenCode: so card, so api ----------------------------------------------------------------------
+subir normal
+"$BIN" abrir --provedor opencode --modelo glm --titulo "Card OC" --pedido 'diga PONG' >"$T/o" 2>"$T/e"; c=$?
+ok "opencode: abrir sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
+node -e 'const l=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").map(JSON.parse);const a=JSON.parse(l[0].corpo);process.exit(a.provedor==="opencode"&&a.auth==="api"&&a.modelo==="glm"?0:1)' "$LOG"
+ok "opencode: o corpo leva provedor opencode, auth api (padrao) e o modelo" $?
+"$BIN" abrir --provedor opencode --auth assinatura --titulo x --pedido y >/dev/null 2>"$T/e"; c=$?
+ok "opencode: outra forma de pagar e recusada" $([ $c = 1 ] && echo 0 || echo 1)
+grep -q "api" "$T/e"; ok "opencode: a recusa explica que so existe a forma api" $?
+subir sem-login
+"$BIN" abrir --provedor opencode --titulo x --pedido y >"$T/o" 2>"$T/e"; c=$?
+ok "opencode: sem a chave sai com 5" $([ $c = 5 ] && echo 0 || echo 1)
+grep -q "OPENROUTER_API_KEY" "$T/e" && grep -q "limite de gasto" "$T/e"; ok "opencode: a mensagem manda guardar a chave no Cofre e definir o limite de gasto" $?
+
 # --- uso ------------------------------------------------------------------------------------------
 "$BIN" abrir --provedor gemini --titulo x --pedido y >/dev/null 2>"$T/e"; ok "provedor desconhecido recusado" $([ $? = 1 ] && echo 0 || echo 1)
 "$BIN" abrir --provedor codex --pedido y >/dev/null 2>"$T/e"; ok "abrir sem titulo recusado" $([ $? = 1 ] && echo 0 || echo 1)

@@ -45,6 +45,7 @@ ARG NODE_MAJOR=22
 # Versões fixadas: a imagem tem que sair igual hoje e daqui a seis meses.
 ARG CLAUDE_CODE_VERSAO=2.1.296
 ARG CODEX_VERSAO=0.167.1
+ARG OPENCODE_VERSAO=1.19.6
 ARG BUN_VERSAO=1.4.3
 
 LABEL org.opencontainers.image.title="DG Claw agente" \
@@ -97,12 +98,12 @@ RUN curl --proto '=https' --tlsv1.2 -fsSL https://deb.nodesource.com/gpgkey/node
     && apt-get update && apt-get install -y --no-install-recommends nodejs gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Claude Code e Codex CLI globais. A credencial não vem junto: cada agente faz o
+# Claude Code, Codex CLI e OpenCode globais (o OpenCode só abre cards, com a chave do OpenRouter). A credencial não vem junto: cada agente faz o
 # próprio login e ela fica na casa dele. O Bun entra porque o plugin oficial do
 # Telegram roda nele; fica em /usr/bin, portanto no PATH do agente e das unidades.
 # O plugin em si NÃO vai na imagem: a casa /home/agente é montada do host e esconderia
 # a instalação, então quem a faz é o "dgclaw agente criar".
-RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSAO}" "@openai/codex@${CODEX_VERSAO}" "bun@${BUN_VERSAO}" \
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSAO}" "@openai/codex@${CODEX_VERSAO}" "opencode-ai@${OPENCODE_VERSAO}" "bun@${BUN_VERSAO}" \
     && npm cache clean --force
 
 # Configuração ADMINISTRADA do Claude Code (restrições do dono, docs/RESTRICOES-DO-AGENTE.md). O arquivo
@@ -188,10 +189,10 @@ ENV CODEX_HOME=/home/agente/.codex
 ENV LANG=pt_BR.UTF-8
 
 # Conferência de build: se uma ferramenta prometida não ficou no PATH, a imagem não sai.
-RUN for c in node npm claude codex bun gh yt-dlp ffmpeg pdftotext jq rg sqlite3 python; do \
+RUN for c in node npm claude codex opencode bun gh yt-dlp ffmpeg pdftotext jq rg sqlite3 python; do \
       command -v "$c" >/dev/null || { echo "ERRO: '$c' não está no PATH da imagem" >&2; exit 1; }; \
     done \
-    && node --version && bun --version && claude --version && codex --version && gh --version | head -1
+    && node --version && bun --version && claude --version && codex --version && opencode --version && gh --version | head -1
 
 # Mesma conferência para o perfil com navegador: sem a Tela completa e sem um navegador que o
 # lançador consiga abrir, a imagem não sai. Em amd64 o navegador é o Google Chrome; nas outras
@@ -250,6 +251,17 @@ RUN rm -rf /opt/dgclaw/app/runner /opt/dgclaw/app/container
 COPY --from=runner-build /build/runner/dist /opt/dgclaw/app/runner/dist
 COPY --from=runner-build /build/runner/node_modules /opt/dgclaw/app/runner/node_modules
 COPY --from=runner-build /build/runner/package.json /opt/dgclaw/app/runner/package.json
+
+# Dependência do OpenCode instalada AQUI, com a trava revisada (providers/opencode-deps/package-lock.json).
+# Sem isto o OpenCode 1.19.6 instala sozinho o @opencode-ai/plugin a cada card (64 MB, precisa de rede e do
+# registro npm no ar). O runner liga esta pasta (somente leitura, de root) na configuração de cada card.
+# A versão do pacote tem que ser a do CLI: se alguém atualizar uma e esquecer a outra, a imagem não sai.
+RUN mkdir -p /opt/dgclaw/opencode-deps \
+ && cp /opt/dgclaw/app/providers/opencode-deps/package.json /opt/dgclaw/app/providers/opencode-deps/package-lock.json /opt/dgclaw/opencode-deps/ \
+ && cd /opt/dgclaw/opencode-deps \
+ && test "$(node -p "require('./package.json').dependencies['@opencode-ai/plugin']")" = "${OPENCODE_VERSAO}" \
+ && npm ci --ignore-scripts --omit=dev \
+ && npm cache clean --force
 
 # CLIs que rodam DENTRO do container (o bin/dgclaw do host não entra no PATH). O link nasce
 # mesmo que o arquivo ainda não exista; fica pendente até o plugin trazer o arquivo.

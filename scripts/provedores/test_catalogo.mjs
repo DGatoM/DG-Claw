@@ -64,3 +64,150 @@ test('CLI: exit 0 com id canônico, exit 2 com mensagem', () => {
   r = spawnSync('node', [CLI, 'rotulo', 'codex', 'api'], { encoding: 'utf8' });
   assert.equal(r.stdout.trim(), 'Codex (modelo padrão), na API');
 });
+
+// --- OpenCode (OpenRouter) ---------------------------------------------------------------------
+import { filtrarModelosOpenRouter, atualizarCacheOpenRouter, cacheOpenRouterVelho, lerCacheOpenRouter } from './catalogo.mjs';
+
+const API_FALSA = {
+  data: [
+    { id: 'z-ai/glm-5.3-prime', name: 'Z.ai: GLM 5.3 Prime', architecture: { output_modalities: ['text'] }, supported_parameters: ['tools', 'temperature'], pricing: { prompt: '0.00000168', completion: '0.00000528' } },
+    { id: 'z-ai/glm-5.3-prime:batch', name: 'lote', architecture: { output_modalities: ['text'] }, supported_parameters: ['tools'] },
+    { id: 'google/gemini-nano-banana-2.1', name: 'Imagem', architecture: { output_modalities: ['image'] }, supported_parameters: ['tools'] },
+    { id: 'x/sem-ferramentas', name: 'Sem ferramentas', architecture: { output_modalities: ['text'] }, supported_parameters: ['temperature'] },
+    { id: 'id invalido com espaço', name: 'ruim', architecture: { output_modalities: ['text'] }, supported_parameters: ['tools'] },
+    { id: 'novo/modelo-x', name: 'Novo X', architecture: { output_modalities: ['text'] }, supported_parameters: ['tools'], pricing: { prompt: '0.000001', completion: '0.000002' } },
+  ],
+};
+
+function cacheFalso(dados = API_FALSA) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orcache-'));
+  const arquivo = path.join(dir, 'openrouter-models.json');
+  fs.writeFileSync(arquivo, JSON.stringify({ buscadoEm: new Date().toISOString(), modelos: filtrarModelosOpenRouter(dados) }));
+  return arquivo;
+}
+
+test('opencode: só abre card, só na API, e o modelo padrão do catálogo entra quando vem vazio', () => {
+  assert.throws(() => validar(cat, 'opencode', 'api', 'glm'), /OpenCode abre só cards/);
+  assert.throws(() => validar(cat, 'opencode', 'assinatura', '', { paraCard: true }), /Use: api/);
+  const v = validar(cat, 'opencode', 'api', '', { paraCard: true, cacheOpenRouter: '/nao/existe.json' });
+  assert.equal(v.modelo, cat.provedores.opencode.modeloPadrao);
+  assert.equal(cat.provedores.opencode.auth.api.variavel, 'OPENROUTER_API_KEY');
+  assert.match(cat.provedores.opencode.auth.api.explica, /paga só pelo que usar/);
+});
+
+test('opencode: filtro da API deixa só texto com ferramentas, sem lote e sem id estranho', () => {
+  const ids = filtrarModelosOpenRouter(API_FALSA).map((m) => m.id);
+  assert.deepEqual(ids, ['z-ai/glm-5.3-prime', 'novo/modelo-x']);
+  assert.equal(filtrarModelosOpenRouter(API_FALSA)[1].entradaPorMilhao, 1);
+});
+
+test('opencode: o cache manda, os apelidos da reserva continuam valendo, e modelo fora da lista é recusado', () => {
+  const cache = cacheFalso();
+  const opc = { paraCard: true, cacheOpenRouter: cache };
+  assert.equal(validar(cat, 'opencode', 'api', 'novo/modelo-x', opc).modelo, 'novo/modelo-x');
+  assert.equal(validar(cat, 'opencode', 'api', 'glm', opc).modelo, 'z-ai/glm-5.3-prime');
+  assert.throws(() => validar(cat, 'opencode', 'api', 'moonshotai/kimi-k3.1-pro', opc), /Os válidos: z-ai\/glm-5.3-prime, novo\/modelo-x/);
+  assert.equal(rotulo(cat, 'opencode', 'api', 'novo/modelo-x', opc), 'Novo X, na API (OpenRouter)');
+});
+
+test('opencode: sem cache vale a lista de reserva do catálogo', () => {
+  const ids = modelos(cat, 'opencode', { cacheOpenRouter: '/nao/existe.json' }).map((m) => m.id);
+  assert.ok(ids.includes('moonshotai/kimi-k3.1-pro') && ids.includes('z-ai/glm-5.3-prime'));
+});
+
+test('opencode: atualizarCacheOpenRouter grava o cache, e falha sem lançar nem apagar o cache antigo', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbusca-'));
+  const arquivo = path.join(dir, 'sub', 'c.json');
+  const bom = async () => ({ ok: true, status: 200, text: async () => JSON.stringify(API_FALSA) });
+  const r = await atualizarCacheOpenRouter({ arquivo, buscar: bom });
+  assert.deepEqual(r, { ok: true, quantos: 2 });
+  assert.equal(lerCacheOpenRouter(arquivo).modelos.length, 2);
+  assert.equal(cacheOpenRouterVelho(arquivo), false);
+  assert.equal(cacheOpenRouterVelho(arquivo, Date.now() + 13 * 3600 * 1000), true);
+  const fora = async () => ({ ok: false, status: 503, text: async () => '' });
+  const r2 = await atualizarCacheOpenRouter({ arquivo, buscar: fora });
+  assert.equal(r2.ok, false);
+  assert.match(r2.erro, /503/);
+  const quebra = async () => { throw new Error('sem rede'); };
+  const r3 = await atualizarCacheOpenRouter({ arquivo, buscar: quebra });
+  assert.match(r3.erro, /sem rede/);
+  const vazio = async () => ({ ok: true, status: 200, text: async () => '{"data":[]}' });
+  assert.match((await atualizarCacheOpenRouter({ arquivo, buscar: vazio })).erro, /vazia/);
+  assert.equal(lerCacheOpenRouter(arquivo).modelos.length, 2, 'o cache antigo sobrevive às falhas');
+});
+
+test('CLI opencode: --card libera, e sem ele recusa com exit 2', () => {
+  const env = { ...process.env, DGCLAW_OPENROUTER_CACHE: '/nao/existe.json' };
+  let r = spawnSync('node', [CLI, 'validar', 'opencode', 'api', 'kimi', '--card'], { encoding: 'utf8', env });
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout.trim(), 'moonshotai/kimi-k3.1-pro');
+  r = spawnSync('node', [CLI, 'validar', 'opencode', 'api', 'kimi'], { encoding: 'utf8', env });
+  assert.equal(r.status, 2);
+});
+
+test('opencode: corpo grande é cortado durante a leitura, e atualizações simultâneas viram uma busca só', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgrande-'));
+  const arquivo = path.join(dir, 'c.json');
+  let cancelado = false;
+  const corpo = new ReadableStream({ pull(c) { c.enqueue(new Uint8Array(1024 * 1024)); }, cancel() { cancelado = true; } });
+  const r = await atualizarCacheOpenRouter({ arquivo, buscar: async () => new Response(corpo, { status: 200 }) });
+  assert.equal(r.ok, false);
+  assert.match(r.erro, /grande demais/);
+  assert.equal(cancelado, true);
+
+  let buscas = 0;
+  const lento = async () => { buscas += 1; await new Promise((x) => setTimeout(x, 80)); return { ok: true, status: 200, text: async () => JSON.stringify(API_FALSA) }; };
+  const rs = await Promise.all([1, 2, 3].map(() => atualizarCacheOpenRouter({ arquivo, buscar: lento })));
+  assert.equal(buscas, 1);
+  assert.ok(rs.every((x) => x.ok));
+});
+
+test('opencode: cache FIFO ou link simbólico não é lido; a gravação não segue link no nome temporário antigo', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orfifo-'));
+  const fifo = path.join(dir, 'fifo.json');
+  spawnSync('mkfifo', [fifo]);
+  const t0 = Date.now();
+  assert.equal(lerCacheOpenRouter(fifo), null);
+  assert.ok(Date.now() - t0 < 1000);
+  const arquivo = path.join(dir, 'c.json');
+  const vitima = path.join(dir, 'vitima.txt');
+  fs.writeFileSync(vitima, 'intacto');
+  fs.symlinkSync(vitima, `${arquivo}.${process.pid}.tmp`);
+  const bom = async () => ({ ok: true, status: 200, text: async () => JSON.stringify(API_FALSA) });
+  assert.equal((await atualizarCacheOpenRouter({ arquivo, buscar: bom })).ok, true);
+  assert.equal(fs.readFileSync(vitima, 'utf8'), 'intacto');
+  assert.equal(fs.statSync(arquivo).mode & 0o777, 0o600);
+  const link = path.join(dir, 'link.json');
+  fs.symlinkSync(arquivo, link);
+  assert.equal(lerCacheOpenRouter(link), null);
+});
+
+test('catálogo: provedor e forma de pagar com nome do protótipo não existem', () => {
+  assert.throws(() => validar(cat, 'constructor', 'api'), /não existe/);
+  assert.throws(() => validar(cat, 'opencode', 'constructor', '', { paraCard: true }), /Forma de pagar/);
+});
+
+test('opencode: cache fora do esquema é descartado e o apelido do disco não redefine o modelo', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cat-esquema-'));
+  const quando = new Date().toISOString();
+  const bom = { id: 'a/b', nome: 'AB', apelidos: [], entradaPorMilhao: 1, saidaPorMilhao: null };
+  const ruim = path.join(dir, 'ruim.json');
+  fs.writeFileSync(ruim, JSON.stringify({ buscadoEm: quando, modelos: [bom, null] }));
+  assert.equal(lerCacheOpenRouter(ruim), null);
+  const preco = path.join(dir, 'preco.json');
+  fs.writeFileSync(preco, JSON.stringify({ buscadoEm: quando, modelos: [{ ...bom, entradaPorMilhao: 'caro' }] }));
+  assert.equal(lerCacheOpenRouter(preco), null);
+  const atacante = path.join(dir, 'atacante.json');
+  fs.writeFileSync(
+    atacante,
+    JSON.stringify({
+      buscadoEm: quando,
+      modelos: [
+        { id: 'atacante/caro', nome: 'Caro', apelidos: ['glm', 'kimi'], entradaPorMilhao: 99, saidaPorMilhao: 99 },
+        { id: 'z-ai/glm-5.3-prime', nome: 'GLM', apelidos: [], entradaPorMilhao: 0.6, saidaPorMilhao: 2.2 },
+      ],
+    }),
+  );
+  assert.equal(validar(cat, 'opencode', 'api', 'glm', { paraCard: true, cacheOpenRouter: atacante }).modelo, 'z-ai/glm-5.3-prime');
+  assert.throws(() => validar(cat, 'opencode', 'api', 'kimi', { paraCard: true, cacheOpenRouter: atacante }), /não existe/);
+});

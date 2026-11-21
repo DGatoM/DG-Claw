@@ -391,6 +391,8 @@ export class Sessao extends EventEmitter {
       sessao: this.escolhaDescrita,
       config: { provider: cfg.provider, model: cfg.model, auth: cfg.auth },
       codexHome: this.codexHomeParaModelos(),
+      // Só a sessão paralela (card) pode usar um provedor que abre apenas cards (OpenCode).
+      paraCard: this.papel === "paralela",
     });
   }
 
@@ -453,6 +455,15 @@ export class Sessao extends EventEmitter {
         tipo: "restricao",
         mensagem: this.estado.error ?? `A conta de IA de ${this.slug} não serve com as restrições do dono.`,
         comoResolver: "conectar uma conta pessoal (Pro ou Max) ou uma chave de API, ou desligar as restrições (dgclaw agente restricoes)",
+      };
+    }
+    // A tela do CLI nunca confirmou que estava pronta (o PTY segue vivo, mas parado numa tela que talvez nem aceite
+    // texto): nenhum envio é digitado até uma nova partida confirmada, senão o pedido iria para a tela errada.
+    if (this.estado.status === "errored" && this.estado.statusReason === "runner:prontidao-expirou") {
+      return {
+        tipo: "prontidao",
+        mensagem: this.estado.error ?? `O terminal de ${this.slug} não avisou que estava pronto, e nada foi digitado nele.`,
+        comoResolver: "fechar este card e abrir outro (ou suspender e acordar a sessão), depois reenviar o pedido",
       };
     }
     return this.recusaDoMotor();
