@@ -180,7 +180,8 @@ nega "registro falho: nao imprime OK do painel" grep -q 'OK     \[2\]' "$TMP/s.t
 limpar_estado
 printf '{"ok":true,"agentes":1,"registro_ok":true,"login_trancado":true}' >"$STUB_ESTADO/saude"
 smoke
-afirma "login trancado: AVISO do painel" grep -q 'AVISO  \[2\] o painel respondeu na porta 8300, mas informou o login trancado' "$TMP/s.txt"
+igual "login trancado: sai com 1" "1" "$?"
+afirma "login trancado: FALHA do painel" grep -q 'FALHA  \[2\] o painel respondeu na porta 8300, mas o login esta trancado' "$TMP/s.txt"
 nega "login trancado: nao imprime OK do painel" grep -q 'OK     \[2\]' "$TMP/s.txt"
 limpar_estado
 echo 22 >"$STUB_ESTADO/curl-rc"
@@ -193,5 +194,18 @@ jq -n '{versao: 1, agentes: [{slug: "ana\n", tipo: "agente"}]}' >"$ETC/agentes.j
 smoke
 afirma "slug com quebra de linha: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[4\] um agente do registro tem nome fora do formato' "$TMP/s.txt"
 nega "slug com quebra de linha: nao chama o podman" grep -q 'podman' "$STUB_LOG"
+
+echo "smoke-entrega: login_trancado ausente e registro descartado pelo painel"
+limpar_estado
+printf '{"ok":true,"agentes":1,"registro_ok":true}' >"$STUB_ESTADO/saude"
+smoke
+afirma "login_trancado ausente: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[2\] o painel respondeu na porta 8300, mas sem o campo login_trancado' "$TMP/s.txt"
+limpar_estado
+echo '{"versao":1,"agentes":[{"slug":"admin","tipo":"admin","runner":"http://127.0.0.1:4300","agente_id":"a"},{"slug":"ana","tipo":"agente"}]}' >"$ETC/agentes.json"
+printf '{"ok":true,"agentes":1,"registro_ok":true,"login_trancado":false}' >"$STUB_ESTADO/saude"
+smoke
+igual "registro descartado: sai com 1" "1" "$?"
+afirma "registro descartado: FALHA" grep -q 'FALHA  \[4\] o painel carregou 1 dos 2 registros do agentes.json' "$TMP/s.txt"
+nega "registro descartado: nao imprime OK do agente" grep -q 'OK     \[4\] dgclaw-ana rodando' "$TMP/s.txt"
 
 fim

@@ -28,6 +28,7 @@ for f in jq podman curl systemctl; do
 done
 
 FALHAS=0
+PAINEL_AGENTES=""
 AVISOS=0
 INCONCLUSIVOS=0
 ok()    { printf '  OK     [%s] %s\n' "$1" "$2"; }
@@ -61,10 +62,14 @@ else
     if [ "$curl_rc" = 0 ] && printf '%s' "$saude" | jq -e 'type == "object" and .ok == true and has("registro_ok")' >/dev/null 2>&1; then
         if ! printf '%s' "$saude" | jq -e '.registro_ok == true' >/dev/null 2>&1; then
             falha 2 "o painel respondeu na porta $PORTA, mas informou que nao consegue ler o registro de agentes (registro_ok diferente de true)." "veja o servico com: sudo systemctl status dgclaw-web"
+        elif printf '%s' "$saude" | jq -e '.login_trancado == true' >/dev/null 2>&1; then
+            falha 2 "o painel respondeu na porta $PORTA, mas o login esta trancado: falta o usuario, a senha ainda nao foi cadastrada ou o hash nao vale." "conclua o primeiro acesso (sudo dgclaw primeiro-acesso) ou corrija a credencial do painel com a equipe"
         elif ! printf '%s' "$saude" | jq -e '.login_trancado == false' >/dev/null 2>&1; then
-            aviso 2 "o painel respondeu na porta $PORTA, mas informou o login trancado (login_trancado diferente de false)." "confira com a equipe as tentativas de login recentes antes de entregar"
+            inconclusivo 2 "o painel respondeu na porta $PORTA, mas sem o campo login_trancado no formato esperado." "confira a versao instalada com: sudo dgclaw status"
         else
             ok 2 "o painel do DG Claw respondeu na porta $PORTA (/api/saude)"
+            # Quantos registros o painel aceitou (Admin incluido), para comparar com o agentes.json no passo 4.
+            PAINEL_AGENTES="$(printf '%s' "$saude" | jq -r '.agentes | numbers' 2>/dev/null)"
         fi
     else
         falha 2 "o painel do DG Claw nao respondeu na porta $PORTA (/api/saude sem a resposta esperada; curl saiu com $curl_rc)." "veja o servico com: sudo systemctl status dgclaw-web"
@@ -89,6 +94,9 @@ if [ ! -s "$AGENTES_JSON" ]; then
 # "<igual|diverge> <slug>": diverge quando o campo "container" do registro nao e vazio nem dgclaw-<slug>.
 elif ! SLUGS="$(jq -r '.agentes[] | ((.tipo | strings | gsub("^\\s+|\\s+$"; "")) // "") as $tp | (if $tp != "" then $tp elif .slug == "admin" then "admin" else "agente" end) as $t | select($t != "admin") | (.slug | if type == "string" and test("\\A[a-z0-9][a-z0-9-]{0,31}\\z") then . else "-" end) as $s | ((.container // "") | tostring) as $c | (if $c == "" or $c == ("dgclaw-" + $s) then "igual" else "diverge" end) + " " + $s' "$AGENTES_JSON" 2>/dev/null)"; then
     inconclusivo 4 "o registro de agentes nao pode ser lido." "confira com: dgclaw agente listar"
+elif TOTAL="$(jq -r '.agentes | length' "$AGENTES_JSON" 2>/dev/null)" && [ -n "${PAINEL_AGENTES:-}" ] && [ "$PAINEL_AGENTES" != "$TOTAL" ]; then
+    # O painel (web/lib/registro.js) descarta registro sem runner, sem agente_id, com slug invalido ou repetido.
+    falha 4 "o painel carregou $PAINEL_AGENTES dos $TOTAL registros do agentes.json: algum registro foi descartado e esse agente nao aparece no painel." "confira com a equipe: dgclaw agente listar"
 elif [ -z "$SLUGS" ]; then
     aviso 4 "o registro nao tem nenhum agente." "crie o agente do cliente antes da entrega (dgclaw agente criar)"
 else
