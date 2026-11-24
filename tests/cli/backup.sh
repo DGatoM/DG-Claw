@@ -111,6 +111,11 @@ nega "a linha criada depois do backup saiu do web.env" grep -qx 'LINHA_NOVA=1' "
 afirma "a memoria da Ana voltou" grep -q 'A Marta gosta de cafe' "$LIB/agentes/ana/home/MEMORY.md"
 nega "a conta dedicada do YouTube foi desligada pela restauracao" test -e "$LIB/agentes/ana/config/youtube-conta-dedicada"
 afirma "e o aviso diz como ligar de novo" grep -q 'conta dedicada do YouTube desligada no agente ana' "$TMP/o7.txt"
+# Backup que traz o marcador: a extracao nao o repoe (vale mesmo se a restauracao parar antes da limpeza final).
+TMPX="$TMP/extrai-yt"; mkdir -p "$TMPX/var/lib/dgclaw/agentes/ana/config"; printf 'sim\n' >"$TMPX/var/lib/dgclaw/agentes/ana/config/youtube-conta-dedicada"
+tar -czf "$TMP/yt.tar.gz" -C "$TMPX" var; mkdir -p "$TMP/destino-yt"
+( R="$TMP/destino-yt"; _C_ER=; _C_0=; falha() { echo "falha: $1"; exit 1; }; . "$REPO/lib/backup.sh"; _restaurar_extrair "$TMP/yt.tar.gz" teste agora )
+nega "a extracao nao repoe o marcador que veio no backup" test -e "$TMP/destino-yt/var/lib/dgclaw/agentes/ana/config/youtube-conta-dedicada"
 afirma "a conta dedicada cai ANTES da primeira extracao (restauracao interrompida nao deixa o marcador)" bash -c "awk '/^restaurar_main\(\)/{f=1} f&&/_restaurar_desligar_youtube/&&!d{d=NR} f&&/_restaurar_extrair \"/&&!e{e=NR} END{exit !(d&&e&&d<e)}' '$REPO/lib/backup.sh'"
 afirma "fez o backup antes-de-restaurar" grep -rqx 'motivo=antes-de-restaurar' "$BACKUPS"
 ANTES="$(grep -rlx 'motivo=antes-de-restaurar' "$BACKUPS" | head -n 1)"
