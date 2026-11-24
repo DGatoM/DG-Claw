@@ -13,14 +13,17 @@ No servidor do cliente, como root:
 sudo bash scripts/smoke-entrega.sh <agente>
 ```
 
-O script automatiza os passos 1, 3, 7 e 8, e parte dos passos 5 e 6 (o microfone e os nomes do cofre; o
-perfil da Tela e a configuração do `yt-dlp`). Ele **não** cruza as skills com o cofre e **não** baixa nada do
-YouTube: esses dois ficam à mão, com os comandos nos passos 5 e 6.
+O script automatiza os passos 1 e 3, a parte do passo 5 que lê o microfone e os nomes do cofre, e o `ffmpeg`
+do servidor (passo 8). Ele só faz leituras do servidor que o agente não controla (`podman inspect`,
+`podman container exists`, `systemctl show` e `journalctl` do runner com a saída reduzida a um número validado,
+o cgroup do container, o `web.env` e a CLI do cofre). Tudo o que executa um programa controlado pelo agente dentro
+do container, ou lê uma árvore que ele pode gravar, fica à mão: o `yt-dlp` e a Tela (passo 6), o render do
+Chrome (passo 7), o `ffmpeg` do container (passo 8) e o cruzamento das skills com o cofre (passo 5).
 
-- Cada item imprime `OK`, `AVISO`, `FALHA`, `INCONCLUSIVO` ou `PENDENTE`, com a causa e o que fazer.
+- Cada item imprime `OK`, `AVISO`, `FALHA` ou `INCONCLUSIVO`, com a causa e o que fazer.
   `INCONCLUSIVO` quer dizer que a leitura deu erro e o script não sabe: não é `OK` nem `FALHA`, e
-  não significa "zero eventos". `PENDENTE` é o que o dono confirma depois.
-- O código de saída é diferente de zero se houver `FALHA`. `AVISO`, `INCONCLUSIVO` e `PENDENTE` não
+  não significa "zero eventos".
+- O código de saída é diferente de zero se houver `FALHA`. `AVISO` e `INCONCLUSIVO` não
   reprovam, mas cada um precisa ser resolvido (o inconclusivo, conferido à mão) ou justificado antes da
   entrega.
 - O relatório só tem mensagens fixas. Nenhum texto vindo do container (caminho, nome escolhido pelo agente,
@@ -61,12 +64,14 @@ Os números abaixo são os mesmos que o script imprime entre colchetes.
   mostra as impressões digitais. Se houver `authorizedkeyscommand`, confira a chave também na fonte que ele
   consulta (o `ssh-keygen` não o lê). Se ela aparecer em algum lugar, remova a linha, porque o `desligar` não
   mexe nas chaves que não são do suporte. **Antes de remover**, peça ao cliente para abrir uma conexão SSH
-  nova com a credencial dele, confirmar que tem root ou `sudo` e deixá-la aberta até o fim deste item. Sem
+  nova com a credencial e o método de autenticação dele, também com `-o ControlMaster=no -o ControlPath=none`
+  (transporte novo, sem reaproveitar conexão multiplexada), confirmar que tem root ou `sudo` e deixá-la aberta até o fim deste item. Sem
   isso, numa VPS que só aceita chave para o root, a remoção pode deixar o dono sem acesso administrativo.
   Depois de remover todas as fontes de autorização da equipe, teste de uma conexão nova, a partir da origem de
   suporte que antes era aceita, só com essa chave
-  (`ssh -o IdentitiesOnly=yes -o IdentityAgent=none -i <chave da equipe> root@<servidor>`): ela precisa
-  ser recusada. Uma recusa nova não derruba uma sessão já aberta, então, por último, pela conexão do cliente,
+  (`ssh -o ControlMaster=no -o ControlPath=none -o IdentitiesOnly=yes -o IdentityAgent=none -i <chave da equipe> root@<servidor>`;
+  as duas primeiras opções equivalem a `-S none` e impedem que a conexão reaproveite um transporte multiplexado
+  já aberto): ela precisa ser recusada. Uma recusa nova não derruba uma sessão já aberta, então, por último, pela conexão do cliente,
   encerre as outras sessões SSH de root com `sudo dgclaw suporte desligar --derrubar-sessoes` (encerra todas,
   menos a de quem roda) e confira em `sudo dgclaw suporte status` que só sobrou a sessão do cliente.
 - **Chaves de diagnóstico remoto:** desligar o SSH não revoga uma chave `diagnostico` emitida durante a
@@ -80,6 +85,7 @@ O script confere, para `dgclaw-<agente>`:
 
 | Item | Como confere | Esperado |
 | --- | --- | --- |
+| Container | `podman container exists` e, se existe, `podman inspect` do estado | Rodando. Container inexistente é `FALHA` (um agente sem container precisa ser recriado pela equipe; confira antes com `dgclaw agente listar`). Parado é `FALHA` (`dgclaw agente iniciar`). Estado vazio ou fora da lista, ou o `podman` sem responder, é `INCONCLUSIVO`: rode de novo, sem alterar nada |
 | Processos | `pids.max` do cgroup do container, lido no servidor (`podman inspect -f '{{.State.CgroupPath}}'`, caminho validado, arquivo em `/sys/fs/cgroup<caminho>`), e `PidsLimit` do `podman inspect` | 4096 ou mais. Menos que isso, ou `max` (sem limite), é `FALHA`. Caminho ou arquivo ilegível é `INCONCLUSIVO` |
 | Memória | `memory.max` do mesmo cgroup e `MemTotal` do servidor | `max` (sem limite) é `FALHA`: configure `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin. Valor numérico igual ou maior que o `MemTotal` do servidor é `AVISO`: o teto não protege o servidor. Com 2 GB e a VPS com mais RAM, `AVISO`: nesta versão o teto é fixo na criação, e a partir da 1.1.1 ele se ajusta com `DGCLAW_CONTAINER_MEMORIA` |
 | CPU | `cpu.max` do mesmo cgroup (quota dividida pelo período; `max` é sem limite) e `nproc` | Mais de 1 quando a VPS tem mais núcleos. Senão, `AVISO` (nesta versão o limite de CPU é fixo na criação). Arquivo ilegível é `INCONCLUSIVO` |
@@ -94,10 +100,12 @@ são fixos na criação do container; a partir da 1.1.1 a memória se ajusta com
 seguida de `recriar`. Depois de qualquer ajuste, reinicie o container e rode o smoke de novo: o item só fecha
 quando o cgroup relido mostrar o valor certo.
 
-**OOM só no kernel.** A linha de falta de memória do kernel, sozinha, não diz de quem era o processo. Antes de
-mexer em qualquer limite, leia as linhas `oom-kill` num terminal seu (nunca no chat do Admin) e veja o
-`task_memcg`. Só aumente o teto do agente se o processo morto era do container dele; se era de outro serviço,
-aumentar o teto do agente tira ainda mais folga do servidor.
+**OOM só no kernel.** A linha de falta de memória do kernel, sozinha, não diz de quem era o processo nem qual
+limite estourou. Antes de mexer em qualquer limite, leia as linhas `oom-kill` num terminal seu (nunca no chat do
+Admin) e veja a data, o `oom_memcg` (o cgroup cujo limite estourou) e o `task_memcg` (quem foi morto). Só com o
+`oom_memcg` igual ao cgroup do container do agente ele estourou o próprio teto. Se o `oom_memcg` é de um
+ancestral, de outro serviço, ou se foi OOM do servidor inteiro (`CONSTRAINT_NONE`), o ajuste é nesse limite ou no
+plano da VPS. Nunca aumente o teto do agente direto: isso tira ainda mais folga do servidor.
 
 **Recriar o agente sem perder nada.** O `dgclaw agente recriar <agente>` pode recriar o container na hora,
 então ele não é uma simples listagem. Antes dele, confira num terminal seu (nunca no chat do Admin) o que existe só na camada
@@ -161,15 +169,23 @@ sucesso antes de recriar.
   fecha depois de você revogá-la no provedor: trocar no cofre e no `web.env` não invalida cópias que o agente
   ou um backup anterior à entrega ainda guardem.
 
-### 6. YouTube e yt-dlp (login à mão)
+### 6. YouTube e yt-dlp (à mão)
 
-1. **À mão:** abra a Tela do agente (veja [TELA-DO-AGENTE.md](TELA-DO-AGENTE.md)) e entre no YouTube pelo
-   navegador dela com uma **conta dedicada ao agente**, deixando a sessão aberta. A senha da Tela se troca
-   com `dgclaw agente tela-senha <agente>`.
-2. **Confira o login:** a partir da 1.1.1, olhe o item de diagnóstico `agente.<agente>.youtube`. Antes disso,
+O smoke não executa nada disso: `yt-dlp` e a Tela são programas e arquivos que o agente controla. A pessoa
+confere num terminal dela, **nunca no chat do Admin**.
+
+1. **`yt-dlp` no PATH em `/usr/local/bin`** (a partir da 1.1.1; antes, em `/opt/venv/bin`): como usuário
+   `agente`, `podman exec --user agente dgclaw-<agente> sh -c 'command -v yt-dlp'`.
+2. **Diretiva `--js-runtimes node` ativa** (não comentada) no `/etc/yt-dlp.conf` do container. Não existe mais
+   configuração global de cookies. Sem a diretiva o `yt-dlp` não resolve o desafio do YouTube.
+3. **Perfil da Tela:** `/home/agente/.tela-chrome` existe. Se não existir, a Tela nunca foi aberta.
+4. **Login com conta dedicada:** abra a Tela do agente (veja [TELA-DO-AGENTE.md](TELA-DO-AGENTE.md)) e entre no
+   YouTube pelo navegador dela com uma **conta dedicada ao agente**, deixando a sessão aberta. A senha da Tela se
+   troca com `dgclaw agente tela-senha <agente>`.
+5. **Confira o login:** a partir da 1.1.1, olhe o item de diagnóstico `agente.<agente>.youtube`. Antes disso,
    primeiro olhe na Tela qual conta do YouTube está logada e confirme que é a conta dedicada ao agente
    (o vídeo público baixa mesmo com a sessão expirada, então o download sozinho não prova o login). Depois
-   faça à mão um download curto de verdade, numa pasta privada nova dentro do container, com a mesma chamada
+   faça um download curto de verdade, numa pasta privada nova dentro do container, com a mesma chamada
    isolada que o agente usa, como usuário `agente`:
    `D="$(podman exec --user agente dgclaw-<agente> mktemp -d /tmp/yt-entrega.XXXXXX)"` e, antes de usar `$D`,
    confira que o `mktemp` terminou com sucesso e que o caminho é exatamente uma pasta direto sob `/tmp`, com o
@@ -178,46 +194,42 @@ sucesso antes de recriar.
    `podman exec --user agente dgclaw-<agente> yt-dlp --ignore-config --no-plugin-dirs --js-runtimes node --cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome/Default" --no-playlist -f "worst/worstvideo" --max-filesize 5M -P "$D" -- 'https://www.youtube.com/watch?v=jNQXAC9IJRQ'`.
    Esperado: um arquivo com conteúdo na pasta (`podman exec --user agente dgclaw-<agente> ls -l "$D"`).
    Depois apague só essa pasta, já validada: `podman exec --user agente dgclaw-<agente> rm -rf -- "$D"`.
-- **Esperado:** `yt-dlp` no PATH em `/usr/local/bin` (a partir da 1.1.1; antes, em `/opt/venv/bin`, e o
-  script avisa sem repetir o caminho). Não existe mais configuração global de cookies. O script confere:
-  (a) que o `/etc/yt-dlp.conf` do container tem a diretiva ativa (não comentada) `--js-runtimes node`;
-  (b) que o perfil da Tela, `/home/agente/.tela-chrome`, existe; (c) o login e o download saem como
-  `PENDENTE`: o script não baixa nada nem mede o login.
 - **Se pedir login ou "não é um robô":** refaça o login na Tela com a conta do agente. Para ver o erro
-  completo, repita o comando à mão acima com `-v`.
+  completo, repita o comando acima com `-v`.
 
-### 7. Chrome headless roda (automático)
+### 7. Chrome headless roda (à mão)
 
-- **Conferir:** o script roda um render curto do Chrome headless com prazo (`timeout`) num perfil
-  descartável de uma pasta privada (`mktemp -d`, apagada no fim) e olha o código de saída.
-- **Esperado:** o Chrome headless termina com código 0. Código diferente é `FALHA`.
-- **Em render de verdade** (carrossel, vídeo), use o `dgclaw-pesado --timeout` (a partir da 1.1.1), que
+- **Conferir:** num card de teste, peça um render curto (a partir da 1.1.1, com `dgclaw-pesado --timeout`; antes
+  disso, envolvendo o comando em `timeout`), confira que ele terminou e, depois, que não sobrou Chrome rodando.
+- **Esperado:** o render termina sem erro e nenhum processo do Chrome fica para trás. Se sobrou, veja quem o
+  chamou sem prazo.
+- **Em render de verdade** (carrossel, vídeo), use sempre o `dgclaw-pesado --timeout` (a partir da 1.1.1), que
   encerra o que sobrar. Antes dele, envolva o comando em `timeout`.
-- **Processo sobrando:** o script não conta processos. Depois de um render de verdade, olhe à mão se ficou
-  Chrome para trás e veja quem o chamou sem prazo.
 
-### 8. ffmpeg (automático)
+### 8. ffmpeg (servidor automático, container à mão)
 
-- **Conferir:** `command -v ffmpeg` no servidor e `podman exec -u agente dgclaw-<agente> command -v ffmpeg`
-  (o script usa `sh -c`).
-- **Esperado:** presente nos dois. No servidor, ele gera as miniaturas do painel; no container, o agente
-  usa para áudio, vídeo e carrossel.
-- **Se faltar no servidor:** `apt-get install -y ffmpeg`. **No container:** `dgclaw imagem construir --agora`,
-  confira que terminou com sucesso e depois recrie o agente como descrito no passo 3 (olhe antes, só em
-  leitura, e decida com o dono antes de qualquer perda).
+- **Servidor (automático):** o script confere `command -v ffmpeg` no servidor, onde ele gera as miniaturas do
+  painel. Se faltar: `apt-get install -y ffmpeg`.
+- **Container (à mão):** num card de teste, peça ao agente `ffmpeg -version`, ou rode num terminal seu
+  `podman exec --user agente dgclaw-<agente> sh -c 'command -v ffmpeg'`. No container, o agente usa o `ffmpeg`
+  para áudio, vídeo e carrossel.
+- **Se faltar no container:** `dgclaw imagem construir --agora`, confira que terminou com sucesso e depois
+  recrie o agente como descrito no passo 3 (olhe antes, só em leitura, e decida com o dono antes de qualquer
+  perda).
 
 ### 9. Login do dono pelo celular (à mão)
 
-1. Abra o painel no celular (largura 390) e entre com o usuário. Teste com a primeira letra em maiúscula,
-   como o teclado faz sozinho: o login precisa aceitar.
+1. Abra o painel no celular (largura 390) e entre com o usuário na grafia cadastrada. Confira que o campo de
+   usuário não capitaliza sozinho (`autocapitalize="none"`): a equivalência de maiúsculas não existe nesta
+   versão.
 2. Entregue a senha provisória ao cliente por canal seguro, nunca por e-mail comum nem por grupo.
 3. **No fim da entrega, o próprio cliente troca a senha**, num terminal privado dele, com
    `sudo dgclaw senha trocar` (o comando pede a senha nova duas vezes, sem mostrar o que se digita, e ela
    precisa ter 12 caracteres ou mais). Nesta versão o painel não troca a senha do dono (`/trocar-senha`
    volta para o início), então o caminho é o terminal; o painel passa a servir a partir da 1.1.1. Depois, ele
    confirma que a senha antiga não entra mais. A equipe não fica sabendo a senha final.
-- **Esperado:** entra sem erro de "usuário não encontrado", sem rolagem horizontal e com o teclado do
-  celular sem atrapalhar o campo. A senha antiga deixa de valer depois da troca.
+- **Esperado:** entra sem erro de "usuário não encontrado", sem rolagem horizontal, com o campo de usuário sem
+  capitalizar sozinho e com o teclado do celular sem atrapalhar. A senha antiga deixa de valer depois da troca.
 
 ### 10. Skills do cliente na pasta certa (à mão)
 
@@ -268,8 +280,8 @@ Hoje é passo manual. Para cada skill do cliente:
 
 - [ ] `scripts/smoke-entrega.sh <agente>` sai com 0 e nenhum `AVISO` ficou sem resposta
 - [ ] Os passos 2 (inclusive suporte temporário revogado e chave permanente da equipe recusada
-      numa conexão nova), 4, 5 (skills contra o cofre e chave do cliente), 6 (login do YouTube), 9 (inclusive a
+      numa conexão nova), 4, 5 (skills contra o cofre e chave do cliente), 6 (yt-dlp, Tela e login do YouTube), 7 (render e Chrome), 8 (ffmpeg do container), 9 (inclusive a
       senha trocada pelo próprio cliente), 10, 11 e 12 estão feitos e marcados
-- [ ] Nenhum `INCONCLUSIVO` ficou sem conferência à mão e o `PENDENTE` do YouTube foi confirmado (Tela e diagnóstico)
+- [ ] Nenhum `INCONCLUSIVO` ficou sem conferência à mão
 - [ ] O checklist de entrega do [projeto de cliente](PROJETO-DE-CLIENTE.md#4-checklist-de-onboarding)
       (suporte desligado, senha de root trocada) também está completo

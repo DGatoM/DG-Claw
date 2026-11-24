@@ -51,23 +51,18 @@ nega "nao mostra o valor da chave do web.env" grep -q 'gsk_segredo' "$TMP/s.txt"
 afirma "item 5 lista so os nomes do cofre" grep -q 'OK     \[5\] o cofre tem 2 chave(s) ativa(s): GEMINI_API_KEY, GROQ_API_KEY' "$TMP/s.txt"
 nega "nao afirma que toda chave citada esta no cofre" grep -q 'toda chave citada' "$TMP/s.txt"
 nega "nao varre as skills no container" grep -q 'FIM-DA-VARREDURA' "$STUB_LOG"
-afirma "item 6 OK no yt-dlp.conf" grep -q 'OK     \[6\] /etc/yt-dlp.conf tem a diretiva --js-runtimes node' "$TMP/s.txt"
-afirma "item 6 OK no perfil da Tela" grep -q 'OK     \[6\] o perfil da Tela existe' "$TMP/s.txt"
-afirma "item 6 deixa o YouTube PENDENTE" grep -q 'PENDENTE \[6\] login do YouTube e download' "$TMP/s.txt"
-afirma "item 7 OK com o Chrome headless" grep -q 'OK     \[7\] o Chrome headless rodou' "$TMP/s.txt"
-afirma "o render usa pasta privada e apaga so ela" grep -q 'rm -rf -- /tmp/smoke-entrega.abc123$' "$STUB_LOG"
-nega "nao usa o /tmp fixo antigo" grep -q 'smoke-entrega-yt' "$STUB_LOG"
-afirma "item 8 OK no servidor e no container" bash -c "grep -c 'OK     \[8\]' '$TMP/s.txt' | grep -qx 2"
+afirma "item 8 OK so no servidor" bash -c "grep -c 'OK     \[8\]' '$TMP/s.txt' | grep -qx 1"
+nega "nao executa yt-dlp, chrome, ffmpeg, mktemp nem test -d dentro do container" grep -qE 'podman exec.*(google-chrome-stable|yt-dlp|ffmpeg|mktemp|test -d)' "$STUB_LOG"
+nega "nao imprime PENDENTE" grep -q 'PENDENTE' "$TMP/s.txt"
 nega "nao imprime FALHA" grep -q 'FALHA' "$TMP/s.txt"
 afirma "lista o que fica a mao" grep -q 'Conferir a mao' "$TMP/s.txt"
 nega "nao mostra valor de chave (so o nome)" grep -q 'abcd' "$TMP/s.txt"
 nega "a chave revogada nao conta" grep -q 'VELHA_API_KEY' "$TMP/s.txt"
 
-echo "smoke-entrega: avisos nao derrubam (memoria, CPU, 26.04, yt-dlp fora do lugar)"
+echo "smoke-entrega: avisos nao derrubam (memoria, CPU, 26.04)"
 limpar_estado
 printf 'ID=ubuntu\nVERSION_ID="26.04"\n' >"$DGCLAW_RAIZ/etc/os-release"
 cgroup 2147483648 8192 "100000 100000"; echo stop >"$STUB_ESTADO/oompolicy"
-echo /opt/venv/bin/yt-dlp >"$STUB_ESTADO/yt-path"; : >"$STUB_ESTADO/sem-yt-config"
 smoke ana
 igual "sai com 0 so com avisos" "0" "$?"
 afirma "avisa do 26.04" grep -q 'AVISO  \[1\] Ubuntu 26.04' "$TMP/s.txt"
@@ -75,8 +70,6 @@ afirma "avisa da memoria sem podman update" grep -q "DGCLAW_CONTAINER_MEMORIA (p
 afirma "avisa da CPU" grep -q 'AVISO  \[3\] o container tem 1 CPU' "$TMP/s.txt"
 nega "nenhuma dica manda podman update de memoria ou CPU" grep -qE 'podman update --(memory|cpus) [0-9<]' "$TMP/s.txt"
 afirma "avisa do OOMPolicy (a partir da 1.1.1)" grep -q 'AVISO  \[3\] OOMPolicy.*1.1.1' "$TMP/s.txt"
-afirma "avisa do yt-dlp fora do /usr/local/bin, com mensagem fixa" grep -q 'AVISO  \[6\] o yt-dlp do agente nao esta em /usr/local/bin' "$TMP/s.txt"
-nega "o caminho vindo do container nao entra no relatorio" grep -q '/opt/venv' "$TMP/s.txt"
 printf 'ID=ubuntu\nVERSION_ID="24.04"\n' >"$DGCLAW_RAIZ/etc/os-release"
 
 echo "smoke-entrega: varias FALHAS"
@@ -84,8 +77,7 @@ limpar_estado
 cofre_com GEMINI_API_KEY
 printf 'OUTRA=1\n' >"$ETC/web.env"
 cgroup 4294967296 1024; echo 153 >"$STUB_ESTADO/tasksmax"; echo 3 >"$STUB_ESTADO/nrestarts"
-: >"$STUB_ESTADO/oom-journal"; : >"$STUB_ESTADO/sem-ffmpeg-container"; : >"$STUB_ESTADO/oom-host"
-: >"$STUB_ESTADO/yt-falha"
+: >"$STUB_ESTADO/oom-journal"; : >"$STUB_ESTADO/oom-host"
 smoke ana
 igual "sai com 1" "1" "$?"
 afirma "FALHA no pids.max" grep -q 'FALHA  \[3\] pids.max do container e 1024' "$TMP/s.txt"
@@ -98,16 +90,15 @@ afirma "a dica de recriar manda conferir a camada gravavel fora do chat do Admin
 nega "a dica de recriar nao manda abrir podman diff" grep -q 'podman diff' "$TMP/s.txt"
 afirma "a dica de recriar avisa que pode recriar na hora" grep -q 'pode recriar o container na hora' "$TMP/s.txt"
 nega "a dica de recriar nao a apresenta como so listar" grep -q 'ele lista e para' "$TMP/s.txt"
-afirma "FALHA sem ffmpeg no container" grep -q 'FALHA  \[8\] ffmpeg nao esta no container' "$TMP/s.txt"
 afirma "o resumo manda nao entregar" grep -q 'NAO entregue a VPS' "$TMP/s.txt"
 nega "OOM nao manda aumentar o teto do agente direto" grep -q 'aumente o teto de memoria do agente' "$TMP/s.txt"
 afirma "a dica de recriar exige a releitura e avisa do 'nada a recriar'" grep -q 'nada havia a recriar, o container nao mudou e o item continua aberto' "$TMP/s.txt"
 afirma "a dica de recriar cita o que o inventario ignora" grep -q 'ignora /tmp, /var/tmp, /var/log e /var/cache' "$TMP/s.txt"
 nega "a dica do NRestarts nao manda despejar o journal" grep -q 'tail -n 80' "$TMP/s.txt"
-rm -f "$STUB_ESTADO/sem-ffmpeg-container"; : >"$STUB_ESTADO/ffmpeg-erro"
-smoke ana
-afirma "erro do podman ao procurar o ffmpeg: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[8\] nao consegui perguntar ao container se o ffmpeg existe' "$TMP/s.txt"
-nega "erro do podman nao vira ffmpeg ausente" grep -q 'FALHA  \[8\] ffmpeg nao esta no container' "$TMP/s.txt"
+echo "smoke-entrega: dica de OOM com oom_memcg"
+afirma "a dica de OOM manda ver o oom_memcg e o task_memcg" grep -q 'oom_memcg (o cgroup cujo limite estourou) e o task_memcg (quem foi morto)' "$TMP/s.txt"
+afirma "a dica de OOM cita o OOM do servidor inteiro" grep -q 'CONSTRAINT_NONE' "$TMP/s.txt"
+afirma "a dica de OOM manda nunca aumentar o teto direto" grep -q 'Nunca aumente o teto do agente direto' "$TMP/s.txt"
 
 echo "smoke-entrega: memoria e processos sem limite no cgroup"
 limpar_estado
@@ -135,44 +126,14 @@ afirma "OOMPolicy fora da lista fechada: aviso fixo" grep -q 'AVISO  \[3\] o OOM
 nega "o valor de fora nao e impresso" grep -q 'inventado' "$TMP/s.txt"
 afirma "o resumo conta os inconclusivos" grep -qE 'Resumo: 0 falha.*[1-9][0-9]* inconclusivo' "$TMP/s.txt"
 
-echo "smoke-entrega: cookies e yt-dlp.conf (desenho novo, sem config global de cookies)"
-limpar_estado
-: >"$STUB_ESTADO/sem-yt-conf"; : >"$STUB_ESTADO/sem-perfil-tela"
-smoke ana
-afirma "sem a diretiva js-runtimes: aviso" grep -q 'AVISO  \[6\] o /etc/yt-dlp.conf do container nao tem a diretiva ativa' "$TMP/s.txt"
-afirma "sem perfil da Tela: aviso" grep -q 'AVISO  \[6\] o perfil da Tela' "$TMP/s.txt"
-afirma "mesmo assim o YouTube fica PENDENTE" grep -q 'PENDENTE \[6\]' "$TMP/s.txt"
-nega "nao procura mais config de cookies" grep -q 'cookies-from-browser' "$STUB_LOG"
-limpar_estado
-: >"$STUB_ESTADO/yt-conf-erro"
-smoke ana
-afirma "erro lendo o yt-dlp.conf: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[6\] nao consegui ler o /etc/yt-dlp.conf' "$TMP/s.txt"
-nega "a dica do yt-dlp.conf nao manda imprimir o arquivo" grep -q "cat /etc/yt-dlp.conf" "$TMP/s.txt"
-
-echo "smoke-entrega: pasta privada do render e opcao --video removida"
-limpar_estado
-: >"$STUB_ESTADO/mktemp-erro"
-smoke ana
-afirma "sem pasta privada: INCONCLUSIVO no render" grep -q 'INCONCLUSIVO \[7\] nao consegui criar a pasta privada' "$TMP/s.txt"
-limpar_estado
-: >"$STUB_ESTADO/mktemp-barra"
-smoke ana
-afirma "caminho com barra no sufixo: INCONCLUSIVO, sem render nem remocao" grep -q 'INCONCLUSIVO \[7\] nao consegui criar a pasta privada' "$TMP/s.txt"
-nega "caminho invalido nao chega ao Chrome" grep -q 'google-chrome-stable --headless' "$STUB_LOG"
-nega "caminho invalido nao chega ao rm" grep -q 'rm -rf' "$STUB_LOG"
-limpar_estado
-: >"$STUB_ESTADO/mktemp-casa"
-smoke ana
-nega "caminho fora do /tmp nao e apagado" grep -q 'rm -rf' "$STUB_LOG"
+echo "smoke-entrega: --video nao existe mais"
 smoke ana --video https://exemplo.com/video
 igual "--video nao existe mais: sai com 2" "2" "$?"
 
 echo "smoke-entrega: saida do container fora do limite ou do formato vira INCONCLUSIVO, sem texto livre"
 limpar_estado
-: >"$STUB_ESTADO/yt-grande"; : >"$STUB_ESTADO/tasks-lixo"
+: >"$STUB_ESTADO/tasks-lixo"
 smoke ana
-afirma "caminho do yt-dlp acima do limite: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[6\] nao consegui perguntar ao container onde esta o yt-dlp' "$TMP/s.txt"
-nega "o lixo do yt-dlp nao entra no relatorio" grep -q 'aaaaaaaa' "$TMP/s.txt"
 afirma "TasksMax fora do formato: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o TasksMax' "$TMP/s.txt"
 nega "o texto livre do container nao entra no relatorio" grep -q 'texto livre' "$TMP/s.txt"
 
@@ -268,14 +229,9 @@ echo 2 >"$STUB_ESTADO/runner-dias"
 smoke ana
 afirma "runner com 2 dias: diz a cobertura de cada fonte" grep -q 'cobertura do runner: 2 dia(s) completo(s) (48 horas)) nem no do kernel do servidor (cobertura do kernel: 9 dias\|cobertura do kernel: 7 dias' "$TMP/s.txt"
 
-echo "smoke-entrega: ausencia no /bin/sh real, limpeza do render, os-release incompleto e senha"
+echo "smoke-entrega: os-release incompleto e senha"
 limpar_estado
-: >"$STUB_ESTADO/sem-yt-dlp"; : >"$STUB_ESTADO/rm-erro"
 smoke ana
-afirma "yt-dlp ausente (codigo do /bin/sh real): FALHA" grep -q 'FALHA  \[6\] o yt-dlp nao esta no PATH do agente' "$TMP/s.txt"
-afirma "rm do perfil com erro: AVISO de limpeza pendente" grep -q 'AVISO  \[7\] nao consegui apagar a pasta temporaria do render de teste' "$TMP/s.txt"
-afirma "rm do perfil com erro: o render continua OK" grep -q 'OK     \[7\] o Chrome headless rodou' "$TMP/s.txt"
-nega "a dica do yt-dlp nao manda repetir a consulta com texto" grep -q "sh -c 'command -v yt-dlp'" "$TMP/s.txt"
 afirma "a troca de senha do dono e pelo terminal nesta versao" grep -q 'nesta versao o painel nao troca a senha' "$TMP/s.txt"
 limpar_estado
 printf 'ID=ubuntu\n' >"$DGCLAW_RAIZ/etc/os-release"
@@ -354,6 +310,10 @@ limpar_estado
 smoke ana
 igual "CLI do cofre sem saida: sai com 0" "0" "$?"
 afirma "CLI sem saida: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[5\] a consulta ao cofre' "$TMP/s.txt"
+afirma "a dica do cofre com falha usa listar --json" grep -q 'listar --json | jq -r' "$TMP/s.txt"
+# shellcheck disable=SC2016  # texto literal, nao expande
+afirma "a dica do cofre separa o codigo de saida" grep -qF 'echo ${PIPESTATUS[0]}' "$TMP/s.txt"
+nega "a dica do cofre nao manda a listagem em texto" grep -qE 'listar"? *$' "$TMP/s.txt"
 nega "CLI sem saida nao diz que o cofre tem chaves" grep -q 'OK     \[5\] o cofre' "$TMP/s.txt"
 limpar_estado
 : >"$STUB_ESTADO/cofre-erro"
@@ -377,6 +337,35 @@ echo exited >"$STUB_ESTADO/estado"
 smoke ana
 igual "container parado: sai com 1" "1" "$?"
 afirma "diz como ligar" grep -q 'dgclaw agente iniciar ana' "$TMP/s.txt"
+nega "container parado nao manda reparar (no bloco do item 3)" bash -c "sed -n '/^3\. /,/^8\. /p' '$TMP/s.txt' | grep -q reparar"
+
+echo "smoke-entrega: podman container exists (inexistente, sem resposta, estado vazio)"
+limpar_estado
+echo 1 >"$STUB_ESTADO/existe"
+smoke ana
+igual "container inexistente: sai com 1" "1" "$?"
+afirma "container inexistente: FALHA" grep -q 'FALHA  \[3\] o container dgclaw-ana nao existe' "$TMP/s.txt"
+afirma "container inexistente: manda conferir com agente listar" grep -q 'confira com dgclaw agente listar se o agente foi criado; um agente sem container precisa ser recriado pela equipe' "$TMP/s.txt"
+nega "container inexistente nao manda reparar (no bloco do item 3)" bash -c "sed -n '/^3\. /,/^8\. /p' '$TMP/s.txt' | grep -q reparar"
+nega "container inexistente nao le o resto como se existisse" grep -q 'OK     \[3\] pids.max' "$TMP/s.txt"
+limpar_estado
+echo 125 >"$STUB_ESTADO/existe"
+smoke ana
+igual "podman sem responder: sem FALHA, sai com 0" "0" "$?"
+afirma "podman sem responder: INCONCLUSIVO com o codigo" grep -q 'INCONCLUSIVO \[3\] nao consegui consultar o podman (codigo 125)' "$TMP/s.txt"
+nega "podman sem responder nao manda reparar (no bloco do item 3)" bash -c "sed -n '/^3\. /,/^8\. /p' '$TMP/s.txt' | grep -q reparar"
+nega "podman sem responder nao manda iniciar (no bloco do item 3)" bash -c "sed -n '/^3\. /,/^8\. /p' '$TMP/s.txt' | grep -q iniciar"
+nega "podman sem responder nao vira FALHA de container" grep -q 'FALHA  \[3\] o container' "$TMP/s.txt"
+limpar_estado
+: >"$STUB_ESTADO/estado"
+smoke ana
+igual "estado vazio: sem FALHA, sai com 0" "0" "$?"
+afirma "estado vazio: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] o podman nao devolveu um estado valido' "$TMP/s.txt"
+limpar_estado
+echo inventado >"$STUB_ESTADO/estado"
+smoke ana
+afirma "estado fora da lista: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] o podman nao devolveu um estado valido' "$TMP/s.txt"
+nega "estado fora da lista nao entra no relatorio" grep -q 'inventado' "$TMP/s.txt"
 smoke
 igual "sem agente: sai com 2" "2" "$?"
 smoke "ana;rm"

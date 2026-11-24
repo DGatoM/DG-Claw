@@ -3,11 +3,14 @@
 #
 #   sudo bash scripts/smoke-entrega.sh <agente>
 #
-# Automatiza os itens 1, 3, 5 (microfone e nomes do cofre), 6 (so o que se le sem baixar nada), 7 e 8 do
-# checklist (docs/ENTREGA-CLIENTE.md). Cruzar as skills com o cofre (5) e o login do YouTube (6) ficam a mao. Cada item
-# imprime OK, AVISO, FALHA ou INCONCLUSIVO (nao deu para medir: erro de leitura nao e OK nem FALHA) com a
-# causa e o que fazer; PENDENTE e o que o dono confirma depois. O resto sai como lista "conferir a mao".
-# Saida: 0 sem FALHA (pode haver AVISO, INCONCLUSIVO e PENDENTE), 1 com ao menos uma FALHA, 2 uso errado
+# Automatiza os itens 1, 3, 5 (microfone e nomes do cofre) e 8 (so o ffmpeg do servidor) do checklist
+# (docs/ENTREGA-CLIENTE.md). So faz leituras do host que o agente nao controla: podman inspect, podman container
+# exists, systemctl show e journalctl do runner (saida reduzida a numero validado), cgroup do container,
+# web.env e a CLI do cofre. Nada que execute programa controlado pelo agente dentro do container nem que leia arvore
+# gravavel por ele roda aqui: yt-dlp e perfil da Tela (6), render do Chrome (7), ffmpeg do container (8) e o
+# cruzamento das skills com o cofre (5) ficam a mao. Cada item imprime OK, AVISO, FALHA ou INCONCLUSIVO (nao deu
+# para medir: erro de leitura nao e OK nem FALHA) com a causa e o que fazer. O resto sai como lista "conferir a mao".
+# Saida: 0 sem FALHA (pode haver AVISO e INCONCLUSIVO), 1 com ao menos uma FALHA, 2 uso errado
 # ou ferramenta ausente. Texto vindo de dentro do container (caminho, nome, saida de comando) nunca vai para o
 # relatorio: as mensagens sao fixas e so entram contagens validadas ou o que o servidor ja conhece. Toda
 # captura de saida do container passa por limite de bytes; estourou o limite ou veio fora do formato, e INCONCLUSIVO.
@@ -37,7 +40,7 @@ case "$SLUG" in
     *[!a-z0-9-]*|-*) echo "'$SLUG' nao e um nome de agente valido (letras minusculas, numeros e hifen). $USO" >&2; exit 2 ;;
 esac
 
-for f in jq podman curl; do
+for f in jq podman; do
     command -v "$f" >/dev/null 2>&1 || { echo "falta o programa '$f' no PATH. Instale com: apt-get install -y $f" >&2; exit 2; }
 done
 
@@ -51,18 +54,15 @@ IFS=$'\t' read -r _ _ PROVEDOR <<<"$REG"
 FALHAS=0
 AVISOS=0
 INCONCLUSIVOS=0
-PENDENTES=0
 # Tira o que nao e texto simples antes de mostrar na tela (a saida de dentro do container e do agente).
 limpar() { LC_ALL=C tr -c 'A-Za-z0-9 ._/@+:,=%()<>-' '?' | cut -c1-200; }
 ok()    { printf '  OK     [%s] %s\n' "$1" "$2"; }
 aviso() { AVISOS=$((AVISOS + 1)); printf '  AVISO  [%s] %s\n         O que fazer: %s\n' "$1" "$2" "$3"; }
 falha() { FALHAS=$((FALHAS + 1)); printf '  FALHA  [%s] %s\n         O que fazer: %s\n' "$1" "$2" "$3"; }
 inconclusivo() { INCONCLUSIVOS=$((INCONCLUSIVOS + 1)); printf '  INCONCLUSIVO [%s] %s\n         O que fazer: %s\n' "$1" "$2" "$3"; }
-pendente() { PENDENTES=$((PENDENTES + 1)); printf '  PENDENTE [%s] %s\n         O que fazer: %s\n' "$1" "$2" "$3"; }
-# cx: comando como root dentro do container. ca: o mesmo como o usuario agente.
+# cx: comando como root dentro do container (so systemctl show e journalctl do runner, com saida validada).
 # shellcheck disable=SC2317  # chamado por capt, de forma indireta
 cx() { timeout 60 podman exec "$C" "$@"; }
-ca() { timeout "${PRAZO:-60}" podman exec --user agente "$C" "$@"; }
 # capt <comando...>: roda o comando e devolve a saida, no maximo CAPLIM bytes (padrao 4096). Devolve o codigo do
 # comando; se a saida passar do limite, devolve 99 e nada (o chamador trata como INCONCLUSIVO).
 capt() {
@@ -158,7 +158,7 @@ if [ -r "$R/etc/os-release" ]; then
         incompleto) inconclusivo 1 "o /etc/os-release nao traz ID e VERSION_ID, entao nao sei qual e o sistema." "confira a mao: cat /etc/os-release. Nao reinstale a VPS por causa disso." ;;
         "ubuntu 24.04"|"ubuntu 22.04") ok 1 "Ubuntu ${so#ubuntu } (versao testada)" ;;
         "ubuntu 26.04") aviso 1 "Ubuntu 26.04: o DG Claw foi feito e testado no 24.04; o 26.04 tem funcionado, mas pode ter instabilidade." \
-            "se a VPS ainda nao tem dados do cliente e a entrega nao tem pressa, recrie a VPS com Ubuntu 24.04 (com dados, so com copia recuperavel e decisao do dono). Se ficar no 26.04, confira com atencao os itens 3, 6 e 7 abaixo." ;;
+            "se a VPS ainda nao tem dados do cliente e a entrega nao tem pressa, recrie a VPS com Ubuntu 24.04 (com dados, so com copia recuperavel e decisao do dono). Se ficar no 26.04, confira com atencao o item 3 abaixo e os itens 6 e 7 da lista a mao." ;;
         *) falha 1 "sistema '$(printf '%s' "$so" | limpar)': o DG Claw so instala em Ubuntu 22.04, 24.04 ou 26.04." "nao entregue. Reinstalar a VPS apaga cofre, conversas e configuracoes: so com uma copia recuperavel dos dados e com a decisao do dono." ;;
     esac
 else
@@ -168,17 +168,27 @@ fi
 # --- 3. Limites do container e da unidade do runner ----------------------------------------------
 printf '\n3. Limites do container e do runner\n'
 RECRIAR_DICA="o dgclaw agente recriar $SLUG pode recriar o container na hora. Antes, num terminal seu (nunca no chat do Admin, porque nomes e conteudos ali sao escolhidos pelo agente), confira o que existe so na camada gravavel do container (o inventario do recriar ignora /tmp, /var/tmp, /var/log e /var/cache: o que o cliente guardou ali precisa ser copiado para a casa antes), decida com o dono antes de qualquer perda e so entao rode: dgclaw agente recriar $SLUG. Depois rode o smoke de novo: o item so fecha quando a releitura mostrar o valor certo. Se o recriar responder que nada havia a recriar, o container nao mudou e o item continua aberto."
-estado="$(podman inspect -f '{{.State.Status}}' "$C" 2>/dev/null | head -c 64 | head -n 1)"
-case "$estado" in
-    running|created|exited|paused|stopped|stopping|configured|initialized|removing|unknown) ;;
-    '') estado=ausente ;;
-    *) estado="em estado desconhecido" ;;
-esac
+podman container exists "$C" >/dev/null 2>&1; existe_rc=$?
+estado=""
+if [ "$existe_rc" -eq 0 ]; then
+    estado="$(podman inspect -f '{{.State.Status}}' "$C" 2>/dev/null | head -c 64 | head -n 1)"
+    case "$estado" in
+        running|created|exited|paused|stopped|stopping|configured|initialized|removing|unknown) ;;
+        '') estado=vazio ;;
+        *) estado="fora da lista" ;;
+    esac
+fi
 if [ "$estado" != running ]; then
-    falha 3 "o container $C esta '$estado'." "ligue com: dgclaw agente iniciar $SLUG (se nao existir, o agente nao foi criado direito: dgclaw agente reparar $SLUG)"
-    CONTAINER_OK=0
+    if [ "$existe_rc" -eq 1 ]; then
+        falha 3 "o container $C nao existe." "confira com dgclaw agente listar se o agente foi criado; um agente sem container precisa ser recriado pela equipe."
+    elif [ "$existe_rc" -ne 0 ]; then
+        inconclusivo 3 "nao consegui consultar o podman (codigo $existe_rc), entao nao sei se o container $C existe." "rode o smoke de novo; se repetir, confira num terminal seu: podman container exists $C; echo \$? (0 = existe, 1 = nao existe, outro codigo = o podman nao respondeu). Nao altere nada ate saber o estado."
+    elif [ "$estado" = vazio ] || [ "$estado" = "fora da lista" ]; then
+        inconclusivo 3 "o podman nao devolveu um estado valido para o container $C ($estado)." "rode o smoke de novo; se repetir, confira num terminal seu: podman inspect -f '{{.State.Status}}' $C"
+    else
+        falha 3 "o container $C esta '$estado'." "ligue com: dgclaw agente iniciar $SLUG"
+    fi
 else
-    CONTAINER_OK=1
     lim="$(podman inspect -f '{{.HostConfig.PidsLimit}}' "$C" 2>/dev/null | head -c 64 | head -n 1)"
     read -r pids_lim _ <<<"$lim"
     case "${pids_lim:-x}" in *[!0-9-]*) pids_lim="" ;; esac
@@ -259,41 +269,41 @@ else
     tasks="$(uma_linha "$tasks")" || tasks=""
     case "$tasks" in infinity) ;; *) so_digitos "$tasks" 12 || tasks="" ;; esac
     if [ "$rc_t" -ne 0 ]; then
-        inconclusivo 3 "o systemctl do TasksMax do dgclaw-runner dentro do container saiu com codigo $rc_t (99 = resposta grande demais), entao nao interpretei a saida." "confira: podman exec $C systemctl show -p TasksMax dgclaw-runner"
+        inconclusivo 3 "o systemctl do TasksMax do dgclaw-runner dentro do container saiu com codigo $rc_t (99 = resposta grande demais), entao nao interpretei a saida." "rode o smoke de novo; se repetir, leia num terminal seu (nunca no chat do Admin): podman exec $C systemctl show -p TasksMax dgclaw-runner"
     elif [ "$tasks" = infinity ] || { [ -n "$tasks" ] && [ "$tasks" -ge 2400 ]; }; then
         ok 3 "TasksMax da unidade do runner: $tasks (minimo 2400)"
     elif [ -n "$tasks" ]; then
         falha 3 "TasksMax do dgclaw-runner e $tasks, abaixo de 2400. O Claude principal aborta e o card nasce parado." \
             "atualize o DG Claw (dgclaw atualizar) e, se for preciso imagem nova, confira que dgclaw imagem construir --agora terminou com sucesso. Depois: $RECRIAR_DICA"
     else
-        inconclusivo 3 "nao consegui ler o TasksMax do dgclaw-runner dentro do container." "confira: podman exec $C systemctl show -p TasksMax dgclaw-runner"
+        inconclusivo 3 "nao consegui ler o TasksMax do dgclaw-runner dentro do container." "rode o smoke de novo; se repetir, leia num terminal seu (nunca no chat do Admin): podman exec $C systemctl show -p TasksMax dgclaw-runner"
     fi
 
     oom_pol="$(capt cx systemctl show -p OOMPolicy --value dgclaw-runner)"; rc_o=$?
     oom_pol="$(uma_linha "$oom_pol")" || oom_pol=""
     [ "$rc_o" -eq 0 ] || oom_pol="#rc"
     case "$oom_pol" in
-        "#rc") inconclusivo 3 "o systemctl do OOMPolicy do dgclaw-runner dentro do container saiu com codigo $rc_o (99 = resposta grande demais), entao nao interpretei a saida." "confira: podman exec $C systemctl show -p OOMPolicy dgclaw-runner" ;;
+        "#rc") inconclusivo 3 "o systemctl do OOMPolicy do dgclaw-runner dentro do container saiu com codigo $rc_o (99 = resposta grande demais), entao nao interpretei a saida." "rode o smoke de novo; se repetir, leia num terminal seu (nunca no chat do Admin): podman exec $C systemctl show -p OOMPolicy dgclaw-runner" ;;
         continue) ok 3 "OOMPolicy=continue na unidade do runner" ;;
         stop|kill)
             aviso 3 "OOMPolicy da unidade do runner e '$oom_pol', e o esperado e 'continue' (a partir da 1.1.1). Sem isso, um processo morto por falta de memoria derruba o runner todo." \
                 "atualize o DG Claw quando a 1.1.1 sair. Ate la, vigie o journal do runner (item abaixo)." ;;
-        '') inconclusivo 3 "nao consegui ler o OOMPolicy do dgclaw-runner dentro do container." "confira: podman exec $C systemctl show -p OOMPolicy dgclaw-runner" ;;
-        *) aviso 3 "o OOMPolicy do runner veio com um valor que nao conheco (esperado: continue, stop ou kill)." "confira: podman exec $C systemctl show -p OOMPolicy dgclaw-runner" ;;
+        '') inconclusivo 3 "nao consegui ler o OOMPolicy do dgclaw-runner dentro do container." "rode o smoke de novo; se repetir, leia num terminal seu (nunca no chat do Admin): podman exec $C systemctl show -p OOMPolicy dgclaw-runner" ;;
+        *) aviso 3 "o OOMPolicy do runner veio com um valor que nao conheco (esperado: continue, stop ou kill)." "rode o smoke de novo; se repetir, leia num terminal seu (nunca no chat do Admin): podman exec $C systemctl show -p OOMPolicy dgclaw-runner" ;;
     esac
 
     nrest="$(capt cx systemctl show -p NRestarts --value dgclaw-runner)"; rc_n=$?
     nrest="$(uma_linha "$nrest")" || nrest=""
     so_digitos "$nrest" 9 || nrest=""
     if [ "$rc_n" -ne 0 ]; then
-        inconclusivo 3 "o systemctl do NRestarts do dgclaw-runner dentro do container saiu com codigo $rc_n (99 = resposta grande demais), entao nao interpretei a saida." "confira: podman exec $C systemctl show -p NRestarts dgclaw-runner"
+        inconclusivo 3 "o systemctl do NRestarts do dgclaw-runner dentro do container saiu com codigo $rc_n (99 = resposta grande demais), entao nao interpretei a saida." "rode o smoke de novo; se repetir, leia num terminal seu (nunca no chat do Admin): podman exec $C systemctl show -p NRestarts dgclaw-runner"
     elif [ "$nrest" = 0 ]; then
         ok 3 "o runner nao reiniciou sozinho (NRestarts=0)"
     elif [ -n "$nrest" ]; then
         falha 3 "o runner reiniciou sozinho $nrest vez(es) (NRestarts=$nrest). Algo derrubou o runner." \
-            "veja o resultado da ultima parada, so em campos fixos: podman exec $C systemctl show -p Result -p ExecMainStatus -p ExecMainExitTimestamp dgclaw-runner. O journal bruto do runner traz texto escrito pelo agente: leia-o so num terminal seu, nunca no chat do Admin. Depois de resolver, reinicie o runner (dgclaw agente reiniciar $SLUG) e rode o smoke de novo."
+            "num terminal seu (nunca no chat do Admin), veja o resultado da ultima parada, so em campos fixos: podman exec $C systemctl show -p Result -p ExecMainStatus -p ExecMainExitTimestamp dgclaw-runner. O journal bruto do runner traz texto escrito pelo agente: leia-o so num terminal seu, nunca no chat do Admin. Depois de resolver, reinicie o runner (dgclaw agente reiniciar $SLUG) e rode o smoke de novo."
     else
-        inconclusivo 3 "o NRestarts do runner veio num formato que nao consegui ler." "confira: podman exec $C systemctl show -p NRestarts dgclaw-runner"
+        inconclusivo 3 "o NRestarts do runner veio num formato que nao consegui ler." "rode o smoke de novo; se repetir, leia num terminal seu (nunca no chat do Admin): podman exec $C systemctl show -p NRestarts dgclaw-runner"
     fi
 
     # Kernel do servidor: _TRANSPORT=kernel (o -k so olha o boot atual e perderia um OOM de antes de um reinicio).
@@ -313,9 +323,9 @@ else
         if [ -n "$fonte_ruim" ]; then fonte_ruim="$fonte_ruim e o journal do kernel do servidor"; else fonte_ruim="o journal do kernel do servidor"; fi
     fi
     # Nem o journal do runner (texto que o proprio agente escreve) nem a linha do kernel sozinha dizem que o agente
-    # estourou o proprio teto: so a leitura humana das linhas oom-kill (constraint e task_memcg) diz. Por isso a dica
+    # estourou o proprio teto: so a leitura humana das linhas oom-kill (oom_memcg e task_memcg) diz. Por isso a dica
     # nunca manda aumentar a memoria direto.
-    oom_dica="a contagem sozinha nao diz de quem era o processo nem qual limite estourou, entao nao aumente o teto do agente por causa dela. Num terminal seu (nunca no chat do Admin), leia as linhas oom-kill com journalctl _TRANSPORT=kernel --since '7 days ago' | grep -iE 'oom-kill|killed process' e veja a data, o constraint e o task_memcg: so com CONSTRAINT_MEMCG e task_memcg do container $C o agente estourou o proprio teto. Com OOM do servidor inteiro (CONSTRAINT_NONE) ou de outro servico, o ajuste e nesse servico ou no plano da VPS."
+    oom_dica="a contagem sozinha nao diz de quem era o processo nem qual limite estourou, entao nao aumente o teto do agente por causa dela. Num terminal seu (nunca no chat do Admin), leia as linhas oom-kill com journalctl _TRANSPORT=kernel --since '7 days ago' | grep -iE 'oom-kill|killed process' e veja a data, o oom_memcg (o cgroup cujo limite estourou) e o task_memcg (quem foi morto). So com o oom_memcg igual ao cgroup do container $C o agente estourou o proprio teto. Com o oom_memcg de um ancestral, de outro servico ou com OOM do servidor inteiro (CONSTRAINT_NONE), o ajuste e nesse limite ou no plano da VPS. Nunca aumente o teto do agente direto."
     if [ "$rc_h" -eq 0 ] && [ "${oom_h:-0}" -gt 0 ]; then
         falha 3 "OOM nos ultimos 7 dias: $([ "$rc_c" -eq 0 ] && echo "${oom_c:-0}" || echo "?") linha(s) no journal do runner e $([ "$rc_h" -eq 0 ] && echo "${oom_h:-0}" || echo "?") no kernel do servidor${fonte_ruim:+ ($fonte_ruim ficou ilegivel ou foi cortado, entao a conta esta incompleta)}${parcial:+ (contagem parcial: a leitura de $parcial passou de 1 MiB e foi cortada, entao ha pelo menos essas linhas)}." \
             "$oom_dica"
@@ -338,26 +348,12 @@ else
     fi
 fi
 
-# --- 8. ffmpeg -------------------------------------------------------------------------------------
-printf '\n8. ffmpeg no servidor e no container\n'
+# --- 8. ffmpeg (so o do servidor; o do container e a mao) ----------------------------------------
+printf '\n8. ffmpeg no servidor\n'
 if command -v ffmpeg >/dev/null 2>&1 || [ -x "$R/usr/bin/ffmpeg" ]; then
     ok 8 "ffmpeg presente no servidor"
 else
     falha 8 "ffmpeg nao esta no servidor. As miniaturas de video e foto do painel ficam sem previa." "apt-get install -y ffmpeg"
-fi
-if [ "$CONTAINER_OK" = 1 ]; then
-    # A ausencia vira o codigo 42 dentro do sh (o dash devolve 127 no command -v), separado dos erros do podman.
-    ca sh -c 'command -v ffmpeg >/dev/null 2>&1 || exit 42' >/dev/null 2>&1
-    rc=$?
-    if [ "$rc" -eq 0 ]; then
-        ok 8 "ffmpeg presente no container"
-    elif [ "$rc" -ne 42 ]; then
-        inconclusivo 8 "nao consegui perguntar ao container se o ffmpeg existe (codigo $rc: container parado, erro do podman ou prazo). Isso nao quer dizer que ele falta." "rode o smoke de novo com o container de pe."
-    else
-        falha 8 "ffmpeg nao esta no container $C. Video, audio e carrossel dependem dele." "a imagem esta velha ou incompleta: dgclaw imagem construir --agora (confira que terminou com sucesso), depois $RECRIAR_DICA"
-    fi
-else
-    aviso 8 "ffmpeg do container nao conferido: o container nao esta de pe." "resolva o item 3 e rode de novo."
 fi
 
 # --- 5. Microfone e cofre --------------------------------------------------------------------------
@@ -404,90 +400,13 @@ fi
 cofre_saida="$("$CLI" agente cofre "$SLUG" listar --json 2>/dev/null | head -c 1048577; printf 'rc=%s' "${PIPESTATUS[0]}")"
 cofre_rc="${cofre_saida##*rc=}"; cofre_json="${cofre_saida%rc=*}"
 if ! so_digitos "$cofre_rc" 3 || [ "$cofre_rc" -ne 0 ] || [ "${#cofre_json}" -gt 1048576 ] || [ -z "${cofre_json//[[:space:]]/}" ]; then
-    inconclusivo 5 "a consulta ao cofre do agente $SLUG nao devolveu uma resposta valida (CLI com erro, sem saida ou saida grande demais). Isso nao quer dizer cofre vazio." "rode a mao e leia a mensagem: dgclaw agente cofre $SLUG listar"
+    inconclusivo 5 "a consulta ao cofre do agente $SLUG nao devolveu uma resposta valida (CLI com erro, sem saida ou saida grande demais). Isso nao quer dizer cofre vazio." "rode o smoke de novo; se repetir, num terminal seu: dgclaw agente cofre $SLUG listar --json | jq -r '.chaves[] | select((.revogadaEm // \"\") == \"\") | .envName'; echo \${PIPESTATUS[0]} (codigo diferente de 0 = a consulta falhou). Nao use a listagem em texto: ela mostra o final dos valores e as chaves revogadas."
 elif ! printf '%s' "$cofre_json" | jq -s -e 'length==1 and (.[0] | type=="object" and .ok==true and (.chaves|type=="array"))' >/dev/null 2>&1; then
-    inconclusivo 5 "a resposta da consulta ao cofre do agente $SLUG nao veio no formato esperado (um objeto com ok verdadeiro e a lista de chaves)." "rode a mao e leia a mensagem: dgclaw agente cofre $SLUG listar"
+    inconclusivo 5 "a resposta da consulta ao cofre do agente $SLUG nao veio no formato esperado (um objeto com ok verdadeiro e a lista de chaves)." "rode o smoke de novo; se repetir, num terminal seu: dgclaw agente cofre $SLUG listar --json | jq -r '.chaves[] | select((.revogadaEm // \"\") == \"\") | .envName'; echo \${PIPESTATUS[0]} (codigo diferente de 0 = a consulta falhou). Nao use a listagem em texto: ela mostra o final dos valores e as chaves revogadas."
 else
     NOMES="$(printf '%s' "$cofre_json" | jq -r '.chaves[] | select((.revogadaEm // "") == "") | .envName' | sort -u)"
     total="$(printf '%s\n' "$NOMES" | sed '/^$/d' | wc -l | tr -d ' ')"
     ok 5 "o cofre tem $total chave(s) ativa(s): $(printf '%s\n' "$NOMES" | sed '/^$/d' | paste -sd, - | sed 's/,/, /g' | limpar). Confira a mao contra as skills do cliente (passo 5 do guia)."
-fi
-
-# --- 6. yt-dlp -------------------------------------------------------------------------------------
-printf '\n6. yt-dlp e perfil da Tela (o login do YouTube e a mao)\n'
-if [ "$CONTAINER_OK" != 1 ]; then
-    aviso 6 "yt-dlp nao conferido: o container nao esta de pe." "resolva o item 3 e rode de novo."
-else
-    ytpath="$(capt ca sh -c 'command -v yt-dlp || exit 42')"; rc=$?
-    ytpath="$(uma_linha "$ytpath")" || rc=99
-    if [ "$rc" -eq 42 ] && [ -z "$ytpath" ]; then
-        falha 6 "o yt-dlp nao esta no PATH do agente." "a imagem esta velha: dgclaw imagem construir --agora (confira que terminou com sucesso), depois $RECRIAR_DICA"
-    elif [ "$rc" -ne 0 ]; then
-        inconclusivo 6 "nao consegui perguntar ao container onde esta o yt-dlp (erro, prazo ou resposta grande demais)." "rode o smoke de novo com o container de pe. Se repetir, confira pelo codigo de saida, sem trazer o texto: podman exec --user agente $C test -x /usr/local/bin/yt-dlp; echo \$? (0 = esta la)"
-    elif [ "$ytpath" = /usr/local/bin/yt-dlp ]; then
-        ok 6 "yt-dlp em /usr/local/bin/yt-dlp"
-    else
-        aviso 6 "o yt-dlp do agente nao esta em /usr/local/bin (a partir da 1.1.1 ele fica la). Fora dali, um processo sem o PATH do venv nao o acha." \
-            "quando a 1.1.1 sair, atualize e rode o smoke de novo. O caminho que o container devolve nao entra no relatorio: se precisar ve-lo, use um terminal seu, nunca o chat do Admin."
-    fi
-    # (a) a diretiva --js-runtimes node, ativa (nao comentada), na configuracao global do container.
-    ca grep -qE '^[[:space:]]*--js-runtimes[[:space:]]+node([[:space:]]|$)' /etc/yt-dlp.conf >/dev/null 2>&1
-    rc=$?
-    if [ "$rc" -eq 0 ]; then
-        ok 6 "/etc/yt-dlp.conf tem a diretiva --js-runtimes node ativa"
-    elif [ "$rc" -eq 1 ]; then
-        aviso 6 "o /etc/yt-dlp.conf do container nao tem a diretiva ativa --js-runtimes node (ausente ou comentada). Sem ela o yt-dlp nao resolve o desafio do YouTube." \
-            "atualize o DG Claw e confira que dgclaw imagem construir --agora terminou com sucesso. Depois: $RECRIAR_DICA"
-    else
-        inconclusivo 6 "nao consegui ler o /etc/yt-dlp.conf dentro do container." "confira, so com a contagem: podman exec --user agente $C grep -cE '^[[:space:]]*--js-runtimes[[:space:]]+node([[:space:]]|\$)' /etc/yt-dlp.conf (1 ou mais = diretiva ativa)"
-    fi
-    # (b) o perfil da Tela, onde ficam os logins.
-    ca test -d /home/agente/.tela-chrome >/dev/null 2>&1
-    rc=$?
-    if [ "$rc" -eq 0 ]; then
-        ok 6 "o perfil da Tela existe (/home/agente/.tela-chrome)"
-    elif [ "$rc" -eq 1 ]; then
-        aviso 6 "o perfil da Tela (/home/agente/.tela-chrome) ainda nao existe: a Tela nunca foi aberta." \
-            "abra a Tela do agente (dgclaw agente tela $SLUG) e entre no YouTube com uma conta dedicada ao agente."
-    else
-        inconclusivo 6 "nao consegui conferir o perfil da Tela dentro do container." "confira: podman exec --user agente $C ls -ld /home/agente/.tela-chrome"
-    fi
-    # (c) o login do YouTube e o download nao se medem daqui: sao a mao (passo 6 do guia).
-    pendente 6 "login do YouTube e download: o smoke nao baixa nada nem mede o login." \
-        "entre na Tela com a conta dedicada ao agente e confira o diagnostico agente.$SLUG.youtube (a partir da 1.1.1). Antes disso, rode a mao o download curto do passo 6 do guia (docs/ENTREGA-CLIENTE.md)"
-fi
-
-# --- 7. Render headless sem sobra de Chrome --------------------------------------------------------
-printf '\n7. Chrome headless roda\n'
-if [ "$CONTAINER_OK" != 1 ]; then
-    aviso 7 "render nao testado: o container nao esta de pe." "resolva o item 3 e rode de novo."
-elif ! ca sh -c 'command -v google-chrome-stable' >/dev/null 2>&1; then
-    aviso 7 "nao ha google-chrome-stable no container (imagem fora do amd64 usa o Chromium do Playwright)." \
-        "teste um render curto a mao, no card de teste, e confira o Chrome depois (item 7 do checklist)."
-else
-    # Perfil descartavel numa pasta privada desta execucao, criada dentro do container; so ela e apagada.
-    # O status do mktemp nao pode se perder no pipeline, e o caminho devolvido so vale se for exatamente uma pasta
-    # direto sob /tmp, com o prefixo fixo e sufixo alfanumerico (sem barra nem ".."). Antes disso nada roda nem apaga.
-    dir_ch="$(PRAZO=30 capt ca mktemp -d /tmp/smoke-entrega.XXXXXX)"; rc_m=$?
-    dir_ch="$(uma_linha "$dir_ch")" || rc_m=99
-    if [ "$rc_m" -eq 0 ] && [[ "$dir_ch" =~ ^/tmp/smoke-entrega\.[A-Za-z0-9]{6,}$ ]]; then
-        PRAZO=90 ca google-chrome-stable --headless=new --no-sandbox --disable-gpu --user-data-dir="$dir_ch/perfil" --dump-dom about:blank >/dev/null 2>&1
-        rc=$?
-        PRAZO=30 ca rm -rf -- "$dir_ch" >/dev/null 2>&1
-        rc_rm=$?
-        if [ "$rc_rm" -ne 0 ]; then
-            aviso 7 "nao consegui apagar a pasta temporaria do render de teste dentro do container (codigo $rc_rm). A limpeza ficou pendente." \
-                "rode de novo com o container de pe: podman exec --user agente $C rm -rf -- $dir_ch"
-        fi
-        if [ "$rc" -ne 0 ]; then
-            falha 7 "o Chrome headless nao rodou (codigo $rc). Render de carrossel e video nao vai funcionar." \
-                "rode a mao e leia o erro: podman exec --user agente $C google-chrome-stable --headless=new --no-sandbox --dump-dom about:blank"
-        else
-            ok 7 "o Chrome headless rodou e terminou sem erro"
-        fi
-    else
-        inconclusivo 7 "nao consegui criar a pasta privada do render de teste dentro do container (o mktemp falhou ou devolveu um caminho fora do formato esperado). Nada foi rodado nem apagado." "confira: podman exec --user agente $C mktemp -d /tmp/smoke-entrega.XXXXXX"
-    fi
 fi
 
 # --- O que nao da para automatizar -----------------------------------------------------------------
@@ -501,9 +420,16 @@ Conferir a mao (detalhes em docs/ENTREGA-CLIENTE.md):
       Repita nos dois motores (Claude e Codex).
   5.  Cruzar os nomes do cofre (listados acima) com as chaves que as skills do cliente citam, e trocar a
       chave provisoria da equipe pela do cliente.
-  6.  Login do YouTube pela Tela (VNC) com uma conta dedicada ao agente e o item de diagnostico
-      agente.<agente>.youtube (a partir da 1.1.1), ou o yt-dlp a mao. O smoke deixa PENDENTE e nao baixa nada.
-  9.  Login do dono pelo celular (largura 390), com usuario em maiuscula automatica. No fim, o proprio cliente
+  6.  YouTube e yt-dlp, num terminal seu (nunca no chat do Admin): yt-dlp em /usr/local/bin, diretiva
+      --js-runtimes node ativa no /etc/yt-dlp.conf do container, perfil da Tela existente e login do YouTube
+      pela Tela (VNC) com uma conta dedicada ao agente, mais o diagnostico agente.<agente>.youtube (a partir da
+      1.1.1) ou o download curto do guia. O smoke nao executa nada disso.
+  7.  Render do Chrome: num card de teste, peca um render curto (com dgclaw-pesado --timeout a partir da 1.1.1,
+      ou com timeout), confira que terminou e depois que nao sobrou Chrome.
+  8.  ffmpeg do container: no card de teste, peca ao agente ffmpeg -version, ou rode num terminal seu.
+  9.  Login do dono pelo celular (largura 390): entre com o usuario na grafia cadastrada e confira que o campo de
+      usuario nao capitaliza sozinho (autocapitalize="none"); a equivalencia de maiusculas nao existe nesta
+      versao. No fim, o proprio cliente
       troca a senha em terminal privado (sudo dgclaw senha trocar; nesta versao o painel nao troca a senha do
       dono) e confirma que a antiga nao entra mais; a equipe nao fica sabendo a senha final.
   10. Skills do cliente na pasta certa, com dono (chown) e CLAUDE_PLUGIN_ROOT resolvido.
@@ -513,7 +439,7 @@ Conferir a mao (detalhes em docs/ENTREGA-CLIENTE.md):
       nem do modelo.
 
 FIM
-printf 'Resumo: %s falha(s), %s aviso(s), %s inconclusivo(s), %s pendente(s).\n' "$FALHAS" "$AVISOS" "$INCONCLUSIVOS" "$PENDENTES"
+printf 'Resumo: %s falha(s), %s aviso(s), %s inconclusivo(s).\n' "$FALHAS" "$AVISOS" "$INCONCLUSIVOS"
 if [ "$FALHAS" -gt 0 ]; then
     printf 'NAO entregue a VPS: corrija as linhas FALHA acima e rode o smoke de novo.\n'
     exit 1
