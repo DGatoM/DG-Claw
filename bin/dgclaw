@@ -2284,7 +2284,7 @@ agente_youtube() {
         info "[ensaio] conta-dedicada $valor: $( [ "$valor" = sim ] && echo "gravaria" || echo "removeria" ) $marcador"
         return 0
     fi
-    # Sob a trava do YouTube: nao liga nem desliga enquanto uma restauracao de backup estiver repondo perfis da Tela.
+    # Sem trava com a restauracao: ela desliga a conta dedicada de todos os agentes antes e depois de extrair o backup.
     _agente_youtube_gravar "$slug" "$valor"
 }
 
