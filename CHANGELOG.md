@@ -19,6 +19,23 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   (cruzar as skills com o cofre, o login e o download do YouTube, a troca de senha pelo cliente) fica à mão, com
   os comandos no guia. Não muda o comportamento de quem já usa o DG Claw.
 
+**Correção do agente que ficava "trabalhando" para sempre depois de um /compact recusado.** Quando o auto-compact enfileirava
+vários `/compact` seguidos e o Claude Code respondia "Not enough messages to compact.", ele avisava o início da compactação
+e nunca o fim: o agente ficava em "working" por horas com as mensagens presas na fila. Agora (1) o runner olha o transcript
+e, se o CLI recusou o `/compact` (a mensagem de recusa e nada de conversa nem de compactação depois dela), volta o agente
+para idle e solta a fila. Só a recusa confirmada no transcript solta a fila; sem essa prova nada muda por tempo, e o caso é
+coberto pelo aviso de fila parada do watchdog (item 3). (2) O auto-compact, no runner, não
+enfileira `/compact` com o agente ocupado ou com mensagens na fila, nem até 10 minutos depois de uma compactação do próprio
+agente (`DGCLAW_COMPACT_MIN_INTERVAL_MIN`). Sem conseguir ler o estado do agente, ou com um tamanho de fila que não faz sentido, o auto-compact também adia. E o runner não guarda mais de um `/compact` na fila: se já há um esperando, sendo digitado ou em andamento, o pedido repetido é descartado. Essas guardas
+do auto-compact só agem onde o auto-compact funciona: hoje só no Claude, porque o leitor de contexto dele não lê o rollout do Codex. (3) O watchdog
+passa a reconhecer fila parada (mensagens esperando há mais de `DGCLAW_FILA_PARADA_MIN`, 15 minutos, com o agente em working
+e o card sem mudar de estado, e o transcript do Claude também mudo). Ele não reinicia o agente: avisa o dono
+uma vez por ocorrência, dizendo quantas mensagens esperam, há quanto tempo e que dá para reiniciar pelo botão Reiniciar do
+painel, e registra no `saude.json` que apenas observou. O aviso de fila parada vale só no Claude, porque no Codex o vigia não lê o rollout, e só enquanto o vigia (watchdog) estiver rodando. Numa instalação nova com
+`DGCLAW_AUTO_RECOVERY=off` o vigia nem é instalado, e então não há aviso; numa instalação que já tinha o vigia, com essa
+opção desligada ele continua avisando. A compactação automática depende do transcript do Claude. O PreCompact é do
+Claude Code; o Codex não passa pela correção do runner.
+
 **Correção da fila de mensagens: um "ok" que esperou na fila não é mais lido como aprovação de outra coisa.** Quando você
 escreve enquanto o agente trabalha, a mensagem espera a vez. Se ela esperou mais de 20 segundos, agora chega ao agente
 com um aviso do sistema logo abaixo, dizendo a hora em que foi escrita e que uma resposta curta (ok, sim, pode) não
