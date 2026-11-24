@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Os bash -c recebem os caminhos como argumento ($1), de proposito entre aspas simples.
 # shellcheck disable=SC2016
-# scripts/smoke-entrega.sh: um caso todo OK e casos com FALHA, com podman, journalctl, nproc, curl e
-# dgclaw de mentira (tests/cli/stubs-entrega) e uma raiz falsa (DGCLAW_RAIZ). Nada toca o sistema.
+# scripts/smoke-entrega.sh: um caso todo OK e casos com FALHA, com podman, curl e systemctl de mentira
+# (tests/cli/stubs-entrega) e uma raiz falsa (DGCLAW_RAIZ). Nada toca o sistema.
 set -uo pipefail
 # shellcheck source=tests/cli/_comum.sh
 . "$(dirname "$0")/_comum.sh"
@@ -14,483 +14,119 @@ case "${TMP:-}" in /*) [ -d "$TMP" ] || { echo "smoke-entrega: o mktemp -d falho
 [ "$STUB_ESTADO" = "$TMP/estado" ] || { echo "smoke-entrega: STUB_ESTADO fora da pasta temporaria" >&2; exit 1; }
 PATH="$AQUI/stubs-entrega:$PATH"
 export PATH
-export DGCLAW_CLI="$AQUI/stubs-entrega/dgclaw-falso"
-CASA="$DGCLAW_RAIZ/var/lib/dgclaw/agentes/ana/home"
-CG="$DGCLAW_RAIZ/sys/fs/cgroup/machine.slice/libpod-abc.scope"
 
-# Raiz falsa: Ubuntu 24.04, 16 GB de RAM, ffmpeg no servidor, agente ana.
-mkdir -p "$DGCLAW_RAIZ/etc" "$DGCLAW_RAIZ/proc" "$DGCLAW_RAIZ/usr/bin" "$CG"
-printf 'ID=ubuntu\nVERSION_ID="24.04"\n' >"$DGCLAW_RAIZ/etc/os-release"
-printf 'MemTotal:       16384000 kB\n' >"$DGCLAW_RAIZ/proc/meminfo"
-printf '#!/bin/sh\n' >"$DGCLAW_RAIZ/usr/bin/ffmpeg"; chmod +x "$DGCLAW_RAIZ/usr/bin/ffmpeg"
-printf 'GROQ_API_KEY=gsk_segredo_do_teste\nOUTRA=1\n' >"$ETC/web.env"
-jq -n --arg casa "$CASA" '{versao: 1, agentes: [{slug: "ana", tipo: "agente", runner: "127.0.0.1:4301", home_host: $casa, provedor: "claude"}]}' \
-    >"$ETC/agentes.json"
-cofre_com() { # <nome>...: o cofre falso com essas chaves (e uma revogada, que nao conta)
-    local n j='[{"envName":"VELHA_API_KEY","revogadaEm":"2026-01-01T00:00:00Z"}'
-    for n in "$@"; do j+=",{\"envName\":\"$n\",\"ultimos4\":\"abcd\",\"revogadaEm\":null}"; done
-    printf '{"ok":true,"chaves":%s]}' "$j" >"$STUB_ESTADO/cofre.json"
-}
-cgroup() { printf '%s\n' "$1" >"$CG/memory.max"; printf '%s\n' "$2" >"$CG/pids.max"; printf '%s\n' "${3:-max 100000}" >"$CG/cpu.max"; }
+mkdir -p "$DGCLAW_RAIZ/opt/dgclaw/app"
+registro() { jq -n --arg s "$1" '{versao: 1, agentes: [{slug: $s, tipo: "agente", provedor: "claude"}]}' >"$ETC/agentes.json"; }
 smoke() { bash "$SMOKE" "$@" >"$TMP/s.txt" 2>&1; }
-limpar_estado() { find "$STUB_ESTADO" -mindepth 1 -delete; cofre_com GROQ_API_KEY GEMINI_API_KEY; cgroup 4294967296 8192; printf 'GROQ_API_KEY=gsk_segredo_do_teste\nOUTRA=1\n' >"$ETC/web.env"; : >"$STUB_LOG"; echo 3600 >"$STUB_ESTADO/kernel-extra"; }
+limpar_estado() {
+    find "$STUB_ESTADO" -mindepth 1 -delete
+    printf '1.2.3\n' >"$DGCLAW_RAIZ/opt/dgclaw/app/VERSION"
+    printf 'DGCLAW_DOMINIO=teste.exemplo.org\n' >"$ETC/dgclaw.env"
+    registro ana
+    : >"$STUB_LOG"
+}
 
 echo "smoke-entrega: tudo certo"
 limpar_estado
-smoke ana
+smoke
 igual "sai com 0" "0" "$?"
-afirma "item 1 OK" grep -q 'OK     \[1\] Ubuntu 24.04' "$TMP/s.txt"
-afirma "item 3 OK no pids.max" grep -q 'OK     \[3\] pids.max do container: 8192' "$TMP/s.txt"
-nega "o smoke nao executa nada dentro do container (nenhum podman exec)" grep -q 'podman exec' "$STUB_LOG"
-afirma "a lista a mao traz a leitura do runner num terminal do dono" grep -q 'TasksMax, OOMPolicy e NRestarts do runner, lidos num terminal seu' "$TMP/s.txt"
-nega "a lista a mao nao traz comando podman exec" grep -q 'podman exec' "$TMP/s.txt"
-afirma "a lista a mao diz que serve de apoio e nao de prova" grep -q 'servem de apoio e nao de prova' "$TMP/s.txt"
-afirma "item 3 OK sem OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
-afirma "item 5 OK no microfone (web.env)" grep -q 'OK     \[5\] o servico Web tem chave para o microfone e o audio (a ultima atribuicao tem valor): GROQ_API_KEY' "$TMP/s.txt"
-afirma "item 3 OK na CPU (sem limite)" grep -q 'OK     \[3\] CPU do container: sem limite' "$TMP/s.txt"
-afirma "item 3 OK no kernel com a cobertura" grep -q 'OK     \[3\] nenhum OOM no journal do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
-afirma "o kernel e lido sem -k (todo o periodo, nao so o boot)" grep -q 'journalctl _TRANSPORT=kernel --since @[0-9]* --no-pager -q -o short-unix' "$STUB_LOG"
-afirma "a cobertura e uma consulta propria ate o corte" grep -qE 'journalctl _TRANSPORT=kernel --until @[0-9]+ -r -n 1 --no-pager -q -o short-unix' "$STUB_LOG"
-nega "nao usa journalctl -k" grep -qE 'journalctl -k' "$STUB_LOG"
-nega "nao mostra o valor da chave do web.env" grep -q 'gsk_segredo' "$TMP/s.txt"
-afirma "item 5 conta as chaves ativas do cofre" grep -q 'OK     \[5\] o cofre tem 2 chave(s) ativa(s)\.' "$TMP/s.txt"
-afirma "item 5 lista um nome por linha (GEMINI)" grep -qx ' *GEMINI_API_KEY' "$TMP/s.txt"
-afirma "item 5 lista um nome por linha (GROQ)" grep -qx ' *GROQ_API_KEY' "$TMP/s.txt"
-afirma "o uso aponta o caminho absoluto da instalacao" bash -c 'bash "$1" --ajuda | grep -qxF "uso: sudo bash /opt/dgclaw/app/scripts/smoke-entrega.sh <agente>"' _ "$SMOKE"
-nega "nao afirma que toda chave citada esta no cofre" grep -q 'toda chave citada' "$TMP/s.txt"
-nega "nao varre as skills no container" grep -q 'FIM-DA-VARREDURA' "$STUB_LOG"
-afirma "item 8 OK so no servidor" bash -c 'grep -c "OK     \[8\]" "$1" | grep -qx 1' _ "$TMP/s.txt"
-nega "nao imprime PENDENTE" grep -q 'PENDENTE' "$TMP/s.txt"
+afirma "versao OK" grep -q 'OK     \[1\] DG Claw 1.2.3' "$TMP/s.txt"
+afirma "painel OK na porta padrao" grep -q 'OK     \[2\] o painel respondeu na porta 8300' "$TMP/s.txt"
+afirma "curl na porta padrao" grep -q 'curl .*http://127.0.0.1:8300/' "$STUB_LOG"
+afirma "servico web OK" grep -q 'OK     \[3\] dgclaw-web ativo' "$TMP/s.txt"
+afirma "servico admin OK" grep -q 'OK     \[3\] dgclaw-admin ativo' "$TMP/s.txt"
+afirma "container rodando OK" grep -q 'OK     \[4\] dgclaw-ana rodando' "$TMP/s.txt"
+afirma "memoria 4096 MB OK" grep -q 'OK     \[4\] dgclaw-ana com limite de memoria de 4096 MB' "$TMP/s.txt"
+afirma "lista a conferir a mao" grep -q 'A conferir a mao' "$TMP/s.txt"
 nega "nao imprime FALHA" grep -q 'FALHA' "$TMP/s.txt"
-afirma "lista o que fica a mao" grep -q 'Conferir a mao' "$TMP/s.txt"
-nega "nao mostra valor de chave (so o nome)" grep -q 'abcd' "$TMP/s.txt"
-nega "a chave revogada nao conta" grep -q 'VELHA_API_KEY' "$TMP/s.txt"
+nega "nenhum podman exec no log" grep -q 'podman exec' "$STUB_LOG"
+nega "nenhum journalctl no log" grep -q 'journalctl' "$STUB_LOG"
+nega "nenhum cofre no log" grep -q 'cofre' "$STUB_LOG"
+afirma "o uso aponta o caminho absoluto da instalacao" bash -c 'bash "$1" --ajuda | grep -qxF "uso: sudo bash /opt/dgclaw/app/scripts/smoke-entrega.sh"' _ "$SMOKE"
 
-echo "smoke-entrega: avisos nao derrubam (memoria, CPU, 26.04)"
-limpar_estado
-printf 'ID=ubuntu\nVERSION_ID="26.04"\n' >"$DGCLAW_RAIZ/etc/os-release"
-cgroup 2147483648 8192 "100000 100000"
+echo "smoke-entrega: uso"
 smoke ana
-igual "sai com 0 so com avisos" "0" "$?"
-afirma "avisa do 26.04" grep -q 'AVISO  \[1\] Ubuntu 26.04' "$TMP/s.txt"
-afirma "avisa da memoria sem podman update" grep -q "DGCLAW_CONTAINER_MEMORIA (por exemplo 7g)" "$TMP/s.txt"
-afirma "avisa da CPU" grep -q 'AVISO  \[3\] o container tem 1 CPU' "$TMP/s.txt"
-nega "nenhuma dica manda podman update de memoria ou CPU" grep -qE 'podman update --(memory|cpus) [0-9<]' "$TMP/s.txt"
-printf 'ID=ubuntu\nVERSION_ID="24.04"\n' >"$DGCLAW_RAIZ/etc/os-release"
+igual "argumento extra: sai com 2" "2" "$?"
+afirma "argumento extra mostra o uso" grep -q 'uso: sudo bash' "$TMP/s.txt"
 
-echo "smoke-entrega: varias FALHAS"
+echo "smoke-entrega: versao ausente"
 limpar_estado
-cofre_com GEMINI_API_KEY
-printf 'OUTRA=1\n' >"$ETC/web.env"
-cgroup 4294967296 1024
-: >"$STUB_ESTADO/oom-host"
-smoke ana
-igual "sai com 1" "1" "$?"
-afirma "FALHA no pids.max" grep -q 'FALHA  \[3\] pids.max do container e 1024' "$TMP/s.txt"
-afirma "FALHA no OOM" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias' "$TMP/s.txt"
-afirma "FALHA sem chave de microfone no web.env" grep -q 'FALHA  \[5\] o web.env nao tem ELEVENLABS_API_KEY, GROQ_API_KEY nem OPENAI_API_KEY' "$TMP/s.txt"
-afirma "as dicas de recriar nao mandam --forcar" bash -c '! grep -q -- "recriar ana --forcar" "$1"' _ "$TMP/s.txt"
-afirma "a dica de recriar manda conferir a camada gravavel fora do chat do Admin" grep -q 'num terminal seu (nunca no chat do Admin' "$TMP/s.txt"
-nega "a dica de recriar nao manda abrir podman diff" grep -q 'podman diff' "$TMP/s.txt"
-afirma "a dica de recriar avisa que pode recriar na hora" grep -q 'pode recriar o container na hora' "$TMP/s.txt"
-nega "a dica de recriar nao a apresenta como so listar" grep -q 'ele lista e para' "$TMP/s.txt"
-afirma "o resumo manda nao entregar" grep -q 'NAO entregue a VPS' "$TMP/s.txt"
-nega "OOM nao manda aumentar o teto do agente direto" grep -q 'aumente o teto de memoria do agente' "$TMP/s.txt"
-afirma "a dica de recriar exige a releitura e avisa do 'nada a recriar'" grep -q 'nada havia a recriar, o container nao mudou e o item continua aberto' "$TMP/s.txt"
-afirma "a dica de recriar cita o que o inventario ignora" grep -q 'ignora /tmp, /var/tmp, /var/log e /var/cache' "$TMP/s.txt"
-echo "smoke-entrega: dica de OOM com oom_memcg"
-afirma "a dica de OOM manda ver o oom_memcg e o task_memcg" grep -q 'oom_memcg (o cgroup cujo limite estourou) e o task_memcg (quem foi morto)' "$TMP/s.txt"
-afirma "a dica de OOM cita o OOM do servidor inteiro" grep -q 'CONSTRAINT_NONE' "$TMP/s.txt"
-afirma "a dica de OOM manda nunca aumentar o teto direto" grep -q 'Nunca aumente o teto do agente direto' "$TMP/s.txt"
+rm -f "$DGCLAW_RAIZ/opt/dgclaw/app/VERSION"
+smoke
+igual "sem VERSION: sai com 0" "0" "$?"
+afirma "sem VERSION: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[1\]' "$TMP/s.txt"
 
-echo "smoke-entrega: memoria e processos sem limite no cgroup"
+echo "smoke-entrega: painel"
 limpar_estado
-cgroup max max
-smoke ana
-igual "sem limite: sai com 1" "1" "$?"
-afirma "FALHA sem limite de processos" grep -q 'FALHA  \[3\] o container dgclaw-ana esta sem limite de processos' "$TMP/s.txt"
-afirma "FALHA sem limite de memoria" grep -q 'FALHA  \[3\] o container dgclaw-ana esta sem limite de memoria' "$TMP/s.txt"
-afirma "a correcao cita DGCLAW_CONTAINER_MEMORIA (a partir da 1.1.1), sem numero de RAM" grep -q 'configure DGCLAW_CONTAINER_MEMORIA (a partir da 1.1.1) com' "$TMP/s.txt"
-nega "a correcao nao sugere podman update --memory" grep -qE 'sem limite de memoria.*podman update|podman update --memory [0-9]+g dgclaw-ana \(vale ate o container ser recriado\). Para' "$TMP/s.txt"
+printf '000' >"$STUB_ESTADO/http"
+smoke
+igual "painel 000: sai com 1" "1" "$?"
+afirma "painel 000: FALHA" grep -q 'FALHA  \[2\] o painel nao respondeu' "$TMP/s.txt"
 limpar_estado
-echo /machine.slice/../../etc >"$STUB_ESTADO/cgpath"
-smoke ana
-afirma "caminho de cgroup invalido: INCONCLUSIVO, nao FALHA nem OK" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o limite de processos' "$TMP/s.txt"
-nega "caminho invalido nao vira OK de pids" grep -q 'OK     \[3\] pids.max' "$TMP/s.txt"
+printf 'DGCLAW_PORTA_PAINEL=9123\n' >"$ETC/dgclaw.env"
+smoke
+afirma "a porta do dgclaw.env vai no curl" grep -q 'curl .*http://127.0.0.1:9123/' "$STUB_LOG"
+limpar_estado
+printf '302' >"$STUB_ESTADO/http"
+smoke
+afirma "redirecionamento conta como OK" grep -q 'OK     \[2\]' "$TMP/s.txt"
 
-echo "smoke-entrega: erro de leitura do journal e INCONCLUSIVO"
+echo "smoke-entrega: servico inativo"
 limpar_estado
-: >"$STUB_ESTADO/journal-host-erro"
-smoke ana
-igual "so inconclusivo: sai com 0" "0" "$?"
-afirma "journal com erro: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal' "$TMP/s.txt"
-nega "journal com erro nao diz 'nenhum OOM'" grep -q 'nenhum OOM' "$TMP/s.txt"
-afirma "o resumo conta os inconclusivos" grep -qE 'Resumo: 0 falha.*[1-9][0-9]* inconclusivo' "$TMP/s.txt"
+: >"$STUB_ESTADO/inativo-dgclaw-admin"
+smoke
+igual "servico inativo: sai com 1" "1" "$?"
+afirma "servico inativo: FALHA com a dica" grep -q 'FALHA  \[3\] dgclaw-admin nao esta ativo' "$TMP/s.txt"
 
-echo "smoke-entrega: --video nao existe mais"
-smoke ana --video https://exemplo.com/video
-igual "--video nao existe mais: sai com 2" "2" "$?"
-
-
-echo "smoke-entrega: CPU pelo cpu.max do cgroup"
-limpar_estado
-cgroup 4294967296 8192 "200000 100000"
-smoke ana
-afirma "2 CPUs de quota: OK com o numero" grep -q 'OK     \[3\] CPU do container: 2.00' "$TMP/s.txt"
-cgroup 4294967296 8192 "150000 100000"
-smoke ana
-afirma "quota fracionada: 1.50" grep -q 'OK     \[3\] CPU do container: 1.50' "$TMP/s.txt"
-cgroup 4294967296 8192 "100000 100000"
-smoke ana
-afirma "1 CPU em servidor maior: AVISO" grep -q 'AVISO  \[3\] o container tem 1 CPU' "$TMP/s.txt"
-rm -f "$CG/cpu.max"
-smoke ana
-afirma "cpu.max ilegivel: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o limite de CPU' "$TMP/s.txt"
-printf 'lixo\n' >"$CG/cpu.max"
-smoke ana
-afirma "cpu.max fora do formato: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o limite de CPU' "$TMP/s.txt"
-
-echo "smoke-entrega: kernel em 7 dias (cobertura real do journal)"
-limpar_estado
-echo 2 >"$STUB_ESTADO/kernel-dias"
-smoke ana
-afirma "journal do kernel com 2 dias: INCONCLUSIVO com a cobertura real" grep -q 'INCONCLUSIVO \[3\] nenhum OOM achado.*2 dia(s) completo(s) (48 horas)' "$TMP/s.txt"
-nega "journal do kernel com 2 dias: nenhum OK de OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
-rm -f "$STUB_ESTADO/kernel-dias"; echo 145 >"$STUB_ESTADO/kernel-horas"
-smoke ana
-afirma "journal do kernel com 6 dias e 1 hora: nao arredonda para 7" grep -q 'INCONCLUSIVO \[3\].*6 dia(s) completo(s) (145 horas)' "$TMP/s.txt"
-nega "6 dias e 1 hora nao vira OK de 7 dias" grep -q 'cobertura do kernel: 7 dias' "$TMP/s.txt"
-echo "smoke-entrega: zero OOM com a primeira entrada de 2 horas atras"
-echo 2 >"$STUB_ESTADO/kernel-horas"
-smoke ana
-afirma "primeira entrada de 2 horas: INCONCLUSIVO com menos de 1 dia" grep -q 'INCONCLUSIVO \[3\] nenhum OOM achado.*menos de 1 dia' "$TMP/s.txt"
-nega "primeira entrada de 2 horas: nenhum OK de OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
-afirma "a dica do OOM usa o filtro dos eventos do kernel" grep -qF "'^(out of memory: killed process|memory cgroup out of memory|oom-kill:constraint=|oom_reaper: reaped process|[^=]* invoked oom-killer: gfp_mask=)'" "$TMP/s.txt"
-afirma "a dica do OOM confere o grep" grep -qF 'PIPESTATUS[1]' "$TMP/s.txt"
-rm -f "$STUB_ESTADO/kernel-horas"
-: >"$STUB_ESTADO/kernel-vazio"
-smoke ana
-afirma "journal do kernel sem entradas: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] nenhum OOM achado, mas o journal do kernel' "$TMP/s.txt"
-rm -f "$STUB_ESTADO/kernel-vazio"; : >"$STUB_ESTADO/oom-host"
-smoke ana
-afirma "OOM no kernel: FALHA" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias' "$TMP/s.txt"
-afirma "OOM so no kernel: diz que nao da para atribuir" grep -q 'a contagem sozinha nao diz de quem era o processo' "$TMP/s.txt"
-nega "OOM so no kernel: nao manda aumentar o teto do agente" grep -q 'aumente o teto de memoria do agente' "$TMP/s.txt"
-rm -f "$STUB_ESTADO/oom-host"; : >"$STUB_ESTADO/journal-host-erro"
-smoke ana
-afirma "journal do kernel com erro: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal do kernel' "$TMP/s.txt"
-echo "smoke-entrega: cobertura so vale com o journalctl saindo com 0"
-limpar_estado
-: >"$STUB_ESTADO/kernel-saida-erro"
-smoke ana
-afirma "kernel imprime linha com timestamp e sai com 1: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal do kernel' "$TMP/s.txt"
-nega "kernel que sai com 1 nao vira OK" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
-nega "kernel que sai com 1 nao mostra cobertura" grep -q 'cobertura do kernel' "$TMP/s.txt"
-echo "smoke-entrega: dica do INCONCLUSIVO de OOM"
-# shellcheck disable=SC2016  # texto literal, nao expande
-afirma "a dica le a janela toda e mostra o codigo do journalctl e do grep" grep -qF 'journalctl=${PIPESTATUS[0]} grep=${PIPESTATUS[1]}' "$TMP/s.txt"
-nega "a dica nao usa -n 0 (pede zero registros e nao examina nada)" grep -q -- '-n 0' "$TMP/s.txt"
-afirma "a dica diz que o item continua INCONCLUSIVO ate a leitura" grep -q 'continua INCONCLUSIVO ate essa leitura ser feita' "$TMP/s.txt"
-afirma "a dica manda ver a persistencia do journal" grep -q '/var/log/journal' "$TMP/s.txt"
-echo "smoke-entrega: primeira entrada 30 minutos antes do corte de 7 dias: OK com 7 dias"
-limpar_estado
-echo $((7 * 86400 + 1800)) >"$STUB_ESTADO/kernel-seg"
-smoke ana
-igual "primeira entrada 30 minutos antes do corte: sai com 0" "0" "$?"
-afirma "primeira entrada 30 minutos antes do corte: OK com cobertura de 7 dias" grep -q 'OK     \[3\] nenhum OOM no journal do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
-echo "smoke-entrega: historico de 30 dias com o kernel quieto atravessando o corte: OK com 7 dias"
-limpar_estado
-echo 30 >"$STUB_ESTADO/kernel-dias"
-echo $((7 * 86400 - 7200)) >"$STUB_ESTADO/kernel-extra"
-smoke ana
-igual "kernel quieto no corte: sai com 0" "0" "$?"
-afirma "kernel quieto no corte: OK com cobertura de 7 dias" grep -q 'OK     \[3\] nenhum OOM no journal do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
-echo "smoke-entrega: primeira entrada 1 hora depois do corte de 7 dias: INCONCLUSIVO"
-limpar_estado
-echo $((7 * 86400 - 3600 + 60)) >"$STUB_ESTADO/kernel-seg"
-smoke ana
-afirma "primeira entrada 1 hora depois do corte: INCONCLUSIVO com o periodo examinado" grep -q 'INCONCLUSIVO \[3\] nenhum OOM achado.*6 dia(s) completo(s) (167 horas)' "$TMP/s.txt"
-nega "primeira entrada 1 hora depois do corte: nenhum OK de OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
-echo "smoke-entrega: o --since do smoke e @<numero> (o corte de 7 dias)"
-limpar_estado
-smoke ana
-afirma "o --since e @<numero>" grep -qE 'journalctl _TRANSPORT=kernel --since @[0-9]+ --no-pager -q -o short-unix' "$STUB_LOG"
-echo "smoke-entrega: journalctl imprime um OOM e sai com erro: FALHA com contagem parcial"
-limpar_estado
-: >"$STUB_ESTADO/kernel-oom-erro"
-smoke ana
-igual "OOM e journalctl com erro: sai com 1" "1" "$?"
-afirma "OOM e journalctl com erro: FALHA com nota de contagem parcial" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias.*contagem parcial' "$TMP/s.txt"
-nega "OOM e journalctl com erro nao vira INCONCLUSIVO de journal" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal' "$TMP/s.txt"
-echo "smoke-entrega: hostname com oom-kill na linha de boot normal nao conta como OOM"
-limpar_estado
-: >"$STUB_ESTADO/hostname-oom"
-echo 9 >"$STUB_ESTADO/kernel-dias"
-smoke ana
-nega "hostname oom-kill-test: nenhum FALHA de OOM" grep -q 'FALHA  \[3\] OOM' "$TMP/s.txt"
-afirma "hostname oom-kill-test: OK de nenhum OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
-
-echo "smoke-entrega: OOM antes do corte de 7 dias nao conta"
-limpar_estado
-echo $((1800 + 7 * 86400)) >"$STUB_ESTADO/oom-seg"
-smoke ana
-igual "OOM 30 minutos antes do corte: sai com 0" "0" "$?"
-nega "OOM 30 minutos antes do corte: nenhuma FALHA de OOM" grep -q 'FALHA  \[3\] OOM' "$TMP/s.txt"
-afirma "OOM 30 minutos antes do corte: OK com cobertura de 7 dias" grep -q 'OK     \[3\] nenhum OOM no journal do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
-echo "smoke-entrega: filtro de OOM so aceita eventos do kernel"
-limpar_estado
-printf '%s\n' 'kernel: audit: type=1400 apparmor="DENIED" name="/tmp/oom-kill-teste"' >"$STUB_ESTADO/kernel-msg"
-smoke ana
-igual "registro do AppArmor com oom-kill no nome: sai com 0" "0" "$?"
-nega "registro do AppArmor com oom-kill no nome: nenhuma FALHA de OOM" grep -q 'FALHA  \[3\] OOM' "$TMP/s.txt"
-printf '%s\n' 'kernel: audit: type=1400 apparmor="DENIED" name="/tmp/oom-kill-teste"' 'kernel: Out of memory: Killed process 1234 (node)' >"$STUB_ESTADO/kernel-msg"
-smoke ana
-igual "AppArmor mais OOM de verdade: sai com 1" "1" "$?"
-afirma "AppArmor mais OOM de verdade: FALHA com 1 linha" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias: 1 linha' "$TMP/s.txt"
-printf '%s\n' 'kernel: audit: type=1400 apparmor="DENIED" operation="open" name="/x/oom-kill:constraint=y"' >"$STUB_ESTADO/kernel-msg"
-smoke ana
-igual "AppArmor com oom-kill:constraint= no caminho: sai com 0" "0" "$?"
-nega "AppArmor com oom-kill:constraint= no caminho: nenhuma FALHA de OOM" grep -q 'FALHA  \[3\] OOM' "$TMP/s.txt"
-afirma "AppArmor com oom-kill:constraint= no caminho: OK com cobertura" grep -q 'OK     \[3\] nenhum OOM no journal do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
-echo "smoke-entrega: historico antigo e janela de 7 dias sem nenhuma entrada: INCONCLUSIVO"
-limpar_estado
-rm -f "$STUB_ESTADO/kernel-extra"
-echo 30 >"$STUB_ESTADO/kernel-dias"
-smoke ana
-nega "janela vazia com historico antigo: nenhum OK de OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
-afirma "janela vazia com historico antigo: INCONCLUSIVO sem entrada nos 7 dias" grep -q 'INCONCLUSIVO \[3\] nenhum OOM achado, mas o journal do kernel do servidor nao mostrou nenhuma entrada nos ultimos 7 dias' "$TMP/s.txt"
-echo "smoke-entrega: OOM 30 minutos depois do corte de 7 dias conta"
-limpar_estado
-echo $((7 * 86400 - 1800)) >"$STUB_ESTADO/oom-seg"
-smoke ana
-igual "OOM 30 minutos depois do corte: sai com 1" "1" "$?"
-afirma "OOM 30 minutos depois do corte: FALHA" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias: 1 linha' "$TMP/s.txt"
-
-echo "smoke-entrega: 12 nomes longos do cofre aparecem inteiros, um por linha"
-limpar_estado
-nomes=(); for i in 01 02 03 04 05 06 07 08 09 10 11 12; do nomes+=("CHAVE_MUITO_LONGA_DO_CLIENTE_PARA_TESTAR_O_CORTE_${i}_API_KEY"); done
-cofre_com "${nomes[@]}"
-smoke ana
-afirma "12 chaves ativas" grep -q 'OK     \[5\] o cofre tem 12 chave(s) ativa(s)' "$TMP/s.txt"
-for n in "${nomes[@]}"; do afirma "nome inteiro em uma linha: $n" grep -qx " *$n" "$TMP/s.txt"; done
-cofre_com 'nome ruim;rm' minuscula
-smoke ana
-afirma "nome fora do formato vira linha fixa" grep -q '(nome fora do formato)' "$TMP/s.txt"
-nega "nome fora do formato nao e repetido" grep -q 'nome ruim' "$TMP/s.txt"
-
-echo "smoke-entrega: nome do container vindo do registro"
-limpar_estado
-jq -n --arg casa "$CASA" '{versao: 1, agentes: [{slug: "ana", tipo: "agente", runner: "127.0.0.1:4301", home_host: $casa, provedor: "claude", container: "dgclaw-ana-novo"}]}' >"$ETC/agentes.json"
-smoke ana
-igual "container do registro diferente de dgclaw-<agente>: sai com 2" "2" "$?"
-afirma "divergencia: mensagem diz o container do registro e o da CLI" grep -q 'o registro aponta o container dgclaw-ana-novo, mas a CLI dgclaw opera sobre dgclaw-ana' "$TMP/s.txt"
-afirma "divergencia: manda conferir com dgclaw agente listar" grep -q 'conferir o registro com dgclaw agente listar antes de qualquer acao' "$TMP/s.txt"
-nega "divergencia: nenhum podman chamado" grep -q 'podman' "$STUB_LOG"
-jq -n --arg casa "$CASA" '{versao: 1, agentes: [{slug: "ana", tipo: "agente", runner: "127.0.0.1:4301", home_host: $casa, provedor: "claude", container: "dgclaw-ana"}]}' >"$ETC/agentes.json"
-limpar_estado
-smoke ana
-igual "container do registro igual a dgclaw-<agente>: sai com 0" "0" "$?"
-afirma "container igual: usa dgclaw-ana" grep -q 'podman container exists dgclaw-ana$' "$STUB_LOG"
-jq -n --arg casa "$CASA" '{versao: 1, agentes: [{slug: "ana", tipo: "agente", runner: "127.0.0.1:4301", home_host: $casa, provedor: "claude", container: ""}]}' >"$ETC/agentes.json"
-limpar_estado
-smoke ana
-afirma "container vazio no registro: usa dgclaw-<agente>" grep -q 'podman container exists dgclaw-ana$' "$STUB_LOG"
-for ruim in 'ana-novo' 'dgclaw-' 'dgclaw-Ana' 'dgclaw-a;rm' 'dgclaw-a b'; do
-    jq -n --arg casa "$CASA" --arg c "$ruim" '{versao: 1, agentes: [{slug: "ana", tipo: "agente", runner: "127.0.0.1:4301", home_host: $casa, provedor: "claude", container: $c}]}' >"$ETC/agentes.json"
-    limpar_estado
-    smoke ana
-    igual "container registrado invalido ($ruim): sai com 2" "2" "$?"
-    afirma "container invalido: mensagem fixa" grep -q 'o nome de container registrado para o agente nao e valido' "$TMP/s.txt"
-    [ "$ruim" = 'dgclaw-' ] || nega "container invalido: nao repete o valor" grep -qF -- "$ruim" "$TMP/s.txt"
-done
-jq -n --arg casa "$CASA" '{versao: 1, agentes: [{slug: "ana", tipo: "agente", runner: "127.0.0.1:4301", home_host: $casa, provedor: "", container: "dgclaw-ana-novo"}]}' >"$ETC/agentes.json"
-limpar_estado
-smoke ana
-igual "provedor vazio nao esconde a divergencia de container: sai com 2" "2" "$?"
-afirma "provedor vazio: mensagem de divergencia" grep -q 'o registro aponta o container dgclaw-ana-novo' "$TMP/s.txt"
-jq -n --arg casa "$CASA" '{versao: 1, agentes: [{slug: "ana", tipo: "agente", runner: "127.0.0.1:4301", home_host: $casa, provedor: "claude", container: "-"}]}' >"$ETC/agentes.json"
-limpar_estado
-smoke ana
-igual "container '-' no registro e invalido: sai com 2" "2" "$?"
-jq -n --arg casa "$CASA" '{versao: 1, agentes: [{slug: "ana", tipo: "agente", runner: "127.0.0.1:4301", home_host: $casa, provedor: "claude"}]}' >"$ETC/agentes.json"
-
-echo "smoke-entrega: chaves de microfone no web.env (ultima atribuicao, valor vazio, sem executar o arquivo)"
-limpar_estado
-printf 'GROQ_API_KEY=""\n' >"$ETC/web.env"
-smoke ana
-afirma "GROQ_API_KEY com aspas vazias: FALHA" grep -q 'FALHA  \[5\] o web.env nao tem ELEVENLABS_API_KEY, GROQ_API_KEY nem OPENAI_API_KEY com valor' "$TMP/s.txt"
-printf "GROQ_API_KEY=''\n" >"$ETC/web.env"
-smoke ana
-afirma "GROQ_API_KEY com aspas simples vazias: FALHA" grep -q 'FALHA  \[5\] o web.env nao tem ELEVENLABS_API_KEY, GROQ_API_KEY nem OPENAI_API_KEY com valor' "$TMP/s.txt"
-printf 'GROQ_API_KEY=gsk_antiga_segredo\nOUTRA=1\nGROQ_API_KEY=\n' >"$ETC/web.env"
-smoke ana
-afirma "atribuicao antiga seguida de uma vazia (duplicata): INCONCLUSIVO" grep -q 'INCONCLUSIVO \[5\] o web.env tem mais de uma atribuicao da mesma chave de microfone (GROQ_API_KEY)' "$TMP/s.txt"
-nega "nao mostra o valor antigo" grep -q 'gsk_antiga' "$TMP/s.txt"
-printf 'GROQ_API_KEY=\nexport GROQ_API_KEY="gsk_nova_segredo"\n' >"$ETC/web.env"
-smoke ana
-afirma "vazia e depois com export (duplicata): INCONCLUSIVO, linha ambigua" grep -q 'INCONCLUSIVO \[5\] o web.env tem mais de uma atribuicao da mesma chave de microfone (GROQ_API_KEY)' "$TMP/s.txt"
-nega "duplicata nao vira OK" grep -q 'OK     \[5\] o servico Web' "$TMP/s.txt"
-nega "nao mostra o valor novo" grep -q 'gsk_nova' "$TMP/s.txt"
-printf 'GROQ_API_KEY=gsk_a\nOPENAI_API_KEY=sk_b\nGROQ_API_KEY=gsk_c\n' >"$ETC/web.env"
-smoke ana
-afirma "duas GROQ com valor: INCONCLUSIVO mesmo havendo outra chave" grep -q 'INCONCLUSIVO \[5\] o web.env tem mais de uma atribuicao' "$TMP/s.txt"
-printf 'export GROQ_API_KEY=gsk_nova_segredo\n' >"$ETC/web.env"
-smoke ana
-afirma "uma so atribuicao com export e valor: OK" grep -q 'OK     \[5\] o servico Web tem chave para o microfone e o audio (a ultima atribuicao tem valor): GROQ_API_KEY' "$TMP/s.txt"
-printf 'OPENAI_API_KEY=sk_x\n' >"$ETC/web.env"
-smoke ana
-afirma "so OPENAI_API_KEY com valor: OK" grep -q 'OK     \[5\] o servico Web tem chave para o microfone e o audio (a ultima atribuicao tem valor): OPENAI_API_KEY' "$TMP/s.txt"
-printf 'GROQ_API_KEY=gsk_x\nGROQ_API_KEY=""\n' >"$ETC/web.env"
-smoke ana
-afirma "GROQ com valor e depois vazia (duplicata): INCONCLUSIVO" grep -q 'INCONCLUSIVO \[5\] o web.env tem mais de uma atribuicao da mesma chave de microfone (GROQ_API_KEY)' "$TMP/s.txt"
-printf '%s\nGROQ_API_KEY=gsk_x\n' "\$(touch $TMP/executou)" >"$ETC/web.env"
-smoke ana
-nega "o web.env e lido como texto, nunca executado" test -e "$TMP/executou"
-
-
-echo "smoke-entrega: os-release incompleto e senha"
-limpar_estado
-smoke ana
-afirma "a troca de senha do dono e pelo terminal nesta versao" grep -q 'nesta versao o painel nao troca a senha' "$TMP/s.txt"
-limpar_estado
-printf 'ID=ubuntu\n' >"$DGCLAW_RAIZ/etc/os-release"
-smoke ana
-igual "os-release sem VERSION_ID: sem FALHA" "0" "$?"
-afirma "os-release sem VERSION_ID: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[1\] o /etc/os-release nao traz ID e VERSION_ID' "$TMP/s.txt"
-nega "os-release incompleto nao manda reinstalar" grep -q 'INCONCLUSIVO \[1\].*recrie a VPS' "$TMP/s.txt"
-afirma "os-release incompleto: diz para nao reinstalar" grep -q 'Nao reinstale a VPS por causa disso' "$TMP/s.txt"
-printf 'ID=debian\nVERSION_ID="12"\n' >"$DGCLAW_RAIZ/etc/os-release"
-smoke ana
-afirma "sistema incompativel: FALHA" grep -q 'FALHA  \[1\] sistema' "$TMP/s.txt"
-afirma "sistema incompativel: reinstalar so com copia e decisao do dono" grep -q 'so com uma copia recuperavel dos dados e com a decisao do dono' "$TMP/s.txt"
-printf 'ID=ubuntu\nVERSION_ID="24.04"\n' >"$DGCLAW_RAIZ/etc/os-release"
-
-echo "smoke-entrega: saida cortada em 1 MiB"
-limpar_estado
-: >"$STUB_ESTADO/journal-grande"
-smoke ana
-igual "journal acima de 1 MiB: sem FALHA, sai com 0" "0" "$?"
-afirma "journal acima de 1 MiB: INCONCLUSIVO de saida cortada" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal do kernel.*saida cortada' "$TMP/s.txt"
-nega "journal cortado nao diz 'nenhum OOM'" grep -q 'nenhum OOM' "$TMP/s.txt"
-limpar_estado
-: >"$STUB_ESTADO/journal-oom-grande"
-smoke ana
-igual "OOM achado e leitura cortada em 1 MiB: sai com 1" "1" "$?"
-afirma "OOM achado e leitura cortada: FALHA com nota de contagem parcial" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias.*contagem parcial' "$TMP/s.txt"
-nega "OOM achado e leitura cortada nao vira INCONCLUSIVO de journal" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal' "$TMP/s.txt"
-limpar_estado
-cgroup 17000000000 8192
-smoke ana
-igual "memory.max acima da RAM: so aviso, sai com 0" "0" "$?"
-afirma "memory.max igual ou maior que a RAM: AVISO" grep -q 'AVISO  \[3\] o container dgclaw-ana tem limite de memoria .* RAM do servidor' "$TMP/s.txt"
-limpar_estado
-cgroup 134217728 8192
-printf 'MemTotal:       4096000 kB\n' >"$DGCLAW_RAIZ/proc/meminfo"
-smoke ana
-igual "128 MB num servidor de 4 GB: so aviso, sai com 0" "0" "$?"
-afirma "128 MB: AVISO abaixo dos 2 GB, mostrando o valor lido" grep -q 'AVISO  \[3\] .*limite de memoria de 128 MB, abaixo dos 2 GB que o DG Claw aplica na criacao' "$TMP/s.txt"
-nega "128 MB nao vira OK de memoria" grep -q 'OK     \[3\] memoria' "$TMP/s.txt"
-cgroup 1992294400 8192
-printf 'MemTotal:       1990000 kB\n' >"$DGCLAW_RAIZ/proc/meminfo"
-smoke ana
-afirma "1900 MB num servidor de ~1,9 GB: AVISO de VPS pequena" grep -q 'AVISO  \[3\] .*Nao ha folga para subir o teto' "$TMP/s.txt"
-nega "1900 MB num servidor de ~1,9 GB: nao manda recriar" grep -q 'dgclaw agente recriar ana' "$TMP/s.txt"
-printf 'MemTotal:       16384000 kB\n' >"$DGCLAW_RAIZ/proc/meminfo"
-limpar_estado
-smoke ana
-afirma "4 GB num servidor de 16 GB: OK de memoria com o valor lido" grep -q 'OK     \[3\] memoria do container: 4096 MB' "$TMP/s.txt"
-nega "4 GB num servidor de 16 GB: sem AVISO de memoria" grep -q 'AVISO  \[3\] .*memoria' "$TMP/s.txt"
-cgroup 2147483648 8192
-smoke ana
-nega "2 GB num servidor de 16 GB: aviso sem OK de memoria junto" grep -q 'OK     \[3\] memoria' "$TMP/s.txt"
-printf 'lixo\n' >"$DGCLAW_RAIZ/proc/meminfo"
-smoke ana
-afirma "MemTotal ilegivel: INCONCLUSIVO com o limite do container" grep -q 'INCONCLUSIVO \[3\] o container dgclaw-ana tem limite de memoria de 2048 MB, mas nao consegui ler a RAM' "$TMP/s.txt"
-nega "MemTotal ilegivel: sem OK de memoria" grep -q 'OK     \[3\] memoria' "$TMP/s.txt"
-printf 'MemTotal:       16384000 kB\n' >"$DGCLAW_RAIZ/proc/meminfo"
-limpar_estado
-{ head -c 1100000 /dev/zero | tr '\0' 'a'; printf '\nGROQ_API_KEY=\n'; } >"$ETC/web.env"
-smoke ana
-afirma "web.env acima de 1 MiB: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[5\] o web.env passa de 1 MiB' "$TMP/s.txt"
-nega "web.env cortado nao vira OK nem FALHA de microfone" grep -qE '(OK     |FALHA  )\[5\] (o servico Web|o web.env nao tem)' "$TMP/s.txt"
-nega "web.env acima de 1 MiB: nao chama a CLI do cofre" grep -q 'agente cofre' "$STUB_LOG"
-afirma "web.env acima de 1 MiB: cofre INCONCLUSIVO sem consultar" grep -q 'INCONCLUSIVO \[5\] nao consultei o cofre do agente ana' "$TMP/s.txt"
-
-limpar_estado
-rm -f "$ETC/web.env"; mkdir "$ETC/web.env"
-smoke ana
-igual "web.env com leitura falhando: sai com 0" "0" "$?"
-afirma "leitura do web.env falhando: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[5\] nao consegui ler o arquivo de ambiente' "$TMP/s.txt"
-nega "leitura falhando nao vira FALHA nem OK de microfone" grep -qE '(OK     |FALHA  )\[5\] (o servico Web|o web.env nao tem)' "$TMP/s.txt"
-rmdir "$ETC/web.env"
-
-echo "smoke-entrega: consulta ao cofre sem resposta valida"
-limpar_estado
-: >"$STUB_ESTADO/cofre-sem-saida"
-smoke ana
-igual "CLI do cofre sem saida: sai com 0" "0" "$?"
-afirma "CLI sem saida: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[5\] a consulta ao cofre' "$TMP/s.txt"
-afirma "a dica do cofre com falha usa listar --json" grep -q 'listar --json | jq -r' "$TMP/s.txt"
-# shellcheck disable=SC2016  # texto literal, nao expande
-afirma "a dica do cofre separa o codigo de saida" grep -qF 'echo ${PIPESTATUS[0]}' "$TMP/s.txt"
-nega "a dica do cofre nao manda a listagem em texto" grep -qE 'listar"? *$' "$TMP/s.txt"
-nega "CLI sem saida nao diz que o cofre tem chaves" grep -q 'OK     \[5\] o cofre' "$TMP/s.txt"
-limpar_estado
-: >"$STUB_ESTADO/cofre-erro"
-smoke ana
-afirma "CLI com codigo de erro: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[5\] a consulta ao cofre' "$TMP/s.txt"
-limpar_estado
-: >"$STUB_ESTADO/cofre-ok-falso"
-smoke ana
-afirma "ok falso: INCONCLUSIVO de formato" grep -q 'INCONCLUSIVO \[5\] a resposta da consulta ao cofre' "$TMP/s.txt"
-
-echo "smoke-entrega: web.env ausente"
-limpar_estado
-mv "$ETC/web.env" "$ETC/web.env.guardado"
-smoke ana
-afirma "web.env ilegivel: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[5\] nao consegui ler o arquivo de ambiente' "$TMP/s.txt"
-mv "$ETC/web.env.guardado" "$ETC/web.env"
-
-echo "smoke-entrega: container parado e uso errado"
-limpar_estado
-echo exited >"$STUB_ESTADO/estado"
-smoke ana
-igual "container parado: sai com 1" "1" "$?"
-afirma "diz como ligar" grep -q 'dgclaw agente iniciar ana' "$TMP/s.txt"
-nega "container parado nao manda reparar (no bloco do item 3)" bash -c 'sed -n "/^3\. /,/^8\. /p" "$1" | grep -q reparar' _ "$TMP/s.txt"
-
-echo "smoke-entrega: podman container exists (inexistente, sem resposta, estado vazio)"
+echo "smoke-entrega: container"
 limpar_estado
 echo 1 >"$STUB_ESTADO/existe"
-smoke ana
-igual "container inexistente: sai com 1" "1" "$?"
-afirma "container inexistente: FALHA" grep -q 'FALHA  \[3\] o container dgclaw-ana nao existe' "$TMP/s.txt"
-afirma "container inexistente: manda conferir com agente listar" grep -q 'confira com dgclaw agente listar se o agente foi criado; um agente sem container precisa ser recriado pela equipe' "$TMP/s.txt"
-nega "container inexistente nao manda reparar (no bloco do item 3)" bash -c 'sed -n "/^3\. /,/^8\. /p" "$1" | grep -q reparar' _ "$TMP/s.txt"
-nega "container inexistente nao le o resto como se existisse" grep -q 'OK     \[3\] pids.max' "$TMP/s.txt"
-limpar_estado
-echo 125 >"$STUB_ESTADO/existe"
-smoke ana
-igual "podman sem responder: sem FALHA, sai com 0" "0" "$?"
-afirma "podman sem responder: INCONCLUSIVO com o codigo" grep -q 'INCONCLUSIVO \[3\] nao consegui consultar o podman (codigo 125)' "$TMP/s.txt"
-nega "podman sem responder nao manda reparar (no bloco do item 3)" bash -c 'sed -n "/^3\. /,/^8\. /p" "$1" | grep -q reparar' _ "$TMP/s.txt"
-nega "podman sem responder nao manda iniciar (no bloco do item 3)" bash -c 'sed -n "/^3\. /,/^8\. /p" "$1" | grep -q iniciar' _ "$TMP/s.txt"
-nega "podman sem responder nao vira FALHA de container" grep -q 'FALHA  \[3\] o container' "$TMP/s.txt"
-limpar_estado
-: >"$STUB_ESTADO/estado"
-smoke ana
-igual "estado vazio: sem FALHA, sai com 0" "0" "$?"
-afirma "estado vazio: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] o podman nao devolveu um estado valido' "$TMP/s.txt"
-limpar_estado
-echo inventado >"$STUB_ESTADO/estado"
-smoke ana
-afirma "estado fora da lista: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] o podman nao devolveu um estado valido' "$TMP/s.txt"
-nega "estado fora da lista nao entra no relatorio" grep -q 'inventado' "$TMP/s.txt"
 smoke
-igual "sem agente: sai com 2" "2" "$?"
-smoke "ana;rm"
-igual "nome invalido: sai com 2" "2" "$?"
-smoke outro
-igual "agente inexistente: sai com 2" "2" "$?"
+igual "container inexistente: sai com 1" "1" "$?"
+afirma "container inexistente: FALHA" grep -q 'FALHA  \[4\] o container dgclaw-ana nao existe' "$TMP/s.txt"
+limpar_estado
+echo false >"$STUB_ESTADO/rodando"
+smoke
+igual "container parado: sai com 1" "1" "$?"
+afirma "container parado: dica de iniciar" grep -q 'dgclaw agente iniciar ana' "$TMP/s.txt"
+limpar_estado
+: >"$STUB_ESTADO/podman-mudo"
+smoke
+igual "podman sem resposta: sai com 0" "0" "$?"
+afirma "podman sem resposta: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[4\]' "$TMP/s.txt"
+
+echo "smoke-entrega: memoria"
+limpar_estado
+echo 0 >"$STUB_ESTADO/memoria"
+smoke
+igual "memoria 0: sai com 1" "1" "$?"
+afirma "memoria 0: FALHA" grep -q 'FALHA  \[4\] dgclaw-ana esta sem limite de memoria' "$TMP/s.txt"
+limpar_estado
+echo 1073741824 >"$STUB_ESTADO/memoria"
+smoke
+igual "memoria abaixo de 2 GB: sai com 0" "0" "$?"
+afirma "memoria abaixo de 2 GB: AVISO" grep -q 'AVISO  \[4\] dgclaw-ana tem 1024 MB, abaixo dos 2 GB' "$TMP/s.txt"
+nega "o aviso nao manda recriar" grep -qi 'recri' "$TMP/s.txt"
+limpar_estado
+echo 2147483648 >"$STUB_ESTADO/memoria"
+smoke
+afirma "memoria de 2 GB: OK" grep -q 'OK     \[4\] dgclaw-ana com limite de memoria de 2048 MB' "$TMP/s.txt"
+
+echo "smoke-entrega: registro"
+limpar_estado
+registro 'Ana;rm'
+smoke
+igual "slug invalido: sai com 0" "0" "$?"
+afirma "slug invalido: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[4\]' "$TMP/s.txt"
+nega "slug invalido nao e repetido" grep -q 'Ana' "$TMP/s.txt"
+nega "slug invalido nao chega ao podman" grep -q 'podman' "$STUB_LOG"
+limpar_estado
+rm -f "$ETC/agentes.json"
+smoke
+afirma "registro ausente: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[4\]' "$TMP/s.txt"
+limpar_estado
+echo '{"versao":1,"agentes":[]}' >"$ETC/agentes.json"
+smoke
+afirma "registro sem agente: AVISO" grep -q 'AVISO  \[4\] o registro nao tem nenhum agente' "$TMP/s.txt"
 
 fim

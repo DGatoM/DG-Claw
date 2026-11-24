@@ -8,19 +8,11 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 ## [Não lançado]
 
 - **Novo: checklist de entrega de cliente e smoke test da VPS.** O `docs/ENTREGA-CLIENTE.md` reúne, para a equipe
-  que entrega uma VPS pronta, os doze passos a conferir antes de passar o servidor ao cliente (versão do Ubuntu,
-  limites do container, cofre, YouTube, Chrome headless, ffmpeg, login pelo celular e outros),
-  cada um com o comando e o resultado esperado. O `/opt/dgclaw/app/scripts/smoke-entrega.sh <agente>` roda no servidor, como root, e
-  automatiza a versão do Ubuntu, os limites e o estado do container, o microfone, os nomes do cofre e o `ffmpeg`
-  do servidor. Ele não executa nada dentro do container: `TasksMax`, `OOMPolicy` e `NRestarts` do runner, o
-  journal do runner, o render, o `yt-dlp` e a varredura de skills ficam à mão. Ele
-  imprime OK, AVISO, FALHA ou INCONCLUSIVO com a causa e o que fazer. Os limites de
-  processos, memória e CPU saem do cgroup do container, a falta de memória é procurada no journal do kernel dos
-  últimos 7 dias (só passa com cobertura de 7 dias; com menos, fica inconclusivo e diz o período examinado) e o microfone só passa se
-  `ELEVENLABS_API_KEY`, `GROQ_API_KEY` ou `OPENAI_API_KEY` tiver valor no `web.env`, numa linha só (chave repetida fica inconclusiva). O relatório não repete nenhum texto vindo de dentro do container. Ele nunca mostra o valor das chaves do cofre, só os nomes. O que não dá para automatizar
-  (cruzar as skills com o cofre, o `yt-dlp`, a Tela e o login do YouTube, o render do Chrome, o `ffmpeg` do
-  container, a troca de senha pelo cliente) fica à mão, com os comandos no guia. Não muda o comportamento de
-  quem já usa o DG Claw.
+  que entrega uma VPS pronta, os doze passos a conferir antes de passar o servidor ao cliente (limites do
+  container, cofre, YouTube, Chrome headless, ffmpeg, login pelo celular e outros). O
+  `/opt/dgclaw/app/scripts/smoke-entrega.sh` roda no servidor, como root, e faz só leituras simples: versão
+  instalada, resposta do painel, serviços do host e, para cada agente, se o container existe, está rodando e tem
+  limite de memória. O resto do checklist fica à mão. Não muda o comportamento de quem já usa o DG Claw.
 
 **Correção do agente que ficava "trabalhando" para sempre depois de um /compact recusado.** Quando o auto-compact enfileirava
 vários `/compact` seguidos e o Claude Code respondia "Not enough messages to compact.", ele avisava o início da compactação

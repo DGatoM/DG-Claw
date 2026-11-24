@@ -4,19 +4,15 @@
 est="${STUB_ESTADO:?}"
 echo "podman $*" >>"${STUB_LOG:?}"
 val() { if [ -f "$est/$1" ]; then cat "$est/$1"; else printf '%s' "$2"; fi; }
+[ -f "$est/podman-mudo" ] && exit 125
 case "${1:-}" in
     container)
         [ "${2:-}" = exists ] && exit "$(val existe 0)" ;;
     inspect)
-        fmt="$*"
-        case "$fmt" in
-            *State.Status*) val estado running; echo ;;
-            *CgroupPath*) val cgpath /machine.slice/libpod-abc.scope; echo ;;
-            *PidsLimit*) val pids-limit 4096; echo ;;
+        case "$*" in
+            *State.Running*) val rodando true; echo ;;
+            *HostConfig.Memory*) val memoria 4294967296; echo ;;
         esac
-        exit 0 ;;
-    exec)
-        echo "podman exec $*" >>"${STUB_LOG:?}"
         exit 0 ;;
 esac
 exit 0
