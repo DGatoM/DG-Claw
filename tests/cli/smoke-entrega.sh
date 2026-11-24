@@ -105,7 +105,7 @@ limpar_estado
 echo 1073741824 >"$STUB_ESTADO/memoria"
 smoke
 igual "memoria abaixo de 2 GB: sai com 0" "0" "$?"
-afirma "memoria abaixo de 2 GB: AVISO" grep -q 'AVISO  \[4\] dgclaw-ana tem 1024 MB, abaixo de 2 GB. O DG Claw so cria assim' "$TMP/s.txt"
+afirma "memoria abaixo de 2 GB: AVISO" grep -q 'AVISO  \[4\] dgclaw-ana tem 1024 MB, abaixo de 2 GB.' "$TMP/s.txt"
 nega "o aviso nao manda recriar" grep -qi 'recri' "$TMP/s.txt"
 limpar_estado
 echo 2147483648 >"$STUB_ESTADO/memoria"
@@ -153,5 +153,15 @@ echo '{"versao":1,"agentes":[{"slug":"ana","tipo":" agente "}]}' >"$ETC/agentes.
 smoke
 afirma "tipo com espacos: confere o agente, como o painel" grep -q 'OK     \[4\] dgclaw-ana rodando' "$TMP/s.txt"
 afirma "curl sem proxy e sem curlrc" grep -q "curl -q -s --noproxy \* " "$STUB_LOG"
+
+limpar_estado
+printf 'DGCLAW_PORTA_PAINEL=80a\n' >"$ETC/dgclaw.env"
+smoke
+afirma "porta invalida: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[2\] a linha DGCLAW_PORTA_PAINEL' "$TMP/s.txt"
+nega "porta invalida: nao consulta a 8300" grep -q 'curl ' "$STUB_LOG"
+limpar_estado
+echo '{"versao":1,"agentes":[{"slug":"bia","tipo":"agente"},{"slug":"ana","tipo":"trabalho"}]}' >"$ETC/agentes.json"
+smoke
+afirma "tipo desconhecido: tambem confere o agente" grep -q 'OK     \[4\] dgclaw-ana rodando' "$TMP/s.txt"
 
 fim

@@ -48,8 +48,10 @@ Nada roda dentro do container. Tudo o que não está nessa lista é conferido à
 
 ### 2. Chave SSH da equipe na criação da VPS (à mão)
 
-- **Conferir:** no painel da Hostinger, a chave da equipe aparece na lista de chaves da VPS, e
-  `ssh root@<servidor>` com a nossa chave entra sem pedir senha.
+- **Conferir, só durante a instalação:** no painel da Hostinger, a chave da equipe aparece na lista de chaves
+  da VPS, e `ssh root@<servidor>` com a nossa chave entra sem pedir senha. Depois da instalação a chave
+  permanente sai e o acesso da equipe passa a ser só o temporário do suporte, com prazo (veja o
+  [projeto de cliente](PROJETO-DE-CLIENTE.md#2-o-fluxo-passo-a-passo)). Na entrega, ela já precisa ser recusada.
 - **Esperado:** a chave foi colocada na própria criação ou recriação da VPS. Chave anexada depois, com a
   VPS já criada, não entra no `authorized_keys`.
 - **Se a chave permanente da equipe não funcionar:** não recrie a VPS. Entre pelo acesso temporário do
