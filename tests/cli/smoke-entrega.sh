@@ -46,7 +46,7 @@ afirma "item 3 OK sem OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
 afirma "item 5 OK no microfone (web.env)" grep -q 'OK     \[5\] o servico Web tem chave para o microfone e o audio (a ultima atribuicao tem valor): GROQ_API_KEY' "$TMP/s.txt"
 afirma "item 3 OK na CPU (sem limite)" grep -q 'OK     \[3\] CPU do container: sem limite' "$TMP/s.txt"
 afirma "item 3 OK no kernel com a cobertura" grep -q 'OK     \[3\] nenhum OOM no journal do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
-afirma "o kernel e lido sem -k (todo o periodo, nao so o boot)" grep -q 'journalctl _TRANSPORT=kernel --since 7 days ago --no-pager -q -o short-unix' "$STUB_LOG"
+afirma "o kernel e lido sem -k (todo o periodo, nao so o boot)" grep -q 'journalctl _TRANSPORT=kernel --since @[0-9]* --no-pager -q -o short-unix' "$STUB_LOG"
 nega "nao usa journalctl -k" grep -qE 'journalctl -k' "$STUB_LOG"
 nega "nao mostra o valor da chave do web.env" grep -q 'gsk_segredo' "$TMP/s.txt"
 afirma "item 5 lista so os nomes do cofre" grep -q 'OK     \[5\] o cofre tem 2 chave(s) ativa(s): GEMINI_API_KEY, GROQ_API_KEY' "$TMP/s.txt"
@@ -185,12 +185,36 @@ afirma "a dica le a janela toda e mostra o codigo do journalctl e do grep" grep 
 nega "a dica nao usa -n 0 (pede zero registros e nao examina nada)" grep -q -- '-n 0' "$TMP/s.txt"
 afirma "a dica diz que o item continua INCONCLUSIVO ate a leitura" grep -q 'continua INCONCLUSIVO ate essa leitura ser feita' "$TMP/s.txt"
 afirma "a dica manda ver a persistencia do journal" grep -q '/var/log/journal' "$TMP/s.txt"
-echo "smoke-entrega: kernel lido, zero OOM, 8 dias de historico: OK com 7 dias"
+echo "smoke-entrega: primeira entrada 30 minutos antes do corte de 7 dias: OK com 7 dias"
 limpar_estado
-echo 8 >"$STUB_ESTADO/kernel-dias"
+echo $((7 * 86400 + 1800)) >"$STUB_ESTADO/kernel-seg"
 smoke ana
-igual "8 dias de historico: sai com 0" "0" "$?"
-afirma "8 dias de historico: OK com cobertura de 7 dias" grep -q 'OK     \[3\] nenhum OOM no journal do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
+igual "primeira entrada 30 minutos antes do corte: sai com 0" "0" "$?"
+afirma "primeira entrada 30 minutos antes do corte: OK com cobertura de 7 dias" grep -q 'OK     \[3\] nenhum OOM no journal do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
+echo "smoke-entrega: primeira entrada 1 hora depois do corte de 7 dias: INCONCLUSIVO"
+limpar_estado
+echo $((7 * 86400 - 3600)) >"$STUB_ESTADO/kernel-seg"
+smoke ana
+afirma "primeira entrada 1 hora depois do corte: INCONCLUSIVO com o periodo examinado" grep -q 'INCONCLUSIVO \[3\] nenhum OOM achado.*6 dia(s) completo(s) (167 horas)' "$TMP/s.txt"
+nega "primeira entrada 1 hora depois do corte: nenhum OK de OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
+echo "smoke-entrega: o --since do smoke e @<numero> (uma hora antes do corte de 7 dias)"
+limpar_estado
+smoke ana
+afirma "o --since e @<numero>" grep -qE 'journalctl _TRANSPORT=kernel --since @[0-9]+ --no-pager -q -o short-unix' "$STUB_LOG"
+echo "smoke-entrega: journalctl imprime um OOM e sai com erro: FALHA com contagem parcial"
+limpar_estado
+: >"$STUB_ESTADO/kernel-oom-erro"
+smoke ana
+igual "OOM e journalctl com erro: sai com 1" "1" "$?"
+afirma "OOM e journalctl com erro: FALHA com nota de contagem parcial" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias.*contagem parcial' "$TMP/s.txt"
+nega "OOM e journalctl com erro nao vira INCONCLUSIVO de journal" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal' "$TMP/s.txt"
+echo "smoke-entrega: hostname com oom-kill na linha de boot normal nao conta como OOM"
+limpar_estado
+: >"$STUB_ESTADO/hostname-oom"
+echo 9 >"$STUB_ESTADO/kernel-dias"
+smoke ana
+nega "hostname oom-kill-test: nenhum FALHA de OOM" grep -q 'FALHA  \[3\] OOM' "$TMP/s.txt"
+afirma "hostname oom-kill-test: OK de nenhum OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
 
 echo "smoke-entrega: chaves de microfone no web.env (ultima atribuicao, valor vazio, sem executar o arquivo)"
 limpar_estado

@@ -63,7 +63,12 @@ Os números abaixo são os mesmos que o script imprime entre colchetes.
   `sudo sshd -T -C user=root,host=<host>,addr=<ip de suporte> | grep -iE 'authorizedkeys|permitrootlogin'`,
   porque o `sshd -T` sem `-C` não aplica as regras `Match`. Para cada arquivo listado, `ssh-keygen -lf <arquivo>`
   mostra as impressões digitais. Se houver `authorizedkeyscommand`, confira a chave também na fonte que ele
-  consulta (o `ssh-keygen` não o lê). Se ela aparecer em algum lugar, remova a linha, porque o `desligar` não
+  consulta (o `ssh-keygen` não o lê). Um bloco `Match Address` (por exemplo a VPN) pode apontar outro
+  `AuthorizedKeysFile` e a chave continuar valendo por outra origem. Liste os blocos `Match` da configuração
+  ativa com `sudo grep -rniE '^[[:space:]]*match' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/` e repita o
+  `sshd -T -C user=root,host=<host>,addr=<ip>` para cada origem que algum bloco seleciona (VPN, rede interna).
+  Confira também `trustedusercakeys`: uma CA que assina a chave da equipe continua autorizando. Se alguma
+  fonte ficar sem conferência, o item continua pendente e não se entrega. Se a chave da equipe aparecer em algum lugar, remova a linha, porque o `desligar` não
   mexe nas chaves que não são do suporte. **Antes de remover**, peça ao cliente para abrir uma conexão SSH
   nova com a credencial e o método de autenticação dele, também com `-o ControlMaster=no -o ControlPath=none`
   (transporte novo, sem reaproveitar conexão multiplexada), confirmar que tem root ou `sudo` e deixá-la aberta até o fim deste item. Sem
@@ -95,7 +100,7 @@ O script confere, para `dgclaw-<agente>`:
 | Processos | `pids.max` do cgroup do container, lido no servidor (`podman inspect -f '{{.State.CgroupPath}}'`, caminho validado, arquivo em `/sys/fs/cgroup<caminho>`), e `PidsLimit` do `podman inspect` | 4096 ou mais. Menos que isso, ou `max` (sem limite), é `FALHA`. Caminho ou arquivo ilegível é `INCONCLUSIVO` |
 | Memória | `memory.max` do mesmo cgroup e `MemTotal` do servidor | `max` (sem limite) é `FALHA`: configure `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin. Valor abaixo de 2 GB (o teto que o DG Claw aplica na criação) é `AVISO`: se ninguém configurou `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) de propósito, recrie o container. Valor numérico igual ou maior que o `MemTotal` do servidor é `AVISO`: o teto não protege o servidor. Com exatamente 2 GB e a VPS com mais de 4 GB de RAM, `AVISO`: nesta versão o teto é fixo na criação, e a partir da 1.1.1 ele se ajusta com `DGCLAW_CONTAINER_MEMORIA`. Toda mensagem mostra o valor lido em MB |
 | CPU | `cpu.max` do mesmo cgroup (quota dividida pelo período; `max` é sem limite) e `nproc` | Mais de 1 quando a VPS tem mais núcleos. Senão, `AVISO` (nesta versão o limite de CPU é fixo na criação). Arquivo ilegível é `INCONCLUSIVO` |
-| Falta de memória (OOM) | `journalctl _TRANSPORT=kernel --since "7 days ago"` no servidor (o `-k` olharia só o boot atual), últimos 7 dias, com `-o short-unix` para medir a cobertura na mesma leitura | `OK` só com nenhuma linha de "out of memory", "oom-kill", "oom_kill" ou "killed process" e cobertura de 7 dias (167 horas ou mais). Qualquer ocorrência no kernel é `FALHA`; se ela veio antes do corte de 1 MiB, a mensagem avisa que a contagem é parcial. Zero ocorrência com cobertura menor que 7 dias é `INCONCLUSIVO`, mostrando o período de fato examinado: o journal não sustenta a janela (journal volátil, reinício ou VPS criada há menos de 7 dias). Se a VPS foi criada há menos de 7 dias, isso é esperado: registre a cobertura na entrega. Senão, confira se o journal é persistente (`ls /var/log/journal`) e leia à mão com `journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q \| grep -ciE 'out of memory\|oom-kill\|oom_kill\|killed process'; echo "journalctl=${PIPESTATUS[0]} grep=${PIPESTATUS[1]}"`: a contagem só vale com journalctl 0 e grep 0 ou 1 (2 é erro). Kernel ilegível, `journalctl` com erro ou prazo, saída cortada em 1 MiB sem ocorrência, ou nenhuma entrada no período (cobertura desconhecida) também é `INCONCLUSIVO`, que é diferente de "zero eventos". O journal do runner não entra na conta, porque o texto dele pode vir do agente: quem quiser lê à mão, como indício |
+| Falta de memória (OOM) | `journalctl _TRANSPORT=kernel` no servidor (o `-k` olharia só o boot atual), desde uma hora antes do corte de 7 dias, com `-o short-unix` para medir a cobertura na mesma leitura | `OK` só com nenhuma linha de "out of memory", "oom-kill", "oom_kill" ou "killed process" e cobertura de 7 dias: o histórico do journal precisa alcançar o início da janela (a consulta começa uma hora antes do corte de 7 dias, e a primeira entrada precisa ser igual ou anterior ao corte). O filtro ignora o timestamp e o nome da máquina de cada linha, para que um hostname como `oom-kill-test` não conte. Qualquer ocorrência no kernel é `FALHA`; se ela veio antes do corte de 1 MiB, ou antes de o `journalctl` terminar com erro, a mensagem avisa que a contagem é parcial. Zero ocorrência com cobertura menor que 7 dias é `INCONCLUSIVO`, mostrando o período de fato examinado: o journal não sustenta a janela (journal volátil, reinício ou VPS criada há menos de 7 dias). Se a VPS foi criada há menos de 7 dias, isso é esperado: registre a cobertura na entrega. Senão, confira se o journal é persistente (`ls /var/log/journal`) e leia à mão com `journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o cat \| grep -ciE 'out of memory\|oom-kill\|oom_kill\|killed process'; echo "journalctl=${PIPESTATUS[0]} grep=${PIPESTATUS[1]}"`: a contagem só vale com journalctl 0 e grep 0 ou 1 (2 é erro). Kernel ilegível, `journalctl` com erro ou prazo, saída cortada em 1 MiB sem ocorrência, ou nenhuma entrada no período (cobertura desconhecida) também é `INCONCLUSIVO`, que é diferente de "zero eventos". O journal do runner não entra na conta, porque o texto dele pode vir do agente: quem quiser lê à mão, como indício |
 
 **À mão: `TasksMax`, `OOMPolicy` e `NRestarts` do runner.** Leia num terminal seu, nunca no chat do Admin:
 `podman exec dgclaw-<agente> systemctl show -p TasksMax -p OOMPolicy -p NRestarts dgclaw-runner`. O esperado é
@@ -188,8 +193,11 @@ confere num terminal dela, **nunca no chat do Admin**.
 
 1. **`yt-dlp` no PATH em `/usr/local/bin`** (a partir da 1.1.1; antes, em `/opt/venv/bin`): como usuário
    `agente`, `podman exec --user agente dgclaw-<agente> sh -c 'command -v yt-dlp'`.
-2. **Diretiva `--js-runtimes node` ativa** (não comentada) no `/etc/yt-dlp.conf` do container. Não existe mais
-   configuração global de cookies. Sem a diretiva o `yt-dlp` não resolve o desafio do YouTube.
+2. **Diretiva `--js-runtimes node` ativa** (a partir da 1.1.1), não comentada, no `/etc/yt-dlp.conf` do
+   container. Antes da 1.1.1 a imagem não instala esse arquivo, então a ausência dele não reprova: vale o
+   download de teste do item 5, que passa `--js-runtimes node` na linha de comando. Esse download usa
+   `--ignore-config`, então ele não valida o arquivo. Não existe mais configuração global de cookies. Sem a
+   diretiva (ou sem a opção na linha de comando) o `yt-dlp` não resolve o desafio do YouTube.
 3. **Perfil da Tela:** `/home/agente/.tela-chrome` existe. Se não existir, a Tela nunca foi aberta.
 4. **Login com conta dedicada:** abra a Tela do agente (veja [TELA-DO-AGENTE.md](TELA-DO-AGENTE.md)) e entre no
    YouTube pelo navegador dela com uma **conta dedicada ao agente**, deixando a sessão aberta. A senha da Tela se
@@ -198,12 +206,14 @@ confere num terminal dela, **nunca no chat do Admin**.
    primeiro olhe na Tela qual conta do YouTube está logada e confirme que é a conta dedicada ao agente
    (o vídeo público baixa mesmo com a sessão expirada, então o download sozinho não prova o login). Depois
    faça um download curto de verdade, numa pasta privada nova dentro do container, com a mesma chamada
-   isolada que o agente usa, numa única execução dentro do container (nada é capturado em variável do host, e o
-   host põe prazo e limite na saída):
-   `timeout 300 podman exec --user agente dgclaw-<agente> sh -c 'D="$(mktemp -d /tmp/yt-entrega.XXXXXX)" || exit 1; yt-dlp --ignore-config --no-plugin-dirs --js-runtimes node --cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome/Default" --no-playlist -f "worst/worstvideo" --max-filesize 5M -P "$D" -- "https://www.youtube.com/watch?v=jNQXAC9IJRQ"; r=$?; ls -l "$D"; rm -rf -- "$D"; exit $r' 2>&1 | head -c 65536; echo "podman=${PIPESTATUS[0]}"`.
-   Esperado: `podman=0` (o código do `head` não conta) e um arquivo com conteúdo na listagem.
+   isolada que o agente usa, numa única execução dentro do container. A saída do `yt-dlp` é descartada lá
+   dentro (ele é um programa que o agente pode trocar, e o texto dele pode trazer caracteres de controle), a
+   verificação do arquivo baixado também é feita lá, e o host só imprime uma mensagem fixa pelo código de saída:
+   `timeout 300 podman exec --user agente dgclaw-<agente> sh -c 'D="$(mktemp -d /tmp/yt-entrega.XXXXXX)" || exit 1; yt-dlp --ignore-config --no-plugin-dirs --js-runtimes node --cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome/Default" --no-playlist -f "worst/worstvideo" --max-filesize 5M -P "$D" -- "https://www.youtube.com/watch?v=jNQXAC9IJRQ" >/dev/null 2>&1; r=$?; n=$(find "$D" -type f -size +0c | wc -l); rm -rf -- "$D"; [ "$r" -eq 0 ] && [ "$n" -gt 0 ]' >/dev/null 2>&1 </dev/null && echo "download de teste: ok" || echo "download de teste: falhou"`.
+   Esperado: `download de teste: ok`.
 - **Se pedir login ou "não é um robô":** refaça o login na Tela com a conta do agente. Para ver o erro
-  completo, repita o comando acima com `-v`.
+  completo, repita o comando acima num terminal seu (nunca no chat do Admin), sem o `>/dev/null 2>&1` do
+  `yt-dlp`, com `-v`, e passe a saída por `cat -v` no host, que escapa os caracteres de controle.
 
 ### 7. Chrome headless roda (à mão)
 

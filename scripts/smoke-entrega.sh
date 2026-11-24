@@ -59,11 +59,10 @@ ok()    { printf '  OK     [%s] %s\n' "$1" "$2"; }
 aviso() { AVISOS=$((AVISOS + 1)); printf '  AVISO  [%s] %s\n         O que fazer: %s\n' "$1" "$2" "$3"; }
 falha() { FALHAS=$((FALHAS + 1)); printf '  FALHA  [%s] %s\n         O que fazer: %s\n' "$1" "$2" "$3"; }
 inconclusivo() { INCONCLUSIVOS=$((INCONCLUSIVOS + 1)); printf '  INCONCLUSIVO [%s] %s\n         O que fazer: %s\n' "$1" "$2" "$3"; }
-# desc_cobertura <horas>: "7 dias" so com a janela inteira (167 horas ou mais, a ultima hora fica de tolerancia pela
-# demora entre a consulta e a conta); senao, os dias completos e as horas, sem arredondar para cima.
+# desc_cobertura <horas>: o periodo de fato examinado (dias completos e horas, sem arredondar para cima). O "7 dias"
+# nao sai daqui: so o chamador o diz, quando a primeira entrada do journal e anterior ou igual ao corte da janela.
 desc_cobertura() {
-    if [ "$1" -ge 167 ]; then printf '7 dias'
-    elif [ "$1" -lt 24 ]; then printf 'menos de 1 dia (%s hora(s))' "$1"
+    if [ "$1" -lt 24 ]; then printf 'menos de 1 dia (%s hora(s))' "$1"
     else printf '%s dia(s) completo(s) (%s horas)' "$(($1 / 24))" "$1"; fi
 }
 # so_digitos <texto> <maximo de caracteres>: verdadeiro se for um numero curto.
@@ -73,11 +72,12 @@ so_digitos() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "${#1}" -le "$2" ];
 # timestamp sai como "-"). So esses dois valores ficam guardados, o texto do journal passa direto pelo filtro. A
 # leitura tem limite de 1 MiB: se passar disso sem nenhuma ocorrencia no que foi lido, sai com 98 e nada (saida
 # cortada, INCONCLUSIVO); se ja achou ocorrencia, sai com 97 e a contagem parcial (e FALHA, com nota de contagem
-# parcial, e o timestamp nao vale como cobertura). Se o proprio comando falhar (journal ilegivel, prazo), sai com 1
-# e nada: isso e INCONCLUSIVO, nao "zero". O timestamp so vale como cobertura com o comando terminando em 0.
+# parcial, e o timestamp nao vale como cobertura). Se o comando terminar com erro (journal ilegivel, prazo) depois de
+# ja ter mostrado ocorrencia, tambem sai com 97 e a contagem parcial. Erro sem nenhuma ocorrencia sai com 1 e nada:
+# isso e INCONCLUSIVO, nao "zero". O timestamp so vale como cobertura com o comando terminando em 0.
 contar_oom() {
     local r linha n bytes ts rc
-    r="$("$@" 2>/dev/null | head -c 1048577 | LC_ALL=C awk 'BEGIN { n = 0; b = 0; ts = "-" } NR == 1 { t = $1; sub(/\..*$/, "", t); if (t != "") ts = t } { b += length($0) + 1; if (tolower($0) ~ /out of memory|oom-kill|oom_kill|killed process/) n++ } END { print n, b, ts }'; printf 'rc=%s' "${PIPESTATUS[0]}")"
+    r="$("$@" 2>/dev/null | head -c 1048577 | LC_ALL=C awk 'BEGIN { n = 0; b = 0; ts = "-" } NR == 1 { t = $1; sub(/\..*$/, "", t); if (t != "") ts = t } { b += length($0) + 1; m = $0; sub(/^[^ ]+ [^ ]+ /, "", m); if (tolower(m) ~ /out of memory|oom-kill|oom_kill|killed process/) n++ } END { print n, b, ts }'; printf 'rc=%s' "${PIPESTATUS[0]}")"
     rc="${r##*rc=}"; linha="${r%%$'\n'*}"
     read -r n bytes ts <<<"$linha"
     so_digitos "$n" 9 || return 1
@@ -88,7 +88,11 @@ contar_oom() {
         printf '%s -' "$n"
         return 97
     fi
-    [ "$rc" = 0 ] || return 1
+    if [ "$rc" != 0 ]; then
+        [ "$n" -gt 0 ] || return 1
+        printf '%s -' "$n"
+        return 97
+    fi
     printf '%s %s' "$n" "${ts:--}"
 }
 # ler_cpu <caminho validado>: "<quota> <periodo>" do cpu.max do cgroup do container, no host (quota "max" = sem limite).
@@ -236,31 +240,35 @@ else
     # Kernel do servidor: _TRANSPORT=kernel (o -k so olha o boot atual e perderia um OOM de antes de um reinicio).
     # A mesma leitura conta o OOM e mede a cobertura (a entrada mais antiga que o journal ainda guarda dentro dos 7
     # dias). Nao ha segunda chamada ao journalctl.
-    oom_k="$(contar_oom timeout 60 journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o short-unix)"; rc_k=$?
+    # A janela e calculada uma vez: o corte e agora menos 7 dias, e a consulta comeca uma hora antes dele para ver se o
+    # historico alcanca o corte.
+    agora="$(date +%s)"; corte=$((agora - 7 * 86400))
+    oom_k="$(contar_oom timeout 60 journalctl _TRANSPORT=kernel --since "@$((corte - 3600))" --no-pager -q -o short-unix)"; rc_k=$?
     oom_n=""; oom_ts=""
     read -r oom_n oom_ts <<<"$oom_k"
     parcial=0
     if [ "$rc_k" -eq 97 ]; then rc_k=0; parcial=1; fi
     # Cobertura so vale com o journalctl terminando em 0 e a leitura inteira (sem corte).
-    cob=""; horas=0
+    # Os 7 dias so valem com a primeira entrada igual ou anterior ao corte.
+    cob=""; cob7=0
     if [ "$rc_k" -eq 0 ] && [ "$parcial" -eq 0 ] && so_digitos "$oom_ts" 12; then
-        horas=$(( ($(date +%s) - oom_ts) / 3600 )); [ "$horas" -ge 0 ] || horas=0
-        cob="$(desc_cobertura "$horas")"
+        horas=$(( (agora - oom_ts) / 3600 )); [ "$horas" -ge 0 ] || horas=0
+        if [ "$oom_ts" -le "$corte" ]; then cob7=1; cob="7 dias"; else cob="$(desc_cobertura "$horas")"; fi
     fi
     # A linha do kernel sozinha nao diz que o agente estourou o proprio teto: so a leitura humana das linhas oom-kill
     # (oom_memcg e task_memcg) diz. Por isso a dica nunca manda aumentar a memoria direto.
-    oom_dica="a contagem sozinha nao diz de quem era o processo nem qual limite estourou, entao nao aumente o teto do agente por causa dela. Num terminal seu (nunca no chat do Admin), leia as linhas oom-kill com journalctl _TRANSPORT=kernel --since '7 days ago' | grep -iE 'out of memory|oom-kill|oom_kill|killed process' e veja a data, o oom_memcg (o cgroup cujo limite estourou) e o task_memcg (quem foi morto). So com o oom_memcg igual ao cgroup do container $C o agente estourou o proprio teto. Com o oom_memcg de um ancestral, de outro servico ou com OOM do servidor inteiro (CONSTRAINT_NONE), o ajuste e nesse limite ou no plano da VPS. Nunca aumente o teto do agente direto."
-    oom_cmd="journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q | grep -ciE 'out of memory|oom-kill|oom_kill|killed process'; echo \"journalctl=\${PIPESTATUS[0]} grep=\${PIPESTATUS[1]}\""
+    oom_dica="a contagem sozinha nao diz de quem era o processo nem qual limite estourou, entao nao aumente o teto do agente por causa dela. Num terminal seu (nunca no chat do Admin), leia as linhas oom-kill com journalctl _TRANSPORT=kernel --since '7 days ago' -o cat | grep -iE 'out of memory|oom-kill|oom_kill|killed process' e veja a data, o oom_memcg (o cgroup cujo limite estourou) e o task_memcg (quem foi morto). So com o oom_memcg igual ao cgroup do container $C o agente estourou o proprio teto. Com o oom_memcg de um ancestral, de outro servico ou com OOM do servidor inteiro (CONSTRAINT_NONE), o ajuste e nesse limite ou no plano da VPS. Nunca aumente o teto do agente direto."
+    oom_cmd="journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o cat | grep -ciE 'out of memory|oom-kill|oom_kill|killed process'; echo \"journalctl=\${PIPESTATUS[0]} grep=\${PIPESTATUS[1]}\""
     oom_leitura="num terminal seu, leia a janela toda: $oom_cmd. A contagem so vale com journalctl=0 e grep=0 ou 1 (grep=2 e erro), e este item continua INCONCLUSIVO ate essa leitura ser feita. Veja tambem se o journal e persistente (ls /var/log/journal) e rode o smoke de novo."
     if [ "$rc_k" -ne 0 ]; then
         inconclusivo 3 "nao consegui ler o journal do kernel do servidor dos ultimos 7 dias (erro, prazo ou saida cortada em 1 MiB). Isso nao quer dizer zero eventos de falta de memoria." \
             "$oom_leitura"
     elif [ "$oom_n" -gt 0 ]; then
         nota_parcial=""
-        [ "$parcial" -eq 0 ] || nota_parcial=" (contagem parcial: a leitura do journal do kernel do servidor passou de 1 MiB e foi cortada, entao ha pelo menos essas linhas)"
+        [ "$parcial" -eq 0 ] || nota_parcial=" (contagem parcial: a leitura do journal do kernel do servidor foi cortada em 1 MiB ou terminou com erro, entao ha pelo menos essas linhas)"
         falha 3 "OOM nos ultimos 7 dias: $oom_n linha(s) no journal do kernel do servidor${nota_parcial}." \
             "$oom_dica"
-    elif [ -n "$cob" ] && [ "$horas" -ge 167 ]; then
+    elif [ "$cob7" -eq 1 ]; then
         ok 3 "nenhum OOM no journal do kernel do servidor (cobertura do kernel: $cob)"
     elif [ -n "$cob" ]; then
         inconclusivo 3 "nenhum OOM achado, mas o journal do kernel do servidor so cobre $cob, e nao os 7 dias inteiros (journal volatil, reinicio ou VPS criada ha menos de 7 dias)." \

@@ -3,16 +3,31 @@
 # antiga que o journal guarda (kernel-dias = quantos dias atras, padrao 9; kernel-horas, se existir, vale no lugar).
 # Marcas em $STUB_ESTADO: kernel-vazio (sem entradas), oom-host (uma linha de OOM), journal-host-erro (sai com 1 sem
 # saida), kernel-saida-erro (imprime a primeira linha e sai com 1), journal-grande (mais de 1 MiB sem OOM) e
-# journal-oom-grande (um OOM e depois mais de 1 MiB).
+# journal-oom-grande (um OOM e depois mais de 1 MiB). Marcas extras: kernel-seg (a entrada mais antiga fica
+# exatamente esses segundos atras, no lugar de kernel-dias/horas), kernel-oom-erro (imprime a linha de boot e uma linha
+# de OOM e sai com 1) e hostname-oom (o hostname das linhas e "oom-kill-test", sem OOM na mensagem). Como o journal
+# de verdade, o stub nao mostra nada antes do --since "@<unix>" que o smoke passa: a primeira entrada nunca e mais
+# antiga que ele.
 est="${STUB_ESTADO:?}"
 echo "journalctl $*" >>"${STUB_LOG:?}"
 [ -f "$est/journal-host-erro" ] && exit 1
 agora="$(date +%s)"
+since=0
+while [ $# -gt 0 ]; do
+    if [ "$1" = "--since" ]; then
+        case "${2:-}" in @[0-9]*) since="${2#@}" ;; *) echo "journalctl de mentira: --since inesperado: ${2:-}" >&2; exit 2 ;; esac
+    fi
+    shift
+done
+host=host; [ -f "$est/hostname-oom" ] && host=oom-kill-test
 [ -f "$est/kernel-vazio" ] && exit 0
-if [ -f "$est/kernel-horas" ]; then seg=$(( $(cat "$est/kernel-horas") * 3600 ))
+if [ -f "$est/kernel-seg" ]; then seg=$(( $(cat "$est/kernel-seg") - 60 ))
+elif [ -f "$est/kernel-horas" ]; then seg=$(( $(cat "$est/kernel-horas") * 3600 ))
 else seg=$(( $(cat "$est/kernel-dias" 2>/dev/null || echo 9) * 86400 )); fi
-echo "$(( agora - seg - 60 )).000000 host kernel: boot"
+primeira=$(( agora - seg - 60 )); [ "$primeira" -ge "$since" ] || primeira="$since"
+echo "$primeira.000000 $host kernel: boot"
 [ -f "$est/kernel-saida-erro" ] && exit 1
+[ -f "$est/kernel-oom-erro" ] && { echo "$(( agora - 60 )).000000 $host kernel: Out of memory: Killed process 99 (node)"; exit 1; }
 [ -f "$est/oom-host" ] && echo "$(( agora - 60 )).000000 host kernel: Out of memory: Killed process 77 (node)"
 [ -f "$est/journal-oom-grande" ] && { echo "$(( agora - 60 )).000000 host kernel: Out of memory: Killed process 4242 (chrome)"; head -c 1100000 /dev/zero | tr '\0' 'a'; exit 0; }
 [ -f "$est/journal-grande" ] && { head -c 1100000 /dev/zero | tr '\0' 'a'; exit 0; }
