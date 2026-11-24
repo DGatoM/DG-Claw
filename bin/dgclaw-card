@@ -307,7 +307,7 @@ cmd_abrir() {
     if [ "$ESPERANDO_DECISAO" = 1 ]; then
       # O aviso nao aponta botao nem o 'ler' como fonte: a aba Sessoes nao mostra a operacao pendente e o 'ler' nao
       # traz o bloco da pergunta de escolha. Quem decide e o dono, vendo exatamente o que foi pedido.
-      echo "Card aberto em $(nome_do_provedor "$provedor"): ele aceitou o pedido e esta esperando uma decisao do dono (uma pergunta de escolha ou uma permissao). Avise o dono agora. NAO aprove, NAO negue e NAO mande nada ao card por conta propria (um Enter pode escolher a opcao destacada ou autorizar a operacao). Nao diga ao dono para clicar em Aprovar sem que ele veja exatamente o que esta sendo pedido: o 'dgclaw-card ler $id' pode nao mostrar a pergunta nem os argumentos da ferramenta."
+      echo "Card aberto em $(nome_do_provedor "$provedor"): ele aceitou o pedido e $(aviso_decisao "$id")"
     else
       echo "Card aberto em $(nome_do_provedor "$provedor"). Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
     fi
@@ -424,9 +424,18 @@ esperar_primeiro_turno() { # $1 id ; $2 segundos
 
 avisar_monitor() { [ -z "${MON_OUT:-}" ] || erro "$MON_OUT"; }
 
+# Aviso unico de card em waiting_input: nao aponta botao nem o 'ler' como fonte (a aba Sessoes nao mostra a operacao
+# pendente e o 'ler' nao traz o bloco da pergunta de escolha). Usado pelo abrir, pelo 11 e pelo ler.
+aviso_decisao() { # $1 id
+  printf '%s' "esta esperando uma decisao do dono (uma pergunta de escolha ou uma permissao). Avise o dono agora. NAO aprove, NAO negue e NAO mande nada ao card por conta propria (um Enter pode escolher a opcao destacada ou autorizar a operacao). Nao diga ao dono para clicar em Aprovar sem que ele veja exatamente o que esta sendo pedido: o 'dgclaw-card ler $1' pode nao mostrar a pergunta nem os argumentos da ferramenta."
+}
+
 sem_confirmacao() { # $1 id ; $2 motivo
   avisar_monitor
-  CODIGO=11 die "nao consegui confirmar se o card $1 aceitou o pedido: $2. O card foi criado e o pedido foi entregue, mas nao sei se ele esta trabalhando. Veja com 'dgclaw-card estado $1' e 'dgclaw-card ler $1'. Nao diga ao dono que ele esta trabalhando antes de ver isso, e nao reenvie nem feche por conta propria."
+  # Card em waiting_input (ex.: pediu permissao com o pedido ainda na fila): a decisao do dono nao pode esperar o aceite.
+  local decisao=""
+  [ "${ultimo_status:-}" != waiting_input ] || decisao=" Agora o card $(aviso_decisao "$1")"
+  CODIGO=11 die "nao consegui confirmar se o card $1 aceitou o pedido: $2. O card foi criado e o pedido foi entregue, mas nao sei se ele esta trabalhando. Veja com 'dgclaw-card estado $1' e 'dgclaw-card ler $1'. Nao diga ao dono que ele esta trabalhando antes de ver isso, e nao reenvie nem feche por conta propria.$decisao"
 }
 
 # Liga o modo monitor num card que acabou de abrir (guarda a frase do monitor em MON_OUT). O dgclaw-monitor
@@ -562,6 +571,8 @@ explicar_conversa_vazia() { # $1 id
       echo "O card $id ainda nao tem mensagens: a sessao esta dormindo (sem terminal aberto). Ela acorda quando voce manda um recado: dgclaw-card mandar $id \"...\""
     elif [ "$turnos" = 0 ]; then
       echo "O card $id ainda nao tem mensagens: o runner ainda nao observou o primeiro turno (estado $status). Isso nao prova que o card esteja parado: o pedido pode ainda comecar. Confira 'dgclaw-card estado $id' e leia de novo com 'dgclaw-card ler $id' mais tarde, e nao reenvie por conta propria."
+    elif [ "$status" = waiting_input ]; then
+      echo "O card $id ainda nao tem mensagens para mostrar e $(aviso_decisao "$id")"
     elif [ "$status" = working ]; then
       echo "O card $id esta com o terminal ativo e a conversa ainda nao gravou nada. Espere com: dgclaw-card esperar $id"
     else

@@ -305,6 +305,15 @@ for modo in aguardando-decisao aguardando-pergunta aguardando-permissao aguardan
   ok "$modo: aviso unico, sem apontar botao, sem recomendar esperar e sem dar o ler como fonte da pergunta" $?
 done
 
+subir decisao-com-fila
+"$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
+ok "decisao com o pedido na fila: abrir sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+grep -q "Agora o card esta esperando uma decisao do dono" "$T/e" && grep -q "Avise o dono agora" "$T/e"; ok "decisao com o pedido na fila: o 11 traz o aviso de decisao do dono" $?
+subir decisao-sem-conversa
+"$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 2 >/dev/null 2>&1
+"$BIN" ler card-abc123 >"$T/o" 2>"$T/e"
+grep -q "esperando uma decisao do dono" "$T/o" && ! grep -q "dgclaw-card esperar" "$T/o"; ok "ler com waiting_input e conversa vazia da o aviso de decisao e nao recomenda esperar" $?
+
 # --- cada consulta do primeiro turno respeita o menor entre CARD_MAX_TEMPO e o que resta da espera ----------------
 subir sem-turno
 : > "$T/curl.args"
