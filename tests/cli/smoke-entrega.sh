@@ -39,20 +39,20 @@ smoke ana
 igual "sai com 0" "0" "$?"
 afirma "item 1 OK" grep -q 'OK     \[1\] Ubuntu 24.04' "$TMP/s.txt"
 afirma "item 3 OK no pids.max" grep -q 'OK     \[3\] pids.max do container: 8192' "$TMP/s.txt"
-afirma "item 3 OK no TasksMax" grep -q 'OK     \[3\] TasksMax .*2400' "$TMP/s.txt"
-afirma "item 3 OK no OOMPolicy" grep -q 'OK     \[3\] OOMPolicy=continue' "$TMP/s.txt"
+nega "o smoke nao executa nada dentro do container (nenhum podman exec)" grep -q 'podman exec' "$STUB_LOG"
+afirma "a lista a mao traz a leitura do runner num terminal do dono" grep -q 'systemctl show -p TasksMax -p OOMPolicy -p NRestarts dgclaw-runner' "$TMP/s.txt"
+afirma "a lista a mao diz que serve de apoio e nao de prova" grep -q 'servem de apoio e nao de prova' "$TMP/s.txt"
 afirma "item 3 OK sem OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
 afirma "item 5 OK no microfone (web.env)" grep -q 'OK     \[5\] o servico Web tem chave para o microfone e o audio (a ultima atribuicao tem valor): GROQ_API_KEY' "$TMP/s.txt"
 afirma "item 3 OK na CPU (sem limite)" grep -q 'OK     \[3\] CPU do container: sem limite' "$TMP/s.txt"
-afirma "item 3 OK no kernel com a cobertura" grep -q 'OK     \[3\] nenhum OOM no journal do runner (cobertura do runner: 7 dias) nem no do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
-afirma "o kernel e lido sem -k (todo o periodo, nao so o boot)" grep -q 'journalctl _TRANSPORT=kernel --since 7 days ago' "$STUB_LOG"
+afirma "item 3 OK no kernel com a cobertura" grep -q 'OK     \[3\] nenhum OOM no journal do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
+afirma "o kernel e lido sem -k (todo o periodo, nao so o boot)" grep -q 'journalctl _TRANSPORT=kernel --since 7 days ago --no-pager -q -o short-unix' "$STUB_LOG"
 nega "nao usa journalctl -k" grep -qE 'journalctl -k' "$STUB_LOG"
 nega "nao mostra o valor da chave do web.env" grep -q 'gsk_segredo' "$TMP/s.txt"
 afirma "item 5 lista so os nomes do cofre" grep -q 'OK     \[5\] o cofre tem 2 chave(s) ativa(s): GEMINI_API_KEY, GROQ_API_KEY' "$TMP/s.txt"
 nega "nao afirma que toda chave citada esta no cofre" grep -q 'toda chave citada' "$TMP/s.txt"
 nega "nao varre as skills no container" grep -q 'FIM-DA-VARREDURA' "$STUB_LOG"
 afirma "item 8 OK so no servidor" bash -c "grep -c 'OK     \[8\]' '$TMP/s.txt' | grep -qx 1"
-nega "nao executa yt-dlp, chrome, ffmpeg, mktemp nem test -d dentro do container" grep -qE 'podman exec.*(google-chrome-stable|yt-dlp|ffmpeg|mktemp|test -d)' "$STUB_LOG"
 nega "nao imprime PENDENTE" grep -q 'PENDENTE' "$TMP/s.txt"
 nega "nao imprime FALHA" grep -q 'FALHA' "$TMP/s.txt"
 afirma "lista o que fica a mao" grep -q 'Conferir a mao' "$TMP/s.txt"
@@ -62,27 +62,24 @@ nega "a chave revogada nao conta" grep -q 'VELHA_API_KEY' "$TMP/s.txt"
 echo "smoke-entrega: avisos nao derrubam (memoria, CPU, 26.04)"
 limpar_estado
 printf 'ID=ubuntu\nVERSION_ID="26.04"\n' >"$DGCLAW_RAIZ/etc/os-release"
-cgroup 2147483648 8192 "100000 100000"; echo stop >"$STUB_ESTADO/oompolicy"
+cgroup 2147483648 8192 "100000 100000"
 smoke ana
 igual "sai com 0 so com avisos" "0" "$?"
 afirma "avisa do 26.04" grep -q 'AVISO  \[1\] Ubuntu 26.04' "$TMP/s.txt"
 afirma "avisa da memoria sem podman update" grep -q "DGCLAW_CONTAINER_MEMORIA (por exemplo 7g)" "$TMP/s.txt"
 afirma "avisa da CPU" grep -q 'AVISO  \[3\] o container tem 1 CPU' "$TMP/s.txt"
 nega "nenhuma dica manda podman update de memoria ou CPU" grep -qE 'podman update --(memory|cpus) [0-9<]' "$TMP/s.txt"
-afirma "avisa do OOMPolicy (a partir da 1.1.1)" grep -q 'AVISO  \[3\] OOMPolicy.*1.1.1' "$TMP/s.txt"
 printf 'ID=ubuntu\nVERSION_ID="24.04"\n' >"$DGCLAW_RAIZ/etc/os-release"
 
 echo "smoke-entrega: varias FALHAS"
 limpar_estado
 cofre_com GEMINI_API_KEY
 printf 'OUTRA=1\n' >"$ETC/web.env"
-cgroup 4294967296 1024; echo 153 >"$STUB_ESTADO/tasksmax"; echo 3 >"$STUB_ESTADO/nrestarts"
-: >"$STUB_ESTADO/oom-journal"; : >"$STUB_ESTADO/oom-host"
+cgroup 4294967296 1024
+: >"$STUB_ESTADO/oom-host"
 smoke ana
 igual "sai com 1" "1" "$?"
 afirma "FALHA no pids.max" grep -q 'FALHA  \[3\] pids.max do container e 1024' "$TMP/s.txt"
-afirma "FALHA no TasksMax com o que fazer" grep -q 'FALHA  \[3\] TasksMax do dgclaw-runner e 153' "$TMP/s.txt"
-afirma "FALHA no NRestarts" grep -q 'FALHA  \[3\] o runner reiniciou sozinho 3' "$TMP/s.txt"
 afirma "FALHA no OOM" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias' "$TMP/s.txt"
 afirma "FALHA sem chave de microfone no web.env" grep -q 'FALHA  \[5\] o web.env nao tem ELEVENLABS_API_KEY, GROQ_API_KEY nem OPENAI_API_KEY' "$TMP/s.txt"
 afirma "as dicas de recriar nao mandam --forcar" bash -c "! grep -q -- 'recriar ana --forcar' '$TMP/s.txt'"
@@ -94,7 +91,6 @@ afirma "o resumo manda nao entregar" grep -q 'NAO entregue a VPS' "$TMP/s.txt"
 nega "OOM nao manda aumentar o teto do agente direto" grep -q 'aumente o teto de memoria do agente' "$TMP/s.txt"
 afirma "a dica de recriar exige a releitura e avisa do 'nada a recriar'" grep -q 'nada havia a recriar, o container nao mudou e o item continua aberto' "$TMP/s.txt"
 afirma "a dica de recriar cita o que o inventario ignora" grep -q 'ignora /tmp, /var/tmp, /var/log e /var/cache' "$TMP/s.txt"
-nega "a dica do NRestarts nao manda despejar o journal" grep -q 'tail -n 80' "$TMP/s.txt"
 echo "smoke-entrega: dica de OOM com oom_memcg"
 afirma "a dica de OOM manda ver o oom_memcg e o task_memcg" grep -q 'oom_memcg (o cgroup cujo limite estourou) e o task_memcg (quem foi morto)' "$TMP/s.txt"
 afirma "a dica de OOM cita o OOM do servidor inteiro" grep -q 'CONSTRAINT_NONE' "$TMP/s.txt"
@@ -115,27 +111,19 @@ smoke ana
 afirma "caminho de cgroup invalido: INCONCLUSIVO, nao FALHA nem OK" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o limite de processos' "$TMP/s.txt"
 nega "caminho invalido nao vira OK de pids" grep -q 'OK     \[3\] pids.max' "$TMP/s.txt"
 
-echo "smoke-entrega: erro de leitura e INCONCLUSIVO (journal, OOMPolicy)"
+echo "smoke-entrega: erro de leitura do journal e INCONCLUSIVO"
 limpar_estado
-: >"$STUB_ESTADO/journal-erro"; echo inventado >"$STUB_ESTADO/oompolicy"
+: >"$STUB_ESTADO/journal-host-erro"
 smoke ana
-igual "so inconclusivo e aviso: sai com 0" "0" "$?"
+igual "so inconclusivo: sai com 0" "0" "$?"
 afirma "journal com erro: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal' "$TMP/s.txt"
 nega "journal com erro nao diz 'nenhum OOM'" grep -q 'nenhum OOM' "$TMP/s.txt"
-afirma "OOMPolicy fora da lista fechada: aviso fixo" grep -q 'AVISO  \[3\] o OOMPolicy do runner veio com um valor que nao conheco' "$TMP/s.txt"
-nega "o valor de fora nao e impresso" grep -q 'inventado' "$TMP/s.txt"
 afirma "o resumo conta os inconclusivos" grep -qE 'Resumo: 0 falha.*[1-9][0-9]* inconclusivo' "$TMP/s.txt"
 
 echo "smoke-entrega: --video nao existe mais"
 smoke ana --video https://exemplo.com/video
 igual "--video nao existe mais: sai com 2" "2" "$?"
 
-echo "smoke-entrega: saida do container fora do limite ou do formato vira INCONCLUSIVO, sem texto livre"
-limpar_estado
-: >"$STUB_ESTADO/tasks-lixo"
-smoke ana
-afirma "TasksMax fora do formato: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o TasksMax' "$TMP/s.txt"
-nega "o texto livre do container nao entra no relatorio" grep -q 'texto livre' "$TMP/s.txt"
 
 echo "smoke-entrega: CPU pelo cpu.max do cgroup"
 limpar_estado
@@ -173,15 +161,28 @@ smoke ana
 afirma "OOM no kernel: FALHA" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias' "$TMP/s.txt"
 afirma "OOM so no kernel: diz que nao da para atribuir" grep -q 'a contagem sozinha nao diz de quem era o processo' "$TMP/s.txt"
 nega "OOM so no kernel: nao manda aumentar o teto do agente" grep -q 'aumente o teto de memoria do agente' "$TMP/s.txt"
-rm -f "$STUB_ESTADO/oom-host"; : >"$STUB_ESTADO/oom-journal"
-smoke ana
-afirma "OOM so no texto do runner: AVISO de indicio" grep -q 'AVISO  \[3\] o journal do runner menciona falta de memoria 1 vez(es).*so indicio' "$TMP/s.txt"
-nega "OOM so no texto do runner: nao e FALHA" grep -q 'FALHA  \[3\] OOM' "$TMP/s.txt"
-nega "OOM so no texto do runner: nao manda aumentar o teto" grep -q 'aumente o teto de memoria do agente' "$TMP/s.txt"
-rm -f "$STUB_ESTADO/oom-journal"
 rm -f "$STUB_ESTADO/oom-host"; : >"$STUB_ESTADO/journal-host-erro"
 smoke ana
-afirma "journal do kernel com erro: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal' "$TMP/s.txt"
+afirma "journal do kernel com erro: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal do kernel' "$TMP/s.txt"
+echo "smoke-entrega: cobertura so vale com o journalctl saindo com 0"
+limpar_estado
+: >"$STUB_ESTADO/kernel-saida-erro"
+smoke ana
+afirma "kernel imprime linha com timestamp e sai com 1: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal do kernel' "$TMP/s.txt"
+nega "kernel que sai com 1 nao vira OK" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
+nega "kernel que sai com 1 nao mostra cobertura" grep -q 'cobertura do kernel' "$TMP/s.txt"
+echo "smoke-entrega: dica do INCONCLUSIVO de OOM"
+# shellcheck disable=SC2016  # texto literal, nao expande
+afirma "a dica le a janela toda e mostra o codigo do journalctl" grep -qF 'journalctl saiu com ${PIPESTATUS[0]}' "$TMP/s.txt"
+nega "a dica nao usa -n 0 (pede zero registros e nao examina nada)" grep -q -- '-n 0' "$TMP/s.txt"
+afirma "a dica diz que o item continua INCONCLUSIVO ate a leitura" grep -q 'continua INCONCLUSIVO ate essa leitura ser feita' "$TMP/s.txt"
+afirma "a dica manda ver a persistencia do journal" grep -q '/var/log/journal' "$TMP/s.txt"
+echo "smoke-entrega: kernel lido, zero OOM, 8 dias de historico: OK com 7 dias"
+limpar_estado
+echo 8 >"$STUB_ESTADO/kernel-dias"
+smoke ana
+igual "8 dias de historico: sai com 0" "0" "$?"
+afirma "8 dias de historico: OK com cobertura de 7 dias" grep -q 'OK     \[3\] nenhum OOM no journal do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
 
 echo "smoke-entrega: chaves de microfone no web.env (ultima atribuicao, valor vazio, sem executar o arquivo)"
 limpar_estado
@@ -216,18 +217,6 @@ printf '%s\nGROQ_API_KEY=gsk_x\n' "\$(touch $TMP/executou)" >"$ETC/web.env"
 smoke ana
 nega "o web.env e lido como texto, nunca executado" test -e "$TMP/executou"
 
-echo "smoke-entrega: cobertura por fonte (runner e kernel separados)"
-limpar_estado
-: >"$STUB_ESTADO/runner-vazio"
-smoke ana
-igual "runner vazio com kernel com historico: sai com 0" "0" "$?"
-afirma "runner vazio: INCONCLUSIVO so do runner" grep -q 'INCONCLUSIVO \[3\] nenhum OOM achado, mas o journal do runner nao mostrou nenhuma entrada' "$TMP/s.txt"
-nega "runner vazio nao imprime OK de OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
-nega "o INCONCLUSIVO nao acusa o kernel" grep -q 'mas o journal do runner e o journal do kernel' "$TMP/s.txt"
-limpar_estado
-echo 2 >"$STUB_ESTADO/runner-dias"
-smoke ana
-afirma "runner com 2 dias: diz a cobertura de cada fonte" grep -q 'cobertura do runner: 2 dia(s) completo(s) (48 horas)) nem no do kernel do servidor (cobertura do kernel: 9 dias\|cobertura do kernel: 7 dias' "$TMP/s.txt"
 
 echo "smoke-entrega: os-release incompleto e senha"
 limpar_estado
@@ -246,63 +235,45 @@ afirma "sistema incompativel: FALHA" grep -q 'FALHA  \[1\] sistema' "$TMP/s.txt"
 afirma "sistema incompativel: reinstalar so com copia e decisao do dono" grep -q 'so com uma copia recuperavel dos dados e com a decisao do dono' "$TMP/s.txt"
 printf 'ID=ubuntu\nVERSION_ID="24.04"\n' >"$DGCLAW_RAIZ/etc/os-release"
 
-echo "smoke-entrega: OOM num journal com o outro ilegivel, saida cortada e systemctl com erro"
-limpar_estado
-: >"$STUB_ESTADO/oom-journal"; : >"$STUB_ESTADO/journal-host-erro"
-smoke ana
-igual "OOM so no runner e kernel ilegivel: sem FALHA, sai com 0" "0" "$?"
-afirma "OOM so no runner com o kernel ilegivel: INCONCLUSIVO com o indicio" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal do kernel do servidor.*so indicio' "$TMP/s.txt"
-limpar_estado
-: >"$STUB_ESTADO/oom-host"; : >"$STUB_ESTADO/journal-erro"
-smoke ana
-igual "OOM no kernel e runner ilegivel: sai com 1" "1" "$?"
-afirma "FALHA dizendo a fonte ilegivel (runner)" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias.*o journal do runner ficou ilegivel' "$TMP/s.txt"
+echo "smoke-entrega: saida cortada em 1 MiB"
 limpar_estado
 : >"$STUB_ESTADO/journal-grande"
 smoke ana
 igual "journal acima de 1 MiB: sem FALHA, sai com 0" "0" "$?"
-afirma "journal acima de 1 MiB: INCONCLUSIVO de saida cortada" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal do runner.*saida cortada' "$TMP/s.txt"
+afirma "journal acima de 1 MiB: INCONCLUSIVO de saida cortada" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal do kernel.*saida cortada' "$TMP/s.txt"
 nega "journal cortado nao diz 'nenhum OOM'" grep -q 'nenhum OOM' "$TMP/s.txt"
 limpar_estado
-: >"$STUB_ESTADO/journal-oom-grande"; : >"$STUB_ESTADO/oom-host"
+: >"$STUB_ESTADO/journal-oom-grande"
 smoke ana
 igual "OOM achado e leitura cortada em 1 MiB: sai com 1" "1" "$?"
 afirma "OOM achado e leitura cortada: FALHA com nota de contagem parcial" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias.*contagem parcial' "$TMP/s.txt"
 nega "OOM achado e leitura cortada nao vira INCONCLUSIVO de journal" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal' "$TMP/s.txt"
-limpar_estado
-: >"$STUB_ESTADO/tasks-quebras"
-smoke ana
-afirma "capt conta os bytes brutos: 2400 mais quebras acima do limite e INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] o systemctl do TasksMax.*codigo 99' "$TMP/s.txt"
-nega "capt: quebras finais nao escondem o excesso (nao vira OK)" grep -q 'OK     \[3\] TasksMax' "$TMP/s.txt"
 limpar_estado
 cgroup 17000000000 8192
 smoke ana
 igual "memory.max acima da RAM: so aviso, sai com 0" "0" "$?"
 afirma "memory.max igual ou maior que a RAM: AVISO" grep -q 'AVISO  \[3\] o container dgclaw-ana tem limite de memoria .* RAM do servidor' "$TMP/s.txt"
 limpar_estado
+cgroup 134217728 8192
+printf 'MemTotal:       4096000 kB\n' >"$DGCLAW_RAIZ/proc/meminfo"
+smoke ana
+igual "128 MB num servidor de 4 GB: so aviso, sai com 0" "0" "$?"
+afirma "128 MB: AVISO abaixo dos 2 GB, mostrando o valor lido" grep -q 'AVISO  \[3\] .*limite de memoria de 128 MB, abaixo dos 2 GB que o DG Claw aplica na criacao' "$TMP/s.txt"
+nega "128 MB nao vira OK de memoria" grep -q 'OK     \[3\] memoria' "$TMP/s.txt"
+printf 'MemTotal:       16384000 kB\n' >"$DGCLAW_RAIZ/proc/meminfo"
+limpar_estado
+smoke ana
+afirma "4 GB num servidor de 16 GB: OK de memoria com o valor lido" grep -q 'OK     \[3\] memoria do container: 4096 MB' "$TMP/s.txt"
+nega "4 GB num servidor de 16 GB: sem AVISO de memoria" grep -q 'AVISO  \[3\] .*memoria' "$TMP/s.txt"
+cgroup 2147483648 8192
+smoke ana
+nega "2 GB num servidor de 16 GB: aviso sem OK de memoria junto" grep -q 'OK     \[3\] memoria' "$TMP/s.txt"
+limpar_estado
 { head -c 1100000 /dev/zero | tr '\0' 'a'; printf '\nGROQ_API_KEY=\n'; } >"$ETC/web.env"
 smoke ana
 afirma "web.env acima de 1 MiB: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[5\] o web.env passa de 1 MiB' "$TMP/s.txt"
 nega "web.env cortado nao vira OK nem FALHA de microfone" grep -qE '(OK     |FALHA  )\[5\] (o servico Web|o web.env nao tem)' "$TMP/s.txt"
-limpar_estado
-: >"$STUB_ESTADO/systemctl-erro"
-smoke ana
-igual "systemctl com erro: sai com 0" "0" "$?"
-afirma "TasksMax com systemctl em erro: INCONCLUSIVO com o codigo" grep -q 'INCONCLUSIVO \[3\] o systemctl do TasksMax.*codigo 3' "$TMP/s.txt"
-afirma "NRestarts com systemctl em erro: INCONCLUSIVO com o codigo" grep -q 'INCONCLUSIVO \[3\] o systemctl do NRestarts.*codigo 3' "$TMP/s.txt"
-nega "TasksMax com erro nao vira OK" grep -q 'OK     \[3\] TasksMax' "$TMP/s.txt"
 
-echo "smoke-entrega: resposta com NUL ou linha extra do systemctl"
-limpar_estado
-: >"$STUB_ESTADO/tasks-nul"
-smoke ana
-afirma "TasksMax com byte NUL: INCONCLUSIVO (codigo 99)" grep -q 'INCONCLUSIVO \[3\] o systemctl do TasksMax.*codigo 99' "$TMP/s.txt"
-nega "NUL nao vira OK" grep -q 'OK     \[3\] TasksMax' "$TMP/s.txt"
-limpar_estado
-: >"$STUB_ESTADO/tasks-duas-linhas"
-smoke ana
-afirma "TasksMax com linha extra: INCONCLUSIVO, nao corta" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o TasksMax' "$TMP/s.txt"
-nega "linha extra nao vira OK" grep -q 'OK     \[3\] TasksMax' "$TMP/s.txt"
 
 echo "smoke-entrega: consulta ao cofre sem resposta valida"
 limpar_estado

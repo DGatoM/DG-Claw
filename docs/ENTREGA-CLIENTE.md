@@ -15,10 +15,12 @@ sudo bash scripts/smoke-entrega.sh <agente>
 
 O script automatiza os passos 1 e 3, a parte do passo 5 que lê o microfone e os nomes do cofre, e o `ffmpeg`
 do servidor (passo 8). Ele só faz leituras do servidor que o agente não controla (`podman inspect`,
-`podman container exists`, `systemctl show` e `journalctl` do runner com a saída reduzida a um número validado,
-o cgroup do container, o `web.env` e a CLI do cofre). Tudo o que executa um programa controlado pelo agente dentro
-do container, ou lê uma árvore que ele pode gravar, fica à mão: o `yt-dlp` e a Tela (passo 6), o render do
-Chrome (passo 7), o `ffmpeg` do container (passo 8) e o cruzamento das skills com o cofre (passo 5).
+`podman container exists`, o cgroup do container no host, o journal do kernel do servidor, o `web.env` e a CLI
+do cofre). Nenhum `podman exec` roda no smoke: o agente tem `sudo` sem senha dentro do container, então qualquer
+programa executado ali pode ter sido trocado por ele. Tudo o que executa um programa dentro do container, ou lê uma
+árvore que o agente pode gravar, fica à mão: `TasksMax`, `OOMPolicy` e `NRestarts` do runner (passo 3), o `yt-dlp`
+e a Tela (passo 6), o render do Chrome (passo 7), o `ffmpeg` do container (passo 8) e o cruzamento das skills
+com o cofre (passo 5).
 
 - Cada item imprime `OK`, `AVISO`, `FALHA` ou `INCONCLUSIVO`, com a causa e o que fazer.
   `INCONCLUSIVO` quer dizer que a leitura deu erro e o script não sabe: não é `OK` nem `FALHA`, e
@@ -27,9 +29,7 @@ Chrome (passo 7), o `ffmpeg` do container (passo 8) e o cruzamento das skills co
   reprovam, mas cada um precisa ser resolvido (o inconclusivo, conferido à mão) ou justificado antes da
   entrega.
 - O relatório só tem mensagens fixas. Nenhum texto vindo do container (caminho, nome escolhido pelo agente,
-  saída de comando) entra nele: só contagens validadas e o que o servidor já conhece. Toda leitura de dentro
-  do container tem limite de bytes; resposta grande demais ou fora do formato é `INCONCLUSIVO`. Se um comando
-  do container sai com erro, o item não interpreta a saída e diz o código.
+  saída de comando) entra nele: só contagens validadas e o que o servidor já conhece.
 - No fim sai a lista "conferir à mão", que é a parte deste guia que o script não alcança.
 - O script nunca mostra o valor de uma chave do cofre, só os nomes.
 - Rode de novo depois de cada correção. Os itens que dependem de uma correção da 1.1.1 aparecem como
@@ -56,8 +56,9 @@ Os números abaixo são os mesmos que o script imprime entre colchetes.
   VPS já criada, não entra no `authorized_keys`.
 - **Se a chave permanente da equipe não funcionar:** não recrie a VPS. Entre pelo acesso temporário do
   suporte (`dgclaw suporte ligar`, veja o [projeto de cliente](PROJETO-DE-CLIENTE.md#2-o-fluxo-passo-a-passo)).
-- **Na entrega, confira as duas saídas:** (1) o suporte temporário foi revogado: `sudo dgclaw suporte status`
-  diz "suporte: desligado"; (2) a chave permanente da equipe **não** autoriza mais o root. Confira a
+- **Na entrega, confira as duas saídas:** (1) o suporte temporário foi revogado: `sudo dgclaw suporte status`,
+  rodado pelo console da VPS depois de encerrada a última sessão SSH de root (veja o fim deste item), diz
+  "suporte: desligado"; (2) a chave permanente da equipe **não** autoriza mais o root. Confira a
   configuração efetiva do `sshd` para o root e para a origem de suporte, com
   `sudo sshd -T -C user=root,host=<host>,addr=<ip de suporte> | grep -iE 'authorizedkeys|permitrootlogin'`,
   porque o `sshd -T` sem `-C` não aplica as regras `Match`. Para cada arquivo listado, `ssh-keygen -lf <arquivo>`
@@ -73,7 +74,11 @@ Os números abaixo são os mesmos que o script imprime entre colchetes.
   as duas primeiras opções equivalem a `-S none` e impedem que a conexão reaproveite um transporte multiplexado
   já aberto): ela precisa ser recusada. Uma recusa nova não derruba uma sessão já aberta, então, por último, pela conexão do cliente,
   encerre as outras sessões SSH de root com `sudo dgclaw suporte desligar --derrubar-sessoes` (encerra todas,
-  menos a de quem roda) e confira em `sudo dgclaw suporte status` que só sobrou a sessão do cliente.
+  menos a de quem roda). Enquanto a conexão SSH de root do cliente estiver aberta, o `sudo dgclaw suporte status`
+  não confirma o desligamento. Por isso, para fechar: o cliente confirma que tem um segundo meio de administração
+  (o console da VPS no painel do provedor, por exemplo o terminal do navegador da Hostinger), encerra a última
+  sessão SSH de root (a dele) e faz a conferência final com `sudo dgclaw suporte status` pelo console da VPS, onde
+  precisa aparecer "suporte: desligado".
 - **Chaves de diagnóstico remoto:** desligar o SSH não revoga uma chave `diagnostico` emitida durante a
   instalação, e ela continua consultando serviços, agentes e canais. Rode `sudo dgclaw chave-api listar` e,
   para cada chave provisória da equipe que o cliente não autorizou manter, `sudo dgclaw chave-api revogar <id>`.
@@ -87,12 +92,14 @@ O script confere, para `dgclaw-<agente>`:
 | --- | --- | --- |
 | Container | `podman container exists` e, se existe, `podman inspect` do estado | Rodando. Container inexistente é `FALHA` (um agente sem container precisa ser recriado pela equipe; confira antes com `dgclaw agente listar`). Parado é `FALHA` (`dgclaw agente iniciar`). Estado vazio ou fora da lista, ou o `podman` sem responder, é `INCONCLUSIVO`: rode de novo, sem alterar nada |
 | Processos | `pids.max` do cgroup do container, lido no servidor (`podman inspect -f '{{.State.CgroupPath}}'`, caminho validado, arquivo em `/sys/fs/cgroup<caminho>`), e `PidsLimit` do `podman inspect` | 4096 ou mais. Menos que isso, ou `max` (sem limite), é `FALHA`. Caminho ou arquivo ilegível é `INCONCLUSIVO` |
-| Memória | `memory.max` do mesmo cgroup e `MemTotal` do servidor | `max` (sem limite) é `FALHA`: configure `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin. Valor numérico igual ou maior que o `MemTotal` do servidor é `AVISO`: o teto não protege o servidor. Com 2 GB e a VPS com mais RAM, `AVISO`: nesta versão o teto é fixo na criação, e a partir da 1.1.1 ele se ajusta com `DGCLAW_CONTAINER_MEMORIA` |
+| Memória | `memory.max` do mesmo cgroup e `MemTotal` do servidor | `max` (sem limite) é `FALHA`: configure `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin. Valor abaixo de 2 GB (o teto que o DG Claw aplica na criação) é `AVISO`: se ninguém configurou `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) de propósito, recrie o container. Valor numérico igual ou maior que o `MemTotal` do servidor é `AVISO`: o teto não protege o servidor. Com exatamente 2 GB e a VPS com mais de 4 GB de RAM, `AVISO`: nesta versão o teto é fixo na criação, e a partir da 1.1.1 ele se ajusta com `DGCLAW_CONTAINER_MEMORIA`. Toda mensagem mostra o valor lido em MB |
 | CPU | `cpu.max` do mesmo cgroup (quota dividida pelo período; `max` é sem limite) e `nproc` | Mais de 1 quando a VPS tem mais núcleos. Senão, `AVISO` (nesta versão o limite de CPU é fixo na criação). Arquivo ilegível é `INCONCLUSIVO` |
-| `TasksMax` do runner | `systemctl show -p TasksMax` dentro do container | 2400 ou mais. Menos que isso é `FALHA` |
-| `OOMPolicy` do runner | `systemctl show -p OOMPolicy` dentro do container, validado contra a lista `continue`, `stop`, `kill` | `continue` (a partir da 1.1.1; antes disso sai `AVISO`). Valor fora da lista é `AVISO`, sem repetir o que veio |
-| Reinícios do runner | `NRestarts` da unidade `dgclaw-runner` | 0. Mais que isso é `FALHA` |
-| Falta de memória (OOM) | `journalctl` do runner e `journalctl _TRANSPORT=kernel --since "7 days ago"` (o `-k` olharia só o boot atual), últimos 7 dias | Nenhuma linha de "out of memory" ou "oom-kill". Qualquer uma é `FALHA`. Se o `journalctl` der erro ou a saída passar de 1 MiB sem nenhuma ocorrência no trecho lido, é `INCONCLUSIVO`, que é diferente de "zero eventos". Se já achou OOM antes do corte de 1 MiB, é `FALHA`, com a nota de que a contagem é parcial Se uma fonte mostra OOM e a outra ficou ilegível, é `FALHA`, e a mensagem diz qual fonte falhou. Se o journal do kernel guarda menos de 7 dias, o relatório diz a cobertura real |
+| Falta de memória (OOM) | `journalctl _TRANSPORT=kernel --since "7 days ago"` no servidor (o `-k` olharia só o boot atual), últimos 7 dias, com `-o short-unix` para medir a cobertura na mesma leitura | Nenhuma linha de "out of memory" ou "oom-kill". Qualquer ocorrência no kernel é `FALHA`; se ela veio antes do corte de 1 MiB, a mensagem avisa que a contagem é parcial. Kernel ilegível, `journalctl` com erro ou prazo, saída cortada em 1 MiB sem ocorrência, ou nenhuma entrada no período (cobertura desconhecida) é `INCONCLUSIVO`, que é diferente de "zero eventos". A cobertura só vale quando o `journalctl` termina com código 0 e a leitura não foi cortada, e o relatório diz quantos dias o journal guarda de fato. O journal do runner não entra na conta, porque o texto dele pode vir do agente: quem quiser lê à mão, como indício |
+
+**À mão: `TasksMax`, `OOMPolicy` e `NRestarts` do runner.** Leia num terminal seu, nunca no chat do Admin:
+`podman exec dgclaw-<agente> systemctl show -p TasksMax -p OOMPolicy -p NRestarts dgclaw-runner`. O esperado é
+`TasksMax` 2400 ou mais, `OOMPolicy` `continue` (a partir da 1.1.1) e `NRestarts` 0. Esses valores saem de dentro
+do container, onde o agente tem `sudo`, então servem de apoio e não de prova.
 
 Atenção: não ajuste memória, CPU ou processos com `podman update`. No Podman 4.9 o ajuste se perde quando o
 container para e volta, e o smoke aprovaria um valor que o próximo reinício desfaz. Nesta versão os limites
@@ -152,12 +159,16 @@ sucesso antes de recriar.
   com a pasta efetiva identificada no [passo 10](#10-skills-do-cliente-na-pasta-certa-à-mão)
   (`/home/agente/.claude/skills`, `/home/agente/.agents/skills` ou `/home/agente/.codex/skills`). Só marque a
   conferência se o `grep` leu a pasta com sucesso (código de saída 0 ou 1; 2 é pasta ilegível ou inexistente). Os nomes aceitam sublinhados internos (por exemplo `TELEGRAM_BOT_TOKEN`).
-  Os sufixos da busca são os que o cofre aceita (`panel/lib/cofre-regras.js`), mas ela é só apoio: o que vale
-  são os nomes que a própria skill declara (no `SKILL.md` e nos scripts dela). Leia essa lista e confira cada
-  nome, inclusive os que a busca não pegou.
+  Os sufixos da busca são os que o cofre aceita (`panel/lib/cofre-regras.js`), mas ela é só apoio. A lista da
+  skill (no `SKILL.md` e nos scripts dela) diz o que ela pede; quem diz o que se guarda é a autorização do
+  cliente. Leia essa lista e confira cada nome, inclusive os que a busca não pegou.
 - **Esperado:** toda chave que uma skill do cliente cita (por exemplo `ELEVENLABS_API_KEY` ou
   `GEMINI_API_KEY`) está no cofre. O WhatsApp não usa chave no cofre: o pareamento é feito no painel,
   confira à mão.
+- **Só guarde o que o cliente autorizou:** guarde uma credencial apenas se ela corresponder a uma integração que o
+  cliente autorizou para este agente, e depois de conferir no [passo 10](#10-skills-do-cliente-na-pasta-certa-à-mão)
+  que a skill é a versão esperada, vinda de fonte confiável (o repositório ou o pacote de onde a equipe a
+  copiou). Se a skill cita uma credencial fora dessas integrações, não guarde: investigue a skill.
 - **Se faltar:** `printf %s "$CHAVE" | dgclaw agente cofre <agente> guardar <NOME> --aplicar`.
 - **À mão:** toda chave provisória da equipe precisa ter sido trocada pela do cliente: rode
   `printf %s "$CHAVE" | dgclaw agente cofre <agente> guardar <NOME> --aplicar` (guardar de novo com o
@@ -256,9 +267,10 @@ Hoje é passo manual. Para cada skill do cliente:
 
 - **Fazer:** abra o painel do agente e mande um pedido curto na conversa principal.
 - **Esperado:** a sessão principal responde, com o terminal vivo e em estado normal.
-- **Se falhar:** veja o resultado da última parada do runner, só em campos fixos:
+- **Se falhar:** veja o resultado da última parada do runner:
   `podman exec dgclaw-<agente> systemctl show -p Result -p ExecMainStatus -p ExecMainExitTimestamp dgclaw-runner`.
-  O journal bruto do runner traz texto escrito pelo agente: leia-o só num terminal seu, nunca no chat do
+  O comando roda dentro do container, onde o agente tem `sudo`, então a saída é apoio e pode ter sido alterada;
+  leia-a num terminal seu, nunca no chat do Admin. O journal bruto do runner traz texto escrito pelo agente: leia-o só num terminal seu, nunca no chat do
   Admin. Se preciso, `dgclaw agente reiniciar <agente>`. O `dgclaw agente reparar <agente>` fica para uma
   falha diagnosticada, não para um agente saudável: ele regrava a configuração do agente. Veja
   [SESSAO-PRINCIPAL.md](SESSAO-PRINCIPAL.md).
@@ -279,7 +291,7 @@ Hoje é passo manual. Para cada skill do cliente:
 ## Antes de entregar
 
 - [ ] `scripts/smoke-entrega.sh <agente>` sai com 0 e nenhum `AVISO` ficou sem resposta
-- [ ] Os passos 2 (inclusive suporte temporário revogado e chave permanente da equipe recusada
+- [ ] Os passos 2 (inclusive suporte temporário revogado, com o "suporte: desligado" visto pelo console da VPS, e chave permanente da equipe recusada
       numa conexão nova), 4, 5 (skills contra o cofre e chave do cliente), 6 (yt-dlp, Tela e login do YouTube), 7 (render e Chrome), 8 (ffmpeg do container), 9 (inclusive a
       senha trocada pelo próprio cliente), 10, 11 e 12 estão feitos e marcados
 - [ ] Nenhum `INCONCLUSIVO` ficou sem conferência à mão

@@ -4,16 +4,15 @@
 #   sudo bash scripts/smoke-entrega.sh <agente>
 #
 # Automatiza os itens 1, 3, 5 (microfone e nomes do cofre) e 8 (so o ffmpeg do servidor) do checklist
-# (docs/ENTREGA-CLIENTE.md). So faz leituras do host que o agente nao controla: podman inspect, podman container
-# exists, systemctl show e journalctl do runner (saida reduzida a numero validado), cgroup do container,
-# web.env e a CLI do cofre. Nada que execute programa controlado pelo agente dentro do container nem que leia arvore
-# gravavel por ele roda aqui: yt-dlp e perfil da Tela (6), render do Chrome (7), ffmpeg do container (8) e o
-# cruzamento das skills com o cofre (5) ficam a mao. Cada item imprime OK, AVISO, FALHA ou INCONCLUSIVO (nao deu
-# para medir: erro de leitura nao e OK nem FALHA) com a causa e o que fazer. O resto sai como lista "conferir a mao".
+# (docs/ENTREGA-CLIENTE.md). So faz leituras do servidor que o agente nao controla: podman inspect, podman container
+# exists, o cgroup do container no host, o journal do KERNEL do servidor (journalctl _TRANSPORT=kernel no host),
+# o web.env e a CLI do cofre. Nada roda dentro do container (nenhum podman exec): o agente tem sudo la dentro, entao
+# qualquer programa executado la pode ter sido trocado. TasksMax, OOMPolicy e NRestarts do runner, o journal do
+# runner, yt-dlp e perfil da Tela (6), render do Chrome (7), ffmpeg do container (8) e o cruzamento das skills com
+# o cofre (5) ficam a mao. Cada item imprime OK, AVISO, FALHA ou INCONCLUSIVO (nao deu para medir: erro de leitura
+# nao e OK nem FALHA) com a causa e o que fazer. O resto sai como lista "conferir a mao".
 # Saida: 0 sem FALHA (pode haver AVISO e INCONCLUSIVO), 1 com ao menos uma FALHA, 2 uso errado
-# ou ferramenta ausente. Texto vindo de dentro do container (caminho, nome, saida de comando) nunca vai para o
-# relatorio: as mensagens sao fixas e so entram contagens validadas ou o que o servidor ja conhece. Toda
-# captura de saida do container passa por limite de bytes; estourou o limite ou veio fora do formato, e INCONCLUSIVO.
+# ou ferramenta ausente. As mensagens sao fixas e so entram contagens validadas ou o que o servidor ja conhece.
 #
 # O que este script NAO faz: mostrar valor de chave do cofre (so os nomes), apagar coisa do agente
 # ou do servidor. Reparar o agente e reiniciar o runner ficam a mao, so para uma falha diagnosticada.
@@ -60,42 +59,6 @@ ok()    { printf '  OK     [%s] %s\n' "$1" "$2"; }
 aviso() { AVISOS=$((AVISOS + 1)); printf '  AVISO  [%s] %s\n         O que fazer: %s\n' "$1" "$2" "$3"; }
 falha() { FALHAS=$((FALHAS + 1)); printf '  FALHA  [%s] %s\n         O que fazer: %s\n' "$1" "$2" "$3"; }
 inconclusivo() { INCONCLUSIVOS=$((INCONCLUSIVOS + 1)); printf '  INCONCLUSIVO [%s] %s\n         O que fazer: %s\n' "$1" "$2" "$3"; }
-# cx: comando como root dentro do container (so systemctl show e journalctl do runner, com saida validada).
-# shellcheck disable=SC2317  # chamado por capt, de forma indireta
-cx() { timeout 60 podman exec "$C" "$@"; }
-# capt <comando...>: roda o comando e devolve a saida, no maximo CAPLIM bytes (padrao 4096). Devolve o codigo do
-# comando; se a saida passar do limite, devolve 99 e nada (o chamador trata como INCONCLUSIVO).
-capt() {
-    local t rc raw limpo o
-    # A saida vai para um arquivo temporario antes de virar variavel: a variavel do Bash descarta bytes NUL, e uma
-    # resposta binaria ou acima do limite viraria um valor curto aceito. Contamos os bytes brutos e os sem NUL.
-    t="$(mktemp)" || return 99
-    "$@" 2>/dev/null | LC_ALL=C head -c "$(( ${CAPLIM:-4096} + 1 ))" >"$t"
-    rc="${PIPESTATUS[0]}"
-    raw="$(LC_ALL=C wc -c <"$t" | tr -d ' ')"
-    limpo="$(LC_ALL=C tr -d '\0' <"$t" | LC_ALL=C wc -c | tr -d ' ')"
-    if ! so_digitos "$rc" 3 || ! so_digitos "$raw" 9 || [ "$raw" -gt "${CAPLIM:-4096}" ] || [ "$raw" != "$limpo" ]; then
-        rm -f "$t"; return 99
-    fi
-    # O "x" no fim evita que o $(...) coma as quebras de linha finais.
-    o="$(cat "$t"; printf x)"; o="${o%x}"
-    rm -f "$t"
-    printf '%s' "$o"
-    return "$rc"
-}
-# uma_linha <texto>: tira uma quebra de linha final e so devolve o texto se sobrar uma linha so (linha extra e erro,
-# nao se corta).
-uma_linha() { local v="${1%$'\n'}"; case "$v" in *$'\n'*) return 1 ;; esac; printf '%s' "$v"; }
-# horas_cobertas <comando...>: ha quantas horas esta a entrada mais antiga que o journal devolve (o comando precisa
-# imprimir "-o short-unix"). Sem entrada ou com erro, sai com 1 e nada.
-horas_cobertas() {
-    local p ts h
-    p="$("$@" 2>/dev/null | head -n 1 | head -c 64)"
-    ts="${p%%.*}"; ts="${ts%% *}"
-    so_digitos "$ts" 12 || return 1
-    h=$(( ($(date +%s) - ts) / 3600 )); [ "$h" -ge 0 ] || h=0
-    printf '%s' "$h"
-}
 # desc_cobertura <horas>: "7 dias" so com a janela inteira (167 horas ou mais, a ultima hora fica de tolerancia pela
 # demora entre a consulta e a conta); senao, os dias completos e as horas, sem arredondar para cima.
 desc_cobertura() {
@@ -105,26 +68,28 @@ desc_cobertura() {
 }
 # so_digitos <texto> <maximo de caracteres>: verdadeiro se for um numero curto.
 so_digitos() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "${#1}" -le "$2" ]; }
-# contar_oom <comando...>: quantas linhas de falta de memoria o comando mostra (so o numero fica guardado, o
-# texto do journal passa direto pelo filtro). A leitura tem limite de 1 MiB: se passar disso sem nenhuma ocorrencia
-# no que foi lido, sai com 98 e nada (saida cortada, INCONCLUSIVO); se ja achou ocorrencia, sai com 97 e a
-# contagem parcial (e FALHA, com nota de contagem parcial). Se o proprio comando falhar (journal ilegivel, container mudo), sai com 1 e
-# nada: isso e INCONCLUSIVO, nao "zero".
+# contar_oom <comando...>: quantas linhas de falta de memoria o comando mostra e o timestamp (unix, parte inteira) da
+# primeira linha, no formato "<contagem> <timestamp>" (o comando precisa imprimir "-o short-unix"; sem linha, o
+# timestamp sai como "-"). So esses dois valores ficam guardados, o texto do journal passa direto pelo filtro. A
+# leitura tem limite de 1 MiB: se passar disso sem nenhuma ocorrencia no que foi lido, sai com 98 e nada (saida
+# cortada, INCONCLUSIVO); se ja achou ocorrencia, sai com 97 e a contagem parcial (e FALHA, com nota de contagem
+# parcial, e o timestamp nao vale como cobertura). Se o proprio comando falhar (journal ilegivel, prazo), sai com 1
+# e nada: isso e INCONCLUSIVO, nao "zero". O timestamp so vale como cobertura com o comando terminando em 0.
 contar_oom() {
-    local r linha n bytes rc
-    r="$("$@" 2>/dev/null | head -c 1048577 | LC_ALL=C awk 'BEGIN { n = 0; b = 0 } { b += length($0) + 1; if (tolower($0) ~ /out of memory|oom-kill|oom_kill|killed process/) n++ } END { print n, b }'; printf 'rc=%s' "${PIPESTATUS[0]}")"
+    local r linha n bytes ts rc
+    r="$("$@" 2>/dev/null | head -c 1048577 | LC_ALL=C awk 'BEGIN { n = 0; b = 0; ts = "-" } NR == 1 { t = $1; sub(/\..*$/, "", t); if (t != "") ts = t } { b += length($0) + 1; if (tolower($0) ~ /out of memory|oom-kill|oom_kill|killed process/) n++ } END { print n, b, ts }'; printf 'rc=%s' "${PIPESTATUS[0]}")"
     rc="${r##*rc=}"; linha="${r%%$'\n'*}"
-    read -r n bytes _ <<<"$linha"
+    read -r n bytes ts <<<"$linha"
     so_digitos "$n" 9 || return 1
     so_digitos "$bytes" 9 || return 1
     [ "$bytes" -le 1048578 ] || return 1
     if [ "$bytes" -gt 1048576 ]; then
         [ "$n" -gt 0 ] || return 98
-        printf '%s' "$n"
+        printf '%s -' "$n"
         return 97
     fi
     [ "$rc" = 0 ] || return 1
-    printf '%s' "$n"
+    printf '%s %s' "$n" "${ts:--}"
 }
 # ler_cpu <caminho validado>: "<quota> <periodo>" do cpu.max do cgroup do container, no host (quota "max" = sem limite).
 ler_cpu() {
@@ -234,12 +199,15 @@ else
     elif [ "$mem_cg" = max ]; then
         falha 3 "o container $C esta sem limite de memoria (memory.max=max, o servidor tem ${ram_gb} GB). Um render pesado pode derrubar o servidor inteiro." \
             "configure DGCLAW_CONTAINER_MEMORIA (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin, e recrie o container. $RECRIAR_DICA"
+    elif [ "$mem_cg" -lt 2147483648 ]; then
+        aviso 3 "o container $C tem limite de memoria de $((mem_cg / 1048576)) MB, abaixo dos 2 GB que o DG Claw aplica na criacao. Render, Chrome da Tela e card paralelo caem com pouca memoria." \
+            "se ninguem configurou DGCLAW_CONTAINER_MEMORIA (a partir da 1.1.1) de proposito, recrie o container. $RECRIAR_DICA"
     elif [ -n "$ram_kb" ] && [ "$mem_cg" -ge $((ram_kb * 1024)) ]; then
         aviso 3 "o container $C tem limite de memoria de $((mem_cg / 1048576)) MB, que e igual ou maior que a RAM do servidor (${ram_gb} GB). O teto nao protege o servidor: um render pesado esgota a RAM antes de chegar nele." \
             "nesta versao o container nasce com teto fixo de 2 GB. Se a VPS tem 2 GB de RAM ou menos, ela e pequena demais: troque o plano. Se o teto esta acima de 2 GB, alguem mudou o container a mao; nao corrija com podman update (o ajuste se perde quando o container para e volta). A partir da 1.1.1, configure DGCLAW_CONTAINER_MEMORIA com um valor que caiba na RAM, recrie e confira de novo depois de reiniciar o container."
-    elif [ "$mem_cg" -le 2147483648 ] && [ "$ram_gb" -gt 4 ]; then
+    elif [ "$mem_cg" -eq 2147483648 ] && [ "$ram_gb" -gt 4 ]; then
         sug=$((ram_gb / 2)); [ "$sug" -ge 3 ] || sug=3
-        aviso 3 "o container tem 2 GB de memoria e o servidor tem ${ram_gb} GB. Render, Chrome da Tela e card paralelo apertam em 2 GB." \
+        aviso 3 "o container tem limite de memoria de $((mem_cg / 1048576)) MB (2 GB) e o servidor tem ${ram_gb} GB. Render, Chrome da Tela e card paralelo apertam em 2 GB." \
             "nesta versao o teto e fixo na criacao do container. Nao use podman update: o ajuste se perde quando o container para e volta. A partir da 1.1.1, configure DGCLAW_CONTAINER_MEMORIA (por exemplo ${sug}g), recrie e confira de novo depois de reiniciar o container."
     else
         ok 3 "memoria do container: $((mem_cg / 1048576)) MB (servidor com ${ram_gb} GB)"
@@ -265,86 +233,37 @@ else
         fi
     fi
 
-    tasks="$(capt cx systemctl show -p TasksMax --value dgclaw-runner)"; rc_t=$?
-    tasks="$(uma_linha "$tasks")" || tasks=""
-    case "$tasks" in infinity) ;; *) so_digitos "$tasks" 12 || tasks="" ;; esac
-    if [ "$rc_t" -ne 0 ]; then
-        inconclusivo 3 "o systemctl do TasksMax do dgclaw-runner dentro do container saiu com codigo $rc_t (99 = resposta grande demais), entao nao interpretei a saida." "rode o smoke de novo; se repetir, leia num terminal seu (nunca no chat do Admin): podman exec $C systemctl show -p TasksMax dgclaw-runner"
-    elif [ "$tasks" = infinity ] || { [ -n "$tasks" ] && [ "$tasks" -ge 2400 ]; }; then
-        ok 3 "TasksMax da unidade do runner: $tasks (minimo 2400)"
-    elif [ -n "$tasks" ]; then
-        falha 3 "TasksMax do dgclaw-runner e $tasks, abaixo de 2400. O Claude principal aborta e o card nasce parado." \
-            "atualize o DG Claw (dgclaw atualizar) e, se for preciso imagem nova, confira que dgclaw imagem construir --agora terminou com sucesso. Depois: $RECRIAR_DICA"
-    else
-        inconclusivo 3 "nao consegui ler o TasksMax do dgclaw-runner dentro do container." "rode o smoke de novo; se repetir, leia num terminal seu (nunca no chat do Admin): podman exec $C systemctl show -p TasksMax dgclaw-runner"
-    fi
-
-    oom_pol="$(capt cx systemctl show -p OOMPolicy --value dgclaw-runner)"; rc_o=$?
-    oom_pol="$(uma_linha "$oom_pol")" || oom_pol=""
-    [ "$rc_o" -eq 0 ] || oom_pol="#rc"
-    case "$oom_pol" in
-        "#rc") inconclusivo 3 "o systemctl do OOMPolicy do dgclaw-runner dentro do container saiu com codigo $rc_o (99 = resposta grande demais), entao nao interpretei a saida." "rode o smoke de novo; se repetir, leia num terminal seu (nunca no chat do Admin): podman exec $C systemctl show -p OOMPolicy dgclaw-runner" ;;
-        continue) ok 3 "OOMPolicy=continue na unidade do runner" ;;
-        stop|kill)
-            aviso 3 "OOMPolicy da unidade do runner e '$oom_pol', e o esperado e 'continue' (a partir da 1.1.1). Sem isso, um processo morto por falta de memoria derruba o runner todo." \
-                "atualize o DG Claw quando a 1.1.1 sair. Ate la, vigie o journal do runner (item abaixo)." ;;
-        '') inconclusivo 3 "nao consegui ler o OOMPolicy do dgclaw-runner dentro do container." "rode o smoke de novo; se repetir, leia num terminal seu (nunca no chat do Admin): podman exec $C systemctl show -p OOMPolicy dgclaw-runner" ;;
-        *) aviso 3 "o OOMPolicy do runner veio com um valor que nao conheco (esperado: continue, stop ou kill)." "rode o smoke de novo; se repetir, leia num terminal seu (nunca no chat do Admin): podman exec $C systemctl show -p OOMPolicy dgclaw-runner" ;;
-    esac
-
-    nrest="$(capt cx systemctl show -p NRestarts --value dgclaw-runner)"; rc_n=$?
-    nrest="$(uma_linha "$nrest")" || nrest=""
-    so_digitos "$nrest" 9 || nrest=""
-    if [ "$rc_n" -ne 0 ]; then
-        inconclusivo 3 "o systemctl do NRestarts do dgclaw-runner dentro do container saiu com codigo $rc_n (99 = resposta grande demais), entao nao interpretei a saida." "rode o smoke de novo; se repetir, leia num terminal seu (nunca no chat do Admin): podman exec $C systemctl show -p NRestarts dgclaw-runner"
-    elif [ "$nrest" = 0 ]; then
-        ok 3 "o runner nao reiniciou sozinho (NRestarts=0)"
-    elif [ -n "$nrest" ]; then
-        falha 3 "o runner reiniciou sozinho $nrest vez(es) (NRestarts=$nrest). Algo derrubou o runner." \
-            "num terminal seu (nunca no chat do Admin), veja o resultado da ultima parada, so em campos fixos: podman exec $C systemctl show -p Result -p ExecMainStatus -p ExecMainExitTimestamp dgclaw-runner. O journal bruto do runner traz texto escrito pelo agente: leia-o so num terminal seu, nunca no chat do Admin. Depois de resolver, reinicie o runner (dgclaw agente reiniciar $SLUG) e rode o smoke de novo."
-    else
-        inconclusivo 3 "o NRestarts do runner veio num formato que nao consegui ler." "rode o smoke de novo; se repetir, leia num terminal seu (nunca no chat do Admin): podman exec $C systemctl show -p NRestarts dgclaw-runner"
-    fi
-
     # Kernel do servidor: _TRANSPORT=kernel (o -k so olha o boot atual e perderia um OOM de antes de um reinicio).
-    # A cobertura real e medida pela entrada mais antiga que o journal ainda guarda dentro dos 7 dias.
-    oom_c="$(contar_oom cx journalctl -u dgclaw-runner --since '7 days ago' --no-pager -q)"; rc_c=$?
-    oom_h="$(contar_oom timeout 60 journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q)"; rc_h=$?
-    parcial=""
-    if [ "$rc_c" -eq 97 ]; then rc_c=0; parcial="o journal do runner"; fi
-    if [ "$rc_h" -eq 97 ]; then rc_h=0; parcial="${parcial:+$parcial e }o journal do kernel do servidor"; fi
-    # Cobertura medida por fonte: cada journal diz ha quantos dias guarda entradas.
-    cob_c=""; cob_h=""
-    if [ "$rc_c" -eq 0 ]; then dias_c="$(horas_cobertas cx journalctl -u dgclaw-runner --since '7 days ago' --no-pager -q -o short-unix)" && cob_c="$(desc_cobertura "$dias_c")"; fi
-    if [ "$rc_h" -eq 0 ]; then dias_k="$(horas_cobertas timeout 60 journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o short-unix)" && cob_h="$(desc_cobertura "$dias_k")"; fi
-    fonte_ruim=""
-    [ "$rc_c" -eq 0 ] || fonte_ruim="o journal do runner"
-    if [ "$rc_h" -ne 0 ]; then
-        if [ -n "$fonte_ruim" ]; then fonte_ruim="$fonte_ruim e o journal do kernel do servidor"; else fonte_ruim="o journal do kernel do servidor"; fi
+    # A mesma leitura conta o OOM e mede a cobertura (a entrada mais antiga que o journal ainda guarda dentro dos 7
+    # dias). Nao ha segunda chamada ao journalctl.
+    oom_k="$(contar_oom timeout 60 journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o short-unix)"; rc_k=$?
+    oom_n=""; oom_ts=""
+    read -r oom_n oom_ts <<<"$oom_k"
+    parcial=0
+    if [ "$rc_k" -eq 97 ]; then rc_k=0; parcial=1; fi
+    # Cobertura so vale com o journalctl terminando em 0 e a leitura inteira (sem corte).
+    cob=""
+    if [ "$rc_k" -eq 0 ] && [ "$parcial" -eq 0 ] && so_digitos "$oom_ts" 12; then
+        horas=$(( ($(date +%s) - oom_ts) / 3600 )); [ "$horas" -ge 0 ] || horas=0
+        cob="$(desc_cobertura "$horas")"
     fi
-    # Nem o journal do runner (texto que o proprio agente escreve) nem a linha do kernel sozinha dizem que o agente
-    # estourou o proprio teto: so a leitura humana das linhas oom-kill (oom_memcg e task_memcg) diz. Por isso a dica
-    # nunca manda aumentar a memoria direto.
+    # A linha do kernel sozinha nao diz que o agente estourou o proprio teto: so a leitura humana das linhas oom-kill
+    # (oom_memcg e task_memcg) diz. Por isso a dica nunca manda aumentar a memoria direto.
     oom_dica="a contagem sozinha nao diz de quem era o processo nem qual limite estourou, entao nao aumente o teto do agente por causa dela. Num terminal seu (nunca no chat do Admin), leia as linhas oom-kill com journalctl _TRANSPORT=kernel --since '7 days ago' | grep -iE 'oom-kill|killed process' e veja a data, o oom_memcg (o cgroup cujo limite estourou) e o task_memcg (quem foi morto). So com o oom_memcg igual ao cgroup do container $C o agente estourou o proprio teto. Com o oom_memcg de um ancestral, de outro servico ou com OOM do servidor inteiro (CONSTRAINT_NONE), o ajuste e nesse limite ou no plano da VPS. Nunca aumente o teto do agente direto."
-    if [ "$rc_h" -eq 0 ] && [ "${oom_h:-0}" -gt 0 ]; then
-        falha 3 "OOM nos ultimos 7 dias: $([ "$rc_c" -eq 0 ] && echo "${oom_c:-0}" || echo "?") linha(s) no journal do runner e $([ "$rc_h" -eq 0 ] && echo "${oom_h:-0}" || echo "?") no kernel do servidor${fonte_ruim:+ ($fonte_ruim ficou ilegivel ou foi cortado, entao a conta esta incompleta)}${parcial:+ (contagem parcial: a leitura de $parcial passou de 1 MiB e foi cortada, entao ha pelo menos essas linhas)}." \
+    oom_leitura="num terminal seu, leia a janela toda e veja o codigo de saida do journalctl: journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q | grep -ciE 'oom-kill|killed process'; echo \"journalctl saiu com \${PIPESTATUS[0]}\". A contagem so vale com o journalctl saindo com 0, e este item continua INCONCLUSIVO ate essa leitura ser feita. Veja tambem se o journal e persistente (ls /var/log/journal) e rode o smoke de novo."
+    if [ "$rc_k" -ne 0 ]; then
+        inconclusivo 3 "nao consegui ler o journal do kernel do servidor dos ultimos 7 dias (erro, prazo ou saida cortada em 1 MiB). Isso nao quer dizer zero eventos de falta de memoria." \
+            "$oom_leitura"
+    elif [ "$oom_n" -gt 0 ]; then
+        nota_parcial=""
+        [ "$parcial" -eq 0 ] || nota_parcial=" (contagem parcial: a leitura do journal do kernel do servidor passou de 1 MiB e foi cortada, entao ha pelo menos essas linhas)"
+        falha 3 "OOM nos ultimos 7 dias: $oom_n linha(s) no journal do kernel do servidor${nota_parcial}." \
             "$oom_dica"
-    elif [ -n "$fonte_ruim" ]; then
-        inconclusivo 3 "nao consegui ler $fonte_ruim dos ultimos 7 dias (erro, prazo ou saida cortada em 1 MiB). Isso nao quer dizer zero eventos de falta de memoria.$([ "$rc_c" -eq 0 ] && [ "${oom_c:-0}" -gt 0 ] && echo " O journal do runner menciona falta de memoria ${oom_c} vez(es), o que e so indicio.")" \
-            "confira se cada journal responde, pelo codigo de saida (0 = respondeu): podman exec $C journalctl -u dgclaw-runner -n 0 -q; echo \$? e journalctl _TRANSPORT=kernel -n 0 -q; echo \$?. Veja se o journal e persistente (ls /var/log/journal) e rode o smoke de novo. Nao troque a conferencia por uma contagem com grep: com o journal falhando, ela daria zero."
-    elif [ "${oom_c:-0}" -gt 0 ]; then
-        aviso 3 "o journal do runner menciona falta de memoria ${oom_c} vez(es) nos ultimos 7 dias, mas o journal do kernel do servidor nao registra processo morto. E so indicio: o texto do journal do runner pode vir do proprio agente." \
-            "$oom_dica"
-    elif [ "$oom_c" -eq 0 ] && [ "$oom_h" -eq 0 ]; then
-        sem_hist=""
-        [ -n "$cob_c" ] || sem_hist="o journal do runner"
-        [ -n "$cob_h" ] || sem_hist="${sem_hist:+$sem_hist e }o journal do kernel do servidor"
-        if [ -z "$sem_hist" ]; then
-            ok 3 "nenhum OOM no journal do runner (cobertura do runner: $cob_c) nem no do kernel do servidor (cobertura do kernel: $cob_h)"
-        else
-            inconclusivo 3 "nenhum OOM achado, mas $sem_hist nao mostrou nenhuma entrada nos ultimos 7 dias, entao nao sei o que cobre." \
-                "confira se cada journal responde, pelo codigo de saida (0 = respondeu): podman exec $C journalctl -u dgclaw-runner -n 0 -q; echo \$? e journalctl _TRANSPORT=kernel -n 0 -q; echo \$?, e se o journal e persistente (ls /var/log/journal)"
-        fi
+    elif [ -n "$cob" ]; then
+        ok 3 "nenhum OOM no journal do kernel do servidor (cobertura do kernel: $cob)"
+    else
+        inconclusivo 3 "nenhum OOM achado, mas o journal do kernel do servidor nao mostrou nenhuma entrada nos ultimos 7 dias, entao nao sei o que cobre." \
+            "$oom_leitura"
     fi
 fi
 
@@ -416,6 +335,11 @@ Conferir a mao (detalhes em docs/ENTREGA-CLIENTE.md):
   2.  A chave SSH da equipe: se nao funcionou, nao recrie a VPS; use o acesso temporario do suporte. Na
       entrega, o suporte temporario revogado (dgclaw suporte status), a chave permanente da equipe fora do
       authorized_keys e as chaves de diagnostico provisorias revogadas (dgclaw chave-api listar e revogar <id>).
+  3.  TasksMax, OOMPolicy e NRestarts do runner, num terminal seu (nunca no chat do Admin): podman exec
+      dgclaw-<agente> systemctl show -p TasksMax -p OOMPolicy -p NRestarts dgclaw-runner. Esperado: TasksMax
+      2400 ou mais, OOMPolicy continue (a partir da 1.1.1), NRestarts 0. Esses valores saem de dentro do
+      container, onde o agente tem sudo, entao servem de apoio e nao de prova. O journal do runner, se quiser
+      ler, tambem so num terminal seu e so como indicio: o texto dele pode vir do agente.
   4.  Card de teste: sessao paralela, pedido curto, primeiro turno respondido, conversa aparece ao clicar.
       Repita nos dois motores (Claude e Codex).
   5.  Cruzar os nomes do cofre (listados acima) com as chaves que as skills do cliente citam, e trocar a
