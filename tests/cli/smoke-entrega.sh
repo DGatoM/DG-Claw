@@ -170,4 +170,28 @@ smoke
 afirma "slug com espaco: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[4\] um agente do registro tem nome fora do formato' "$TMP/s.txt"
 nega "slug com espaco: nao inspeciona dgclaw-ana" grep -q 'podman' "$STUB_LOG"
 
+echo "smoke-entrega: saude do painel com registro falho, login trancado e HTTP de erro"
+limpar_estado
+printf '{"ok":true,"agentes":null,"registro_ok":false,"login_trancado":false}' >"$STUB_ESTADO/saude"
+smoke
+igual "registro falho: sai com 1" "1" "$?"
+afirma "registro falho: FALHA do painel" grep -q 'FALHA  \[2\] o painel respondeu na porta 8300, mas informou que nao consegue ler o registro' "$TMP/s.txt"
+nega "registro falho: nao imprime OK do painel" grep -q 'OK     \[2\]' "$TMP/s.txt"
+limpar_estado
+printf '{"ok":true,"agentes":1,"registro_ok":true,"login_trancado":true}' >"$STUB_ESTADO/saude"
+smoke
+afirma "login trancado: AVISO do painel" grep -q 'AVISO  \[2\] o painel respondeu na porta 8300, mas informou o login trancado' "$TMP/s.txt"
+nega "login trancado: nao imprime OK do painel" grep -q 'OK     \[2\]' "$TMP/s.txt"
+limpar_estado
+echo 22 >"$STUB_ESTADO/curl-rc"
+smoke
+afirma "HTTP de erro com corpo valido: FALHA do painel" grep -q 'FALHA  \[2\] o painel do DG Claw nao respondeu na porta 8300 (/api/saude sem a resposta esperada; curl saiu com 22)' "$TMP/s.txt"
+afirma "curl com --fail" grep -q "curl .*--fail" "$STUB_LOG"
+
+limpar_estado
+jq -n '{versao: 1, agentes: [{slug: "ana\n", tipo: "agente"}]}' >"$ETC/agentes.json"
+smoke
+afirma "slug com quebra de linha: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[4\] um agente do registro tem nome fora do formato' "$TMP/s.txt"
+nega "slug com quebra de linha: nao chama o podman" grep -q 'podman' "$STUB_LOG"
+
 fim

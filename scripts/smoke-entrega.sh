@@ -56,10 +56,16 @@ if ! so_digitos "$PORTA" 5 || [ "$PORTA" -lt 1 ] || [ "$PORTA" -gt 65535 ]; then
     inconclusivo 2 "a linha DGCLAW_PORTA_PAINEL do /etc/dgclaw/dgclaw.env nao e uma porta valida, entao nao sei onde o painel escuta." "confira essa linha com a equipe e rode o smoke de novo"
 else
     # So a rota /api/saude do DG Claw conta (resposta curta, sem seguir redirecionamento): outro servico na porta nao passa.
-    saude="$(curl -q -s --noproxy '*' --max-time 10 "http://127.0.0.1:$PORTA/api/saude" 2>/dev/null | head -c 4096; printf 'rc=%s' "${PIPESTATUS[0]}")"
+    saude="$(curl -q -s --noproxy '*' --fail --max-time 10 "http://127.0.0.1:$PORTA/api/saude" 2>/dev/null | head -c 4096; printf 'rc=%s' "${PIPESTATUS[0]}")"
     curl_rc="${saude##*rc=}"; saude="${saude%rc=*}"
     if [ "$curl_rc" = 0 ] && printf '%s' "$saude" | jq -e 'type == "object" and .ok == true and has("registro_ok")' >/dev/null 2>&1; then
-        ok 2 "o painel do DG Claw respondeu na porta $PORTA (/api/saude)"
+        if ! printf '%s' "$saude" | jq -e '.registro_ok == true' >/dev/null 2>&1; then
+            falha 2 "o painel respondeu na porta $PORTA, mas informou que nao consegue ler o registro de agentes (registro_ok diferente de true)." "veja o servico com: sudo systemctl status dgclaw-web"
+        elif ! printf '%s' "$saude" | jq -e '.login_trancado == false' >/dev/null 2>&1; then
+            aviso 2 "o painel respondeu na porta $PORTA, mas informou o login trancado (login_trancado diferente de false)." "confira com a equipe as tentativas de login recentes antes de entregar"
+        else
+            ok 2 "o painel do DG Claw respondeu na porta $PORTA (/api/saude)"
+        fi
     else
         falha 2 "o painel do DG Claw nao respondeu na porta $PORTA (/api/saude sem a resposta esperada; curl saiu com $curl_rc)." "veja o servico com: sudo systemctl status dgclaw-web"
     fi
@@ -81,7 +87,7 @@ if [ ! -s "$AGENTES_JSON" ]; then
 # Mesma regra do painel (web/lib/registro.js): sem "tipo", e agente (o slug "admin" e o Admin). Todo registro que
 # nao e o Admin e conferido, seja qual for o tipo, como no diagnostico. Cada linha sai como
 # "<igual|diverge> <slug>": diverge quando o campo "container" do registro nao e vazio nem dgclaw-<slug>.
-elif ! SLUGS="$(jq -r '.agentes[] | ((.tipo | strings | gsub("^\\s+|\\s+$"; "")) // "") as $tp | (if $tp != "" then $tp elif .slug == "admin" then "admin" else "agente" end) as $t | select($t != "admin") | (.slug | if type == "string" and test("^[a-z0-9][a-z0-9-]{0,31}$") then . else "-" end) as $s | ((.container // "") | tostring) as $c | (if $c == "" or $c == ("dgclaw-" + $s) then "igual" else "diverge" end) + " " + $s' "$AGENTES_JSON" 2>/dev/null)"; then
+elif ! SLUGS="$(jq -r '.agentes[] | ((.tipo | strings | gsub("^\\s+|\\s+$"; "")) // "") as $tp | (if $tp != "" then $tp elif .slug == "admin" then "admin" else "agente" end) as $t | select($t != "admin") | (.slug | if type == "string" and test("\\A[a-z0-9][a-z0-9-]{0,31}\\z") then . else "-" end) as $s | ((.container // "") | tostring) as $c | (if $c == "" or $c == ("dgclaw-" + $s) then "igual" else "diverge" end) + " " + $s' "$AGENTES_JSON" 2>/dev/null)"; then
     inconclusivo 4 "o registro de agentes nao pode ser lido." "confira com: dgclaw agente listar"
 elif [ -z "$SLUGS" ]; then
     aviso 4 "o registro nao tem nenhum agente." "crie o agente do cliente antes da entrega (dgclaw agente criar)"
