@@ -189,9 +189,6 @@ case "${1:-}" in
                 --memory) v="$2"; case "$v" in *g) v=$(( ${v%g} * 1073741824 )) ;; *m) v=$(( ${v%m} * 1048576 )) ;; esac; mem="$v"; [ -f "$est/update-mem-vira-max" ] && mem=0 ;;
                 --memory-swap) v="$2"; case "$v" in *g) v=$(( ${v%g} * 1073741824 )) ;; *m) v=$(( ${v%m} * 1048576 )) ;; esac; swap="$v" ;;
                 --cpus) [ -f "$est/update-cpu-sem-efeito" ] || quota="$(awk -v c="$2" 'BEGIN { printf "%d", c * 100000 }')"; [ -f "$est/update-cpu-vira-max" ] && quota=0 ;;
-                # A restauracao do reparar usa o par quota/periodo exato (as mesmas flags de vira-max e de menor valem aqui).
-                --cpu-quota) quota="$2"; [ -f "$est/update-cpu-vira-max" ] && quota=0 ;;
-                --cpu-period) periodo="$2" ;;
                 --pids-limit) pids="$2"; [ -f "$est/update-pids-vira-max" ] && pids=0 ;;
             esac
             shift 2
@@ -206,14 +203,9 @@ case "${1:-}" in
         # update-swap-vira-max: o swap finito vira sem limite (-1) depois do update, mesmo sem o reparo ter mexido nele.
         [ -f "$est/update-swap-vira-max" ] && swap=-1
         # update-*-menor: o valor relido fica ABAIXO do que era antes do update (metade do anterior), seja qual for o pedido.
-        # Vale para qualquer update que mexa no recurso, inclusive a restauracao: assim o teste escolhe se ela funciona.
         if [ -f "$est/update-mem-menor" ] && [[ "$args_update" == *--memory* ]]; then mem=$((mem_antes / 2)); swap=$((mem + swap_antes - mem_antes)); fi
         if [ -f "$est/update-cpu-menor" ] && [[ "$args_update" == *--cpu* ]]; then quota=$((quota_antes / 2)); fi
         if [ -f "$est/update-pids-menor" ] && [[ "$args_update" == *--pids-limit* ]]; then pids=$((pids_antes / 2)); fi
-        # Flag com o texto "uma-vez" so vale para o PRIMEIRO update que ela afetou: o seguinte (a restauracao) sai normal.
-        for fl in update-cpu-vira-max update-mem-vira-max update-pids-vira-max update-swap-vira-max update-mem-menor update-cpu-menor update-pids-menor; do
-            if [ "$(cat "$est/$fl" 2>/dev/null)" = uma-vez ]; then rm -f "$est/$fl"; fi
-        done
         # update-troca-id: depois do update o container passa a ter outro ID (foi trocado no meio do reparo).
         [ -f "$est/update-troca-id" ] && echo "novo-id-$nome" > "$est/id-$nome"
         echo "$mem $quota $periodo $pids $swap" > "$est/lim-$nome" ;;
