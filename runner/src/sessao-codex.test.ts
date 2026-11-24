@@ -552,13 +552,13 @@ test("Codex: pasta de sessões que não abre (erro de leitura, não ENOENT) mant
 });
 
 /** Grava à mão um rollout do Codex desta sessão (a descoberta o acha por cwd e hora) e devolve o caminho. */
-function gravarRolloutDeTeste(cwd: string, id: string, comTaskStarted: boolean): string {
+function gravarRolloutDeTeste(cwd: string, id: string, comTaskStarted: boolean, textoDoUsuario?: string): string {
   const dia = new Date();
   const dir = path.join(amb.codexHome, "sessions", String(dia.getFullYear()), String(dia.getMonth() + 1).padStart(2, "0"), String(dia.getDate()).padStart(2, "0"));
   fs.mkdirSync(dir, { recursive: true });
   const arquivo = path.join(dir, `rollout-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}-${id}.jsonl`);
   const linha = (type: string, payload: unknown) => JSON.stringify({ timestamp: new Date().toISOString(), type, payload }) + "\n";
-  fs.writeFileSync(arquivo, linha("session_meta", { id, session_id: id, cwd }) + (comTaskStarted ? linha("event_msg", { type: "task_started" }) : ""));
+  fs.writeFileSync(arquivo, linha("session_meta", { id, session_id: id, cwd }) + (comTaskStarted ? linha("event_msg", { type: "task_started" }) : "") + (comTaskStarted && textoDoUsuario !== undefined ? linha("event_msg", { type: "user_message", message: textoDoUsuario, images: [] }) : ""));
   return arquivo;
 }
 const pedidoPendenteComEnter = (s: InstanceType<typeof Sessao>, texto: string) => {
@@ -581,7 +581,8 @@ test("rodada 4, item 5: a descoberta do rollout só vincula o arquivo (não dá 
   assert.equal(s.promptsAceitos, 0, "descobrir o arquivo não é recibo");
   assert.deepEqual(s.semRecibo, [entrada], "o pedido continua pendente");
   // O task_started do turno chega: é ele o recibo.
-  fs.appendFileSync(arquivo, JSON.stringify({ timestamp: new Date().toISOString(), type: "event_msg", payload: { type: "task_started" } }) + "\n");
+  const registro = (payload: unknown) => JSON.stringify({ timestamp: new Date().toISOString(), type: "event_msg", payload }) + "\n";
+  fs.appendFileSync(arquivo, registro({ type: "task_started" }) + registro({ type: "user_message", message: "pedido-do-primeiro-enter", images: [] }));
   await esperarAte(() => s.promptsAceitos === 1, 6_000, "o task_started virar recibo");
   assert.equal(s.semRecibo.length, 0, "agora o pedido está confirmado");
   await dormir(1_500);
@@ -595,9 +596,36 @@ test("rodada 4, item 5: o primeiro task_started que já está no arquivo quando 
   await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
   pedidoPendenteComEnter(s, "pedido-com-task-started-ja-no-arquivo");
   const id = "6c7d8e9f-2222-4333-8444-a55566677788";
-  gravarRolloutDeTeste(s.estado.config.cwd as string, id, true);
+  gravarRolloutDeTeste(s.estado.config.cwd as string, id, true, "pedido-com-task-started-ja-no-arquivo");
   await esperarAte(() => s.estado.sessionId === id && s.promptsAceitos >= 1, 6_000, "o recibo vir do arquivo");
   await dormir(1_500);
   assert.equal(s.promptsAceitos, 1, "nem pulou o começo do arquivo, nem contou em dobro");
   assert.equal(s.semRecibo.length, 0);
+});
+
+test("rodada 5, item 6: o turno do rollout de OUTRO card (task_started com outro texto) não dá baixa no pedido pendente; só o turno com o texto dele confirma", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
+  const entrada = pedidoPendenteComEnter(s, "pedido-do-primeiro-card  com   espacos");
+  const { aplicarEvento } = await import("./sessao/eventos.js");
+  // O segundo card, no mesmo diretório e no mesmo CODEX_HOME, abre um turno com outra mensagem.
+  aplicarEvento(s, { event: "UserPromptSubmit" });
+  aplicarEvento(s, { event: "TextoDoUsuario", texto: "mensagem do segundo card" });
+  assert.equal(s.promptsAceitos, 1, "o turno aconteceu");
+  assert.deepEqual(s.semRecibo, [entrada], "mas o pedido do primeiro card continua pendente");
+  const { reciboDoTexto } = await import("./sessao/fila.js");
+  assert.equal(reciboDoTexto(s, 0, "pedido-do-primeiro-card com espacos"), false);
+  // Um turno cujo texto ainda não chegou também não confirma; o texto certo, sim (comparação normalizada de espaços).
+  aplicarEvento(s, { event: "UserPromptSubmit" });
+  assert.deepEqual(s.semRecibo, [entrada]);
+  aplicarEvento(s, { event: "TextoDoUsuario", texto: "pedido-do-primeiro-card com espacos\n\n[Aviso do sistema: esperou na fila]" });
+  assert.equal(s.semRecibo.length, 0, "agora o pedido está confirmado");
+  s.promptsAceitos = 0;
+  const { eventoDoRollout } = await import("./provedores/codex-rollout.js");
+  const em = "2026-11-24T10:00:00.000Z";
+  assert.deepEqual(eventoDoRollout({ timestamp: em, type: "event_msg", payload: { type: "user_message", message: "oi" } }), { evento: "TextoDoUsuario", em: Date.parse(em), texto: "oi" });
+  assert.deepEqual(eventoDoRollout({ timestamp: em, type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "oi 2" }] } }), { evento: "TextoDoUsuario", em: Date.parse(em), texto: "oi 2" });
+  assert.equal(eventoDoRollout({ timestamp: em, type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "x" }] } }), null);
 });

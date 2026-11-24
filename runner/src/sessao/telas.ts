@@ -112,11 +112,31 @@ function compacta(t: string): string {
   return t.replace(/[\s─-╿]/g, "");
 }
 
-const RE_MARCA_DE_DIALOGO = /esctocancel|doyouwant|\(y\/n\)|1\.yes|1\.no|yes,|no,keep|no,exit|allowonce|alwaysallow|pressentertoconfirm/i;
-const RE_RODAPE_DA_CAIXA_VAZIA = /^(\?forshortcuts|⏵|\(shift\+tab|bypasspermissions|automode|acceptedits|planmode)/i;
+const RE_MARCA_DE_DIALOGO = /esctocancel|doyouwant|\(y\/n\)|1\.yes|1\.no|yes,|no,keep|no,exit|allowonce|alwaysallow|pressentertoconfirm|entercontinue|escskip|skipuntilnextversion|1\.updatenow/i;
+/** O rodapé do TUI, por casamento ESTRITO da linha inteira (sem espaços e sem moldura). Os dois motores:
+ *   - Claude: a linha de modo começa com o ícone (⏵⏵ bypass permissions on / auto mode on / accept edits on, ⏸ plan mode on)
+ *     e pode ter "(shift+tab to cycle)" e outros avisos depois; a dica `? for shortcuts`;
+ *   - Codex: `? for shortcuts` (com `100% context left` na mesma linha) e a linha de atalhos `⏎ send ...` do compositor ativo.
+ *  Uma linha que só COMEÇA como um rodapé ("Plan mode on hold until Monday") é conteúdo do rascunho, não rodapé. Sem o ícone,
+ *  "plan mode on" sozinho também não conta: o Claude sempre desenha o ícone, e sem ele a linha pode ser texto do dono. */
+const RE_RODAPE_DA_CAIXA_VAZIA = /^(\?forshortcuts(\d+%contextleft)?|\(shift\+tabtocycle\)|[⏵⏸].*|⏎send.*)$/i;
 
 function haDialogoAberto(tela: string): boolean {
   return ehDialogoDeAutoMode(tela) || ehDialogoDeConfiancaDoClaude(tela) || ehDialogoDeBypass(tela) || telaDeConfiancaDoCodex(tela);
+}
+
+/** A linha de status do Codex real: dois espaços, texto ("GPT-6.2-Astra high"), " · " e uma pasta absoluta ou ~ até o fim da linha. */
+const RE_STATUS_DO_CODEX = /^ {2}\S.* · [\/~]\S*(?: \S+)*$/;
+function ehLinhaDeStatusDoCodex(linha: string): boolean {
+  return RE_STATUS_DO_CODEX.test(linha.replace(/\s+$/, ""));
+}
+/** Linha de rodapé do Codex: em branco, qualquer linha com a dica "? for shortcuts" (pode ter "← for agents ·" antes e avisos
+ *  "⚠ 1 warning · f2 to view" depois) ou um dos rodapés estritos dos dois motores. */
+function ehLinhaDeRodapeDoCodex(linha: string): boolean {
+  if (linha.trim() === "") return true;
+  const c = compacta(linha);
+  // Com rascunho, o Codex real apaga os atalhos e deixa só o aviso da direita ("⚠ 2 warnings · f2 to view").
+  return c.includes("?forshortcuts") || RE_RODAPE_DA_CAIXA_VAZIA.test(c) || /^⚠\d+warnings?·f2toview$/i.test(c);
 }
 
 const RE_MARCADOR_NO_INICIO = /^[\s│┃|]*[❯›]/;
@@ -176,14 +196,29 @@ function lerCaixa(tela: string): { conteudo: string; marcaDeDialogoDepois: boole
       }
     }
   } else {
-    // Sem moldura: o rodapé é o trecho final da tela feito só de linhas com cara de rodapé (e linhas em branco).
+    // Sem moldura (Codex): o fim da tela é o bloco final feito de linhas de rodapé ou em branco, e antes dele, no Codex real, a linha
+    // de status ("  <modelo> <esforço> · <pasta>"). A evidência positiva é esse bloco: a linha de status e/ou uma linha de atalhos.
     let k = linhas.length;
-    while (k > l + 1 && (linhas[k - 1].trim() === "" || RE_RODAPE_DA_CAIXA_VAZIA.test(compacta(linhas[k - 1])))) k--;
-    let achouRodape = false;
-    for (let i = k; i < linhas.length; i++) if (linhas[i].trim() !== "") achouRodape = true;
+    while (k > l + 1 && ehLinhaDeRodapeDoCodex(linhas[k - 1])) k--;
+    let linhasDeRodape = 0;
+    for (let i = k; i < linhas.length; i++) if (linhas[i].trim() !== "") linhasDeRodape++;
+    // Mais de uma linha com cara de rodapé no fim: o TUI desenha uma linha de atalhos só, então uma delas pode ser a última
+    // linha do rascunho do dono ("Plan mode on" digitado). Não dá para saber qual: estado indeterminado, a suspensão se mantém.
+    if (linhasDeRodape > 1) return "duvidosa";
+    let achouRodape = linhasDeRodape > 0;
+    let fimDoConteudo = k;
+    if (k - 1 > l && ehLinhaDeStatusDoCodex(linhas[k - 1])) {
+      // Se a linha anterior (não em branco) também puder ser lida como status, a última linha do rascunho pode ser uma delas:
+      // nada desempata, então a tela é duvidosa.
+      let j = k - 2;
+      while (j > l && linhas[j].trim() === "") j--;
+      if (j > l && ehLinhaDeStatusDoCodex(linhas[j])) return "duvidosa";
+      achouRodape = true;
+      fimDoConteudo = k - 1;
+    }
     // Uma borda de caixa depois do marcador, sem borda em cima, é estrutura pela metade: não se confirma.
     const bordaDepois = linhas.slice(l + 1, k).some((x) => ehLimiteDaCaixa(x));
-    if (achouRodape && !bordaDepois) fim = k;
+    if (achouRodape && !bordaDepois) fim = fimDoConteudo;
   }
   if (fim < 0) return "duvidosa";
   // Qualquer marca de diálogo abaixo do marcador (mesmo depois do limite ou do rodapé) torna a tela duvidosa.
@@ -225,4 +260,13 @@ export function caixaIdentificada(tela: string): boolean {
 /** A tela mostra a caixa de composição sem nenhum texto (só o prompt e o rodapé)? */
 export function caixaVaziaNaTela(tela: string): boolean {
   return estadoDaCaixa(tela, "\u0000") === "vazia";
+}
+
+/** A escrita que veio do dono (teclado do terminal ou entrada crua) é a tecla de ENVIAR (Enter)? Só vale o pedaço que é
+ *  exatamente "\r" ou "\n", ou que termina em "\r" FORA de colagem com bracketed paste (ESC[200~ ... ESC[201~). Uma colagem,
+ *  com ou sem várias quebras de linha, só preenche o editor: o rascunho continua na caixa e a digitação segue suspensa. */
+export function ehEnterDoDono(texto: string): boolean {
+  if (texto === "\r" || texto === "\n") return true;
+  const fora = texto.replace(new RegExp(`${ESC}\\[200~[\\s\\S]*?(?:${ESC}\\[201~|$)`, "g"), "");
+  return fora.endsWith("\r");
 }

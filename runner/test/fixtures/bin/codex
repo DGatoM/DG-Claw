@@ -124,6 +124,7 @@ function lerStdin() {
       reg(f, "response_item", { type: "message", role: "user", content: [{ type: "input_text", text: "<environment_context>\n<cwd>x</cwd>\n</environment_context>" }] });
     }
     reg(f, "event_msg", { type: "task_started" });
+    reg(f, "event_msg", { type: "user_message", message: texto, images: [] });
     reg(f, "response_item", { type: "message", role: "user", content: [{ type: "input_text", text: texto }] });
     await esperar(Number(process.env.FAKE_TURN_MS || 200));
     reg(f, "response_item", { type: "function_call", name: "shell", call_id: "c1", arguments: "{}" });
@@ -142,7 +143,15 @@ function lerStdin() {
 
   process.stdout.write("fake codex pronto\r\n");
   let linha = "";
-  const desenharCaixa = () => process.stdout.write("\u001b[2J\u001b[H\u203a " + linha + "\r\n? for shortcuts\r\n");
+  // Com a caixa vazia o Codex de verdade desenha o texto de ajuda esmaecido (atributo dim) logo depois do marcador.
+  // A tela do Codex real (0.169): marcador e caixa, linha em branco, linha de status "<modelo> <esforço> · <pasta>" e a linha de
+  // atalhos, que fica em BRANCO enquanto há rascunho. Com a caixa vazia o texto de ajuda sai esmaecido (atributo dim).
+  const desenharCaixa = () =>
+    process.stdout.write(
+      "\u001b[2J\u001b[H\u203a " + (linha === "" ? "\u001b[2mAsk Codex to do anything\u001b[0m" : linha) + "\r\n\r\n" +
+      "  GPT-6.2-Astra high \u00b7 /tmp/fake-codex\r\n" +
+      (linha === "" ? "  \u2190 for agents \u00b7 ? for shortcuts\r\n" : "\r\n"),
+    );
   // O Codex de verdade desenha a caixa de composição e o rodapé assim que sobe (o runner só escreve com ela identificada).
   desenharCaixa();
   if (process.stdin.isTTY) process.stdin.setRawMode(true);

@@ -4,7 +4,7 @@ import { type ItemDaFila, type ResultadoDaGravacao, gravarFila } from "../fila-o
 import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
 import { caixaVaziaNaTela } from "./telas.js";
-import { AVISO_DE_FILA_APOS_MS, JANELA_DE_PRONTIDAO_MS, PRONTO_APOS_SPAWN_MS, QUIETO_ANTES_DE_DIGITAR_MS, QUIETO_PARA_LER_TELA_MS, ENTER_MANUAL_SEGURA_FILA_MS, MAX_RETIDOS } from "./constantes.js";
+import { AVISO_DE_FILA_APOS_MS, JANELA_DE_PRONTIDAO_MS, PREFIXO_DO_RECIBO_CODEX, REDESENHO_DEPOIS_DA_TECLA_MS, PRONTO_APOS_SPAWN_MS, QUIETO_ANTES_DE_DIGITAR_MS, QUIETO_PARA_LER_TELA_MS, ENTER_MANUAL_SEGURA_FILA_MS, MAX_RETIDOS } from "./constantes.js";
 
 /** Um texto que já foi digitado no terminal e ainda não tem recibo do CLI (UserPromptSubmit no Claude,
  *  task_started no Codex). Enquanto estiver aqui o pedido NÃO está entregue: se o terminal sair antes do
@@ -44,6 +44,9 @@ export const MOTIVO_CAIXA_COM_RASCUNHO = "runner:caixa-com-rascunho";
 /** Chamada direta que NÃO escreveu nada (tela sem a caixa de composição, agente esperando resposta, terminal trocado antes
  *  da primeira escrita, cliente que desistiu): a rota responde 409 e a mensagem pode ser reenviada sem risco de duplicar. */
 export const MOTIVO_NAO_ENTROU = "runner:nao-entrou";
+/** Chamada direta que NÃO escreveu nada porque outro pedido automático ainda está sem recibo confirmado (a vigia dele segue ativa):
+ *  escrever agora acrescentaria o texto ao que ficou na caixa, e um Enter mandaria os dois juntos. A rota responde 409. */
+export const MOTIVO_ENVIO_PENDENTE = "runner:envio-pendente";
 const MOTIVOS_DE_TELA_BLOQUEADA = ["runner:dialogo-auto-mode", "runner:tela-de-confianca", MOTIVO_RECUSA_DE_ENTRADA];
 
 /** O que aconteceu com o texto: entrou na fila (e no arquivo), era um /compact repetido, ou NÃO foi gravado no arquivo
@@ -170,7 +173,8 @@ export function talvezSoltarFila(s: Sessao): void {
   // sozinho não basta: ele pode ser de outro turno e a caixa continuar com texto.
   if (s.digitacaoSuspensaEm !== null) {
     // A escrita no emulador é assíncrona: só se confia na leitura com o terminal quieto por um instante.
-    if (!terminalQuietoParaLerTela(s)) {
+    // Também espera o terminal redesenhar depois da última tecla do dono: a tela de antes dela mostraria a caixa vazia.
+    if (!terminalQuietoParaLerTela(s) || !telaServeDeProva(s)) {
       agendarReintento(s);
       return;
     }
@@ -247,7 +251,13 @@ export function talvezSoltarFila(s: Sessao): void {
   s.digitarEEnviar(texto, true, entrada)
     .then((recebido) => {
       s.bloqueioDaFilaLogado = false;
-      if (!pendenteEm(s, entrada)) return;
+      if (!pendenteEm(s, entrada)) {
+        // O pedido voltou intacto para a frente da fila (nada foi digitado: tela irreconhecível, caixa com texto, outro pedido
+        // sem recibo...). Repetir já, com o agente ocioso e a tela igual, regravaria o arquivo da fila (com fsync) várias vezes
+        // por segundo: a nova tentativa espera o intervalo de reintento.
+        if (s.filaQuandoIdle[0] === item) agendarReintento(s);
+        return;
+      }
       if (entrada.parada) {
         // Só a caixa que mudou (rascunho, diálogo) suspende a digitação: terminal trocado ou sem hooks não deixam nada na caixa.
         if (entrada.parada.tipo === "caixa") suspenderPorRascunho(s);
@@ -321,6 +331,8 @@ export function agendarReintento(s: Sessao): void {
 export function cancelarReintentoDaFila(s: Sessao): void {
   if (s.reintentoDaFila) clearTimeout(s.reintentoDaFila);
   s.reintentoDaFila = null;
+  if (s.reentregaDoRecado) clearTimeout(s.reentregaDoRecado);
+  s.reentregaDoRecado = null;
   // A vigia do Enter sem recibo também morre quando a sessão para.
   if (s.vigiaDoRecibo) clearTimeout(s.vigiaDoRecibo);
   s.vigiaDoRecibo = null;
@@ -494,7 +506,7 @@ export function confirmarRecibos(s: Sessao): void {
     log.info(s.a("entrada"), `chegou um recibo antes do Enter do pedido ${e.item.id ?? "?"}: é de outro turno e não confirma esse pedido`);
     return;
   }
-  if (s.promptsAceitos <= e.promptsAntes) return;
+  if (!reciboDoTexto(s, e.promptsAntes, e.item.texto)) return;
   if (e.entradasNoEnter !== undefined && s.entradasManuais !== e.entradasNoEnter) {
     // Houve outra escrita no terminal depois do nosso último Enter (o dono apagou o texto e mandou outra mensagem, por
     // exemplo): o recibo pode ser dela, e confirmar apagaria do disco um pedido que o agente talvez nunca tenha aceitado.
@@ -577,4 +589,51 @@ export function recuperarDoDisco(s: Sessao): void {
   const antes = s.retidos.length;
   descartarRetidosAlemDoLimite(s);
   if (mudou || s.retidos.length !== antes) espelharFila(s);
+}
+
+/** Existe um envio automático (direto ou da fila) sem recibo confirmado que NÃO é `envio`? É o mesmo conjunto que segura a fila
+ *  (vigia ativa, digitado sem recibo, comando de barra à espera do recibo próprio). Devolve a descrição, ou null. */
+export function outroEnvioSemRecibo(s: Sessao, envio: SemRecibo | null): string | null {
+  if (s.vigiaDoRecibo !== null) return "a vigia de um pedido anterior ainda espera o recibo dele";
+  if (s.semRecibo.some((e) => e !== envio)) return "há um pedido digitado que o agente ainda não confirmou";
+  if (s.barraPendente !== null && s.barraPendente !== envio) return "há um comando de barra à espera do recibo próprio";
+  if (s.itemEmVoo !== null && s.itemEmVoo !== envio?.item) return "há um pedido da fila sendo digitado";
+  return null;
+}
+
+/** O terminal desenhou alguma coisa depois da última escrita do dono (ou o dono nunca escreveu, ou já passou o prazo em que
+ *  uma tecla sem redesenho deixa de segurar)? Só então a tela de agora pode provar que a caixa está vazia. */
+export function telaServeDeProva(s: Sessao): boolean {
+  if (s.escritaDeForaSeq === null) return true;
+  if (s.seq > s.escritaDeForaSeq) return true;
+  return Date.now() - s.escritaDeForaEm >= REDESENHO_DEPOIS_DA_TECLA_MS;
+}
+
+/** A tela prova que a caixa está vazia: o terminal redesenhou depois da última tecla do dono E a leitura mostra a caixa sem texto. */
+export function caixaVaziaComProva(s: Sessao, tela: string): boolean {
+  return telaServeDeProva(s) && caixaVaziaNaTela(tela);
+}
+
+/** Texto do pedido ou do turno do rollout comparável: espaços repetidos viram um e as pontas são aparadas. */
+export function normalizarTexto(t: string): string {
+  return t.replace(/\s+/g, " ").trim();
+}
+
+/** O texto do turno do rollout (mensagem do usuário) é o do pedido? Compara o INÍCIO dos dois, normalizado, até
+ *  PREFIXO_DO_RECIBO_CODEX caracteres: o texto enviado pode ter um aviso acrescentado no fim, e o Codex pode regravar o texto longo
+ *  (colagem expandida) com pequenas diferenças depois do começo. Pedido vazio nunca confere. */
+export function textoConfere(pedido: string, turno: string): boolean {
+  const a = normalizarTexto(pedido);
+  const b = normalizarTexto(turno);
+  if (a === "") return false;
+  const n = Math.min(a.length, PREFIXO_DO_RECIBO_CODEX);
+  return b.length >= n && b.slice(0, n) === a.slice(0, n);
+}
+
+/** O CLI aceitou, DEPOIS de `depoisDe` prompts, um turno que é deste texto? No Claude o recibo é o hook UserPromptSubmit
+ *  (contador). No Codex o recibo vem do rollout, que pode ser o de outro card no mesmo diretório: só vale um turno novo cuja
+ *  mensagem do usuário tenha o texto do pedido; sem o texto do turno (ou com outro texto), não há recibo. */
+export function reciboDoTexto(s: Sessao, depoisDe: number, texto: string): boolean {
+  if (!s.motor.reciboPorRollout) return s.promptsAceitos > depoisDe;
+  return s.turnosDoCodex.some((t) => t.n > depoisDe && t.textos.some((x) => textoConfere(texto, x)));
 }

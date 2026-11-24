@@ -158,25 +158,35 @@ export function descobrirRollout(
 }
 
 /** Os eventos internos que a Sessao já entende (os mesmos que o hook do Claude traz). */
-export type EventoInterno = "UserPromptSubmit" | "PreToolUse" | "Stop";
+export type EventoInterno = "UserPromptSubmit" | "PreToolUse" | "Stop" | "TextoDoUsuario";
 
 export interface EventoDoRollout {
   evento: EventoInterno;
   em: number;
   ferramenta?: string;
+  /** Só em "TextoDoUsuario": o texto da mensagem do usuário gravada no turno (a que o Codex recebeu de verdade). */
+  texto?: string;
 }
 
 /** Uma linha do rollout vira, ou não, um evento de status. `task_started` é o RECIBO do
  *  Enter (o Codex aceitou o prompt); `task_complete`, `task_aborted` e `turn_aborted`
  *  são o fim do turno; chamada de ferramenta é trabalho em andamento. */
 export function eventoDoRollout(registro: unknown): EventoDoRollout | null {
-  const r = registro as { timestamp?: string; type?: string; payload?: { type?: string; name?: string } } | null;
+  const r = registro as { timestamp?: string; type?: string; payload?: { type?: string; name?: string; message?: unknown; role?: unknown; content?: unknown } } | null;
   const em = Date.parse(r?.timestamp ?? "");
   if (!r || !Number.isFinite(em)) return null;
   const tipo = r.payload?.type ?? "";
   if (r.type === "event_msg") {
     if (tipo === "task_started") return { evento: "UserPromptSubmit", em };
+    // O que o usuário mandou naquele turno: é com ele que o runner confere de quem é o `task_started` (ver reciboDoTexto).
+    if (tipo === "user_message" && typeof r.payload?.message === "string" && r.payload.message.trim() !== "") {
+      return { evento: "TextoDoUsuario", em, texto: r.payload.message };
+    }
     if (tipo === "task_complete" || tipo === "task_aborted" || tipo === "turn_aborted") return { evento: "Stop", em };
+  }
+  if (r.type === "response_item" && tipo === "message" && r.payload?.role === "user") {
+    const texto = textoDosBlocos(r.payload.content);
+    if (texto.trim() !== "") return { evento: "TextoDoUsuario", em, texto };
   }
   if (r.type === "response_item" && (tipo === "function_call" || tipo === "custom_tool_call")) {
     return { evento: "PreToolUse", em, ferramenta: typeof r.payload?.name === "string" ? r.payload.name : undefined };

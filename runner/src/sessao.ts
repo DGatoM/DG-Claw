@@ -46,7 +46,7 @@ import { MedidorDeUso } from "./uso.js";
 import { type PayloadDeHook, receberHook } from "./sessao/eventos.js";
 import { type ResultadoDoEnfileirar, type SemRecibo, enfileirarQuandoOcioso, itensNaoEntregues, recuperarDoDisco, suspenderPorRascunho, talvezSoltarFila } from "./sessao/fila.js";
 import { encerrarIncidenteDeLogin, entregarRecadoDeLogin, marcarLoginExpirado, retomarAposLoginExpirado } from "./sessao/login.js";
-import { ESC } from "./sessao/telas.js";
+import { ESC, ehEnterDoDono } from "./sessao/telas.js";
 
 import { guardarEEmitir } from "./sessao/terminal.js";
 import type { AgentState } from "./tipos.js";
@@ -117,6 +117,13 @@ export class Sessao extends EventEmitter {
   /** Quantos prompts o CLI já ACEITOU (hook UserPromptSubmit no Claude; `task_started` ou o
    *  nascimento do rollout no Codex). É o recibo do Enter; ver enviarComRecibo(). */
   promptsAceitos = 0;
+  /** Codex: os turnos que o rollout mostrou (`n` é o `promptsAceitos` logo depois do `task_started` dele) e os textos do
+   *  usuário gravados nesse turno. O recibo de um pedido só vale se o texto do turno for o do pedido (ver reciboDoTexto):
+   *  dois cards do Codex no mesmo diretório podem ter o rollout trocado, e o `task_started` do vizinho não prova nada.
+   *  Guarda só os últimos 50. */
+  turnosDoCodex: { n: number; textos: string[] }[] = [];
+  /** Codex: textos do usuário vistos antes do primeiro `task_started` (ou antes de o turno novo abrir). */
+  textosSoltosDoCodex: string[] = [];
   /** Quantas vezes o CLI começou a compactar (hook PreCompact). É o recibo do Enter de um comando de
    *  barra como `/compact`, que não dispara UserPromptSubmit; ver esperarRecibo(). */
   compactsIniciados = 0;
@@ -166,6 +173,8 @@ export class Sessao extends EventEmitter {
   vigiaDoLoginExpirado: NodeJS.Timeout | null = null;
   /** O incidente que acabou de ser resolvido e ainda não foi contado ao agente (ver entregarRecadoDeLogin). */
   recadoDeLogin: { expirouEm: number; voltouEm: number } | null = null;
+  /** Nova tentativa de entregar o recado de login quando a fila não conseguiu gravá-lo (timer único). */
+  reentregaDoRecado: NodeJS.Timeout | null = null;
   /** Quando o turno atual começou (UserPromptSubmit/PreToolUse vindo de fora de working): a linha
    *  turn_duration só vale como "acabou" se for posterior a isto. */
   turnoComecouEm = 0;
@@ -397,13 +406,42 @@ export class Sessao extends EventEmitter {
     return this.buffer.join("");
   }
 
-  /** As linhas VISÍVEIS do terminal agora (o que a pessoa vê), sem escapes, unidas por "\n". Vazio sem emulador. */
+  /** As linhas VISÍVEIS do terminal agora (o que a pessoa vê), sem escapes, unidas por "\n". Vazio sem emulador.
+   *
+   *  Na linha da caixa de composição (a que começa com o marcador ❯ ou ›) o texto de ajuda do CLI, que é desenhado esmaecido
+   *  (atributo dim, ou cinza "bright black"), é omitido: ele é o placeholder ("Ask Codex to do anything"), não texto de
+   *  ninguém, e a caixa com ele continua vazia. Texto digitado pelo dono, mesmo com as mesmas palavras, usa a cor normal e
+   *  continua contando como texto. */
   telaAtual(): string {
     const t = this.emulador;
     if (!t) return "";
     const b = t.buffer.active;
     const linhas: string[] = [];
-    for (let i = 0; i < t.rows; i++) linhas.push(b.getLine(b.viewportY + i)?.translateToString(true) ?? "");
+    for (let i = 0; i < t.rows; i++) {
+      const linha = b.getLine(b.viewportY + i);
+      if (!linha) {
+        linhas.push("");
+        continue;
+      }
+      const texto = linha.translateToString(true);
+      if (!/^[\s│┃|]*[❯›]/.test(texto)) {
+        linhas.push(texto);
+        continue;
+      }
+      // Linha da caixa: reconstrói célula a célula, pulando o texto esmaecido que vem depois do marcador.
+      let saida = "";
+      let marcou = false;
+      let cel = linha.getCell(0);
+      for (let x = 0; x < t.cols; x++) {
+        cel = linha.getCell(x, cel) ?? cel;
+        if (!cel || cel.getWidth() === 0) continue;
+        const ch = cel.getChars() || " ";
+        if (marcou && (cel.isDim() !== 0 || (cel.isFgPalette() && cel.getFgColor() === 8)) && ch.trim() !== "") continue;
+        saida += ch;
+        if (!marcou && (ch === "❯" || ch === "›")) marcou = true;
+      }
+      linhas.push(saida.replace(/\s+$/, ""));
+    }
     return linhas.join("\n");
   }
 
@@ -420,12 +458,22 @@ export class Sessao extends EventEmitter {
    *  até vencer o prazo, a fila não solta um pedido que o recibo poderia confirmar por engano. */
   enterManualPendente: { promptsAntes: number; em: number } | null = null;
 
+  /** O número da última saída do terminal (`seq`) quando o dono escreveu por último, e o instante dessa escrita. A tela só
+   *  vale como prova de "caixa vazia" se o terminal desenhou alguma coisa DEPOIS dela: antes disso a tela é a imagem velha,
+   *  de antes da tecla. null = o dono nunca escreveu neste terminal. */
+  escritaDeForaSeq: number | null = null;
+  escritaDeForaEm = 0;
   /** Chamado por toda escrita que vem de fora do runner (tecla do terminal, entrada crua). */
   registrarEscritaDeFora(texto: string): void {
-    if (/[\r\n]/.test(texto)) {
+    if (texto !== "") {
+      this.escritaDeForaSeq = this.seq;
+      this.escritaDeForaEm = Date.now();
+    }
+    if (ehEnterDoDono(texto)) {
       this.enterManualPendente = { promptsAntes: this.promptsAceitos, em: Date.now() };
     } else if (texto !== "" && this.digitacaoSuspensaEm === null) {
-      // Um rascunho do dono, sem Enter, já está na caixa: nada é digitado por cima até a caixa aparecer vazia.
+      // Um rascunho do dono (digitado ou colado), sem Enter, já está na caixa: nada é digitado por cima até a caixa
+      // aparecer vazia.
       suspenderPorRascunho(this);
     }
   }

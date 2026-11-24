@@ -3,8 +3,8 @@ import { log } from "../logger.js";
 import { mascarar } from "../mascara.js";
 import { RX_LOGIN_EXPIRADO } from "../transcript.js";
 import { spawn } from "./ciclo.js";
-import { STOP_CONFIRM_MS } from "./constantes.js";
-import { confirmarRecibos, talvezSoltarFila } from "./fila.js";
+import { STOP_CONFIRM_MS, TURNOS_DO_CODEX_GUARDADOS } from "./constantes.js";
+import { confirmarRecibos, normalizarTexto, talvezSoltarFila } from "./fila.js";
 import { conferirLoginExpiradoNoTranscript, marcarLoginExpirado } from "./login.js";
 import { nonceConfere } from "./telas.js";
 
@@ -18,6 +18,8 @@ export interface PayloadDeEvento {
   source?: string | null;
   error?: string | null;
   lastAssistantMessage?: string | null;
+  /** Codex: o texto da mensagem do usuário gravada no turno do rollout (evento "TextoDoUsuario"). */
+  texto?: string | null;
 }
 
 export interface PayloadDeHook extends PayloadDeEvento {
@@ -104,10 +106,27 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       // de que o texto virou turno em vez de ficar escrito na caixa. Quem espera
       // por ele é o enviarComRecibo().
       s.promptsAceitos += 1;
+      // Codex: o turno guarda os textos do usuário gravados nele; o recibo só vale com o texto do pedido (ver reciboDoTexto).
+      if (s.motor.reciboPorRollout) {
+        s.turnosDoCodex.push({ n: s.promptsAceitos, textos: s.textosSoltosDoCodex.splice(0) });
+        if (s.turnosDoCodex.length > TURNOS_DO_CODEX_GUARDADOS) s.turnosDoCodex.splice(0, s.turnosDoCodex.length - TURNOS_DO_CODEX_GUARDADOS);
+      }
       confirmarRecibos(s);
       s.turnoComecouEm = Date.now();
       s.mudar({ status: "working", hookLatched: false, statusReason: "hook:UserPromptSubmit" });
       break;
+    case "TextoDoUsuario": {
+      // Só o Codex confere o recibo pelo texto do turno (o rollout pode ser o de outro card no mesmo diretório).
+      if (!s.motor.reciboPorRollout || typeof payload.texto !== "string") break;
+      const texto = normalizarTexto(payload.texto).slice(0, 400);
+      if (texto === "") break;
+      const ultimo = s.turnosDoCodex[s.turnosDoCodex.length - 1];
+      if (ultimo) ultimo.textos.push(texto);
+      else s.textosSoltosDoCodex.push(texto);
+      // O `task_started` do turno chega antes do texto: agora o recibo pode ser conferido.
+      confirmarRecibos(s);
+      break;
+    }
     case "PreToolUse":
       cancelarStopPendente(s);
       s.stopBloqueadoAte = 0;

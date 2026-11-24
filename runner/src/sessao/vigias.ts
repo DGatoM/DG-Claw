@@ -133,7 +133,7 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
     },
     aoEvento: (e) => {
       if (s.proc !== esteProc) return;
-      aplicarEvento(s, { event: e.evento satisfies EventoInterno, toolName: e.ferramenta ?? null });
+      aplicarEvento(s, { event: e.evento satisfies EventoInterno, toolName: e.ferramenta ?? null, ...(e.texto !== undefined ? { texto: e.texto } : {}) });
     },
     aoErroDeTurno: (erro) => {
       if (s.proc !== esteProc || !erroDeLoginDoCodex(erro)) return;

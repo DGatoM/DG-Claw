@@ -2021,13 +2021,13 @@ test("envios serializados: o envio direto não se intercala com a colagem longa 
   s.enfileirarQuandoOcioso(longo);
   await esperarAte(() => s.soltandoFila, 5_000, "a fila começar a colar");
   assert.equal(s.semRecibo[0]!.enterEscrito, false, "a colagem longa ainda está no meio");
-  const direto = s.digitarEEnviar("envio-direto-1");
-  await direto;
+  // O envio direto espera a vez na cadeia (não se intercala com a colagem). Quando chega a vez dele, o pedido da fila ainda está
+  // sem recibo (a vigia dele segue ativa): o direto é recusado com ENVIO_PENDENTE e nada dele é escrito.
+  const { ErroDeMotor } = await import("./provedores/motor.js");
+  await assert.rejects(s.digitarEEnviar("envio-direto-1"), (e: unknown) => e instanceof ErroDeMotor && e.statusReason === "runner:envio-pendente");
   const prompts = lerLinhasJson(amb.logDosClis).filter((l) => l.bin === "claude" && l.modo === "prompt").map((l) => l.texto as string);
-  const iLongo = prompts.indexOf(longo);
-  const iDireto = prompts.indexOf("envio-direto-1");
-  assert.ok(iLongo >= 0, "o texto longo chegou inteiro ao CLI, sem o texto direto no meio");
-  assert.ok(iDireto > iLongo, "o envio direto veio depois do Enter do texto da fila");
+  assert.ok(prompts.indexOf(longo) >= 0, "o texto longo chegou inteiro ao CLI, sem o texto direto no meio");
+  assert.ok(!prompts.includes("envio-direto-1"), "o envio direto não escreveu nada");
   const item = s.semRecibo[0]?.item ?? s.retidos[0];
   assert.equal(item?.texto, longo);
   assert.equal(s.semRecibo[0]?.parada, undefined, "o envio direto não mexeu no item da fila");
@@ -2505,7 +2505,7 @@ test("primeiro Enter: um diálogo que abre DEPOIS do texto e antes do Enter impe
   (s as unknown as { escrever: unknown }).escrever = anota;
   escritas.length = 0;
   s.digitacaoSuspensaEm = null;
-  await alimentarTela(s, caixaCom("pedido-sem-dialogo"));
+  await alimentarTela(s, CAIXA_VAZIA);
   setTimeout(() => (s.promptsAceitos += 1), 250);
   assert.equal(await s.digitarEEnviar("pedido-sem-dialogo"), true);
   assert.deepEqual(escritas, ["pedido-sem-dialogo", "\r"]);
@@ -2971,4 +2971,264 @@ test("rodada 4, item 8: envio direto cuja chamada foi desistida enquanto esperav
   assert.equal(await s.digitarEEnviar("direto-que-segue", false, null, () => false), true);
   assert.equal(escritas[0], "direto-que-segue");
   restaurar();
+});
+
+// --- Rodada 5 da revisão ---
+
+const CAIXA_CODEX_PLACEHOLDER = "\u001b[2J\u001b[H› \u001b[2mAsk Codex to do anything\u001b[0m\r\n? for shortcuts\r\n";
+
+test("rodada 5, item 1: dois envios diretos seguidos, o primeiro sem recibo e com o texto na caixa: o segundo é recusado (ENVIO_PENDENTE) e NADA é escrito", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  const { ErroDeMotor } = await import("./provedores/motor.js");
+  const { cancelarReintentoDaFila } = await import("./sessao/fila.js");
+  await alimentarTela(s, CAIXA_VAZIA);
+  const escreve = s.escrever;
+  (s as unknown as { escrever: (t: string) => void }).escrever = (t: string) => {
+    escreve(t);
+    if (t === "primeiro-sem-recibo") s.guardarEEmitir(caixaCom("primeiro-sem-recibo")); // o texto fica na caixa
+  };
+  assert.equal(await s.digitarEEnviar("primeiro-sem-recibo"), false, "sem recibo: entrega incerta, a vigia segue em segundo plano");
+  assert.notEqual(s.vigiaDoRecibo, null, "a vigia está ativa");
+  const antes = escritas.length;
+  await assert.rejects(
+    s.digitarEEnviar("segundo-direto"),
+    (e: unknown) => e instanceof ErroDeMotor && e.statusReason === "runner:envio-pendente" && /esperar/.test(e.comoResolver),
+  );
+  assert.equal(escritas.length, antes, "nenhum byte do segundo");
+  assert.ok(!escritas.includes("segundo-direto"));
+  cancelarReintentoDaFila(s);
+  restaurar();
+});
+
+test("rodada 5, item 1: item da fila com uma vigia de OUTRO envio ativa, ou com texto na caixa, volta intacto à frente e nada é escrito", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  const { cancelarReintentoDaFila } = await import("./sessao/fila.js");
+  await alimentarTela(s, CAIXA_VAZIA);
+  s.vigiaDoRecibo = setTimeout(() => {}, 60_000);
+  s.vigiaDoRecibo.unref();
+  const { item, entrada } = novoItem("pedido-da-fila-com-vigia");
+  s.semRecibo.push(entrada);
+  s.itemEmVoo = item;
+  assert.equal(await s.digitarEEnviar(item.texto, true, entrada), false);
+  assert.deepEqual(escritas, []);
+  assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), [item.texto], "voltou à frente da fila");
+  clearTimeout(s.vigiaDoRecibo);
+  s.vigiaDoRecibo = null;
+  // Sem vigia, mas a caixa tem texto: também não escreve (antes só se exigia caixa identificada).
+  await alimentarTela(s, caixaCom("texto-que-sobrou"));
+  const dois = novoItem("pedido-com-caixa-suja");
+  s.filaQuandoIdle.length = 0;
+  s.semRecibo.push(dois.entrada);
+  s.itemEmVoo = dois.item;
+  assert.equal(await s.digitarEEnviar(dois.item.texto, true, dois.entrada), false);
+  assert.deepEqual(escritas, []);
+  assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), [dois.item.texto]);
+  cancelarReintentoDaFila(s);
+  restaurar();
+});
+
+test("rodada 5, item 2: a vigia de um envio DIRETO que esgota as tentativas suspende a digitação do terminal; o item da fila não é digitado por cima do texto", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  const { cancelarReintentoDaFila, talvezSoltarFila } = await import("./sessao/fila.js");
+  await alimentarTela(s, CAIXA_VAZIA);
+  const escreve = s.escrever;
+  (s as unknown as { escrever: (t: string) => void }).escrever = (t: string) => {
+    escreve(t);
+    if (t === "direto-que-fica-na-caixa") s.guardarEEmitir(caixaCom("direto-que-fica-na-caixa"));
+  };
+  assert.equal(await s.digitarEEnviar("direto-que-fica-na-caixa"), false);
+  s.filaQuandoIdle.push({ texto: "pedido-da-fila-depois", em: Date.now(), id: "fila-depois" });
+  await esperarAte(() => s.vigiaDoRecibo === null, 5_000, "a vigia acabar as tentativas");
+  assert.notEqual(s.digitacaoSuspensaEm, null, "a suspensão é do terminal, mesmo sem item de fila para reter");
+  s.ultimaSaidaEm = Date.now() - 5_000;
+  talvezSoltarFila(s);
+  await dormir(700);
+  assert.ok(!escritas.includes("pedido-da-fila-depois"), "o item da fila não foi digitado por cima");
+  assert.equal(s.filaQuandoIdle.length, 1, "continua guardado na fila");
+  cancelarReintentoDaFila(s);
+  restaurar();
+});
+
+test("rodada 5, item 3: tecla do dono e logo um item da fila, sem nenhum redesenho do terminal: nada é enviado; depois do redesenho com a caixa vazia, sai", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  const { cancelarReintentoDaFila, telaServeDeProva } = await import("./sessao/fila.js");
+  await alimentarTela(s, CAIXA_VAZIA); // a imagem velha: a caixa ainda aparece vazia
+  s.ultimaSaidaEm = Date.now() - 5_000; // o terminal estava quieto havia muito tempo
+  s.registrarEscritaDeFora("x"); // a tecla do dono, que o terminal ainda não desenhou
+  assert.notEqual(s.digitacaoSuspensaEm, null);
+  assert.equal(telaServeDeProva(s), false, "a tela é de antes da tecla");
+  s.filaQuandoIdle.push({ texto: "item-logo-depois-da-tecla", em: Date.now(), id: "logo-depois" });
+  const { talvezSoltarFila } = await import("./sessao/fila.js");
+  talvezSoltarFila(s);
+  await dormir(500);
+  assert.deepEqual(escritas, [], "nada foi enviado");
+  assert.notEqual(s.digitacaoSuspensaEm, null, "a suspensão não caiu");
+  // O terminal desenhou a tecla na caixa: continua suspenso. Depois o dono apaga e o redesenho mostra a caixa vazia: libera.
+  await alimentarTela(s, caixaCom("x"));
+  s.ultimaSaidaEm = Date.now() - 5_000;
+  talvezSoltarFila(s);
+  assert.notEqual(s.digitacaoSuspensaEm, null);
+  await alimentarTela(s, CAIXA_VAZIA);
+  s.ultimaSaidaEm = Date.now() - 5_000;
+  assert.equal(telaServeDeProva(s), true);
+  cancelarReintentoDaFila(s);
+  restaurar();
+});
+
+test("rodada 5, item 4: ehEnterDoDono só reconhece \\r ou \\n puros, ou um \\r final FORA de colagem; colagem multilinha mantém a suspensão e a fila não envia", async () => {
+  const { ehEnterDoDono } = await import("./sessao/telas.js");
+  assert.equal(ehEnterDoDono("\r"), true);
+  assert.equal(ehEnterDoDono("\n"), true);
+  assert.equal(ehEnterDoDono("abc\r"), true);
+  assert.equal(ehEnterDoDono("\u001b[200~a\nb\nc\u001b[201~\r"), true, "a colagem seguida do Enter");
+  assert.equal(ehEnterDoDono("\u001b[200~a\rb\r\u001b[201~"), false, "o \\r final está DENTRO da colagem");
+  assert.equal(ehEnterDoDono("\u001b[200~a\nb\nc\u001b[201~"), false);
+  assert.equal(ehEnterDoDono("\u001b[200~a\nb"), false, "colagem ainda sem o fim");
+  assert.equal(ehEnterDoDono("linha1\nlinha2\nlinha3"), false, "várias quebras sem \\r final");
+  assert.equal(ehEnterDoDono("x"), false);
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  const { cancelarReintentoDaFila, talvezSoltarFila } = await import("./sessao/fila.js");
+  s.registrarEscritaDeFora("\u001b[200~primeira\nsegunda\nterceira\u001b[201~");
+  assert.notEqual(s.digitacaoSuspensaEm, null, "a colagem é um rascunho, não um Enter");
+  assert.equal(s.enterManualPendente, null);
+  await alimentarTela(s, caixaCom("primeira"));
+  s.ultimaSaidaEm = Date.now() - 5_000;
+  s.filaQuandoIdle.push({ texto: "item-depois-da-colagem", em: Date.now() - 20_000, id: "depois-colagem" });
+  talvezSoltarFila(s);
+  await dormir(400);
+  assert.deepEqual(escritas, []);
+  cancelarReintentoDaFila(s);
+  s.digitacaoSuspensaEm = null;
+  restaurar();
+});
+
+test("rodada 5, item 5: o rodapé só conta com casamento estrito da linha inteira; 'Plan mode on hold until Monday' é rascunho, não rodapé", async () => {
+  const { caixaVaziaNaTela, caixaIdentificada, estadoDaCaixa } = await import("./sessao/telas.js");
+  // O caso do Codex: caixa sem moldura, 1ª linha vazia, última linha do rascunho parecida com um rodapé, rodapé real abaixo.
+  const rascunho = "› \r\nPlan mode on hold until Monday\r\n? for shortcuts\r\n";
+  assert.equal(caixaVaziaNaTela(rascunho), false);
+  assert.notEqual(estadoDaCaixa(rascunho, "outro"), "vazia");
+  // O mesmo com a última linha do rascunho exatamente igual a um rodapé: indeterminado (duas linhas com cara de rodapé).
+  const igual = "› \r\nprimeira linha\r\n⏵⏵ bypass permissions on (shift+tab to cycle)\r\n? for shortcuts\r\n";
+  assert.equal(caixaVaziaNaTela(igual), false);
+  assert.equal(estadoDaCaixa(igual, "x"), "indeterminada");
+  // Os rodapés reais dos dois motores continuam reconhecidos.
+  for (const rodape of [
+    "? for shortcuts",
+    "  ? for shortcuts                                100% context left",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)",
+    "  ⏵⏵ auto mode on (shift+tab to cycle)",
+    "  ⏵⏵ accept edits on (shift+tab to cycle)",
+    "  ⏸ plan mode on (shift+tab to cycle)",
+  ]) {
+    assert.equal(caixaVaziaNaTela(`› \r\n${rodape}\r\n`), true, rodape);
+    assert.equal(caixaIdentificada(`› \r\n${rodape}\r\n`), true, rodape);
+  }
+});
+
+test("rodada 5, item 7: o texto de ajuda esmaecido do Codex ('Ask Codex to do anything') é caixa VAZIA; o dono digitando as mesmas palavras, sem esmaecer, NÃO é", async () => {
+  const { s, restaurar } = await sessaoComEscritaAnotada();
+  const { caixaVaziaNaTela, caixaIdentificada } = await import("./sessao/telas.js");
+  await alimentarTela(s, CAIXA_CODEX_PLACEHOLDER);
+  assert.equal(caixaIdentificada(s.telaAtual()), true);
+  assert.equal(caixaVaziaNaTela(s.telaAtual()), true, "placeholder em dim");
+  await alimentarTela(s, "\u001b[2J\u001b[H› \u001b[90mAsk Codex to do anything\u001b[0m\r\n? for shortcuts\r\n");
+  assert.equal(caixaVaziaNaTela(s.telaAtual()), true, "placeholder em cinza (bright black)");
+  await alimentarTela(s, "\u001b[2J\u001b[H› Ask Codex to do anything\r\n? for shortcuts\r\n");
+  assert.equal(caixaVaziaNaTela(s.telaAtual()), false, "as mesmas palavras digitadas pelo dono, sem dim");
+  await alimentarTela(s, "\u001b[2J\u001b[H› \u001b[2mAsk\u001b[0m rascunho-do-dono\r\n? for shortcuts\r\n");
+  assert.equal(caixaVaziaNaTela(s.telaAtual()), false, "texto normal depois do esmaecido");
+  restaurar();
+});
+
+test("rodada 5, item 8: tela irreconhecível com o agente idle não vira laço de regravação: poucas tentativas e poucas gravações do arquivo da fila", async () => {
+  logarClaude(amb);
+  const { s } = await nova({}, { ...PASSOS_CURTOS, reintentoTelaBloqueadaMs: 600 });
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const { cancelarReintentoDaFila } = await import("./sessao/fila.js");
+  await alimentarTela(s, "\u001b[2J\u001b[Hnada que pareça uma caixa de composição aqui\r\n");
+  let tentativas = 0;
+  const original = s.digitarEEnviar.bind(s);
+  (s as unknown as { digitarEEnviar: typeof original }).digitarEEnviar = (...a: Parameters<typeof original>) => {
+    tentativas += 1;
+    return original(...a);
+  };
+  let mtimes = 0;
+  let ultimo = 0;
+  const olhar = setInterval(() => {
+    try {
+      const m = fs.statSync(s.arquivoDaFila).mtimeMs;
+      if (m !== ultimo) {
+        ultimo = m;
+        mtimes += 1;
+      }
+    } catch {}
+  }, 5);
+  s.enfileirarQuandoOcioso("pedido-com-tela-irreconhecivel");
+  // A fila só solta depois da janela de prontidão do spawn; a contagem vale a partir da primeira tentativa.
+  await esperarAte(() => tentativas >= 1, 12_000, "a primeira tentativa da fila");
+  const tentativasIniciais = tentativas;
+  mtimes = 0;
+  await dormir(2_000);
+  tentativas -= tentativasIniciais - 1;
+  clearInterval(olhar);
+  cancelarReintentoDaFila(s);
+  assert.ok(tentativas >= 1 && tentativas <= 5, `tentativas: ${tentativas}`);
+  assert.ok(mtimes <= 12, `gravações do arquivo da fila: ${mtimes}`);
+  assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["pedido-com-tela-irreconhecivel"]);
+});
+
+test("rodada 5, item 9: o recado de login só é limpo depois de enfileirado; com a fila sem poder gravar ele fica e a entrega é tentada de novo", async () => {
+  logarClaude(amb);
+  const { s } = await nova({}, { ...PASSOS_CURTOS, reintentoTelaBloqueadaMs: 300 });
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const { entregarRecadoDeLogin } = await import("./sessao/login.js");
+  const { cancelarReintentoDaFila } = await import("./sessao/fila.js");
+  const certo = s.arquivoDaFila;
+  const bloqueio = path.join(amb.raiz, "arquivo-no-lugar-da-pasta-do-recado");
+  fs.writeFileSync(bloqueio, "x");
+  s.recadoDeLogin = { expirouEm: Date.now() - 60_000, voltouEm: Date.now() };
+  // O agente fica ocupado para o recado não ser digitado assim que gravar.
+  const antes = s.estado.status;
+  (s.estado as { status: string }).status = "working";
+  (s as unknown as { arquivoDaFila: string }).arquivoDaFila = path.join(bloqueio, "fila.json");
+  entregarRecadoDeLogin(s);
+  assert.notEqual(s.recadoDeLogin, null, "o recado continua guardado");
+  assert.equal(s.filaQuandoIdle.length, 0);
+  (s as unknown as { arquivoDaFila: string }).arquivoDaFila = certo;
+  await esperarAte(() => s.recadoDeLogin === null, 3_000, "a nova tentativa entregar o recado");
+  assert.equal(s.filaQuandoIdle.length, 1);
+  assert.match(s.filaQuandoIdle[0].texto, /login-reconectado/);
+  (s.estado as { status: string }).status = antes;
+  cancelarReintentoDaFila(s);
+});
+
+test("telas reais (sonda com os CLIs): Codex vazio, Codex com rascunho, diálogo de atualização do Codex e Claude real", async () => {
+  const { caixaIdentificada, caixaVaziaNaTela, estadoDaCaixa } = await import("./sessao/telas.js");
+  const vazia =
+    "  /review - review any changes and find issues\n\n› \n\n  GPT-6.2-Astra high · /tmp/sonda-claude\n  ← for agents · ? for shortcuts                                      ⚠ 1 warning · f2 to view\n";
+  assert.equal(caixaIdentificada(vazia), true);
+  assert.equal(caixaVaziaNaTela(vazia), true);
+  const rascunho = "› ola mundolinha um\n  Plan mode on\n  linha tres\n  GPT-6.2-Astra high · /tmp/sonda-claude\n\n";
+  assert.equal(caixaIdentificada(rascunho), true);
+  assert.equal(caixaVaziaNaTela(rascunho), false);
+  assert.equal(estadoDaCaixa(rascunho, "outro texto"), "indeterminada");
+  // Codex real com rascunho: os atalhos somem e fica só o aviso da direita na última linha.
+  const rascunhoComAviso = "› ola mundo\n  GPT-6.2-Astra high · /tmp/sonda-claude\n                                                  ⚠ 2 warnings · f2 to view\n";
+  assert.equal(caixaIdentificada(rascunhoComAviso), true);
+  assert.equal(estadoDaCaixa(rascunhoComAviso, "ola mundo"), "mesmo-texto");
+  // A última linha do rascunho também parece uma linha de status: nada desempata, tela duvidosa.
+  const parecidaComStatus = "› rascunho\n  anotei isto · /tmp/pasta\n  GPT-6.2-Astra high · /tmp/sonda-claude\n\n";
+  assert.equal(caixaIdentificada(parecidaComStatus), false);
+  assert.equal(caixaVaziaNaTela(parecidaComStatus), false);
+  const atualizacao =
+    "  Update available · 0.169.0 → 0.172.0\n  Release notes: https://github.com/openai/codex/releases/latest\n› 1. Update now (runs `npm install -g @openai/codex`)\n  2. Skip\n  3. Skip until next version\n  enter continue · esc skip\n";
+  assert.equal(caixaIdentificada(atualizacao), false);
+  assert.equal(caixaVaziaNaTela(atualizacao), false);
+  const borda = "─".repeat(120);
+  const claude = `${borda}\n❯  \n${borda}\n  ⚠ Transcript saving is off ...\n  ⏵⏵ auto mode on (shift+tab to cycle)        ◐ medium · /effort\n`;
+  assert.equal(caixaIdentificada(claude), true);
+  assert.equal(caixaVaziaNaTela(claude), true);
 });

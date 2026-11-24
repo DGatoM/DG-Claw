@@ -743,3 +743,33 @@ test("rodada 4, item 8: o cliente HTTP que desiste do POST /input enquanto o env
     principal.cadeiaDeEnvio = Promise.resolve();
   }
 });
+
+test("rodada 5, item 1: dois POST /input diretos; o primeiro fica sem recibo e com o texto na caixa, o segundo recebe 409 ENVIO_PENDENTE e nada dele é escrito", async () => {
+  const { alimentarTela } = await import("./apoio-teste.js");
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  principal.digitacaoSuspensaEm = null;
+  const caixa = (t: string) => "\u001b[2J\u001b[H╭" + "─".repeat(42) + "╮\r\n│ ❯ " + t + "\r\n╰" + "─".repeat(42) + "╯\r\n? for shortcuts\r\n";
+  await alimentarTela(principal, caixa(""));
+  const escritas: string[] = [];
+  const original = principal.escrever.bind(principal);
+  (principal as unknown as { escrever: (t: string) => void }).escrever = (t: string) => {
+    escritas.push(t);
+    if (t === "primeira-mensagem-direta") principal.guardarEEmitir(caixa(t));
+  };
+  try {
+    const primeira = await req("POST", `/api/agents/${ID}/input`, { text: "primeira-mensagem-direta" });
+    assert.equal(primeira.status, 202, JSON.stringify(primeira.corpo));
+    assert.equal(primeira.corpo.data.entregaIncerta, true);
+    const antes = escritas.length;
+    const segunda = await req("POST", `/api/agents/${ID}/input`, { text: "segunda-mensagem-direta" });
+    assert.equal(segunda.status, 409, JSON.stringify(segunda.corpo));
+    assert.equal(segunda.corpo.code, "ENVIO_PENDENTE");
+    assert.match(segunda.corpo.howToFix, /esperar/);
+    assert.equal(escritas.length, antes, "nada do segundo foi escrito");
+    assert.ok(!escritas.includes("segunda-mensagem-direta"));
+  } finally {
+    (principal as unknown as { escrever: unknown }).escrever = original;
+  }
+});
