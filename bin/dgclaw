@@ -2285,11 +2285,10 @@ agente_youtube() {
         return 0
     fi
     # Sob a trava do YouTube: nao liga nem desliga enquanto uma restauracao de backup estiver repondo perfis da Tela.
-    # Espera 0: se uma restauracao estiver em curso, recusa na hora; o dono confere a Tela depois e pede de novo.
-    com_trava_youtube 0 _agente_youtube_gravar "$slug" "$valor" || exit $?
+    _agente_youtube_gravar "$slug" "$valor"
 }
 
-# _agente_youtube_gravar <slug> sim|nao: grava ou remove o marcador. Chamado sob com_trava_youtube.
+# _agente_youtube_gravar <slug> sim|nao: grava ou remove o marcador.
 _agente_youtube_gravar() {
     local slug="$1" valor="$2" casa marcador ub tmp
     casa="$DG_CASAS/$slug"

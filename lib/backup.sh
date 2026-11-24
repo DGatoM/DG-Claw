@@ -265,8 +265,7 @@ backup_listar() {
 
 # _restaurar_extrair <tar> <rotulo> <backup agora>: extrai por cima, sem apagar o que for mais novo.
 _restaurar_extrair() {
-    # O marcador da conta dedicada do YouTube nunca volta de um backup: a declaracao vale para o perfil da Tela de agora.
-    tar -xzf "$1" -C "${R:-/}" --numeric-owner --no-wildcards-match-slash --exclude='var/lib/dgclaw/agentes/*/config/youtube-conta-dedicada' \
+    tar -xzf "$1" -C "${R:-/}" --numeric-owner \
         || falha "nao consegui restaurar $1 ($2)." "os agentes ja foram parados; o estado de antes de restaurar esta em $3. Veja a mensagem do tar acima e rode de novo,"
 }
 
@@ -376,8 +375,7 @@ restaurar_main() {
     passo "Restaurando configuracao, Admin e dados do backup"
     # Antes de extrair (agentes ja parados): se a restauracao parar no meio, nenhum agente fica com a conta dedicada
     # do YouTube ligada sobre um perfil da Tela que voltou do backup. Depois de extrair, a mesma limpeza tira o que veio nele.
-    # Sob a trava do YouTube: enquanto a restauracao roda, `dgclaw agente youtube ... sim` espera ou desiste.
-    com_trava_youtube 600 _restaurar_extrair_tudo "$b" "$antes" || exit $?
+    _restaurar_extrair_tudo "$b" "$antes"
     ok "restaurado (a conversa do Admin nao e tocada, para nao voltar o chat em que voce esta)"
     if [ "$(_env_de "$b/MANIFESTO.txt" casas_dos_agentes_no_backup)" != sim ]; then
         aviso "esse backup foi feito sem as casas dos agentes (--sem-casas): a memoria e as conversas dos agentes ficaram como estavam."
