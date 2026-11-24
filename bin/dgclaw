@@ -924,6 +924,8 @@ criar_container() {
         executar podman "${args[@]}" >/dev/null
         ok "container $c criado (portas so em 127.0.0.1: runner $C_PORTA_RUNNER, painel $C_PORTA_PAINEL)"
     fi
+    # O container ja existe (ou ja existia): o proximo calculo de limites o enxerga, entao a trava dos limites pode soltar.
+    limites_trava_soltar
     # Mesmo caminho do `iniciar`: com restricoes.json, os arquivos sao refeitos e a imagem conferida ANTES de ligar
     # (o recriar liga o container novo antes do reparar), e a conferencia de dentro roda depois, tudo sob a trava.
     restricoes_com_trava "$C_SLUG" _criar_container_ligar_sob_trava "$C_SLUG" "$c"
@@ -1298,9 +1300,14 @@ agente_criar() {
     # Trava compartilhada da faixa de rede: da leitura da configuracao (a faixa) ate a cerca publicada.
     # O instalador, que pode trocar a faixa, espera por ela (ver trava_faixa_pegar em lib/comum.sh).
     trava_faixa_pegar -s
-    # O podman nao herda o descritor da trava: o conmon vive ate o container parar e a seguraria.
-    podman() { command podman "$@" 8>&-; }
+    # O podman nao herda os descritores das travas (8: faixa de rede; 7: limites): o conmon vive ate o container parar e as seguraria.
+    podman() { command podman "$@" 7>&- 8>&-; }
+    # `timeout` executa o podman direto do PATH, sem passar pela funcao acima (lib/restricoes.sh usa `timeout 15 podman`).
+    timeout() { command timeout "$@" 7>&- 8>&-; }
     carregar_env_dgclaw
+    # Trava dos limites: do calculo ate o `podman create` (soltada em criar_container), para dois criar ao mesmo tempo nao
+    # se acharem os dois o principal (lib/limites.sh).
+    limites_trava_pegar
     # Antes de reservar uid, portas, casa ou rede: uma sobrescrita invalida (DGCLAW_CONTAINER_MEMORIA=4GB) falha aqui, sem nada reservado.
     # O criar_container reaproveita este resultado (LIM_*).
     limites_calcular "$C_SLUG"
@@ -1526,6 +1533,10 @@ agente_reparar() {
     exigir_slug "${1:-}" reparar
     local slug="$1" c="dgclaw-$1" obj porta lim_rc=0
     exigir_ferramentas jq podman curl
+    # Reparar e recriar do mesmo agente nao rodam juntos (lib/comum.sh); chamado pelo recriar, passa direto pela trava.
+    trava_agente_pegar "$slug"
+    podman() { command podman "$@" 6>&- 7>&- 8>&-; }
+    timeout() { command timeout "$@" 6>&- 7>&- 8>&-; }
     obj="$(agentes_obter "$slug")"
     [ -n "$obj" ] || falha "o agente '$slug' nao esta no agentes.json." \
         "se a criacao nao terminou, rode de novo: dgclaw agente criar $slug --nome \"...\""
@@ -1835,7 +1846,15 @@ agente_recriar() {
     done
     exigir_slug "$slug" recriar
     exigir_ferramentas jq podman curl
+    # Reparar e recriar do mesmo agente nao rodam juntos (lib/comum.sh); o reparar de dentro daqui passa direto pela trava.
+    trava_agente_pegar "$slug"
+    # O podman nao herda os descritores das travas (6: agente; 7: limites): o conmon vive ate o container parar e as seguraria.
+    podman() { command podman "$@" 6>&- 7>&- 8>&-; }
+    timeout() { command timeout "$@" 6>&- 7>&- 8>&-; }
     carregar_env_dgclaw
+    # Trava dos limites: do calculo ate o `podman create` (soltada em criar_container), como no criar. Os retornos antes
+    # da troca a soltam aqui.
+    limites_trava_pegar
     # Antes de parar ou remover qualquer coisa: uma sobrescrita invalida (DGCLAW_CONTAINER_MEMORIA=4GB) falha aqui, com o agente intacto.
     limites_calcular "$slug"
     local c="dgclaw-$slug" obj aloc estado img_atual img_nova unidades inv
@@ -1864,6 +1883,7 @@ agente_recriar() {
         *)
             if [ "$forcar" = 0 ]; then
                 info "agente $slug: container $estado; deixei como esta (ligue com: dgclaw agente iniciar $slug e rode isto de novo, ou recrie mesmo assim com: dgclaw agente recriar $slug --forcar)."
+                limites_trava_soltar
                 return 0
             fi
             info "agente $slug: container $estado; com --forcar eu recrio mesmo assim." ;;
@@ -1879,6 +1899,7 @@ agente_recriar() {
             info "agente $slug: a imagem e a mesma, mas o DNS do servidor ($DNS_HOST_PRIVADOS) fica numa rede privada e o container ainda usa esse DNS; vou recriar para ele usar DNS publico."
         else
             ok "agente $slug: o container ja usa a imagem atual, nada a recriar"
+            limites_trava_soltar
             return 0
         fi
     fi

@@ -4,6 +4,21 @@ echo "podman $*" >> "${STUB_LOG:?}"
 est="${STUB_ESTADO:?}"
 # O conmon de verdade herda os descritores abertos: se o 9 (a trava das restricoes) chega aqui, ele a segurava para sempre.
 if [ -e /proc/$$/fd/9 ]; then echo "podman $*" >> "$est/fd9-aberto"; fi
+# Idem para as travas dos limites (7) e do agente (6): se chegam aqui, o conmon as seguraria para sempre.
+for n in 6 7; do [ -e /proc/$$/fd/$n ] && { echo "podman $*" >> "$est/fd$n-aberto"; }; done
+# ID do container: estado/id-<nome> (o teste troca o ID no meio do reparo); sem ele, "idfalso-<nome>". O podman de verdade aceita o
+# ID no lugar do nome em inspect e update; um ID que nao e o atual de nenhum container nao existe.
+id_de() { if [ -f "$est/id-$1" ]; then cat "$est/id-$1"; else echo "idfalso-$1"; fi; }
+nome_do() {
+    local f n
+    case "$1" in dgclaw-*) echo "$1"; return ;; esac
+    for f in "$est"/c-*; do
+        [ -f "$f" ] || continue
+        n="${f##*/c-}"
+        if [ "$(id_de "$n")" = "$1" ]; then echo "$n"; return; fi
+    done
+    echo "$1"
+}
 case "${1:-}" in
     image)
         # `image inspect -f {{.Id}}`: o id da imagem "atual" (muda quando o teste escreve estado/imagem-id).
@@ -81,7 +96,11 @@ case "${1:-}" in
         rm -f "$est/c-$nome" ;;
     inspect)
         nome="${*: -1}"
+        # Container chamado por um ID que ja nao e o dele (foi trocado no meio): nao existe.
+        nome="$(nome_do "$nome")"
         [ -f "$est/c-$nome" ] || exit 1
+        if printf '%s ' "$@" | grep -q '{{.Id}}'; then id_de "$nome"; exit 0; fi
+        if printf '%s ' "$@" | grep -q '{{.Id}}'; then id_de "$nome"; exit 0; fi
         # inspect-falha: a consulta do estado falha sempre (depois do primeiro stop); inspect-falha-pre-kill: falha ate o kill; inspect-falha-pos-kill:
         # falha depois do kill (o podman nao responde).
         if printf '%s ' "$@" | grep -q 'State.Status'; then
@@ -151,12 +170,13 @@ case "${1:-}" in
         # update-sem-suporte: o podman antigo nao tem o comando; update-sem-swap: nao aceita --memory-swap.
         [ -f "$est/update-sem-suporte" ] && { echo "Error: unknown command \"update\" for \"podman\"" >&2; exit 125; }
         if [ -f "$est/update-sem-swap" ] && printf '%s ' "$@" | grep -q -- '--memory-swap'; then echo "Error: unknown flag: --memory-swap" >&2; exit 125; fi
-        nome="${*: -1}"; [ -f "$est/lim-$nome" ] || exit 1
+        nome="$(nome_do "${*: -1}")"; [ -f "$est/lim-$nome" ] || exit 1
         # update-sem-efeito: o comando termina com 0 mas nao muda nada (o podman que mente).
         [ -f "$est/update-sem-efeito" ] && exit 0
         touch "$est/update-feito"
         read -r mem quota periodo pids swap < "$est/lim-$nome"
         swap="${swap:-$((mem * 2))}"
+        mem_antes="$mem"; swap_antes="$swap"; quota_antes="$quota"; pids_antes="$pids"
         args_update="$*"
         shift   # tira o "update"
         while [ $# -gt 1 ]; do
@@ -166,6 +186,9 @@ case "${1:-}" in
                 --memory) v="$2"; case "$v" in *g) v=$(( ${v%g} * 1073741824 )) ;; *m) v=$(( ${v%m} * 1048576 )) ;; esac; mem="$v"; [ -f "$est/update-mem-vira-max" ] && mem=0 ;;
                 --memory-swap) v="$2"; case "$v" in *g) v=$(( ${v%g} * 1073741824 )) ;; *m) v=$(( ${v%m} * 1048576 )) ;; esac; swap="$v" ;;
                 --cpus) [ -f "$est/update-cpu-sem-efeito" ] || quota="$(awk -v c="$2" 'BEGIN { printf "%d", c * 100000 }')"; [ -f "$est/update-cpu-vira-max" ] && quota=0 ;;
+                # A restauracao do reparar usa o par quota/periodo exato (as mesmas flags de vira-max e de menor valem aqui).
+                --cpu-quota) quota="$2"; [ -f "$est/update-cpu-vira-max" ] && quota=0 ;;
+                --cpu-period) periodo="$2" ;;
                 --pids-limit) pids="$2"; [ -f "$est/update-pids-vira-max" ] && pids=0 ;;
             esac
             shift 2
@@ -179,6 +202,17 @@ case "${1:-}" in
         [ -f "$est/update-cpu-mexe-mem" ] && [[ "$args_update" == *--cpus* ]] && { mem=$((mem + 1073741824)); swap=$((swap + 1073741824)); }
         # update-swap-vira-max: o swap finito vira sem limite (-1) depois do update, mesmo sem o reparo ter mexido nele.
         [ -f "$est/update-swap-vira-max" ] && swap=-1
+        # update-*-menor: o valor relido fica ABAIXO do que era antes do update (metade do anterior), seja qual for o pedido.
+        # Vale para qualquer update que mexa no recurso, inclusive a restauracao: assim o teste escolhe se ela funciona.
+        if [ -f "$est/update-mem-menor" ] && [[ "$args_update" == *--memory* ]]; then mem=$((mem_antes / 2)); swap=$((mem + swap_antes - mem_antes)); fi
+        if [ -f "$est/update-cpu-menor" ] && [[ "$args_update" == *--cpu* ]]; then quota=$((quota_antes / 2)); fi
+        if [ -f "$est/update-pids-menor" ] && [[ "$args_update" == *--pids-limit* ]]; then pids=$((pids_antes / 2)); fi
+        # Flag com o texto "uma-vez" so vale para o PRIMEIRO update que ela afetou: o seguinte (a restauracao) sai normal.
+        for fl in update-cpu-vira-max update-mem-vira-max update-pids-vira-max update-swap-vira-max update-mem-menor update-cpu-menor update-pids-menor; do
+            if [ "$(cat "$est/$fl" 2>/dev/null)" = uma-vez ]; then rm -f "$est/$fl"; fi
+        done
+        # update-troca-id: depois do update o container passa a ter outro ID (foi trocado no meio do reparo).
+        [ -f "$est/update-troca-id" ] && echo "novo-id-$nome" > "$est/id-$nome"
         echo "$mem $quota $periodo $pids $swap" > "$est/lim-$nome" ;;
     exec)
         # `sh -c '...systemctl is-enabled...' sh <unidades>`: "unidade estado"; estado/timer-desligado lista as desligadas.

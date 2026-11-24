@@ -87,13 +87,30 @@ _limites_alvo_principal_mb() {
     printf '%s' "$m"
 }
 
+# _limites_existentes: imprime (um por linha, sem repetir) os slugs dos agentes que existem: os do agentes.json (tipo
+# "agente") UNIDOS aos do registro.tsv cujo container ja existe. O agente so entra no agentes.json no fim do criar, depois
+# de o container subir; sem a segunda fonte, dois criar seguidos (ou um criar e o calculo de outro) nao enxergariam um ao
+# outro. Agente removido (container sumiu) nao conta, mesmo com linha sobrando no registro. No ensaio nao ha podman a
+# consultar, e vale so o agentes.json.
+_limites_existentes() {
+    local s
+    {
+        agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | .slug' 2>/dev/null || true
+        if [ "$ENSAIO" != 1 ] && [ -f "$DG_REGISTRO" ]; then
+            while IFS= read -r s; do
+                podman container exists "dgclaw-$s" >/dev/null 2>&1 </dev/null && printf '%s\n' "$s"
+            done < <(awk -F'\t' 'NF >= 3 && $1 ~ /^[a-z0-9][a-z0-9-]+$/ { print $1 }' "$DG_REGISTRO")
+        fi
+    } | sort -u
+}
+
 # limites_principal <slug>: imprime o slug do agente principal considerando <slug> como existente: entre os agentes
-# (tipo "agente") do agentes.json mais <slug>, o de menor numero no registro. Slug fora do registro (agente que ainda
+# existentes (_limites_existentes) mais <slug>, o de menor numero no registro. Slug fora do registro (agente que ainda
 # esta sendo criado) conta como numero infinito; empate desempata pelo nome.
 limites_principal() {
     local slug="$1" s n
     {
-        agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | .slug' 2>/dev/null || true
+        _limites_existentes
         printf '%s\n' "$slug"
     } | sort -u | while IFS= read -r s; do
         [ -n "$s" ] || continue
@@ -129,9 +146,32 @@ _limites_somar_outros() {
             if [ "$s" = "$principal" ]; then mb="$(_limites_alvo_principal_mb "$ram" "$reserva")"; else mb="$LIMITE_MEM_PISO_MB"; fi
         fi
         LIM_OUTROS_MB=$((LIM_OUTROS_MB + mb))
-    done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | .slug' 2>/dev/null || true)
+    done < <(_limites_existentes)
     LIM_OUTROS_ESTIMADOS="${LIM_OUTROS_ESTIMADOS# }"; LIM_OUTROS_SEMLIMITE="${LIM_OUTROS_SEMLIMITE# }"
 }
+
+# --- trava do calculo ate o create ----------------------------------------------------------
+# Dois `agente criar` ao mesmo tempo (ou um criar e um recriar) calculavam o papel e a folga de memoria antes de qualquer um
+# deles ter o container: os dois se achavam o principal, ou dividiam a mesma folga. Por isso quem vai criar um container
+# pega esta trava EXCLUSIVA antes de limites_calcular e so a solta depois do `podman create` (em criar_container), quando o
+# container ja existe e o proximo calculo o enxerga (_limites_existentes). E o descritor 7 do processo; o podman roda com
+# ele fechado (7>&-), para o conmon, que vive ate o container parar, nao segurar a trava. Sair do processo solta a trava.
+# O reparar nao a usa: ele nao cria container.
+DG_TRAVA_LIMITES="$DG_ETC/.limites.lock"
+
+# limites_trava_pegar: espera ate DGCLAW_TRAVA_LIMITES_ESPERA segundos (padrao 900, como a trava da faixa de rede).
+limites_trava_pegar() {
+    [ "$ENSAIO" = 1 ] && return 0
+    local espera="${DGCLAW_TRAVA_LIMITES_ESPERA:-900}"
+    mkdir -p "$(dirname "$DG_TRAVA_LIMITES")"
+    exec 7>"$DG_TRAVA_LIMITES" || falha "nao consegui abrir a trava dos limites em $DG_TRAVA_LIMITES." \
+        "confira se voce e root e se a pasta $(dirname "$DG_TRAVA_LIMITES") existe e aceita gravar."
+    flock -x -w "$espera" 7 || falha "outra criacao ou recriacao de agente esta segurando a trava dos limites ($DG_TRAVA_LIMITES) ha mais de ${espera}s: duas ao mesmo tempo calculariam a memoria sem enxergar uma a outra." \
+        "espere o outro comando terminar e rode de novo. Se nada estiver rodando, veja quem segura com: fuser -v $DG_TRAVA_LIMITES"
+}
+
+# limites_trava_soltar: larga a trava (fecha o descritor 7).
+limites_trava_soltar() { exec 7>&-; }
 
 # limites_calcular <slug>: preenche LIM_MEM_MB (inteiro), LIM_MEM_ARG (valor do --memory), LIM_CPUS_DEC (decimos de CPU,
 # inteiro) e LIM_CPUS_ARG (valor do --cpus), mais o que explica a memoria: LIM_PAPEL (principal ou adicional), LIM_RAM_MB,
@@ -329,35 +369,152 @@ _limites_resumo() {
     printf 'memoria %s, CPUs %s, processos %s' "$mem" "$cpus" "$pids"
 }
 
+# --- pendencias: limite que sumiu e nao voltou -----------------------------------------------
+# Se depois do `podman update` um limite que era finito aparece como `max` e a restauracao do valor anterior tambem nao
+# se confirma, o container ficou sem aquele limite. Sem registro disso, a execucao seguinte leria o `max` e o trataria como
+# escolha do dono. A pendencia e esse registro: $DG_ETC/limites-pendentes/<slug> (modo 600), uma linha por recurso
+# (memoria, cpu ou pids). Nada de segredo: so o nome do recurso. Enquanto ela existir, o reparar trata o recurso como abaixo
+# do calculado mesmo que o cgroup mostre `max`, e so a apaga quando a releitura confirma o limite finito.
+# O slug vem de _LIM_PEND_SLUG, que limites_ajustar_existente define.
+_LIM_PEND_SLUG=""
+_limites_pend_arq() { printf '%s/limites-pendentes/%s' "$DG_ETC" "$_LIM_PEND_SLUG"; }
+_limites_pend_tem() { local arq; arq="$(_limites_pend_arq)"; [ -f "$arq" ] && grep -qx -- "$1" "$arq"; }
+# _limites_pend_gravar <recurso>: junta o recurso ao arquivo (sem repetir), de forma atomica; 1 se nao conseguiu gravar.
+_limites_pend_gravar() {
+    local arq conteudo
+    arq="$(_limites_pend_arq)"
+    mkdir -p "$(dirname "$arq")" 2>/dev/null && chmod 700 "$(dirname "$arq")" || return 1
+    conteudo="$({ [ -f "$arq" ] && cat "$arq"; printf '%s\n' "$1"; } | sort -u)"
+    printf '%s\n' "$conteudo" | escrever_arquivo "$arq" 600 2>/dev/null
+}
+# _limites_pend_limpar <recurso>: tira o recurso do arquivo; sem linhas sobrando, apaga o arquivo.
+_limites_pend_limpar() {
+    local arq resto
+    arq="$(_limites_pend_arq)"
+    [ -f "$arq" ] || return 0
+    resto="$(grep -vx -- "$1" "$arq" || true)"
+    if [ -z "$resto" ]; then rm -f "$arq"; else printf '%s\n' "$resto" | escrever_arquivo "$arq" 600; fi
+}
+
 # Predicados "abaixo do alvo" sobre o que limites_ler_atuais leu (sem leitura nao conta).
-# Recurso SEM LIMITE (max, flag ILIM) nunca esta abaixo do alvo: o reparar nao o converte em teto finito. Um teto finito
-# igual a zero (0 literal no cgroup) e escolha do dono, como qualquer outro valor que nao e o padrao antigo.
-_limites_mem_abaixo() { [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_ILIM" != 1 ] && [ "$ATU_MEM_B" -lt $((LIM_MEM_MB * 1048576)) ]; }
-_limites_cpu_abaixo() { [ "$ATU_CPU_OK" = 1 ] && [ "$ATU_CPU_ILIM" != 1 ] && [ $((ATU_CPU_QUOTA * 10)) -lt $((LIM_CPUS_DEC * ATU_CPU_PERIODO)) ]; }
-_limites_pids_abaixo() { [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS_ILIM" != 1 ] && [ "$ATU_PIDS" -lt "$LIMITE_PIDS" ]; }
+# _limites_*_valor_abaixo: so o valor, finito e menor que o calculado. Recurso SEM LIMITE (max, flag ILIM) nao esta abaixo
+# do alvo por valor: o reparar nao o converte em teto finito, EXCETO com pendencia (ver acima): ai conta como abaixo.
+# Um teto finito igual a zero (0 literal no cgroup) e escolha do dono, como qualquer outro valor que nao e o padrao antigo.
+_limites_mem_valor_abaixo() { [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_ILIM" != 1 ] && [ "$ATU_MEM_B" -lt $((LIM_MEM_MB * 1048576)) ]; }
+_limites_cpu_valor_abaixo() { [ "$ATU_CPU_OK" = 1 ] && [ "$ATU_CPU_ILIM" != 1 ] && [ $((ATU_CPU_QUOTA * 10)) -lt $((LIM_CPUS_DEC * ATU_CPU_PERIODO)) ]; }
+_limites_pids_valor_abaixo() { [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS_ILIM" != 1 ] && [ "$ATU_PIDS" -lt "$LIMITE_PIDS" ]; }
+_limites_mem_abaixo() { _limites_mem_valor_abaixo || { [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_ILIM" = 1 ] && _limites_pend_tem memoria; }; }
+_limites_cpu_abaixo() { _limites_cpu_valor_abaixo || { [ "$ATU_CPU_OK" = 1 ] && [ "$ATU_CPU_ILIM" = 1 ] && _limites_pend_tem cpu; }; }
+_limites_pids_abaixo() { _limites_pids_valor_abaixo || { [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS_ILIM" = 1 ] && _limites_pend_tem pids; }; }
 
 # O padrao antigo do DG Claw (antes do calculo pela maquina): 2 GiB, 1.0 CPU e 1024 processos. O reparar so mexe num recurso
-# que ainda esta nesse valor; qualquer outro valor (acima ou abaixo do calculado) conta como escolha do dono.
-_limites_mem_antiga() { [ "$ATU_MEM_ILIM" != 1 ] && [ "$ATU_MEM_B" -eq 2147483648 ]; }
+# que ainda esta nesse valor ou que tem pendencia; qualquer outro valor (acima ou abaixo do calculado) conta como escolha do dono.
+_limites_mem_antiga() { _limites_pend_tem memoria || { [ "$ATU_MEM_ILIM" != 1 ] && [ "$ATU_MEM_B" -eq 2147483648 ]; }; }
 # CPU: o padrao antigo e o par exato quota 100000 e periodo 100000 (o antigo --cpus 1.0). Outro periodo (50000 50000, por
 # exemplo) e escolha do dono.
-_limites_cpu_antiga() { [ "$ATU_CPU_ILIM" != 1 ] && [ "$ATU_CPU_QUOTA" -eq 100000 ] && [ "$ATU_CPU_PERIODO" -eq 100000 ]; }
-_limites_pids_antigo() { [ "$ATU_PIDS_ILIM" != 1 ] && [ "$ATU_PIDS" -eq 1024 ]; }
+_limites_cpu_antiga() { _limites_pend_tem cpu || { [ "$ATU_CPU_ILIM" != 1 ] && [ "$ATU_CPU_QUOTA" -eq 100000 ] && [ "$ATU_CPU_PERIODO" -eq 100000 ]; }; }
+_limites_pids_antigo() { _limites_pend_tem pids || { [ "$ATU_PIDS_ILIM" != 1 ] && [ "$ATU_PIDS" -eq 1024 ]; }; }
+
+# _limites_em <lista> <item>: 0 se o item esta na lista separada por espacos.
+_limites_em() { [[ " $1 " == *" $2 "* ]]; }
+
+# _limites_id_confere <container> <id> <slug>: o nome ainda aponta para o container de ID <id>? O nome e reutilizavel
+# (um recriar troca o container de mesmo nome); o ID nao. Se mudou, falha dizendo que o reparo pegou um container trocado.
+_limites_id_confere() {
+    local atual
+    atual="$(podman inspect -f '{{.Id}}' "$1" 2>/dev/null)" || atual=""
+    [ "$atual" = "$2" ] && return 0
+    # shellcheck disable=SC2016 # as crases fazem parte do texto
+    aviso "FALHA: o container $1 foi trocado no meio do reparo dos limites: o nome passou a apontar para outro container (outro ID)${atual:+,} ${atual:-ou o container deixou de existir}. Os ajustes que eu fazia valiam para o container antigo, e nao sei como o novo esta. Rode de novo: \`dgclaw agente reparar $3\`."
+    return 1
+}
+
+# _limites_restaurar <id> <recurso...> (memoria, cpu, pids): poe de volta, com outro `podman update`, o valor que o recurso
+# tinha ANTES do reparo, e le o cgroup de novo para confirmar. Os valores de antes vem das variaveis *_antes de
+# limites_ajustar_existente (escopo dinamico do bash: esta funcao so e chamada de la). Preenche REST_OK (confirmados) e
+# REST_FALHOU (nao confirmados, ou sem valor anterior finito para voltar). Mexe nas variaveis ATU_*.
+# Memoria: --memory-swap e --memory nos mesmos bytes de antes; CPUs: o par quota e periodo de antes; processos: o mesmo numero.
+_limites_restaurar() {
+    local id="$1" r sw tentou="" args=()
+    shift
+    REST_OK=""; REST_FALHOU=""
+    for r in "$@"; do
+        case "$r" in
+            memoria)
+                if [ "$fin_mem_antes" != 1 ]; then REST_FALHOU="$REST_FALHOU memoria"; continue; fi
+                if [ "$swap_ilim_antes" = 1 ]; then sw="-1"; else sw="$((mem_antes_b + swap_antes_b))"; fi
+                args+=("--memory-swap=$sw" "--memory=$mem_antes_b"); tentou="$tentou memoria" ;;
+            cpu)
+                if [ "$fin_cpu_antes" != 1 ]; then REST_FALHOU="$REST_FALHOU cpu"; continue; fi
+                args+=("--cpu-period=$cpu_periodo_antes" "--cpu-quota=$cpu_quota_antes"); tentou="$tentou cpu" ;;
+            pids)
+                if [ "$fin_pids_antes" != 1 ]; then REST_FALHOU="$REST_FALHOU pids"; continue; fi
+                args+=("--pids-limit=$pids_antes"); tentou="$tentou pids" ;;
+        esac
+    done
+    [ -n "$tentou" ] || return 0
+    podman update "${args[@]}" "$id" >/dev/null 2>&1 || true
+    if ! limites_ler_atuais "$id"; then REST_FALHOU="$REST_FALHOU$tentou"; return 0; fi
+    for r in $tentou; do
+        case "$r" in
+            memoria)
+                if [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_ILIM" != 1 ] && [ "$ATU_MEM_B" -eq "$mem_antes_b" ] \
+                    && { { [ "$swap_ilim_antes" = 1 ] && [ "$ATU_SWAP_ILIM" = 1 ]; } \
+                        || { [ "$swap_ilim_antes" != 1 ] && [ "$ATU_SWAP_ILIM" != 1 ] && [ "$ATU_SWAP_B" -eq "$swap_antes_b" ]; }; }; then
+                    REST_OK="$REST_OK memoria"; else REST_FALHOU="$REST_FALHOU memoria"; fi ;;
+            cpu)
+                if [ "$ATU_CPU_OK" = 1 ] && [ "$ATU_CPU_ILIM" != 1 ] && [ "$ATU_CPU_QUOTA" -eq "$cpu_quota_antes" ] && [ "$ATU_CPU_PERIODO" -eq "$cpu_periodo_antes" ]; then
+                    REST_OK="$REST_OK cpu"; else REST_FALHOU="$REST_FALHOU cpu"; fi ;;
+            pids)
+                if [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS_ILIM" != 1 ] && [ "$ATU_PIDS" -eq "$pids_antes" ]; then
+                    REST_OK="$REST_OK pids"; else REST_FALHOU="$REST_FALHOU pids"; fi ;;
+        esac
+    done
+}
+
+# _limites_det_restauracao <slug> <recurso> <nome-no-texto> <valor-anterior>: o pedaco da mensagem de FALHA que conta o que
+# aconteceu com a restauracao (usa REST_OK, REST_FALHOU e PEND_GRAVADAS, preenchidos por limites_ajustar_existente).
+_limites_det_restauracao() {
+    local slug="$1" r="$2" nome="$3" ant="$4" arq
+    arq="$(_limites_pend_arq)"
+    if _limites_em "$REST_OK" "$r"; then
+        printf 'Restaurei o valor de antes (%s) com outro podman update e o cgroup confirmou; o limite voltou ao que era, mas o ajuste para o valor calculado nao entrou.' "$ant"
+    elif _limites_em "$PEND_GRAVADAS" "$r"; then
+        # shellcheck disable=SC2016 # as crases fazem parte do texto
+        printf 'A restauracao do valor de antes (%s) NAO se confirmou: o container pode estar SEM limite de %s agora. Gravei uma pendencia em %s: enquanto ela existir, `dgclaw agente reparar %s` trata esse recurso como abaixo do calculado e tenta aplicar o limite de novo, em vez de aceitar o sem limite como escolha sua. Rode-o de novo.' "$ant" "$nome" "$arq" "$slug"
+    else
+        # shellcheck disable=SC2016 # as crases fazem parte do texto
+        printf 'A restauracao do valor de antes (%s) NAO se confirmou e nao consegui gravar a pendencia em %s: o container pode estar SEM limite de %s, e uma nova execucao de `dgclaw agente reparar %s` poderia tratar isso como escolha sua. Corrija a pasta %s (permissao e espaco) e rode-o de novo.' "$ant" "$arq" "$nome" "$slug" "$(dirname "$arq")"
+    fi
+}
 
 # limites_ajustar_existente <slug>: poe o container que ja existe no limite calculado, SEM recriar, com
 # `podman update`. So sobe o que ainda esta no padrao antigo do DG Claw (2 GiB, 1.0 CPU, 1024 processos); o que esta sem limite
 # (max) fica sem limite, e qualquer outro valor (a pessoa aumentou ou diminuiu a mao) fica como esta, e o log diz que foi mantido e por que. Se o podman
 # da maquina nao tem o `update` ou nao aceita um dos flags, avisa e segue (nunca derruba o reparar). O resultado de
 # cada recurso vem da RELEITURA do cgroup depois do update, nao do codigo de saida do podman.
+# Todas as leituras e os `podman update` usam o ID do container, lido uma vez no comeco: o nome e reutilizavel (um recriar
+# o troca), o ID nao. No fim confere que o nome ainda aponta para o mesmo ID.
+# Depois do update, o valor relido manda: limite finito que virou `max`, ou valor que ficou ABAIXO do que era antes, e FALHA
+# (codigo 1), e o reparar tenta restaurar o valor de antes com outro update (_limites_restaurar). Se a restauracao nao se
+# confirma, grava a pendencia do recurso (ver acima), para a proxima execucao nao aceitar o `max` como escolha do dono.
+# O container NAO e parado nesses casos: o agente principal atende gente, e parar um agente e decisao do dono, nao do reparar.
 limites_ajustar_existente() {
-    local c="dgclaw-$1" args=() grupos=() f sw
+    local c="dgclaw-$1" args=() grupos=() f sw id
     limites_calcular "$1"
     if [ "$ENSAIO" = 1 ]; then
         info "limites calculados para esta maquina: memoria $LIM_MEM_ARG, CPUs $LIM_CPUS_ARG, processos $LIMITE_PIDS ($LIM_PAPEL)"
         return 0
     fi
     limites_relatar "$c" "$1"
-    if ! limites_ler_atuais "$c"; then
+    _LIM_PEND_SLUG="$1"
+    id="$(podman inspect -f '{{.Id}}' "$c" 2>/dev/null)" || id=""
+    case "$id" in
+        ''|*[!A-Za-z0-9._-]*)
+            aviso "nao consegui ler o ID do container $c. Os limites ficam como estao; para conferir: podman inspect $c"
+            return 0 ;;
+    esac
+    if ! limites_ler_atuais "$id"; then
         aviso "nao consegui ler os limites atuais do container $c (cgroup do host). Os limites ficam como estao; para conferir: podman inspect $c"
         return 0
     fi
@@ -365,6 +522,14 @@ limites_ajustar_existente() {
     [ "$ATU_MEM_OK" = 1 ] || aviso "nao consegui ler a memoria do container $c (memory.max e memory.swap.max no cgroup do host); ela nao foi ajustada."
     [ "$ATU_CPU_OK" = 1 ] || aviso "nao consegui ler as CPUs do container $c (cpu.max no cgroup do host); elas nao foram ajustadas."
     [ "$ATU_PIDS_OK" = 1 ] || aviso "nao consegui ler o limite de processos do container $c (pids.max no cgroup do host); ele nao foi ajustado."
+    # Pendencia de um recurso que ja esta finito e nao abaixo do calculado: resolvida (alguem ou algo devolveu o limite).
+    if _limites_pend_tem memoria && [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_ILIM" != 1 ] && ! _limites_mem_valor_abaixo; then _limites_pend_limpar memoria; fi
+    if _limites_pend_tem cpu && [ "$ATU_CPU_OK" = 1 ] && [ "$ATU_CPU_ILIM" != 1 ] && ! _limites_cpu_valor_abaixo; then _limites_pend_limpar cpu; fi
+    if _limites_pend_tem pids && [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS_ILIM" != 1 ] && ! _limites_pids_valor_abaixo; then _limites_pend_limpar pids; fi
+    local pend_ini=""
+    _limites_pend_tem memoria && pend_ini="$pend_ini memoria"
+    _limites_pend_tem cpu && pend_ini="$pend_ini cpu"
+    _limites_pend_tem pids && pend_ini="$pend_ini pids"
     local swap_antes_b="$ATU_SWAP_B" swap_ilim_antes="$ATU_SWAP_ILIM"
     local leu_mem_antes="$ATU_MEM_OK" leu_cpu_antes="$ATU_CPU_OK" leu_pids_antes="$ATU_PIDS_OK"
     # O que era FINITO (lido e sem `max`) antes do update: se algum virar sem limite depois, e falha.
@@ -404,20 +569,22 @@ limites_ajustar_existente() {
     # Os grupos sao palavras sem espaco dentro (valores numericos), entao a divisao sem aspas e segura.
     # shellcheck disable=SC2206
     for f in "${grupos[@]}"; do args+=($f); done
-    if ! podman update "${args[@]}" "$c" >/dev/null 2>&1; then
+    if ! podman update "${args[@]}" "$id" >/dev/null 2>&1; then
         # Um flag que o podman desta maquina nao aceita nao pode impedir os outros: tenta um por vez
         # (memoria e swap sempre juntos, numa chamada so).
         for f in "${grupos[@]}"; do
             # shellcheck disable=SC2086
-            podman update $f "$c" >/dev/null 2>&1 || aviso "o podman desta maquina nao aceitou 'podman update $f $c'. Esse limite continua como estava; o valor novo entra na proxima vez que o agente for recriado (por exemplo ao atualizar a imagem com dgclaw atualizar)."
+            podman update $f "$id" >/dev/null 2>&1 || aviso "o podman desta maquina nao aceitou 'podman update $f $c'. Esse limite continua como estava; o valor novo entra na proxima vez que o agente for recriado (por exemplo ao atualizar a imagem com dgclaw atualizar)."
         done
     fi
-    if ! limites_ler_atuais "$c"; then
+    _limites_id_confere "$c" "$id" "$1" || return 1
+    if ! limites_ler_atuais "$id"; then
+        # shellcheck disable=SC2016 # as crases fazem parte do texto
         aviso "FALHA: rodei o podman update em $c, mas nao consegui reler os limites para conferir se deu certo, e nao sei como o container ficou. Confira com: podman inspect $c e rode de novo \`dgclaw agente reparar $1\`."
         return 1
     fi
     info "depois: $(_limites_resumo_atual)"
-    local subiram=() abaixo=() sumiram=() falhas=()
+    local subiram=() abaixo=() sumiram=() falhas=() reduzidos=()
     # Todo controlador que estava legivel antes (ou recebeu ajuste) e nao foi relido agora e FALHA: o teto efetivo dele e
     # desconhecido, mesmo que os outros tenham respondido.
     [ "$leu_mem_antes" = 1 ] && [ "$ATU_MEM_OK" != 1 ] && falhas+=("nao consegui reler a memoria (memory.max e memory.swap.max) do container $c depois do podman update; nao sei como ela ficou")
@@ -428,6 +595,19 @@ limites_ajustar_existente() {
     [ "$fin_swap_antes" = 1 ] && [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_SWAP_ILIM" = 1 ] && sumiram+=("swap")
     [ "$fin_cpu_antes" = 1 ] && [ "$ATU_CPU_OK" = 1 ] && [ "$ATU_CPU_ILIM" = 1 ] && sumiram+=("CPUs")
     [ "$fin_pids_antes" = 1 ] && [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS_ILIM" = 1 ] && sumiram+=("processos")
+    # Valor finito que ficou ABAIXO do que era antes do update (memoria, CPUs por quota/periodo, processos): FALHA, mesmo
+    # que ainda esteja acima do pedido ou que o reparo nao tenha pedido esse recurso.
+    local red_mem=0 red_cpu=0 red_pids=0 red_txt_mem="" red_txt_cpu="" red_txt_pids=""
+    if [ "$fin_mem_antes" = 1 ] && [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_ILIM" != 1 ] && [ "$ATU_MEM_B" -lt "$mem_antes_b" ]; then
+        red_mem=1; reduzidos+=("memoria"); red_txt_mem="antes $mem_antes_b bytes, relido $ATU_MEM_B bytes"
+    fi
+    if [ "$fin_cpu_antes" = 1 ] && [ "$ATU_CPU_OK" = 1 ] && [ "$ATU_CPU_ILIM" != 1 ] \
+        && [ $((ATU_CPU_QUOTA * cpu_periodo_antes)) -lt $((cpu_quota_antes * ATU_CPU_PERIODO)) ]; then
+        red_cpu=1; reduzidos+=("CPUs"); red_txt_cpu="antes cpu.max de $cpu_quota_antes a cada $cpu_periodo_antes, relido $ATU_CPU_QUOTA a cada $ATU_CPU_PERIODO"
+    fi
+    if [ "$fin_pids_antes" = 1 ] && [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS_ILIM" != 1 ] && [ "$ATU_PIDS" -lt "$pids_antes" ]; then
+        red_pids=1; reduzidos+=("processos"); red_txt_pids="antes $pids_antes, relido $ATU_PIDS"
+    fi
     # Swap que ficou mais permissivo que antes (finito que cresceu, inclusive de 0 a positivo) e falha propria do swap.
     local swap_mais=0
     if [ "$ATU_MEM_OK" = 1 ] && [ "$leu_mem_antes" = 1 ] && [ "$swap_ilim_antes" != 1 ] && [ "$ATU_SWAP_ILIM" != 1 ] \
@@ -437,7 +617,9 @@ limites_ajustar_existente() {
     fi
     if [ "$quer_mem" = 1 ] && [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_ILIM" != 1 ]; then
         local mem_pedida=$((LIM_MEM_MB * 1048576))
-        if [ "$ATU_MEM_B" -gt "$mem_pedida" ]; then
+        if [ "$red_mem" = 1 ]; then
+            : # ficou abaixo do que era antes: a falha sai na secao dos reduzidos, junto com a restauracao
+        elif [ "$ATU_MEM_B" -gt "$mem_pedida" ]; then
             falhas+=("a memoria do container $c ficou acima do pedido depois do podman update: esperado $mem_pedida bytes, observado $ATU_MEM_B bytes")
         elif [ "$ATU_MEM_B" -eq "$mem_pedida" ]; then
             # Subiu = memoria exatamente no alvo e swap como era (ilimitado continua ilimitado; senao os mesmos bytes).
@@ -447,13 +629,17 @@ limites_ajustar_existente() {
     fi
     if [ "$quer_cpu" = 1 ] && [ "$ATU_CPU_OK" = 1 ] && [ "$ATU_CPU_ILIM" != 1 ]; then
         local cpu_obs=$((ATU_CPU_QUOTA * 10)) cpu_esp=$((LIM_CPUS_DEC * ATU_CPU_PERIODO))
-        if [ $((cpu_obs * 100)) -gt $((cpu_esp * 101)) ]; then
+        if [ "$red_cpu" = 1 ]; then
+            : # idem
+        elif [ $((cpu_obs * 100)) -gt $((cpu_esp * 101)) ]; then
             falhas+=("as CPUs do container $c ficaram acima do pedido depois do podman update: esperado cpu.max de $((cpu_esp / 10)) a cada $ATU_CPU_PERIODO (${LIM_CPUS_ARG} CPUs), observado $ATU_CPU_QUOTA a cada $ATU_CPU_PERIODO")
         elif [ $((cpu_obs * 100)) -ge $((cpu_esp * 99)) ]; then subiram+=("CPUs")
         else abaixo+=("CPUs"); fi
     fi
     if [ "$quer_pids" = 1 ] && [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS_ILIM" != 1 ]; then
-        if [ "$ATU_PIDS" -gt "$LIMITE_PIDS" ]; then
+        if [ "$red_pids" = 1 ]; then
+            : # idem
+        elif [ "$ATU_PIDS" -gt "$LIMITE_PIDS" ]; then
             falhas+=("o limite de processos do container $c ficou acima do pedido depois do podman update: esperado $LIMITE_PIDS, observado $ATU_PIDS")
         elif [ "$ATU_PIDS" -eq "$LIMITE_PIDS" ]; then subiram+=("processos")
         else abaixo+=("processos"); fi
@@ -469,14 +655,71 @@ limites_ajustar_existente() {
     if [ "$quer_pids" != 1 ] && [ "$fin_pids_antes" = 1 ] && [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS_ILIM" != 1 ] && [ "$ATU_PIDS" -ne "$pids_antes" ]; then
         falhas+=("o limite de processos do container $c mudou sem ter sido pedido depois do podman update: valor anterior $pids_antes, observado $ATU_PIDS")
     fi
+    # Recurso com pendencia que continua sem limite depois do update: o ajuste nao pegou, e a pendencia fica.
+    local continua=()
+    _limites_em "$pend_ini" memoria && [ "$quer_mem" = 1 ] && [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_ILIM" = 1 ] && continua+=("memoria")
+    _limites_em "$pend_ini" cpu && [ "$quer_cpu" = 1 ] && [ "$ATU_CPU_OK" = 1 ] && [ "$ATU_CPU_ILIM" = 1 ] && continua+=("CPUs")
+    _limites_em "$pend_ini" pids && [ "$quer_pids" = 1 ] && [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS_ILIM" = 1 ] && continua+=("processos")
+
+    # O que o cgroup mostra agora, guardado ANTES da restauracao (ela le o cgroup de novo e sobrescreve ATU_*).
+    local fin_mem_depois=0 fin_cpu_depois=0 fin_pids_depois=0
+    [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_ILIM" != 1 ] && fin_mem_depois=1
+    [ "$ATU_CPU_OK" = 1 ] && [ "$ATU_CPU_ILIM" != 1 ] && fin_cpu_depois=1
+    [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS_ILIM" != 1 ] && fin_pids_depois=1
+    # Restauracao: o que sumiu ou ficou abaixo do que era antes volta ao valor de antes.
+    local restaurar="" r
+    _limites_em "${sumiram[*]:-}" memoria || _limites_em "${sumiram[*]:-}" swap || [ "$red_mem" = 1 ] && restaurar="$restaurar memoria"
+    _limites_em "${sumiram[*]:-}" CPUs || [ "$red_cpu" = 1 ] && restaurar="$restaurar cpu"
+    _limites_em "${sumiram[*]:-}" processos || [ "$red_pids" = 1 ] && restaurar="$restaurar pids"
+    REST_OK=""; REST_FALHOU=""; PEND_GRAVADAS=""
+    if [ -n "$restaurar" ]; then
+        # shellcheck disable=SC2086 # a lista e de palavras simples
+        _limites_restaurar "$id" $restaurar
+        info "depois da restauracao: $(_limites_resumo_atual)"
+        for r in $restaurar; do
+            if _limites_em "$REST_OK" "$r"; then continue; fi
+            if _limites_pend_gravar "$r"; then PEND_GRAVADAS="$PEND_GRAVADAS $r"; fi
+        done
+    fi
+    # Pendencia que valia no comeco e se resolveu: o limite esta finito de novo e este reparo nao falhou nesse recurso.
+    for r in $pend_ini; do
+        if _limites_em "$restaurar" "$r"; then continue; fi
+        case "$r" in
+            memoria) [ "$fin_mem_depois" = 1 ] && _limites_pend_limpar memoria ;;
+            cpu) [ "$fin_cpu_depois" = 1 ] && _limites_pend_limpar cpu ;;
+            pids) [ "$fin_pids_depois" = 1 ] && _limites_pend_limpar pids ;;
+        esac
+    done
     local rc=0
     for f in "${falhas[@]}"; do
         aviso "FALHA: $f. Veja com: podman inspect $c"
         rc=1
     done
+    local det rk ant txt
+    for f in "${reduzidos[@]}"; do
+        case "$f" in
+            memoria) rk=memoria; ant="$mem_antes_b bytes"; txt="$red_txt_mem" ;;
+            CPUs) rk=cpu; ant="cpu.max de $cpu_quota_antes a cada $cpu_periodo_antes"; txt="$red_txt_cpu" ;;
+            processos) rk=pids; ant="$pids_antes"; txt="$red_txt_pids" ;;
+        esac
+        det="$(_limites_det_restauracao "$1" "$rk" "$f" "$ant")"
+        aviso "FALHA: $f do container $c ficou abaixo do que era antes do podman update ($txt). $det O container nao foi parado. Veja com: podman inspect $c"
+        rc=1
+    done
     for f in "${sumiram[@]}"; do
+        case "$f" in
+            memoria|swap) rk=memoria; ant="$mem_antes_b bytes de memoria" ;;
+            CPUs) rk=cpu; ant="cpu.max de $cpu_quota_antes a cada $cpu_periodo_antes" ;;
+            processos) rk=pids; ant="$pids_antes" ;;
+        esac
+        det="$(_limites_det_restauracao "$1" "$rk" "$f" "$ant")"
         # shellcheck disable=SC2016 # as crases fazem parte do texto
-        aviso "FALHA: o limite de $f do container $c sumiu. Era finito e, depois do podman update, o cgroup passou a mostrar sem limite (max); isso nao e um aumento. Rodar \`dgclaw agente reparar $1\` de novo nao devolve o limite (ele passaria a tratar o sem limite como escolha sua). Para o teto voltar, recrie o agente: \`dgclaw agente recriar $1 --forcar\` (com a imagem atual, sem o --forcar o recriar responde \"nada a recriar\"). O --forcar tambem pula a conferencia de arquivos que so existem dentro do container, entao copie para a casa do agente antes o que precisar guardar. Depois confira o teto com \`dgclaw agente reparar $1\`. Veja com: podman inspect $c"
+        aviso "FALHA: o limite de $f do container $c sumiu. Era finito e, depois do podman update, o cgroup passou a mostrar sem limite (max); isso nao e um aumento. $det O container nao foi parado. Se o limite continuar sumindo, recrie o agente: \`dgclaw agente recriar $1 --forcar\` (com a imagem atual, sem o --forcar o recriar responde \"nada a recriar\"). O --forcar tambem pula a conferencia de arquivos que so existem dentro do container, entao copie para a casa do agente antes o que precisar guardar. Depois confira o teto com \`dgclaw agente reparar $1\`. Veja com: podman inspect $c"
+        rc=1
+    done
+    for f in "${continua[@]}"; do
+        # shellcheck disable=SC2016 # as crases fazem parte do texto
+        aviso "FALHA: o container $c continua sem limite de $f depois do podman update, e esse recurso tem uma pendencia em $(_limites_pend_arq) (um ajuste anterior o deixou sem limite). A pendencia fica: \`dgclaw agente reparar $1\` vai tentar aplicar o limite de novo, e ela so some quando o limite aparecer finito. Se continuar assim, recrie o agente: \`dgclaw agente recriar $1 --forcar\`. Veja com: podman inspect $c"
         rc=1
     done
     for f in "${abaixo[@]}"; do
@@ -489,5 +732,6 @@ limites_ajustar_existente() {
             info "o agente $1 e o principal: o podman nao guarda o ajuste de memoria quando o servidor ou o container reinicia. Para o novo limite sobreviver a um reinicio, rode \`dgclaw agente recriar $1 --forcar\` (sem o --forcar, com a imagem atual, o recriar responde \"nada a recriar\"; o --forcar pula a conferencia de arquivos que so existem dentro do container, entao copie para a casa do agente antes o que precisar guardar)."
         fi
     fi
+    _limites_id_confere "$c" "$id" "$1" || rc=1
     return "$rc"
 }
