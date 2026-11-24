@@ -40,7 +40,7 @@ function naFila(s: Sessao): Array<{ em: number; msg: string | null }> {
 
 function visao(s: Sessao, comMeta: boolean): Record<string, unknown> {
   const fila = naFila(s);
-  const extra = { naFila: fila, naFilaTotal: s.tamanhoDaFila() + (s.itemEmVoo ? 1 : 0) };
+  const extra = { naFila: fila, naFilaTotal: s.tamanhoDaFila() + (s.itemEmVoo ? 1 : 0), ultimoEventoEm: s.ultimoEventoEm };
   // `codexHome` é só leitura: o CODEX_HOME que o último spawn usou, para quem lê o rollout do disco.
   // `turnosAceitos` é só leitura: quantos pedidos o CLI já aceitou como turno desde que este runner subiu
   // (o recibo do Enter). Zero com a sessão ociosa quer dizer que nenhum pedido virou turno ainda.
@@ -381,8 +381,11 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           }
 
           if (quandoOcioso) {
-            sessao.enfileirarQuandoOcioso(texto, esperouNoPainel);
-            json(res, { success: true, data: { enfileirado: true, aguardando: "idle" } }, 202);
+            // false = /compact repetido: já havia um na fila, sendo digitado ou em andamento. Esse /compact pendente
+            // atende o pedido (quem chamou queria a sessão compactada, e o recibo dele vem do mesmo compact_boundary),
+            // então a resposta é a mesma do enfileirado, só com `deduplicado` para quem quiser saber.
+            const novo = sessao.enfileirarQuandoOcioso(texto, esperouNoPainel);
+            json(res, { success: true, data: { enfileirado: true, aguardando: "idle", ...(novo ? {} : { deduplicado: true }) } }, 202);
             return;
           }
           if (!sessao.temPtyVivo()) {

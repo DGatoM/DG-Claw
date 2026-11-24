@@ -130,6 +130,8 @@ export class Sessao extends EventEmitter {
   ultimoEscEm = 0;
   /** O PTY que está compactando (liga no PreCompact, desliga no SessionStart source=compact, em idle ou na troca de processo). */
   compactando: unknown = null;
+  /** Quando o último PreCompact chegou (ms); o transcript só vale como recusa do /compact se for mais novo que isto. */
+  compactComecouEm = 0;
   /** O Esc pendente do turno (o PRIMEIRO, de qualquer origem; os seguintes não sobrescrevem): só com ele o transcript prova uma interrupção. Cai quando o turno termina ou outro começa. */
   ultimoEscReal: { em: number; proc: unknown } | null = null;
   /**
@@ -186,6 +188,9 @@ export class Sessao extends EventEmitter {
   vigiaDoRecibo: NodeJS.Timeout | null = null;
   readonly reciboVigiaPassosMs: number[];
   ultimaAtividade = Date.now();
+  /** Quando o último evento do agente chegou (hook do Claude ou evento do rollout do Codex), em ms. Não conta input nem fila:
+   *  é o sinal de que o agente anda, e o watchdog o usa para não tomar um turno longo por fila parada. */
+  ultimoEventoEm = 0;
   /** Quando o spawn atual foi uma RETOMADA, e quando ele começou. É o que
    *  permite separar "a sessão não abre" de "o agente trabalhou e saiu". */
   retomando: { sessionId: string; em: number } | null = null;
@@ -815,8 +820,8 @@ export class Sessao extends EventEmitter {
   }
 
   /** Guarda um texto para digitar quando o agente ficar ocioso (ver sessao/fila.ts). */
-  enfileirarQuandoOcioso(texto: string, esperou = false): void {
-    enfileirarQuandoOcioso(this, texto, esperou);
+  enfileirarQuandoOcioso(texto: string, esperou = false): boolean {
+    return enfileirarQuandoOcioso(this, texto, esperou);
   }
 
   /** Guarda no buffer da tela e entrega a quem ouve (ver sessao/terminal.ts). Os testes de tela chamam por aqui. */
