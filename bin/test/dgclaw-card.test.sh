@@ -304,6 +304,25 @@ ok "turno com item em voo (fila 0, naFilaTotal 1) nao confirma: sai com 11" $([ 
 "$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
 ok "fechar com item em voo recusa com 10" $([ $c = 10 ] && echo 0 || echo 1)
 
+# --- recibo do Enter pendente: turno 1, fila 0, mas o runner ainda espera o recibo (o pedido pode estar na caixa) ---
+subir recibo-pendente
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
+ok "turno com recibo pendente (fila 0) nao confirma: sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+! grep -q "Card aberto" "$T/o"; ok "recibo pendente nao imprime 'Card aberto'" $?
+grep -q "recibo do Enter" "$T/e"; ok "o 11 do recibo pendente explica o motivo" $?
+"$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
+ok "fechar com recibo pendente recusa com 10" $([ $c = 10 ] && echo 0 || echo 1)
+grep -q "espera o recibo de um texto digitado" "$T/e"; ok "a recusa do fechar cita o recibo pendente" $?
+"$BIN" fechar card-abc123 --forcar >/dev/null 2>&1; ok "--forcar fecha mesmo com recibo pendente" $?
+
+# --- resposta sem reciboPendente: nao da para confirmar nem fechar -------------------------------------------------
+subir sem-campo-recibo
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
+ok "turno sem o campo reciboPendente sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+grep -q "reciboPendente" "$T/e"; ok "o 11 sem reciboPendente cita o campo" $?
+"$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
+ok "fechar sem o campo reciboPendente recusa com 10" $([ $c = 10 ] && echo 0 || echo 1)
+
 # --- sem turno e sem naFilaTotal: 11 e nao 9 -------------------------------------------------------------------
 subir sem-turno-sem-total
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?

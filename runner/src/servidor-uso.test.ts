@@ -143,3 +143,20 @@ test("settings do Claude: o Stop leva o hook do runner e depois a trava de respo
   assert.equal(fs.readFileSync(f, "utf8"), TRAVA_RESPOSTA_SOURCE);
   delete (principal.descritor.config as { stopHooks?: string[] }).stopHooks;
 });
+
+test("GET /api/agents/:id traz reciboPendente: false normalmente e true enquanto a vigia do recibo do Enter está ativa", async () => {
+  const antes = await req("GET", `/api/agents/${ID}`);
+  assert.equal(antes.status, 200);
+  assert.equal(antes.corpo.data.reciboPendente, false);
+  principal.vigiaDoRecibo = setTimeout(() => {}, 60_000);
+  principal.vigiaDoRecibo.unref();
+  try {
+    const durante = await req("GET", `/api/agents/${ID}`);
+    assert.equal(durante.corpo.data.reciboPendente, true);
+  } finally {
+    clearTimeout(principal.vigiaDoRecibo);
+    principal.vigiaDoRecibo = null;
+  }
+  const depois = await req("GET", `/api/agents/${ID}`);
+  assert.equal(depois.corpo.data.reciboPendente, false);
+});

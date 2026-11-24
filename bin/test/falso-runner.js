@@ -25,7 +25,7 @@ http.createServer((req, res) => {
       if (c.viraEm && Date.now() >= c.viraEm) { c.viraEm = 0; c.status = "working"; c.turnos = 1; c.polls = 0; }
       // sem-contador: runner que nao informa turnosAceitos.
       if (MODO === "sem-contador") return { id, status: c.status, naFilaTotal: 0, sessao: { tipo: "card", titulo: c.titulo, fila: 0 } };
-      return { id, status: c.status, ...(c.erro ? { error: c.erro } : {}), ...(c.motivo ? { statusReason: c.motivo } : {}), turnosAceitos: c.turnos, turnosAceitosSessao: c.turnos, hookActive: MODO !== "sem-hook", ...(MODO === "sem-campo-fila" || MODO === "sem-turno-sem-total" ? {} : { naFilaTotal: (c.fila || 0) + (c.emVoo || 0) }), sessao: { tipo: "card", titulo: c.titulo, fila: c.fila || 0 } };
+      return { id, status: c.status, ...(c.erro ? { error: c.erro } : {}), ...(c.motivo ? { statusReason: c.motivo } : {}), turnosAceitos: c.turnos, turnosAceitosSessao: c.turnos, hookActive: MODO !== "sem-hook", ...(MODO === "sem-campo-fila" || MODO === "sem-turno-sem-total" ? {} : { naFilaTotal: (c.fila || 0) + (c.emVoo || 0) }), ...(MODO === "sem-campo-recibo" ? {} : { reciboPendente: c.recibo === true }), sessao: { tipo: "card", titulo: c.titulo, fila: c.fila || 0 } };
     };
     let m;
     if (p === "/api/sessoes" && req.method === "POST") {
@@ -83,6 +83,10 @@ http.createServer((req, res) => {
         if (MODO === "sem-campo-fila") { c.msgs.push({ role: "user", text: JSON.parse(corpo).text }); c.status = "idle"; c.turnos = 1; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
         // item-em-voo: turno aceito, sessao.fila 0, mas um texto esta sendo digitado agora (naFilaTotal 1).
         if (MODO === "item-em-voo") { c.msgs.push({ role: "user", text: JSON.parse(corpo).text }); c.status = "working"; c.turnos = 1; c.fila = 0; c.emVoo = 1; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
+        // recibo-pendente: turno aceito, fila e item em voo 0, mas o runner ainda espera o recibo do Enter (reciboPendente true).
+        if (MODO === "recibo-pendente") { c.msgs.push({ role: "user", text: JSON.parse(corpo).text }); c.status = "working"; c.turnos = 1; c.fila = 0; c.recibo = true; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
+        // sem-campo-recibo: turno aceito, tudo certo, mas a resposta nao traz reciboPendente (runner antigo).
+        if (MODO === "sem-campo-recibo") { c.msgs.push({ role: "user", text: JSON.parse(corpo).text }); c.status = "working"; c.turnos = 1; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
         // sem-turno-sem-total: sem turno (contador 0, idle) e a resposta nao traz naFilaTotal.
         if (MODO === "sem-turno-sem-total") return j(202, { success: true, data: { enfileirado: true, acordando: true } });
         // sem-turno: 202 enfileirado, mas o CLI nunca aceita o pedido (nada na conversa, status parado, turnos 0).

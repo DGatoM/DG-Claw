@@ -40,7 +40,10 @@ function naFila(s: Sessao): Array<{ em: number; msg: string | null }> {
 
 function visao(s: Sessao, comMeta: boolean): Record<string, unknown> {
   const fila = naFila(s);
-  const extra = { naFila: fila, naFilaTotal: s.tamanhoDaFila() + (s.itemEmVoo ? 1 : 0), ultimoEventoEm: s.ultimoEventoEm };
+  const extra = { naFila: fila, naFilaTotal: s.tamanhoDaFila() + (s.itemEmVoo ? 1 : 0),
+    // Vigia de recibo ativo: o Enter de um texto digitado ainda espera recibo (o item já saiu da fila, mas o pedido pode estar na caixa de texto).
+    reciboPendente: s.vigiaDoRecibo !== null,
+    ultimoEventoEm: s.ultimoEventoEm };
   // `codexHome` é só leitura: o CODEX_HOME que o último spawn usou, para quem lê o rollout do disco.
   // `turnosAceitos` é só leitura: quantos pedidos o CLI já aceitou como turno desde que este runner subiu
   // (o recibo do Enter). Zero com a sessão ociosa quer dizer que nenhum pedido virou turno ainda.

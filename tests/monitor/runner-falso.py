@@ -44,7 +44,7 @@ class H(http.server.BaseHTTPRequestHandler):
         # O "abrir" confere o primeiro turno em GET /api/agents/<id>: o card novo ja aparece trabalhando.
         m = re.fullmatch(r"/api/agents/([^/]+)", caminho)
         if metodo == "GET" and m:
-            return self._resp(200, {"success": True, "data": {"id": m.group(1), "status": "working", "turnosAceitos": 1, "turnosAceitosSessao": 1, "naFilaTotal": 0, "sessao": {"tipo": "card", "fila": 0}}})
+            return self._resp(200, {"success": True, "data": {"id": m.group(1), "status": "working", "turnosAceitos": 1, "turnosAceitosSessao": 1, "naFilaTotal": 0, "reciboPendente": False, "sessao": {"tipo": "card", "fila": 0}}})
         m = re.fullmatch(r"/api/agents/([^/]+)/conversation", caminho)
         if metodo == "GET" and m:
             return self._resp(200, {"success": True, "data": c.get("conversa", {}).get(m.group(1), [])})

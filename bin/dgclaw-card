@@ -56,7 +56,7 @@
 #   9  (so no "abrir") o card foi criado e o texto entrou na fila, mas o pedido NAO virou turno dentro da espera
 #      (--espera-turno): o card nao esta trabalhando. O pedido ainda pode entrar sozinho: nao feche e nao reenvie
 #      por conta propria; confira com "estado" e "ler" depois de um tempo e, se continuar sem turno, avise o dono.
-#  10  (so no "fechar") o card nunca teve turno (turnosAceitosSessao igual a 0), ainda tem texto na fila ou nao deu para ler o estado dele.
+#  10  (so no "fechar") o card nunca teve turno (turnosAceitosSessao igual a 0), ainda tem texto na fila ou sendo digitado, o runner ainda espera o recibo do Enter de um texto (reciboPendente) ou nao deu para ler o estado dele.
 #      Fechar pode jogar fora o pedido. Repita com --forcar se for isso mesmo.
 #  11  (so no "abrir") o card foi criado e o pedido entregue, mas nao consegui confirmar se ele aceitou o pedido
 #      (consulta recusada, erro do runner, de rede, resposta sem JSON ou sem o contador turnosAceitos). Nao e 9 nem 0:
@@ -136,6 +136,9 @@ chamar_ou_sair() {
 
 # Campo ausente ou resposta sem JSON viram texto vazio; cada chamador ja trata o vazio (erro, valor padrao ou nova tentativa).
 campo() { printf '%s' "$RESP" | jq -r "$1 // empty" 2>/dev/null || true; }
+
+# Como "campo", mas devolve "false" quando o valor e false (o "// empty" do jq descartaria o false). Ausente ou outro tipo: vazio.
+campo_booleano() { printf '%s' "$RESP" | jq -r "if ($1 | type) == \"boolean\" then $1 | tostring else empty end" 2>/dev/null || true; }
 
 nome_do_provedor() { # $1 = codex|claude|vazio
   case "$1" in codex) echo "Codex" ;; claude) echo "Claude" ;; *) echo "provedor" ;; esac
@@ -310,10 +313,10 @@ cmd_abrir() {
 # o card aceitou o pedido. Card em erro: 12 (o pedido foi aceito, mas o turno falhou).
 # Cada consulta e cada pausa ficam limitadas ao tempo que resta do prazo (minimo 1 s para a consulta).
 esperar_primeiro_turno() { # $1 id ; $2 segundos
-  local inicio=$SECONDS passo="${DGCLAW_CARD_INTERVALO:-5}" turnos status falha="" resta erro_turno razao fila="" fila_presa=0 ultimo_status=""
+  local inicio=$SECONDS passo="${DGCLAW_CARD_INTERVALO:-5}" turnos status falha="" resta erro_turno razao fila="" fila_presa=0 ultimo_status="" recibo="" recibo_preso=0
   [ "$passo" = 5 ] && passo=1
   while :; do
-    falha=""; fila_presa=0
+    falha=""; fila_presa=0; recibo_preso=0
     resta=$(( $2 - (SECONDS - inicio) )); [ "$resta" -ge 1 ] || resta=1
     if ! CARD_MAX_TEMPO="$resta" chamar GET "/api/agents/$1"; then
       falha="o runner nao respondeu a consulta do estado (erro de rede ou tempo esgotado)"
@@ -332,6 +335,11 @@ esperar_primeiro_turno() { # $1 id ; $2 segundos
       if ! [[ "$fila" =~ ^[0-9]+$ ]]; then
         sem_confirmacao "$1" "a resposta do runner nao traz o campo naFilaTotal (textos pendentes do card), entao nao da para ver se o pedido ja saiu da fila"
       fi
+      # Recibo pendente: o texto ja saiu da fila, mas o runner ainda espera o recibo do Enter (o pedido pode estar so na caixa de texto).
+      recibo="$(campo_booleano .data.reciboPendente)"
+      if [ "$recibo" != true ] && [ "$recibo" != false ]; then
+        sem_confirmacao "$1" "a resposta do runner nao traz o campo reciboPendente (recibo do Enter de um texto digitado), entao nao da para ver se o pedido foi aceito pelo CLI"
+      fi
       # Falha de turno conhecida: estado errored, campo de erro preenchido (inclusive em card dormindo/resumable)
       # ou statusReason de falha. Do statusReason vale so o nome do evento (antes do primeiro espaco): o resto pode ser
       # o nome de uma ferramenta (ex.: "hook:PreToolUse mcp__logs__error_report"), que nao e falha. Nenhuma delas conta como sucesso, mesmo que haja turno ou o status seja working.
@@ -348,13 +356,16 @@ esperar_primeiro_turno() { # $1 id ; $2 segundos
       # Um turno so confirma o pedido se o texto dele ja saiu da fila: o painel pode digitar uma mensagem direto no
       # terminal (sem passar pela fila), e esse turno nao e o do pedido.
       if [ "$turnos" != 0 ]; then
-        [ "$fila" != 0 ] || return 0
-        fila_presa=1
+        if [ "$fila" != 0 ]; then fila_presa=1
+        elif [ "$recibo" = true ]; then recibo_preso=1
+        else return 0
+        fi
       fi
     fi
     if [ $((SECONDS - inicio)) -ge "$2" ]; then
       [ -z "$falha" ] || sem_confirmacao "$1" "$falha"
       [ "$fila_presa" = 0 ] || sem_confirmacao "$1" "o card teve um turno, mas ainda ha texto pendente (na fila ou sendo digitado); o pedido pode nao ter sido digitado ainda"
+      [ "$recibo_preso" = 0 ] || sem_confirmacao "$1" "o card teve um turno, mas o runner ainda espera o recibo do Enter de um texto digitado (o pedido pode estar na caixa de texto)"
       # Resumable (tem conversa guardada, mas sem processo vivo): o contador da conversa pode ter zerado: dizer que o pedido nao virou turno seria um palpite.
       case "$ultimo_status" in
         resumable)
@@ -587,6 +598,13 @@ cmd_fechar() {
           motivo="a resposta do runner nao traz o campo naFilaTotal (textos pendentes do card)"
         elif [ "$fila" != 0 ]; then
           motivo="ainda ha $fila texto(s) pendente(s) no card (na fila ou sendo digitado), que seriam descartados"
+        else
+          recibo="$(campo_booleano .data.reciboPendente)"
+          if [ "$recibo" = true ]; then
+            motivo="o runner ainda espera o recibo de um texto digitado, que seria descartado"
+          elif [ "$recibo" != false ]; then
+            motivo="a resposta do runner nao traz o campo reciboPendente (recibo do Enter de um texto digitado)"
+          fi
         fi
       fi
     fi
