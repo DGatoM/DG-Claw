@@ -46,7 +46,7 @@ A versão nova do Codex só chega aos seus agentes depois que a imagem deles é 
 não conseguia baixar vídeo do YouTube por três motivos. O `yt-dlp` da imagem estava velho e sem o `yt-dlp-ejs`, que resolve o
 desafio de JavaScript do YouTube; o comando `yt-dlp` não estava no PATH do serviço do runner; e o YouTube responde "Sign in to
 confirm you're not a bot" para quem não está logado, e a Tela nunca tinha entrado no YouTube. Agora a imagem traz `yt-dlp`
-2026.10.26 e `yt-dlp-ejs` 0.8.0 (os dois com versão e hash fixos, instalados num passo próprio, sem dependências e só como pacote
+2026.11.23 e `yt-dlp-ejs` 0.8.0 (os dois com versão e hash fixos, instalados num passo próprio, sem dependências e só como pacote
 pronto), um link em `/usr/local/bin/yt-dlp` e o arquivo de sistema `/etc/yt-dlp.conf` (root:root, 0644) com uma linha só,
 `--js-runtimes node`, para o node da imagem resolver o desafio. Nenhum cookie fica em configuração global, e o DG Claw não grava
 mais nada de `yt-dlp` na casa do agente.

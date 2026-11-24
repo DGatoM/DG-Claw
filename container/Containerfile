@@ -128,7 +128,7 @@ RUN python3 -m venv /opt/venv \
       'Pillow==13.0.0' 'requests==2.34.2' 'numpy==2.5.4' 'pyyaml==6.0.3' \
       'openpyxl==3.1.5' 'pymupdf==1.28.2' 'playwright==1.63.0' \
     && printf '%s\n' \
-      'yt-dlp==2026.10.26 --hash=sha256:a05c5b5d8562f7e8a62f5334348b406af4930d56d3a65f8021d14af0e22339ae' \
+      'yt-dlp==2026.11.23 --hash=sha256:e9188e0c559905f7ee05acc1ba0b6fb3f310e7565bf6dea5f62b5300e0775e35' \
       'yt-dlp-ejs==0.8.0 --hash=sha256:79300e5fca7f937a1eeede11f0456862c1b41107ce1d726871e0207424f4bdb4' \
       > /tmp/req-ytdlp.txt \
     && /opt/venv/bin/pip install --no-cache-dir --require-hashes --no-deps --only-binary=:all: -r /tmp/req-ytdlp.txt \
