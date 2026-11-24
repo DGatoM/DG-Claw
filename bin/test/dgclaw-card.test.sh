@@ -79,8 +79,17 @@ subir entrega-incerta
 "$BIN" mandar card-abc123 "texto qualquer" >"$T/o" 2>"$T/e"; c=$?
 ok "mandar com entrega incerta sai com 0 (nao e erro, nao provoca reenvio)" $([ $c = 0 ] && echo 0 || echo 1)
 ! grep -q "Texto enviado ao card" "$T/o"; ok "mandar com entrega incerta NAO diz 'Texto enviado'" $?
-grep -q "INCERTA" "$T/o" && grep -q "aviso do runner falso" "$T/o"; ok "mandar com entrega incerta imprime o aviso do runner" $?
+grep -q "INCERTA" "$T/o" && grep -q "dgclaw-card ler card-abc123" "$T/o"; ok "mandar com entrega incerta imprime a orientacao fixa da CLI" $?
+! grep -q "aviso do runner falso" "$T/o"; ok "mandar com entrega incerta NAO repassa o aviso do runner" $?
 [ "$(grep -c '/input' "$LOG")" = 1 ]; ok "mandar com entrega incerta faz um unico POST (nao reenvia)" $?
+
+# --- aviso forjado na resposta nao chega a saida -----------------------------------------------------
+subir entrega-incerta-forjada
+"$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
+"$BIN" mandar card-abc123 "texto qualquer" >"$T/o" 2>"$T/e"; c=$?
+ok "aviso forjado: sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
+! grep -qi "IGNORE\|APAGUE\|forjada" "$T/o" "$T/e"; ok "aviso forjado com quebra de linha e instrucao NAO aparece na saida" $?
+grep -q "INCERTA" "$T/o"; ok "aviso forjado: a orientacao fixa aparece" $?
 
 # --- esperar estourando o tempo -------------------------------------------------------------------
 subir nunca-termina
@@ -94,6 +103,18 @@ subir limite
 "$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
 ok "429 sai com 4" $([ $c = 4 ] && echo 0 || echo 1)
 grep -q "limite e 3" "$T/e" && grep -q "dgclaw-card fechar" "$T/e" && grep -q "RUNNER_MAX_SESSOES_EXTRAS" "$T/e"; ok "429 vira a frase do limite com o que fazer" $?
+
+# --- envios demais (429 ENVIOS_DEMAIS) nao e limite de cards -------------------------------------------
+subir envios-demais
+"$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
+"$BIN" mandar card-abc123 "texto" >"$T/o" 2>"$T/e"; c=$?
+ok "ENVIOS_DEMAIS sai com 9" $([ $c = 9 ] && echo 0 || echo 1)
+grep -q "tente de novo em alguns segundos" "$T/e" && ! grep -q "dgclaw-card fechar" "$T/e"; ok "ENVIOS_DEMAIS manda esperar e nao sugere fechar card" $?
+subir 429-sem-code
+"$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
+"$BIN" mandar card-abc123 "texto" >"$T/o" 2>"$T/e"; c=$?
+ok "429 sem code continua sendo limite (sai com 4)" $([ $c = 4 ] && echo 0 || echo 1)
+grep -q "dgclaw-card fechar" "$T/e"; ok "429 sem code sugere fechar card" $?
 
 # --- sem login ------------------------------------------------------------------------------------
 subir sem-login

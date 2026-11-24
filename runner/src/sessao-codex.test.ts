@@ -758,3 +758,48 @@ test("rodada 9, item 6: rollout recém-descoberto com mais de 1 MiB de saída an
   assert.equal(s.promptsAceitos, 1);
   assert.equal(s.semRecibo.includes(entrada as never), false);
 });
+
+test("revisão: num Codex a rota de hook só aceita o Stop do notify; PreCompact é recusado e não conta compactação", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
+  const base = { agentId: s.descritor.id, nonce: s.nonce as string };
+  const antes = s.compactsIniciados;
+  const r = s.receberHook({ ...base, event: "PreCompact" });
+  assert.equal(r.ok, false);
+  assert.match(r.motivo ?? "", /Codex.*Stop/);
+  assert.equal(s.compactsIniciados, antes, "o PreCompact forjado não dá baixa no /compact");
+  assert.equal(s.receberHook({ ...base, event: "Stop" }).ok, true, "o Stop do notify continua aceito");
+});
+
+test("revisão: o texto repetido no turno não se duplica e passar de 1 MiB descarta os turnos mais antigos, mantendo o recibo do mais recente", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
+  const { aplicarEvento, TETO_BYTES_TEXTOS_DO_CODEX } = await import("./sessao/eventos.js");
+  const { reciboDoTexto } = await import("./sessao/fila.js");
+  // user_message e response_item trazem o mesmo texto: fica uma cópia só, também com espaços diferentes.
+  aplicarEvento(s, { event: "UserPromptSubmit" });
+  aplicarEvento(s, { event: "TextoDoUsuario", texto: "mesmo texto" });
+  aplicarEvento(s, { event: "TextoDoUsuario", texto: "mesmo   texto\n" });
+  assert.deepEqual(s.turnosDoCodex[s.turnosDoCodex.length - 1].textos, ["mesmo texto"]);
+  // Turnos grandes: a soma passa de 1 MiB e os mais antigos saem primeiro.
+  const metade = "a".repeat(Math.floor(TETO_BYTES_TEXTOS_DO_CODEX / 2) - 10);
+  for (let i = 0; i < 4; i++) {
+    aplicarEvento(s, { event: "UserPromptSubmit" });
+    aplicarEvento(s, { event: "TextoDoUsuario", texto: `${metade} turno-${i}` });
+  }
+  const total = s.turnosDoCodex.reduce((a, t) => a + t.textos.reduce((b, x) => b + Buffer.byteLength(x), 0), 0) + s.textosSoltosDoCodex.reduce((b, x) => b + Buffer.byteLength(x), 0);
+  assert.ok(total <= TETO_BYTES_TEXTOS_DO_CODEX, `a soma (${total}) cabe no teto`);
+  assert.equal(s.turnosDoCodex.some((t) => t.textos.some((x) => x.endsWith("turno-0"))), false, "o mais antigo saiu");
+  const n = s.promptsAceitos;
+  assert.equal(reciboDoTexto(s, n - 1, `${metade} turno-3`), true, "o recibo do mais recente continua valendo");
+  // Textos soltos (antes do primeiro task_started) também entram no teto.
+  s.turnosDoCodex.length = 0;
+  s.textosSoltosDoCodex.length = 0;
+  for (let i = 0; i < 4; i++) aplicarEvento(s, { event: "TextoDoUsuario", texto: `${metade} solto-${i}` });
+  assert.ok(s.textosSoltosDoCodex.reduce((b, x) => b + Buffer.byteLength(x), 0) <= TETO_BYTES_TEXTOS_DO_CODEX);
+  assert.equal(s.textosSoltosDoCodex[s.textosSoltosDoCodex.length - 1].endsWith("solto-3"), true);
+});

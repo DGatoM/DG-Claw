@@ -10,6 +10,7 @@
 //   - a conversa do `GET /conversation`.
 import fs from "node:fs";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { log } from "../logger.js";
 import { mascarar } from "../mascara.js";
 import { type Leitura, usoDaLinhaDoRollout } from "../uso.js";
@@ -276,12 +277,15 @@ export const BLOCO_DO_ROLLOUT_BYTES = 256 * 1024;
  * Diferente do Bunker, não colapsa os eventos de um pulso em um só: o recibo do
  * Enter conta cada `task_started`.
  */
-export function vigiarRollout(op: OpcoesDoVigia): () => void {
+export function vigiarRollout(op: OpcoesDoVigia, blocoBytes: number = BLOCO_DO_ROLLOUT_BYTES): () => void {
   let parado = false;
   let ocupado = false;
   let arquivo: string | null = null;
   let deslocamento = 0;
   let resto = "";
+  // Um caractere multibyte pode ficar cortado na fronteira de dois blocos: o decodificador guarda os bytes soltos para o bloco
+  // seguinte. É um por arquivo e recomeça quando o arquivo troca ou é truncado.
+  let decodificador = new StringDecoder("utf8");
   const pulso = async (): Promise<void> => {
     if (parado || ocupado) return;
     ocupado = true;
@@ -295,14 +299,15 @@ export function vigiarRollout(op: OpcoesDoVigia): () => void {
         arquivo = proximo;
         deslocamento = op.lerDesdeOInicio?.(proximo) ? 0 : Math.max(0, st.size - 1024 * 1024);
         resto = "";
+        decodificador = new StringDecoder("utf8");
       }
       const fim = st.size;
       while (deslocamento < fim && !parado) {
-      const buf = Buffer.alloc(Math.min(fim - deslocamento, BLOCO_DO_ROLLOUT_BYTES));
+      const buf = Buffer.alloc(Math.min(fim - deslocamento, blocoBytes));
       const { bytesRead } = await fd.read(buf, 0, buf.length, deslocamento);
       if (bytesRead === 0) break;
       deslocamento += bytesRead;
-      const linhas = (resto + buf.subarray(0, bytesRead).toString("utf8")).split("\n");
+      const linhas = (resto + decodificador.write(buf.subarray(0, bytesRead))).split("\n");
       resto = linhas.pop() ?? "";
       if (resto.length > 2 * 1024 * 1024) resto = "";
       for (const linha of linhas) {

@@ -64,7 +64,12 @@ export function digitarEEnviar(
   });
   const elo = s.cadeiaDeEnvio.then(async () => {
     const t = suporte.texto;
-    if (t === null) return; // desistiu antes da vez: já foi respondido e a contagem já foi liberada
+    // Desistiu antes da vez: já foi respondido e não digita nada. A vaga só volta agora, que o elo foi de fato consumido: liberar
+    // na desistência deixaria elos cancelados acumulados na cadeia acima do limite enquanto o envio anterior ainda não terminou.
+    if (t === null) {
+      largar();
+      return;
+    }
     suporte.comecou = true;
     largar();
     suporte.texto = null;
@@ -79,7 +84,6 @@ export function digitarEEnviar(
     const desistir = () => {
       if (suporte.comecou || suporte.texto === null) return;
       suporte.texto = null;
-      largar();
       log.aviso(s.a("entrada"), "quem pediu desistiu da chamada antes da vez: tirei o pedido da espera sem escrever nada");
       rejeitar(new ErroDeMotor("Não digitei o texto: quem pediu desistiu da chamada antes de o texto começar a ser digitado.", MOTIVO_NAO_ENTROU, "reenviar a mensagem se ainda for necessária"));
     };

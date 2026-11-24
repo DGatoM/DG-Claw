@@ -58,10 +58,9 @@ printf 'header = "Authorization: Bearer %s"\n' "$(cat "$TOKEN_ARQ")" >"$cfg"
 # nao sabe se o agente o recebeu (um 202 sem entregaIncerta e o recado na fila). Repetir o pedido na incerteza executaria o aviso duas
 # vezes, entao a entrega incerta NAO e repetida: fica registrada para o dono conferir, com o resumo preservado.
 for tentativa in 1 2 3; do
-    resposta="$(printf '%s' "$corpo" | curl -sS -f --max-time 20 --config "$cfg" -X POST \
+    if resposta="$(printf '%s' "$corpo" | curl -sS -f --max-time 20 --config "$cfg" -X POST \
             -H 'Content-Type: application/json' --data-binary @- -w '\n%{http_code}' \
-            "$URL/api/agents/admin/input")"
-    if [ $? -eq 0 ]; then
+            "$URL/api/agents/admin/input")"; then
         status="${resposta##*$'\n'}"
         dados="${resposta%$'\n'*}"
         if [ "$status" = 202 ] && [ "$(printf '%s' "$dados" | jq -r '.data.entregaIncerta // false' 2>/dev/null)" = true ]; then
@@ -74,8 +73,19 @@ for tentativa in 1 2 3; do
             log "o Admin recebeu o aviso do resultado (tentativa $tentativa) e vai contar ao dono. Resumo: $RESUMO"
         fi
         exit 0
+    else
+        rc=$?
+        # Repetir so e seguro quando o pedido nao chegou a sair ou o runner o recusou: 6 (host nao resolvido), 7 (conexao recusada)
+        # e 22 (HTTP >= 400 com -f: o runner respondeu e nao entregou). Qualquer outro codigo (28 tempo esgotado, 52 resposta vazia,
+        # 56 conexao cortada...) pode ter acontecido DEPOIS do envio: repetir avisaria o Admin duas vezes.
+        case "$rc" in
+            6|7|22) ;;
+            *)
+                log "ATENCAO: o POST em $URL/api/agents/admin/input terminou com o codigo $rc do curl, depois de poder ter sido enviado, entao a entrega do aviso ao Admin e INCERTA. Nao repeti o pedido, para nao avisar duas vezes. Confira a conversa do Admin; se o aviso nao apareceu, peca a ele que leia o resumo em $RESUMO."
+                exit 3 ;;
+        esac
     fi
-    log "o POST em $URL/api/agents/admin/input falhou (tentativa $tentativa de 3)."
+    log "o POST em $URL/api/agents/admin/input falhou (codigo $rc do curl, tentativa $tentativa de 3)."
     sleep 5
 done
 log "nao consegui avisar o Admin. O resumo da atualizacao esta em $RESUMO: peca a ele que o leia."

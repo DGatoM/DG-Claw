@@ -13,6 +13,8 @@ done
 # POST no /input do Admin (lib/reiniciar-admin.sh): responde corpo + status como o curl real com -w '\n%{http_code}'. O corpo vem de
 # admin-input-resposta e o status de admin-input-status (padrao: o runner confirmando, 200).
 case "$*" in *agents/admin/input*)
+    # curl-codigo-input: o curl termina com esse codigo (28 = tempo esgotado, 7 = conexao recusada...), como numa falha de rede.
+    [ -f "$STUB_ESTADO/curl-codigo-input" ] && exit "$(cat "$STUB_ESTADO/curl-codigo-input")"
     case "$*" in *%{http_code}*)
         printf '%s\n%s' "$(cat "$STUB_ESTADO/admin-input-resposta" 2>/dev/null || echo '{"success":true,"data":{"enviado":true}}')" "$(cat "$STUB_ESTADO/admin-input-status" 2>/dev/null || echo 200)" ;;
     esac

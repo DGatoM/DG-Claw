@@ -3573,19 +3573,13 @@ test("rodada 9, item 5: pedidos diretos esperando a vez são limitados por quant
     // Um a mais: recusado, sem escrever e sem mexer na contagem.
     await assert.rejects(s.digitarEEnviar("um-a-mais"), (e: unknown) => e instanceof ErroEnviosDemais && /envios demais/.test(e.message) && e.howToFix.length > 0);
     assert.equal(s.diretosEsperando.pedidos, MAX_ENVIOS_DIRETOS_ESPERANDO);
-    // Cancelar um que ainda não começou: sai da espera na hora, libera a contagem e os bytes, e responde "não entrou".
+    // Cancelar um que ainda não começou: é respondido na hora, mas a vaga só volta quando o elo dele sai da cadeia.
     const bytesAntes = s.diretosEsperando.bytes;
     controles[0].abort();
     const r0 = await pendentes[0];
     assert.ok(r0 instanceof ErroDeMotor, "o cancelado é respondido na hora, sem esperar a vez");
-    assert.equal(s.diretosEsperando.pedidos, MAX_ENVIOS_DIRETOS_ESPERANDO - 1);
-    assert.equal(s.diretosEsperando.bytes, bytesAntes - Buffer.byteLength("espera-0"));
-    // Agora cabe de novo um pedido (e ele fica esperando).
-    const novo = new AbortController();
-    const p = s.digitarEEnviar("coube-de-novo", false, null, () => novo.signal.aborted, novo.signal).catch((e: unknown) => e);
-    assert.equal(s.diretosEsperando.pedidos, MAX_ENVIOS_DIRETOS_ESPERANDO);
-    novo.abort();
-    await p;
+    assert.equal(s.diretosEsperando.pedidos, MAX_ENVIOS_DIRETOS_ESPERANDO, "o elo cancelado ainda está na cadeia: a vaga não voltou");
+    assert.equal(s.diretosEsperando.bytes, bytesAntes);
     // Limite por bytes: um texto que estoura a soma é recusado mesmo com poucos pedidos esperando.
     const grande = "g".repeat(MAX_BYTES_DIRETOS_ESPERANDO);
     await assert.rejects(s.digitarEEnviar(grande), (e: unknown) => e instanceof ErroEnviosDemais);
@@ -3594,10 +3588,42 @@ test("rodada 9, item 5: pedidos diretos esperando a vez são limitados por quant
     for (const c of controles) c.abort();
     soltar();
     await Promise.all(pendentes);
+    await esperarAte(() => s.diretosEsperando.pedidos === 0, 5_000, "os elos cancelados saírem da cadeia");
     restaurar();
   }
   assert.equal(s.diretosEsperando.pedidos, 0, "a contagem volta a zero");
   assert.equal(s.diretosEsperando.bytes, 0);
+});
+
+test("revisão: cancelar e reenviar não acumula elos acima do limite; a vaga só volta quando o elo cancelado sai da cadeia", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  const { MAX_ENVIOS_DIRETOS_ESPERANDO } = await import("./sessao/constantes.js");
+  const { ErroEnviosDemais } = await import("./sessao/digitacao.js");
+  let soltar: () => void = () => {};
+  s.cadeiaDeEnvio = new Promise<void>((r) => (soltar = r)); // um envio longo ocupa o terminal
+  const controles = Array.from({ length: MAX_ENVIOS_DIRETOS_ESPERANDO }, () => new AbortController());
+  const pendentes = controles.map((c, i) => s.digitarEEnviar(`cancela-${i}`, false, null, () => c.signal.aborted, c.signal).catch((e: unknown) => e));
+  try {
+    for (const c of controles) c.abort();
+    await Promise.all(pendentes);
+    assert.equal(s.diretosEsperando.pedidos, MAX_ENVIOS_DIRETOS_ESPERANDO, "os oito elos cancelados continuam ocupando as vagas");
+    await assert.rejects(s.digitarEEnviar("nono"), (e: unknown) => e instanceof ErroEnviosDemais);
+    // A cadeia anda: os elos cancelados saem sem digitar e as vagas voltam.
+    soltar();
+    await esperarAte(() => s.diretosEsperando.pedidos === 0, 5_000, "as vagas voltarem");
+    assert.equal(s.diretosEsperando.bytes, 0);
+    assert.deepEqual(escritas, [], "nenhum cancelado foi digitado");
+    const novo = new AbortController();
+    const p = s.digitarEEnviar("depois-que-andou", false, null, () => novo.signal.aborted, novo.signal).catch((e: unknown) => e);
+    assert.equal(s.diretosEsperando.pedidos <= 1, true, "um novo pedido é aceito de novo");
+    novo.abort();
+    await p;
+  } finally {
+    soltar();
+    await Promise.all(pendentes);
+    await esperarAte(() => s.diretosEsperando.pedidos === 0, 5_000, "a contagem zerar");
+    restaurar();
+  }
 });
 
 test("rodada 9, item 7: resposta do agente que cita o aviso do Bypass e as duas opções, acima de um editor livre, não é diálogo e o envio sai; o diálogo real continua detectado", async () => {
@@ -3621,4 +3647,15 @@ test("rodada 9, item 7: resposta do agente que cita o aviso do Bypass e as duas 
   } finally {
     restaurar();
   }
+});
+
+test("revisão: no Claude a rota de hook continua aceitando o PreCompact (a restrição é só do Codex)", async () => {
+  logarClaude(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const antes = s.compactsIniciados;
+  const r = s.receberHook({ agentId: s.id, event: "PreCompact", nonce: s.nonce as string });
+  assert.equal(r.ok, true);
+  assert.equal(s.compactsIniciados, antes + 1);
 });

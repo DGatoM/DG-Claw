@@ -43,6 +43,7 @@
 #      Se o card abriu mas o "dgclaw-monitor add" falhou, a saida e 8: o card esta aberto e SEM monitor,
 #      e a mensagem traz o comando para ligar o monitor a mao.
 #   8  (so no "abrir --monitor") o card abriu e o pedido foi entregue, mas o monitor nao ligou
+#   9  envios demais esperando para o card (429 ENVIOS_DEMAIS): o texto nao foi enviado; espere e tente de novo
 set -euo pipefail
 umask 077
 
@@ -116,6 +117,8 @@ falha_geral() {
   case "$HTTP:$code" in
     401:*|403:*)
       CODIGO=3 die "o runner recusou o acesso (token invalido). Isso e um problema de instalacao, nao do pedido. Peca ao dono para reiniciar o agente pelo painel; se continuar, o instalador precisa ser rodado de novo." ;;
+    *:ENVIOS_DEMAIS)
+      CODIGO=9 die "ha envios demais esperando para este card: o runner so aceita alguns pedidos de cada vez e recusou este para nao se enrolar. Espere os envios anteriores a este card terminarem e tente de novo em alguns segundos. O texto NAO foi enviado." ;;
     429:*|*:LIMITE_DE_SESSOES)
       CODIGO=4 die "${err:-Ja ha cards demais abertos.} Para liberar uma vaga, feche um card que nao precisa mais: veja com 'dgclaw-card listar' e feche com 'dgclaw-card fechar <id>'. Se o dono quiser mais vagas, o limite sobe em RUNNER_MAX_SESSOES_EXTRAS na unidade do runner." ;;
     *:SEM_LOGIN|*:SEM_CHAVE)
@@ -247,8 +250,9 @@ cmd_mandar() {
   enviar_texto "$id"
   # 202 com entregaIncerta: o runner nao sabe se o texto chegou. Nao e "enviado" e nao se reenvia sozinho (duplicaria o pedido).
   if [ "$(campo .data.entregaIncerta)" = "true" ]; then
-    echo "ATENCAO: a entrega ao card $id e INCERTA, o texto pode ou nao ter chegado. $(campo .data.aviso)"
-    echo "Nao reenvie ja: confira com: dgclaw-card ler $id"
+    # Texto FIXO, escrito aqui: nada da resposta do runner (o "aviso" dele) e repassado, para a saida nao carregar instrucao alheia.
+    echo "ATENCAO: a entrega ao card $id e INCERTA, o texto pode ou nao ter chegado."
+    echo "Nao reenvie ja. Espere um ou dois minutos e confira com: dgclaw-card ler $id"
     return 0
   fi
   echo "Texto enviado ao card $id. Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"

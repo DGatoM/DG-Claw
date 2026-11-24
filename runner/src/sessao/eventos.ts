@@ -35,6 +35,10 @@ const ORIGENS_CONHECIDAS = ["startup", "resume", "clear", "compact"];
  *  quem tem o nonce (que aparece nos argumentos do processo) não pode forjar o recibo de um envio. */
 const EVENTOS_SO_DO_ROLLOUT = ["TextoDoUsuario", "Compactado"];
 
+/** No Codex, o único evento que o `notify` produz (e manda pela rota de hook) é o fim de turno, `Stop` (ver codex-notify-source.ts).
+ *  Qualquer outro evento chegando por lá num Codex (como o PreCompact, que dá baixa no /compact) não veio do notify e é recusado. */
+const EVENTOS_DO_NOTIFY_DO_CODEX = ["Stop"];
+
 /** Recebe o POST do handler de hook (o do Claude ou o `notify` do Codex). Nonce errado é
  *  descartado: é hook de um PTY já morto, ou de um processo que não é este. O evento SÓ
  *  muda o status: nunca injeta texto, nunca dispara comando e nunca devolve conteúdo. */
@@ -45,6 +49,10 @@ export function receberHook(s: Sessao, payload: PayloadDeHook): { ok: boolean; m
   if (EVENTOS_SO_DO_ROLLOUT.includes(payload.event)) {
     log.aviso(s.a("hook"), `o evento ${payload.event} chegou pela rota de hook e foi recusado: ele só vale vindo do rollout do Codex lido pelo runner`);
     return { ok: false, motivo: `o evento ${payload.event} só é aceito do rollout lido pelo runner, não pela rota de hook` };
+  }
+  if (s.motor.reciboPorRollout && !EVENTOS_DO_NOTIFY_DO_CODEX.includes(payload.event)) {
+    log.aviso(s.a("hook"), `o evento ${EVENTOS_CONHECIDOS.includes(payload.event) ? payload.event : "desconhecido"} chegou pela rota de hook de um agente Codex e foi recusado: o notify do Codex só manda ${EVENTOS_DO_NOTIFY_DO_CODEX.join(", ")}`);
+    return { ok: false, motivo: `um agente Codex só aceita pela rota de hook o evento ${EVENTOS_DO_NOTIFY_DO_CODEX.join(", ")}` };
   }
   return aplicarEvento(s, payload);
 }
@@ -118,6 +126,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       if (s.motor.reciboPorRollout) {
         s.turnosDoCodex.push({ n: s.promptsAceitos, textos: s.textosSoltosDoCodex.splice(0) });
         if (s.turnosDoCodex.length > TURNOS_DO_CODEX_GUARDADOS) s.turnosDoCodex.splice(0, s.turnosDoCodex.length - TURNOS_DO_CODEX_GUARDADOS);
+        aparaTextosDoCodex(s);
       }
       confirmarRecibos(s);
       s.turnoComecouEm = Date.now();
@@ -128,9 +137,11 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       if (!s.motor.reciboPorRollout || typeof payload.texto !== "string") break;
       const texto = normalizarTexto(payload.texto);
       if (texto === "") break;
+      // O rollout grava o mesmo texto duas vezes no turno (user_message e response_item): guarda uma só.
       const ultimo = s.turnosDoCodex[s.turnosDoCodex.length - 1];
-      if (ultimo) ultimo.textos.push(texto);
-      else s.textosSoltosDoCodex.push(texto);
+      const destino = ultimo ? ultimo.textos : s.textosSoltosDoCodex;
+      if (!destino.includes(texto)) destino.push(texto);
+      aparaTextosDoCodex(s);
       // O `task_started` do turno chega antes do texto: agora o recibo pode ser conferido.
       confirmarRecibos(s);
       break;
@@ -266,6 +277,29 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       log.debug(s.a("hook"), `evento sem tratamento: ${payload.event}`);
   }
   return { ok: true };
+}
+
+/** Teto, em bytes, da soma dos textos guardados para o recibo do Codex (turnos e textos soltos). */
+export const TETO_BYTES_TEXTOS_DO_CODEX = 1024 * 1024;
+
+/** Mantém os textos do recibo do Codex dentro do teto de bytes, descartando os mais antigos primeiro. O turno mais novo
+ *  (ou, sem turno, o último texto solto) fica, para o recibo do pedido mais recente continuar valendo. */
+export function aparaTextosDoCodex(s: Sessao): void {
+  const bytes = (t: string): number => Buffer.byteLength(t, "utf8");
+  let total = 0;
+  for (const t of s.turnosDoCodex) for (const x of t.textos) total += bytes(x);
+  for (const x of s.textosSoltosDoCodex) total += bytes(x);
+  while (total > TETO_BYTES_TEXTOS_DO_CODEX && s.turnosDoCodex.length > 1) {
+    const velho = s.turnosDoCodex.shift()!;
+    for (const x of velho.textos) total -= bytes(x);
+  }
+  while (total > TETO_BYTES_TEXTOS_DO_CODEX && s.textosSoltosDoCodex.length > 1) {
+    total -= bytes(s.textosSoltosDoCodex.shift()!);
+  }
+  const unico = s.turnosDoCodex[0];
+  while (total > TETO_BYTES_TEXTOS_DO_CODEX && s.turnosDoCodex.length === 1 && unico && unico.textos.length > 1) {
+    total -= bytes(unico.textos.shift()!);
+  }
 }
 
 export function agendarStop(s: Sessao): void {

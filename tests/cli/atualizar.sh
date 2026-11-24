@@ -253,6 +253,20 @@ printf '%s' '{"success":true,"data":{"enfileirado":true}}' >"$STUB_ESTADO/admin-
 bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-fila.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
 igual "202 enfileirado: sai com 0" "0" "$rc"
 afirma "202 enfileirado: o log diz que ficou na fila" grep -q 'ficou na fila do Admin' "$TMP/reinicio-fila.log"
+# Falha do curl DEPOIS do envio (28 = tempo esgotado): entrega incerta, nao repete e sai com 3.
+printf 28 >"$STUB_ESTADO/curl-codigo-input"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-timeout.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "timeout do curl: sai com 3 (entrega incerta)" "3" "$rc"
+igual "timeout do curl: um unico POST, sem repetir" "1" "$(grep -c 'X POST' "$STUB_LOG")"
+afirma "timeout do curl: o log diz que e INCERTA e manda conferir" grep -q 'INCERTA.*Confira a conversa do Admin' "$TMP/reinicio-timeout.log"
+# Conexao recusada (7): o pedido nem saiu, repete as 3 tentativas e sai com 1.
+printf 7 >"$STUB_ESTADO/curl-codigo-input"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-recusada.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "conexao recusada: sai com 1 depois das tentativas" "1" "$rc"
+igual "conexao recusada: repete o POST (3 tentativas)" "3" "$(grep -c 'X POST' "$STUB_LOG")"
+rm -f "$STUB_ESTADO/curl-codigo-input"
 rm -f "$STUB_ESTADO/admin-input-resposta" "$STUB_ESTADO/admin-input-status"
 touch "$STUB_ESTADO/curl-falha"
 : >"$STUB_LOG"
