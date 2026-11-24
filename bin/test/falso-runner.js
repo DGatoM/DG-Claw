@@ -1,7 +1,7 @@
 // Runner falso para o teste do dgclaw-card. Grava cada requisicao em $LOG (uma linha JSON com
 // metodo, url, corpo e o cabecalho Authorization) e simula o ciclo de um card:
 // criado dormindo -> /input -> working -> idle com resposta do assistente.
-// Chaves de ambiente: RUNNER_BEARER (token esperado), MODO (normal|limite|sem-login|input-falha|nunca-termina|sem-turno|turno-lento|leitura-403|leitura-503|sem-contador|restaurado|lento-leitura|erro-turno|erro-campo|input-recusado|input-perdido|input-sem-capacidade|input-nao-acordou|working-sem-turno|stop-failure|ferramenta-com-erro-no-nome|sem-login-delete-falha|fila-parada|sem-hook|turno-com-fila|sem-processo|sem-campo-fila).
+// Chaves de ambiente: RUNNER_BEARER (token esperado), MODO (normal|limite|sem-login|input-falha|nunca-termina|sem-turno|turno-lento|leitura-403|leitura-503|sem-contador|restaurado|lento-leitura|erro-turno|erro-campo|input-recusado|input-perdido|input-sem-capacidade|input-nao-acordou|working-sem-turno|stop-failure|ferramenta-com-erro-no-nome|sem-login-delete-falha|fila-parada|sem-hook|turno-com-fila|sem-processo|sem-campo-fila|item-em-voo|sem-turno-sem-total).
 const http = require("http");
 const fs = require("fs");
 const LOG = process.env.LOG;
@@ -24,8 +24,8 @@ http.createServer((req, res) => {
       // turno-lento: o pedido so vira turno ~2 s depois do /input (o 202 sai antes, como no runner de verdade).
       if (c.viraEm && Date.now() >= c.viraEm) { c.viraEm = 0; c.status = "working"; c.turnos = 1; c.polls = 0; }
       // sem-contador: runner que nao informa turnosAceitos.
-      if (MODO === "sem-contador") return { id, status: c.status, sessao: { tipo: "card", titulo: c.titulo, fila: 0 } };
-      return { id, status: c.status, ...(c.erro ? { error: c.erro } : {}), ...(c.motivo ? { statusReason: c.motivo } : {}), turnosAceitos: c.turnos, turnosAceitosSessao: c.turnos, hookActive: MODO !== "sem-hook", sessao: { tipo: "card", titulo: c.titulo, ...(MODO === "sem-campo-fila" ? {} : { fila: c.fila || 0 }) } };
+      if (MODO === "sem-contador") return { id, status: c.status, naFilaTotal: 0, sessao: { tipo: "card", titulo: c.titulo, fila: 0 } };
+      return { id, status: c.status, ...(c.erro ? { error: c.erro } : {}), ...(c.motivo ? { statusReason: c.motivo } : {}), turnosAceitos: c.turnos, turnosAceitosSessao: c.turnos, hookActive: MODO !== "sem-hook", ...(MODO === "sem-campo-fila" || MODO === "sem-turno-sem-total" ? {} : { naFilaTotal: (c.fila || 0) + (c.emVoo || 0) }), sessao: { tipo: "card", titulo: c.titulo, fila: c.fila || 0 } };
     };
     let m;
     if (p === "/api/sessoes" && req.method === "POST") {
@@ -81,6 +81,10 @@ http.createServer((req, res) => {
         if (MODO === "sem-processo") { c.msgs.push({ role: "user", text: JSON.parse(corpo).text }); c.status = "resumable"; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
         // sem-campo-fila: turno aceito, mas a resposta nao traz sessao.fila.
         if (MODO === "sem-campo-fila") { c.msgs.push({ role: "user", text: JSON.parse(corpo).text }); c.status = "idle"; c.turnos = 1; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
+        // item-em-voo: turno aceito, sessao.fila 0, mas um texto esta sendo digitado agora (naFilaTotal 1).
+        if (MODO === "item-em-voo") { c.msgs.push({ role: "user", text: JSON.parse(corpo).text }); c.status = "working"; c.turnos = 1; c.fila = 0; c.emVoo = 1; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
+        // sem-turno-sem-total: sem turno (contador 0, idle) e a resposta nao traz naFilaTotal.
+        if (MODO === "sem-turno-sem-total") return j(202, { success: true, data: { enfileirado: true, acordando: true } });
         // sem-turno: 202 enfileirado, mas o CLI nunca aceita o pedido (nada na conversa, status parado, turnos 0).
         // sem-hook: igual ao sem-turno, mas o runner nunca recebeu hook do Claude (hookActive false).
         if (MODO === "sem-turno" || MODO === "sem-hook") return j(202, { success: true, data: { enfileirado: true, acordando: true } });

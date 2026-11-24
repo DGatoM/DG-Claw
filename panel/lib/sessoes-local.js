@@ -507,10 +507,10 @@ function registrar(router, { CONFIG }) {
       if (/na fila/.test(it.motivo)) return `O pedido está na fila e ainda não virou turno.${espera}`;
       // Sem terminal e sem item na fila, nada vai entregar o pedido sozinho.
       if (it.tem_terminal === false) {
-        return 'A sessão está dormindo, sem terminal aberto e sem pedido na fila: o pedido não vai entrar sozinho. Confira a conversa antes de decidir se reenvia.';
+        return 'A sessão está dormindo, sem terminal aberto e sem pedido na fila. Nenhum turno foi registrado desde que o runner subiu pela última vez e nenhuma mensagem foi encontrada no histórico, então não dá para saber se algum pedido foi feito. Confira com o agente ou pelo resultado esperado antes de reenviar qualquer coisa. Retomar abre o terminal.';
       }
       if (/dormindo/.test(it.motivo)) return `A sessão está dormindo e o pedido ainda não virou turno.${espera}`;
-      return `O pedido foi digitado, mas o CLI ainda não o aceitou como turno: o card não está trabalhando agora.${espera}`;
+      return 'Nenhum pedido virou turno nesta conversa ainda. Se você acabou de abrir uma conversa nova, ela está pronta para a primeira mensagem. Se um pedido foi enviado, aguarde e confira o estado daqui a pouco, sem reenviar.';
     }
     if (it.grupo === 'trabalhando') return 'A sessão está trabalhando no primeiro turno e a conversa ainda não gravou nada.';
     return 'Esta sessão ainda não tem mensagens.';

@@ -290,13 +290,27 @@ subir turno-com-fila
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
 ok "turno com fila 1 nao confirma: sai com 11 no prazo" $([ $c = 11 ] && echo 0 || echo 1)
 ! grep -q "Card aberto" "$T/o"; ok "turno com fila 1 nao imprime 'Card aberto'" $?
-grep -q "ainda ha texto na fila" "$T/e"; ok "o 11 da fila explica que ha texto na fila" $?
+grep -q "ainda ha texto pendente" "$T/e"; ok "o 11 da fila explica que ha texto na fila" $?
 "$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
 ok "fechar com fila 1 recusa com 10" $([ $c = 10 ] && echo 0 || echo 1)
-grep -q "1 texto(s) na fila" "$T/e"; ok "a recusa do fechar com fila cita os textos na fila" $?
+grep -q "1 texto(s) pendente(s) no card" "$T/e"; ok "a recusa do fechar com fila cita os textos na fila" $?
 "$BIN" fechar card-abc123 --forcar >/dev/null 2>&1; ok "--forcar fecha mesmo com fila" $?
 
-# --- resposta sem sessao.fila: nao da para confirmar nem fechar -----------------------------------------------
+# --- item sendo digitado: sessao.fila 0, mas naFilaTotal 1 (o pedido ainda nao saiu) -------------------------------
+subir item-em-voo
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
+ok "turno com item em voo (fila 0, naFilaTotal 1) nao confirma: sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+! grep -q "Card aberto" "$T/o"; ok "item em voo nao imprime 'Card aberto'" $?
+"$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
+ok "fechar com item em voo recusa com 10" $([ $c = 10 ] && echo 0 || echo 1)
+
+# --- sem turno e sem naFilaTotal: 11 e nao 9 -------------------------------------------------------------------
+subir sem-turno-sem-total
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
+ok "turno 0 sem naFilaTotal sai com 11 (nao 9)" $([ $c = 11 ] && echo 0 || echo 1)
+grep -q "naFilaTotal" "$T/e"; ok "o 11 sem naFilaTotal cita o campo" $?
+
+# --- resposta sem naFilaTotal: nao da para confirmar nem fechar -----------------------------------------------
 subir sem-campo-fila
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
 ok "turno sem o campo da fila sai com 11" $([ $c = 11 ] && echo 0 || echo 1)

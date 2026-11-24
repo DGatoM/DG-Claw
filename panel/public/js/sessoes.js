@@ -990,13 +990,17 @@
       return;
     }
     d.carregandoConv = true;
+    // Geração da conversa: "Conversa nova" a incrementa, e a resposta de uma carga iniciada antes dela é da conversa antiga.
+    const geracao = d.geracaoConv || 0;
+    let obsoleta = false;
     let url = `/api/sessoes/${encodeURIComponent(d.id)}/conversa?`;
     if (modo === 'antigos') url += `limite=30&before=${encodeURIComponent(d.antes)}`;
     else url += `limite=${Math.min(100, Math.max(30, d.msgs.length + 15))}`;
     try {
       const res = await chama(url);
       if (det !== d) return;
-      if (!res.ok) {
+      if ((d.geracaoConv || 0) !== geracao) obsoleta = true;
+      else if (!res.ok) {
         d.erroConv = textoErro(res);
       } else {
         d.erroConv = '';
@@ -1009,9 +1013,16 @@
       }
     } catch (e) {
       if (det !== d) return;
-      d.erroConv = e.message;
+      if ((d.geracaoConv || 0) !== geracao) obsoleta = true;
+      else d.erroConv = e.message;
     } finally {
       d.carregandoConv = false;
+    }
+    if (obsoleta) {
+      // Resposta da conversa antiga: descarta sem tocar na tela e refaz a carga da conversa atual.
+      d.recarregarConv = false;
+      carregaConversa('poll');
+      return;
     }
     renderConversa(modo === 'antigos');
     if (d.recarregarConv && det === d) {
@@ -1180,6 +1191,7 @@
       if (await postAcao(d, '/retomar', nova ? { nova: true } : {}, ok)) {
         if (nova && det === d) {
           // A conversa antiga ficou guardada no disco: some da tela já, e a carga traz a da conversa nova.
+          d.geracaoConv = (d.geracaoConv || 0) + 1;
           d.msgs = [];
           d.antes = null;
           d.truncado = false;

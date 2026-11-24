@@ -256,13 +256,13 @@ try {
     const ativos = await lerJson(await p.pedir('/api/sessoes'));
     ok(['card-t0', 'card-tf', 'card-td'].every((id) => ativos.json.itens.some((i) => i.id === id)), 'o filtro padrão "Ativas" mostra o card sem primeiro turno, inclusive o dormindo');
     const v0 = await lerJson(await p.pedir('/api/sessoes/card-t0/conversa'));
-    ok(v0.json.mensagens.length === 0 && /não está trabalhando/.test(v0.json.motivo_vazio) && !/ainda não tem mensagens/.test(v0.json.motivo_vazio), 'conversa vazia de pedido digitado e não aceito: motivo');
-    ok(/Aguarde/.test(v0.json.motivo_vazio) && !/reenvi|Mande o pedido de novo|feche o card|Retomar/i.test(v0.json.motivo_vazio), 'a mensagem manda aguardar e conferir, sem sugerir reenviar nem fechar');
+    ok(v0.json.mensagens.length === 0 && /Nenhum pedido virou turno nesta conversa ainda/.test(v0.json.motivo_vazio) && /conversa nova, ela está pronta para a primeira mensagem/.test(v0.json.motivo_vazio) && !/foi digitado/.test(v0.json.motivo_vazio) && !/ainda não tem mensagens/.test(v0.json.motivo_vazio), 'conversa vazia sem pedido aceito: texto neutro, sem afirmar que algo foi digitado');
+    ok(/aguarde e confira/.test(v0.json.motivo_vazio) && /sem reenviar/.test(v0.json.motivo_vazio) && !/Mande o pedido de novo|feche o card|Retomar/i.test(v0.json.motivo_vazio), 'a mensagem manda aguardar e conferir, sem reenviar nem fechar');
     const vf = await lerJson(await p.pedir('/api/sessoes/card-tf/conversa'));
     ok(/na fila/.test(vf.json.motivo_vazio), 'conversa vazia com pedido na fila: motivo');
     const vd = await lerJson(await p.pedir('/api/sessoes/card-td/conversa'));
     ok(/dormindo/.test(vd.json.motivo_vazio), 'conversa vazia de sessão dormindo: motivo');
-    ok(/não vai entrar sozinho/.test(vd.json.motivo_vazio) && /Confira a conversa/.test(vd.json.motivo_vazio) && !/Aguarde/.test(vd.json.motivo_vazio), 'dormindo sem terminal e sem fila: não manda aguardar, manda conferir a conversa');
+    ok(/não dá para saber se algum pedido foi feito/.test(vd.json.motivo_vazio) && /antes de reenviar qualquer coisa/.test(vd.json.motivo_vazio) && /Retomar abre o terminal/.test(vd.json.motivo_vazio) && !/Aguarde/.test(vd.json.motivo_vazio) && !/não vai entrar sozinho/.test(vd.json.motivo_vazio), 'dormindo sem terminal e sem fila: não manda aguardar nem reenviar, manda conferir antes de reenviar');
     const vq = await lerJson(await p.pedir('/api/sessoes/card-tq/conversa'));
     ok(/pedido guardado/.test(vq.json.motivo_vazio) && /Retomar/.test(vq.json.motivo_vazio) && !/Aguarde/.test(vq.json.motivo_vazio) && /sem reenviar/.test(vq.json.motivo_vazio), 'pedido na fila e sessão sem terminal: manda usar Retomar, sem aguardar nem reenviar');
     ok(por['card-tp'].estado === 'esperando_primeiro_turno' && por['card-tp'].tem_terminal === false, 'status stopped com fila positiva vale como esperando o primeiro turno, sem terminal');
