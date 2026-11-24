@@ -4,7 +4,7 @@ import { type ItemDaFila, type ResultadoDaGravacao, gravarFila } from "../fila-o
 import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
 import { caixaVaziaNaTela } from "./telas.js";
-import { AVISO_DE_FILA_APOS_MS, JANELA_DE_PRONTIDAO_MS, PREFIXO_DO_RECIBO_CODEX, REDESENHO_DEPOIS_DA_TECLA_MS, PRONTO_APOS_SPAWN_MS, QUIETO_ANTES_DE_DIGITAR_MS, QUIETO_PARA_LER_TELA_MS, ENTER_MANUAL_SEGURA_FILA_MS, MAX_RETIDOS } from "./constantes.js";
+import { AVISO_DE_FILA_APOS_MS, JANELA_DE_PRONTIDAO_MS, REDESENHO_DEPOIS_DA_TECLA_MS, PRONTO_APOS_SPAWN_MS, QUIETO_ANTES_DE_DIGITAR_MS, QUIETO_PARA_LER_TELA_MS, ENTER_MANUAL_SEGURA_FILA_MS, MAX_RETIDOS } from "./constantes.js";
 
 /** Um texto que já foi digitado no terminal e ainda não tem recibo do CLI (UserPromptSubmit no Claude,
  *  task_started no Codex). Enquanto estiver aqui o pedido NÃO está entregue: se o terminal sair antes do
@@ -34,6 +34,9 @@ export interface SemRecibo {
   /** true para o comando de barra (/compact, /clear): não tem o recibo do prompt (UserPromptSubmit). Fica em
    *  `Sessao.barraPendente`, no disco, até o recibo próprio (PreCompact) ou até ser retido como incerto. */
   barra?: boolean;
+  /** O texto exato que o runner escreveu no terminal para este item (o do item mais o aviso de atraso, quando há). O recibo do
+   *  Codex é conferido contra ele, nunca contra o texto cru do item. */
+  textoEnviado?: string;
 }
 
 /** `runner:recusa-de-entrada`: o agente deixou de poder conversar (login, chave, restrição) enquanto o pedido esperava a vez;
@@ -220,6 +223,7 @@ export function talvezSoltarFila(s: Sessao): void {
     aguardando: false,
     enterEscrito: false,
     interrompido: false,
+    textoEnviado: texto,
     ...(ehBarra ? { barra: true } : {}),
   };
   if (ehBarra) s.barraPendente = entrada;
@@ -506,7 +510,7 @@ export function confirmarRecibos(s: Sessao): void {
     log.info(s.a("entrada"), `chegou um recibo antes do Enter do pedido ${e.item.id ?? "?"}: é de outro turno e não confirma esse pedido`);
     return;
   }
-  if (!reciboDoTexto(s, e.promptsAntes, e.item.texto)) return;
+  if (!reciboDoTexto(s, e.promptsAntes, e.textoEnviado ?? e.item.texto)) return;
   if (e.entradasNoEnter !== undefined && s.entradasManuais !== e.entradasNoEnter) {
     // Houve outra escrita no terminal depois do nosso último Enter (o dono apagou o texto e mandou outra mensagem, por
     // exemplo): o recibo pode ser dela, e confirmar apagaria do disco um pedido que o agente talvez nunca tenha aceitado.
@@ -606,6 +610,9 @@ export function outroEnvioSemRecibo(s: Sessao, envio: SemRecibo | null): string 
 export function telaServeDeProva(s: Sessao): boolean {
   if (s.escritaDeForaSeq === null) return true;
   if (s.seq > s.escritaDeForaSeq) return true;
+  // Só teclas comprovadamente sem efeito no texto (setas, Home/End, PgUp/PgDn, Esc, teclas de função) deixam de segurar pelo
+  // prazo. Caractere, colagem, Backspace, Delete, Ctrl+U/W/K exigem um redesenho: sem ele a tela é a imagem de antes da tecla.
+  if (s.escritaDeForaComEfeito) return false;
   return Date.now() - s.escritaDeForaEm >= REDESENHO_DEPOIS_DA_TECLA_MS;
 }
 
@@ -619,15 +626,14 @@ export function normalizarTexto(t: string): string {
   return t.replace(/\s+/g, " ").trim();
 }
 
-/** O texto do turno do rollout (mensagem do usuário) é o do pedido? Compara o INÍCIO dos dois, normalizado, até
- *  PREFIXO_DO_RECIBO_CODEX caracteres: o texto enviado pode ter um aviso acrescentado no fim, e o Codex pode regravar o texto longo
- *  (colagem expandida) com pequenas diferenças depois do começo. Pedido vazio nunca confere. */
+/** O texto do turno do rollout (mensagem do usuário) é o do pedido? Compara o texto COMPLETO dos dois, normalizado (espaços e
+ *  quebras de linha repetidos viram um espaço). `pedido` precisa ser exatamente o que o runner escreveu no terminal, inclusive
+ *  o aviso de atraso que ele acrescenta no fim: dois pedidos que só começam igual ("Verifique o backup" e "Verifique o backup da
+ *  outra máquina"), ou que diferem só depois de muitos caracteres, NÃO são o mesmo. Sem igualdade não há recibo (o pedido fica
+ *  pendente e cai no caminho da entrega incerta). Pedido vazio nunca confere. */
 export function textoConfere(pedido: string, turno: string): boolean {
   const a = normalizarTexto(pedido);
-  const b = normalizarTexto(turno);
-  if (a === "") return false;
-  const n = Math.min(a.length, PREFIXO_DO_RECIBO_CODEX);
-  return b.length >= n && b.slice(0, n) === a.slice(0, n);
+  return a !== "" && a === normalizarTexto(turno);
 }
 
 /** O CLI aceitou, DEPOIS de `depoisDe` prompts, um turno que é deste texto? No Claude o recibo é o hook UserPromptSubmit

@@ -146,10 +146,15 @@ function lerStdin() {
   // Com a caixa vazia o Codex de verdade desenha o texto de ajuda esmaecido (atributo dim) logo depois do marcador.
   // A tela do Codex real (0.169): marcador e caixa, linha em branco, linha de status "<modelo> <esforço> · <pasta>" e a linha de
   // atalhos, que fica em BRANCO enquanto há rascunho. Com a caixa vazia o texto de ajuda sai esmaecido (atributo dim).
+  // Depois do primeiro turno o Codex real deixa o pedido anterior e a resposta no histórico acima da caixa e acrescenta o título
+  // da sessão à linha de status ("... · /tmp/x · <título>").
+  let anterior = null;
   const desenharCaixa = () =>
     process.stdout.write(
-      "\u001b[2J\u001b[H\u203a " + (linha === "" ? "\u001b[2mAsk Codex to do anything\u001b[0m" : linha) + "\r\n\r\n" +
-      "  GPT-6.2-Astra high \u00b7 /tmp/fake-codex\r\n" +
+      "\u001b[2J\u001b[H" +
+      (anterior === null ? "" : "\u203a " + anterior + "\r\n\r\n\u2022 resposta de teste\r\n  Worked for 1s \u2022 13:32\r\n\r\n") +
+      "\u203a " + (linha === "" ? "\u001b[2mAsk Codex to do anything\u001b[0m" : linha) + "\r\n\r\n" +
+      "  GPT-6.2-Astra high \u00b7 /tmp/fake-codex" + (anterior === null ? "" : " \u00b7 " + anterior.slice(0, 20)) + "\r\n" +
       (linha === "" ? "  \u2190 for agents \u00b7 ? for shortcuts\r\n" : "\r\n"),
     );
   // O Codex de verdade desenha a caixa de composição e o rodapé assim que sobe (o runner só escreve com ela identificada).
@@ -163,6 +168,7 @@ function lerStdin() {
         if (ignorar > 0) { ignorar -= 1; continue; } // o texto continua na caixa, como no Codex de verdade
         linha = "";
         registrar({ modo: "prompt", texto });
+        anterior = texto.slice(0, 60);
         turno(texto);
       } else {
         if (ch >= " ") linha += ch; // teclas de controle (Esc) não viram texto na caixa, como no TUI de verdade

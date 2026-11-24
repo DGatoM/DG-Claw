@@ -46,7 +46,7 @@ import { MedidorDeUso } from "./uso.js";
 import { type PayloadDeHook, receberHook } from "./sessao/eventos.js";
 import { type ResultadoDoEnfileirar, type SemRecibo, enfileirarQuandoOcioso, itensNaoEntregues, recuperarDoDisco, suspenderPorRascunho, talvezSoltarFila } from "./sessao/fila.js";
 import { encerrarIncidenteDeLogin, entregarRecadoDeLogin, marcarLoginExpirado, retomarAposLoginExpirado } from "./sessao/login.js";
-import { ESC, ehEnterDoDono } from "./sessao/telas.js";
+import { ESC, ehEnterDoDono, ehEntradaSemEfeitoNoTexto } from "./sessao/telas.js";
 
 import { guardarEEmitir } from "./sessao/terminal.js";
 import type { AgentState } from "./tipos.js";
@@ -463,9 +463,15 @@ export class Sessao extends EventEmitter {
    *  de antes da tecla. null = o dono nunca escreveu neste terminal. */
   escritaDeForaSeq: number | null = null;
   escritaDeForaEm = 0;
+  /** true quando, desde o último redesenho do terminal, o dono escreveu algo que PODE ter mudado o texto da caixa (caractere,
+   *  colagem, Backspace, Ctrl+U...). Só enquanto for false a regra do prazo (REDESENHO_DEPOIS_DA_TECLA_MS) vale. */
+  escritaDeForaComEfeito = false;
   /** Chamado por toda escrita que vem de fora do runner (tecla do terminal, entrada crua). */
   registrarEscritaDeFora(texto: string): void {
     if (texto !== "") {
+      // Um redesenho depois da escrita anterior já provou o efeito dela: o que vale daqui em diante é só esta nova escrita.
+      if (this.escritaDeForaSeq !== null && this.seq > this.escritaDeForaSeq) this.escritaDeForaComEfeito = false;
+      if (!ehEntradaSemEfeitoNoTexto(texto)) this.escritaDeForaComEfeito = true;
       this.escritaDeForaSeq = this.seq;
       this.escritaDeForaEm = Date.now();
     }

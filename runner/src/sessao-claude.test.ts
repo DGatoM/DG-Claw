@@ -3231,4 +3231,138 @@ test("telas reais (sonda com os CLIs): Codex vazio, Codex com rascunho, diálogo
   const claude = `${borda}\n❯  \n${borda}\n  ⚠ Transcript saving is off ...\n  ⏵⏵ auto mode on (shift+tab to cycle)        ◐ medium · /effort\n`;
   assert.equal(caixaIdentificada(claude), true);
   assert.equal(caixaVaziaNaTela(claude), true);
+  // Rodada 6, item 0: o Codex 0.169 depois do primeiro turno. A linha de status ganha o título da sessão depois da pasta, e o
+  // histórico (pedido anterior, resposta, "Worked for") fica acima da caixa.
+  const rodape = "  ← for agents · ? for shortcuts                                         ⚠ 2 warnings · f2 to view";
+  const depoisDoTurno = ["", "", "›", "", "  GPT-6.2-Astra high · /tmp/sonda-claude · Responder apenas ok", rodape].join("\n");
+  assert.equal(caixaIdentificada(depoisDoTurno), true, "só o fim da tela, com título na linha de status");
+  assert.equal(caixaVaziaNaTela(depoisDoTurno), true);
+  const comHistorico = ["› responda apenas: ok", "", "• ok", "  Worked for 2s • 13:32", "", "›", "", "  GPT-6.2-Astra high · /tmp/sonda-claude · Responda ok", rodape].join("\n");
+  assert.equal(caixaIdentificada(comHistorico), true, "com o pedido anterior no histórico acima da caixa");
+  assert.equal(caixaVaziaNaTela(comHistorico), true);
+  const comHistoricoSemQuebra = ["› responda apenas: ok", "• ok", "›", "  GPT-6.2-Astra high · /tmp/sonda-claude · Responda ok", rodape].join("\n");
+  assert.equal(caixaVaziaNaTela(comHistoricoSemQuebra), true, "a resposta ('• ') encerra a busca mesmo sem linha em branco");
+  const comRascunhoDepoisDoTurno = ["› responda apenas: ok", "", "• ok", "", "› meu rascunho", "", "  GPT-6.2-Astra high · /tmp/sonda-claude · Responda ok", "                                  ⚠ 2 warnings · f2 to view"].join("\n");
+  assert.equal(caixaIdentificada(comRascunhoDepoisDoTurno), true);
+  assert.equal(caixaVaziaNaTela(comRascunhoDepoisDoTurno), false, "o rascunho continua sendo texto");
+});
+
+test("rodada 6, item 5: Codex sem moldura com marcadores no histórico acima do editor: a caixa continua identificada e vazia; um marcador colado ao editor ainda é ambíguo", async () => {
+  const { caixaIdentificada, caixaVaziaNaTela } = await import("./sessao/telas.js");
+  const tela = ["› Pedido anterior", "", "• resposta", "", "› ", "", "  GPT-6.2-Astra high · /tmp/sonda-claude", "  ← for agents · ? for shortcuts"].join("\n");
+  assert.equal(caixaIdentificada(tela), true);
+  assert.equal(caixaVaziaNaTela(tela), true);
+  // Dois marcadores seguidos, sem linha em branco nem histórico entre eles, continuam sendo uma caixa que não dá para delimitar.
+  const colados = ["› primeira linha", "› segunda linha", "", "  GPT-6.2-Astra high · /tmp/sonda-claude", "  ← for agents · ? for shortcuts"].join("\n");
+  assert.equal(caixaIdentificada(colados), false);
+});
+
+test("rodada 6, item 6: marca de diálogo dentro do texto do pedido (caixa do Claude) não torna a caixa irreconhecível; abaixo da caixa ela ainda conta", async () => {
+  const { caixaIdentificada, estadoDaCaixa, haDialogoNaTela } = await import("./sessao/telas.js");
+  const borda = "─".repeat(60);
+  const pedido = "Traduzir esta pergunta:\nDo you want coffee?";
+  const tela = `${borda}\n❯ Traduzir esta pergunta:\nDo you want coffee?\n${borda}\n  ? for shortcuts\n`;
+  assert.equal(caixaIdentificada(tela), true);
+  assert.equal(estadoDaCaixa(tela, pedido), "mesmo-texto");
+  assert.equal(haDialogoNaTela(tela), false);
+  const comDialogoAbaixo = `${borda}\n❯ Traduzir esta pergunta:\n${borda}\n  Do you want to proceed? Esc to cancel\n`;
+  assert.equal(caixaIdentificada(comDialogoAbaixo), false);
+  assert.equal(haDialogoNaTela(comDialogoAbaixo), true);
+});
+
+test("rodada 6, item 2: separador de 45 traços dentro do rascunho e a borda de verdade abaixo: a tela é duvidosa, a caixa não é vazia nem identificada", async () => {
+  const { caixaIdentificada, caixaVaziaNaTela, estadoDaCaixa } = await import("./sessao/telas.js");
+  const borda = "─".repeat(120);
+  const tela = [borda, "› ", "─".repeat(45), "um parágrafo que o dono ainda estava escrevendo", borda, "  ? for shortcuts"].join("\n");
+  assert.equal(caixaVaziaNaTela(tela), false);
+  assert.equal(caixaIdentificada(tela), false);
+  assert.equal(estadoDaCaixa(tela, "qualquer"), "indeterminada");
+  // Controle: sem o separador, a mesma caixa vazia é reconhecida.
+  assert.equal(caixaVaziaNaTela([borda, "› ", borda, "  ? for shortcuts"].join("\n")), true);
+});
+
+test("rodada 6, item 1: só tecla sem efeito no texto deixa a tela valer por prazo; caractere, colagem, Backspace e Ctrl+U exigem redesenho", async () => {
+  const { ehEntradaSemEfeitoNoTexto } = await import("./sessao/telas.js");
+  for (const t of ["\u001b[A", "\u001b[B", "\u001b[1;5C", "\u001b[H", "\u001b[F", "\u001b[5~", "\u001b[6~", "\u001b[15~", "\u001bOP", "\u001b", "\u001b[A\u001b[B"]) {
+    assert.equal(ehEntradaSemEfeitoNoTexto(t), true, JSON.stringify(t));
+  }
+  for (const t of ["x", "\u007f", "\b", "\u0015", "\u0017", "\u000b", "\u001b[3~", "\u001b[200~colado\u001b[201~", "\u001bb", "\u001b[Ax", "abc\u001b[A"]) {
+    assert.equal(ehEntradaSemEfeitoNoTexto(t), false, JSON.stringify(t));
+  }
+  const { s, restaurar } = await sessaoComEscritaAnotada();
+  const { telaServeDeProva } = await import("./sessao/fila.js");
+  const seNada = async (tecla: string, esperado: boolean) => {
+    s.escritaDeForaSeq = null;
+    s.escritaDeForaComEfeito = false;
+    s.registrarEscritaDeFora(tecla);
+    s.escritaDeForaEm = Date.now() - 3_000; // passaram 3 s sem redesenho
+    assert.equal(telaServeDeProva(s), esperado, JSON.stringify(tecla));
+  };
+  await seNada("\u001b[A", true); // seta: o prazo vale
+  await seNada("x", false); // caractere: sem redesenho a suspensão continua, sem prazo
+  await seNada("\u007f", false);
+  await seNada("\u0015", false);
+  await seNada("\u001b[200~colado\u001b[201~", false);
+  // Um caractere e, depois, uma seta, sem redesenho entre os dois: continua exigindo o redesenho.
+  s.escritaDeForaSeq = null;
+  s.escritaDeForaComEfeito = false;
+  s.registrarEscritaDeFora("x");
+  s.registrarEscritaDeFora("\u001b[D");
+  s.escritaDeForaEm = Date.now() - 3_000;
+  assert.equal(telaServeDeProva(s), false, "a seta não apaga o efeito do caractere anterior");
+  // Redesenho depois da escrita: a tela serve de prova de novo.
+  s.seq += 1;
+  assert.equal(telaServeDeProva(s), true);
+  restaurar();
+});
+
+test("rodada 6, item 3: textoConfere compara o texto COMPLETO normalizado; prefixo igual, ou diferença só depois de 200 caracteres, não confere", async () => {
+  const { textoConfere, reciboDoTexto } = await import("./sessao/fila.js");
+  assert.equal(textoConfere("Verifique o backup", "Verifique o backup da outra máquina"), false);
+  assert.equal(textoConfere("Verifique o backup da outra máquina", "Verifique o backup"), false);
+  assert.equal(textoConfere("Verifique  o\nbackup", " Verifique o backup "), true, "espaços e quebras repetidos são normalizados");
+  assert.equal(textoConfere("", ""), false, "pedido vazio nunca confere");
+  const longo = "a".repeat(250);
+  assert.equal(textoConfere(longo + " fim um", longo + " fim dois"), false, "diferença só depois dos 200 primeiros caracteres");
+  assert.equal(textoConfere(longo + " fim um", longo + " fim um"), true);
+  // O texto comparado é o que o runner escreveu, com o aviso que ele acrescenta: o turno só com o texto cru não confere.
+  const { avisoDeAtraso } = await import("./sessao/fila.js");
+  const cru = "<dgchat>oi</dgchat>";
+  const enviado = cru + avisoDeAtraso({ texto: cru, em: Date.now() - 60_000, esperou: true });
+  assert.notEqual(enviado, cru);
+  const sessaoDeFaz = { motor: { reciboPorRollout: true }, turnosDoCodex: [{ n: 1, textos: [normalizarParaTeste(enviado)] }] } as never;
+  assert.equal(reciboDoTexto(sessaoDeFaz, 0, enviado), true);
+  assert.equal(reciboDoTexto(sessaoDeFaz, 0, cru), false, "o texto cru do item não é o que foi escrito");
+  const soCru = { motor: { reciboPorRollout: true }, turnosDoCodex: [{ n: 1, textos: [cru] }] } as never;
+  assert.equal(reciboDoTexto(soCru, 0, enviado), false);
+});
+const normalizarParaTeste = (t: string) => t.replace(/\s+/g, " ").trim();
+
+test("rodada 6, item 4: saída do terminal chegando durante a leitura da tela descarta a leitura e relê; sem assentar, nada é escrito", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  const { ErroDeMotor } = await import("./provedores/motor.js");
+  await alimentarTela(s, CAIXA_VAZIA);
+  s.ultimaSaidaEm = Date.now() - 5_000;
+  const original = s.telaAtualSincronizada.bind(s);
+  let leituras = 0;
+  let quantasBatem = Infinity;
+  (s as unknown as { telaAtualSincronizada: () => Promise<string> }).telaAtualSincronizada = async () => {
+    leituras += 1;
+    const t = await original();
+    if (leituras <= quantasBatem) s.seq += 1; // chegou saída do terminal enquanto se esperava o emulador
+    return t;
+  };
+  // Sempre chegando saída: a leitura nunca é de uma tela parada, o texto não é escrito (nem o primeiro byte).
+  await assert.rejects(s.digitarEEnviar("pedido-com-saida-chegando"), (e: unknown) => e instanceof ErroDeMotor && e.statusReason === "runner:nao-entrou");
+  assert.deepEqual(escritas, [], "nenhum byte");
+  assert.ok(leituras >= 5, `a leitura foi refeita (${leituras} leituras)`);
+  // Só as duas primeiras leituras são atropeladas: a terceira assenta e o envio segue.
+  leituras = 0;
+  quantasBatem = 2;
+  s.digitacaoSuspensaEm = null;
+  setTimeout(() => (s.promptsAceitos += 1), 500);
+  assert.equal(await s.digitarEEnviar("pedido-com-saida-que-assenta"), true);
+  assert.equal(escritas[0], "pedido-com-saida-que-assenta");
+  (s as unknown as { telaAtualSincronizada: unknown }).telaAtualSincronizada = original;
+  restaurar();
 });

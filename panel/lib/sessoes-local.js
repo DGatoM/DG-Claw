@@ -590,7 +590,13 @@ function registrar(router, { CONFIG }) {
     enviarJson(res, 201, { ok: true, item: it });
   }
 
-  /** O que vale para qualquer entrega de texto a uma sessão. Devolve {enviado, enfileirado, quando, retomado}. */
+  /** Orientação para quando o runner responde 202 com entregaIncerta: o texto PODE ter sido digitado, e reenviar sem conferir pode
+   *  executar o pedido duas vezes. */
+  const CONFERIR_ANTES_DE_REENVIAR = 'Confira a conversa do card antes de reenviar: se o recado não aparecer ali, aí sim mande de novo.';
+
+  /** O que vale para qualquer entrega de texto a uma sessão. Devolve {enviado, enfileirado, entregaIncerta, aviso?, quando, retomado}.
+   *  Um 202 do runner com `data.entregaIncerta` NÃO é "enfileirado": o texto pode ter sido escrito no terminal e o runner não
+   *  sabe se o agente o recebeu; nada foi para a fila persistente. */
   async function entregarTexto(it, texto, quando, retomar) {
     if (it.grupo === 'esperando_voce') {
       throw new ErroLocal(409, 'A sessão está esperando você decidir um pedido. Um recado agora cairia dentro do menu de permissão.', {
@@ -610,7 +616,15 @@ function registrar(router, { CONFIG }) {
     }
     const corpo = quando === 'quando_livre' ? { text: texto, injectWhenIdle: true } : { text: texto, submit: true };
     const r = await runner('POST', `/api/agents/${encodeURIComponent(it.id)}/input`, corpo, 'entregar o recado');
-    return { enviado: r.status === 200, enfileirado: r.status === 202, quando, retomado };
+    const dados = r.json && r.json.data && typeof r.json.data === 'object' ? r.json.data : {};
+    const incerta = r.status === 202 && dados.entregaIncerta === true;
+    const res = { enviado: r.status === 200, enfileirado: r.status === 202 && !incerta, entregaIncerta: incerta, quando, retomado };
+    if (incerta) {
+      const aviso = typeof dados.aviso === 'string' && dados.aviso.trim() ? dados.aviso.trim() : 'Não sei se o agente recebeu o recado.';
+      res.aviso = `${aviso} ${CONFERIR_ANTES_DE_REENVIAR}`;
+      console.error(`sessoes-local: o runner respondeu 202 com entrega incerta ao recado de ${it.id}; o recado não foi para a fila e pode não ter chegado`);
+    }
+    return res;
   }
 
   const prefixoDeChave = (req) => (ehChave(req) ? `[recado de ${req.dgclawAuth.nome} pelo painel] ` : '');
@@ -624,7 +638,7 @@ function registrar(router, { CONFIG }) {
     const it = await itemPorId(id);
     const r = await entregarTexto(it, prefixoDeChave(req) + d.texto, quando, d.retomar === true);
     log(`recado (${r.quando}) em ${id} por ${quemPediu(req)}`);
-    enviarJson(res, r.enfileirado ? 202 : 200, Object.assign({ ok: true }, r));
+    enviarJson(res, r.enfileirado || r.entregaIncerta ? 202 : 200, Object.assign({ ok: true }, r));
   }
 
   async function rotaDecidir(req, res, id) {
@@ -788,9 +802,11 @@ function registrar(router, { CONFIG }) {
       enviarJson(res, 201, { ok: true, modo: 'novo', novo, abrir_em: novo.id, antigo_apagado: apagado });
       return;
     }
-    await entregarTexto(it, prefixoDeChave(req) + PEDIDO_DE_HANDOFF, 'quando_livre', true);
-    log(`handoff pedido em ${id} por ${quemPediu(req)}`);
-    enviarJson(res, 202, { ok: true, modo: 'pedido', aviso: 'Pedi o handoff. Quando ele responder, aperte Handoff de novo.' });
+    const entrega = await entregarTexto(it, prefixoDeChave(req) + PEDIDO_DE_HANDOFF, 'quando_livre', true);
+    log(`handoff pedido em ${id} por ${quemPediu(req)}${entrega.entregaIncerta ? ' (entrega incerta)' : ''}`);
+    enviarJson(res, 202, entrega.entregaIncerta
+      ? { ok: true, modo: 'pedido', entregaIncerta: true, aviso: `Pedi o handoff, mas não sei se o card o recebeu. ${entrega.aviso}` }
+      : { ok: true, modo: 'pedido', aviso: 'Pedi o handoff. Quando ele responder, aperte Handoff de novo.' });
   }
 
   // ─── Anexo (multipart sem dependência) ──────────────────────

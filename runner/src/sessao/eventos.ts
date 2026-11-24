@@ -118,7 +118,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
     case "TextoDoUsuario": {
       // Só o Codex confere o recibo pelo texto do turno (o rollout pode ser o de outro card no mesmo diretório).
       if (!s.motor.reciboPorRollout || typeof payload.texto !== "string") break;
-      const texto = normalizarTexto(payload.texto).slice(0, 400);
+      const texto = normalizarTexto(payload.texto);
       if (texto === "") break;
       const ultimo = s.turnosDoCodex[s.turnosDoCodex.length - 1];
       if (ultimo) ultimo.textos.push(texto);

@@ -1054,7 +1054,9 @@
         if (det === d) {
           r.texto.value = '';
           rascunhos.delete(d.id);
-          d.notaEnvio = { texto: livre ? 'Recado na fila: entra quando o card terminar.' : 'Recado enviado.', tom: 'ok' };
+          d.notaEnvio = res.corpo && res.corpo.entregaIncerta
+            ? { texto: res.corpo.aviso || 'Não sei se o card recebeu o recado. Confira a conversa antes de reenviar.', tom: 'erro' }
+            : { texto: livre ? 'Recado na fila: entra quando o card terminar.' : 'Recado enviado.', tom: 'ok' };
         }
         setTimeout(() => { if (det === d) { pollDetalhe(); carregaConversa('poll'); } }, 1800);
       } else if (res.status === 409 && !retomar && /retomar/i.test(res.corpo.como_resolver || '')) {

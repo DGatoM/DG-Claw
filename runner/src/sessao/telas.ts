@@ -125,11 +125,14 @@ function haDialogoAberto(tela: string): boolean {
   return ehDialogoDeAutoMode(tela) || ehDialogoDeConfiancaDoClaude(tela) || ehDialogoDeBypass(tela) || telaDeConfiancaDoCodex(tela);
 }
 
-/** A linha de status do Codex real: dois espaços, texto ("GPT-6.2-Astra high"), " · " e uma pasta absoluta ou ~ até o fim da linha. */
-const RE_STATUS_DO_CODEX = /^ {2}\S.* · [\/~]\S*(?: \S+)*$/;
+/** A linha de status do Codex real: dois espaços, texto ("GPT-6.2-Astra high"), " · " e uma pasta absoluta ou ~, seguida
+ *  opcionalmente de " · <título da sessão>" (depois do primeiro turno o Codex acrescenta o título: "... · /tmp/x · Responda ok"). */
+const RE_STATUS_DO_CODEX = /^ {2}\S.* · [\/~]\S*(?: \S+)*(?: · \S.*)?$/;
 function ehLinhaDeStatusDoCodex(linha: string): boolean {
   return RE_STATUS_DO_CODEX.test(linha.replace(/\s+$/, ""));
 }
+/** Linha de histórico do Codex acima da caixa: a resposta ("• ...") e o tempo do turno ("Worked for 2s"). */
+const RE_HISTORICO_DO_CODEX = /^\s*(?:[•◦]\s|Worked for\b)/;
 /** Linha de rodapé do Codex: em branco, qualquer linha com a dica "? for shortcuts" (pode ter "← for agents ·" antes e avisos
  *  "⚠ 1 warning · f2 to view" depois) ou um dos rodapés estritos dos dois motores. */
 function ehLinhaDeRodapeDoCodex(linha: string): boolean {
@@ -176,25 +179,31 @@ function lerCaixa(tela: string): { conteudo: string; marcaDeDialogoDepois: boole
     }
   }
   if (l < 0) return null;
-  // Outro marcador no começo de linha dentro da mesma caixa (sem limite nem linha em branco entre eles).
-  // Só a borda da caixa encerra a busca: uma linha em branco pode estar no meio de um rascunho de vários parágrafos,
-  // e um parágrafo que começa com ❯ ou › não pode passar por "o marcador da caixa".
-  for (let i = l - 1; i >= 0; i--) {
-    if (ehLimiteDaCaixa(linhas[i])) break;
-    if (RE_MARCADOR_NO_INICIO.test(linhas[i])) return "ambigua";
-  }
   // A primeira linha não vazia acima do marcador: se for a borda de cima, a caixa tem moldura.
   let acima = l - 1;
   while (acima >= 0 && linhas[acima].trim() === "") acima--;
   const bordaAcima = acima >= 0 && ehLimiteDaCaixa(linhas[acima]);
+  // Outro marcador no começo de linha dentro da mesma caixa (sem limite entre eles). Com moldura só a borda encerra a busca:
+  // uma linha em branco pode estar no meio de um rascunho de vários parágrafos, e um parágrafo que começa com ❯ ou › não
+  // pode passar por "o marcador da caixa". Sem moldura (Codex) o editor ativo termina na primeira linha em branco acima do
+  // marcador ou numa linha do histórico ("• resposta", "Worked for"): os "› pedido anterior" do histórico não são da caixa.
+  for (let i = l - 1; i >= 0; i--) {
+    if (ehLimiteDaCaixa(linhas[i])) break;
+    if (!bordaAcima && (linhas[i].trim() === "" || RE_HISTORICO_DO_CODEX.test(linhas[i]))) break;
+    if (RE_MARCADOR_NO_INICIO.test(linhas[i])) return "ambigua";
+  }
   let fim = -1; // índice da primeira linha que NÃO é conteúdo (a borda de baixo, ou o começo do rodapé)
   if (bordaAcima) {
+    let bordas = 0;
     for (let i = l + 1; i < linhas.length; i++) {
       if (ehLimiteDaCaixa(linhas[i])) {
-        fim = i;
-        break;
+        if (fim < 0) fim = i;
+        bordas++;
       }
     }
+    // Mais de uma linha plausível de borda abaixo do marcador (um separador dentro do rascunho e a borda de verdade): não dá
+    // para saber qual delas fecha a caixa, e o texto entre as duas pode ser do dono. Estado duvidoso, a suspensão se mantém.
+    if (bordas > 1) return "duvidosa";
   } else {
     // Sem moldura (Codex): o fim da tela é o bloco final feito de linhas de rodapé ou em branco, e antes dele, no Codex real, a linha
     // de status ("  <modelo> <esforço> · <pasta>"). A evidência positiva é esse bloco: a linha de status e/ou uma linha de atalhos.
@@ -221,8 +230,9 @@ function lerCaixa(tela: string): { conteudo: string; marcaDeDialogoDepois: boole
     if (achouRodape && !bordaDepois) fim = fimDoConteudo;
   }
   if (fim < 0) return "duvidosa";
-  // Qualquer marca de diálogo abaixo do marcador (mesmo depois do limite ou do rodapé) torna a tela duvidosa.
-  const marcaDeDialogoDepois = RE_MARCA_DE_DIALOGO.test(compacta(linhas.slice(l + 1).join("\n")));
+  // Marca de diálogo FORA da caixa (da borda de baixo, ou da linha de status, em diante) torna a tela duvidosa. O conteúdo
+  // já delimitado da caixa não é procurado: o pedido pode conter "yes," ou "Do you want...?" e continua sendo só um pedido.
+  const marcaDeDialogoDepois = RE_MARCA_DE_DIALOGO.test(compacta(linhas.slice(fim).join("\n")));
   const partes = [linhas[l].replace(RE_MARCADOR_NO_INICIO, ""), ...linhas.slice(l + 1, fim)];
   return { conteudo: compacta(partes.join("\n").replace(/[│┃]\s*$/gm, "")), marcaDeDialogoDepois };
 }
@@ -235,7 +245,7 @@ export function estadoDaCaixa(tela: string, texto: string): EstadoDaCaixa {
   if (haDialogoAberto(tela)) return "indeterminada";
   const caixa = lerCaixa(tela);
   if (caixa === null || caixa === "ambigua" || caixa === "duvidosa") return "indeterminada";
-  if (caixa.marcaDeDialogoDepois || RE_MARCA_DE_DIALOGO.test(caixa.conteudo)) return "indeterminada";
+  if (caixa.marcaDeDialogoDepois) return "indeterminada";
   if (caixa.conteudo === "") return "vazia";
   return caixa.conteudo === compacta(texto) ? "mesmo-texto" : "indeterminada";
 }
@@ -269,4 +279,15 @@ export function ehEnterDoDono(texto: string): boolean {
   if (texto === "\r" || texto === "\n") return true;
   const fora = texto.replace(new RegExp(`${ESC}\\[200~[\\s\\S]*?(?:${ESC}\\[201~|$)`, "g"), "");
   return fora.endsWith("\r");
+}
+
+/** A entrada do dono é só navegação, comprovadamente sem efeito no texto da caixa: setas, Home/End, PgUp/PgDn, Insert, teclas de
+ *  função e o Esc sozinho (sequências CSI e SS3 inteiras, sem nenhum outro byte). Caractere imprimível, colagem, Backspace (DEL ou
+ *  Ctrl+H), Delete (ESC[3~), Ctrl+U/W/K e qualquer outra coisa NÃO são: contam como possível alteração do rascunho. */
+export function ehEntradaSemEfeitoNoTexto(texto: string): boolean {
+  if (texto === "") return true;
+  const nav = new RegExp(
+    `^(?:${ESC}\\[(?:[0-9;]*[ABCDHF]|(?:[1245678](?:;[0-9]+)?|1[1-9]|2[0-4])(?:;[0-9]+)?~)|${ESC}O[ABCDHFPQRS]|${ESC}(?!\\[|O))+$`,
+  );
+  return nav.test(texto);
 }

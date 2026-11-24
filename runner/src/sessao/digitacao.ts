@@ -54,12 +54,28 @@ function terminalTrocado(s: Sessao, envio: SemRecibo | null): false {
 async function lerTelaDaCaixa(s: Sessao, proc: Sessao["proc"], paraPrimeiraEscrita = false): Promise<string> {
   // Antes do primeiro byte a caixa também precisa estar VAZIA (e a tela precisa ser posterior à última tecla do dono).
   const pronta = (tela: string) => caixaIdentificada(tela) && (!paraPrimeiraEscrita || caixaVaziaComProva(s, tela));
-  let tela = await s.telaAtualSincronizada();
+  let tela = await lerTelaSemSaidaNova(s, proc);
   for (let k = 0; k < 2 && s.proc === proc && !pronta(tela); k++) {
     await new Promise((r) => setTimeout(r, SILENCIO_DA_MASCARA_MS + 30));
-    tela = await s.telaAtualSincronizada();
+    tela = await lerTelaSemSaidaNova(s, proc);
   }
   return tela;
+}
+
+/** Quantas vezes a leitura é refeita quando chega saída nova do terminal enquanto ela espera o emulador. */
+const LEITURAS_SEM_SAIDA_NOVA = 5;
+
+/** A tela sincronizada, descartando a leitura se o terminal escreveu algo enquanto se esperava o emulador (o contador de saída
+ *  `seq` mudou): um diálogo pode estar sendo desenhado e a leitura seria de antes dele. Relê, até LEITURAS_SEM_SAIDA_NOVA vezes. Se a
+ *  saída não assenta, devolve "" (tela não identificada): quem chamou não escreve nada. */
+export async function lerTelaSemSaidaNova(s: Sessao, proc: Sessao["proc"]): Promise<string> {
+  for (let k = 0; k < LEITURAS_SEM_SAIDA_NOVA; k++) {
+    const seq = s.seq;
+    const tela = await s.telaAtualSincronizada();
+    if (s.proc !== proc || s.seq === seq) return tela;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return "";
 }
 
 /** Nada do texto foi escrito e o envio não pôde começar. Pela fila o item volta intacto para a frente dela (devolve false).
@@ -348,6 +364,10 @@ export interface ContextoDoEnvio {
   /** O valor de `entradasManuais` logo depois da última escrita do texto deste envio (antes da pausa da colagem).
    *  Se for outro quando o primeiro Enter vai ser escrito, alguém escreveu no terminal no meio. Falta = não confere. */
   entradasAposTexto?: number;
+  /** Os contadores de `promptsAceitos` e `compactsIniciados` de antes do PRIMEIRO Enter do envio, passados à vigia em segundo plano
+   *  para ela não redefinir a referência do recibo. Falta = a vigia usa os do item da fila, ou os de quando começa. */
+  promptsAntes?: number;
+  compactsAntes?: number;
 }
 
 /** Só /compact tem recibo próprio (o PreCompact). Os outros comandos de barra não têm. */
@@ -419,6 +439,8 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
   const compact = ehCompact(texto);
   // No Claude o recibo do /compact é o PreCompact: um prompt comum aceito (de outra pessoa) não prova nada sobre ele.
   const soCompactVale = compact && s.motor.provedor === "claude";
+  // Os contadores de antes do PRIMEIRO Enter deste envio. Só são lidos depois de ele ter sido escrito (a tentativa 1 sempre o escreve).
+  let referencia: { prompts: number; compacts: number } | null = null;
   for (let tentativa = 1; tentativa <= RECIBO_ENTER_TENTATIVAS; tentativa++) {
     if (s.proc !== proc) return terminalTrocado(s, envio);
     let escreveuEnter = false;
@@ -468,10 +490,11 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
       if (!caixaIdentificada(tela)) return parouComTextoNaCaixa(s, envio, "a tela não mostra com clareza a caixa de composição (pode haver um diálogo, um menu ou outro marcador), e um Enter ali poderia respondê-lo");
       escreveuEnter = true;
     }
-    const antes = s.promptsAceitos;
-    const compactAntes = s.compactsIniciados;
     if (escreveuEnter) {
-      // O recibo deste pedido só vale se vier depois do PRIMEIRO Enter dele: o contador é marcado aqui, antes da escrita.
+      // O recibo deste pedido só vale se vier depois do PRIMEIRO Enter dele: o contador é marcado aqui, antes da escrita, e
+      // fica fixo até o fim do envio (todas as tentativas e a vigia em segundo plano). Uma tentativa sem novo Enter não o redefine:
+      // o `task_started` pode ter chegado numa leitura e o texto do usuário só na seguinte.
+      if (referencia === null) referencia = { prompts: s.promptsAceitos, compacts: s.compactsIniciados };
       if (envio && !envio.enterEscrito) {
         envio.promptsAntes = s.promptsAceitos;
         envio.enterEscrito = true;
@@ -482,7 +505,8 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
     }
     // Um Enter do dono pelo terminal ainda sem recibo: o recibo que chegar agora pode ser dele, e não deste envio.
     const enterDoDonoPendente = escreveuEnter && s.enterManualPendente !== null;
-    const recebeu = await esperarRecibo(s, antes, espera, comandoDeBarra ? compactAntes : undefined, soCompactVale, texto);
+    const ref = referencia ?? { prompts: s.promptsAceitos, compacts: s.compactsIniciados };
+    const recebeu = await esperarRecibo(s, ref.prompts, espera, comandoDeBarra ? ref.compacts : undefined, soCompactVale, texto);
     if (recebeu) {
       if (enterDoDonoPendente) {
         return parouComTextoNaCaixa(s, envio, "chegou um recibo, mas o dono tinha dado um Enter no terminal ainda sem recibo, então o recibo pode ser da mensagem dele");
@@ -518,7 +542,7 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
     `${RECIBO_ENTER_TENTATIVAS} Enters sem recibo; continuo tentando em segundo plano por ~${segundos}s (até ${s.reciboVigiaPassosMs.length} verificações espaçadas; o Enter só se repete com o mesmo texto na caixa)`,
   );
   if (s.proc !== proc) return terminalTrocado(s, envio);
-  vigiarReciboAtrasado(s, ctx, total, entradasEsperadas);
+  vigiarReciboAtrasado(s, { ...ctx, promptsAntes: referencia?.prompts, compactsAntes: referencia?.compacts }, total, entradasEsperadas);
   return false;
 }
 
@@ -563,8 +587,8 @@ export function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: num
     if (substituido) talvezSoltarFila(s);
     return;
   }
-  const antes = s.promptsAceitos;
-  const compactAntes = s.compactsIniciados;
+  const antes = ctx.promptsAntes ?? (envio?.enterEscrito ? envio.promptsAntes : s.promptsAceitos);
+  const compactAntes = ctx.compactsAntes ?? s.compactsIniciados;
   const compact = ehCompact(texto);
   const inicio = Date.now();
   const passos = s.reciboVigiaPassosMs;

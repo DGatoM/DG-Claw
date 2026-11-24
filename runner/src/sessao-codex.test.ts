@@ -609,6 +609,8 @@ test("rodada 5, item 6: o turno do rollout de OUTRO card (task_started com outro
   await s.subir("nova");
   await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
   const entrada = pedidoPendenteComEnter(s, "pedido-do-primeiro-card  com   espacos");
+  // O que o runner escreveu no terminal: o texto do item mais o aviso de atraso (o recibo compara o texto COMPLETO).
+  (entrada as { textoEnviado?: string }).textoEnviado = "pedido-do-primeiro-card  com   espacos\n\n[Aviso do sistema: esperou na fila]";
   const { aplicarEvento } = await import("./sessao/eventos.js");
   // O segundo card, no mesmo diretório e no mesmo CODEX_HOME, abre um turno com outra mensagem.
   aplicarEvento(s, { event: "UserPromptSubmit" });
@@ -620,6 +622,10 @@ test("rodada 5, item 6: o turno do rollout de OUTRO card (task_started com outro
   // Um turno cujo texto ainda não chegou também não confirma; o texto certo, sim (comparação normalizada de espaços).
   aplicarEvento(s, { event: "UserPromptSubmit" });
   assert.deepEqual(s.semRecibo, [entrada]);
+  // O mesmo começo, sem o aviso que o runner acrescentou: é outro texto, não confirma.
+  aplicarEvento(s, { event: "TextoDoUsuario", texto: "pedido-do-primeiro-card com espacos" });
+  assert.deepEqual(s.semRecibo, [entrada], "só o começo igual não basta");
+  aplicarEvento(s, { event: "UserPromptSubmit" });
   aplicarEvento(s, { event: "TextoDoUsuario", texto: "pedido-do-primeiro-card com espacos\n\n[Aviso do sistema: esperou na fila]" });
   assert.equal(s.semRecibo.length, 0, "agora o pedido está confirmado");
   s.promptsAceitos = 0;
@@ -628,4 +634,48 @@ test("rodada 5, item 6: o turno do rollout de OUTRO card (task_started com outro
   assert.deepEqual(eventoDoRollout({ timestamp: em, type: "event_msg", payload: { type: "user_message", message: "oi" } }), { evento: "TextoDoUsuario", em: Date.parse(em), texto: "oi" });
   assert.deepEqual(eventoDoRollout({ timestamp: em, type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "oi 2" }] } }), { evento: "TextoDoUsuario", em: Date.parse(em), texto: "oi 2" });
   assert.equal(eventoDoRollout({ timestamp: em, type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "x" }] } }), null);
+});
+
+test("rodada 6, item 0: Codex de vários turnos pela fixture (histórico e título na tela depois do primeiro turno): a caixa segue identificada e vazia e o segundo pedido é enviado", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  const { caixaIdentificada, caixaVaziaNaTela } = await import("./sessao/telas.js");
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
+  assert.equal(await s.digitarEEnviar("primeiro pedido do teste"), true);
+  await esperarAte(() => s.estado.status === "idle", 6_000, "o primeiro turno terminar");
+  await dormir(700);
+  const tela = await s.telaAtualSincronizada();
+  assert.match(tela, /› primeiro pedido do teste/, "o pedido anterior está no histórico acima da caixa");
+  assert.match(tela, /GPT-6\.2-Astra high · \/tmp\/fake-codex · primeiro pedido/, "a linha de status ganhou o título");
+  assert.equal(caixaIdentificada(tela), true);
+  assert.equal(caixaVaziaNaTela(tela), true);
+  assert.equal(await s.digitarEEnviar("segundo pedido do teste"), true, "o segundo envio sai, e não só o primeiro");
+  await esperarAte(() => s.promptsAceitos === 2, 6_000, "o segundo task_started");
+});
+
+test("rodada 6, item 7: task_started numa leitura e o texto do usuário só na seguinte (depois do prazo da primeira tentativa): o envio é confirmado", async () => {
+  logarCodex(amb);
+  const { s, id } = await nova();
+  void id;
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
+  const escritas: string[] = [];
+  const original = s.escrever.bind(s);
+  (s as unknown as { escrever: (t: string) => void }).escrever = (t: string) => {
+    s.entradasManuais += 1;
+    escritas.push(t);
+  };
+  const { aplicarEvento } = await import("./sessao/eventos.js");
+  const { enviarComRecibo } = await import("./sessao/digitacao.js");
+  const antes = s.promptsAceitos;
+  const texto = "pedido-com-recibo-em-duas-leituras";
+  // A caixa do Codex falso fica vazia (nada chega a ele pelo mock): o Enter 1 é escrito, e depois só se espera.
+  setTimeout(() => aplicarEvento(s, { event: "UserPromptSubmit" }), 1_000); // task_started, dentro da 1ª espera (3 s)
+  setTimeout(() => aplicarEvento(s, { event: "TextoDoUsuario", texto }), 4_200); // o texto, já dentro da 2ª tentativa
+  const confirmado = await enviarComRecibo(s, { texto, comandoDeBarra: false, envio: null, proc: s.proc! });
+  (s as unknown as { escrever: unknown }).escrever = original;
+  assert.equal(confirmado, true, "o contador de referência é o do primeiro Enter, e não o de cada tentativa");
+  assert.equal(s.promptsAceitos, antes + 1);
+  assert.equal(escritas.filter((e) => e === "\r").length, 1, "um só Enter");
 });

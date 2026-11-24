@@ -70,7 +70,5 @@ export const MAX_RETIDOS = 20;
  *  dela. Uma tecla que não redesenha nada (uma seta numa caixa vazia) não pode segurar a fila para sempre: passado este
  *  tempo sem nenhum redesenho, a tela é aceita como está. */
 export const REDESENHO_DEPOIS_DA_TECLA_MS = 2_000;
-/** Codex: quantos caracteres do início do texto (sem espaços repetidos) comparam o pedido com a mensagem do turno no rollout. */
-export const PREFIXO_DO_RECIBO_CODEX = 200;
 /** Codex: quantos turnos do rollout ficam guardados para conferir recibos. */
 export const TURNOS_DO_CODEX_GUARDADOS = 50;

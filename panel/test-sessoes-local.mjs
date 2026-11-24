@@ -43,7 +43,7 @@ function portaLivre() {
 const agora = Date.now();
 const sessoes = new Map();
 const chamadas = [];
-const flags = { limite: false, semLogin: false, soClaude: false, runnerAntigo: false };
+const flags = { entregaIncerta: false, limite: false, semLogin: false, soClaude: false, runnerAntigo: false };
 let proximoId = 1;
 
 function nova(id, over) {
@@ -110,6 +110,7 @@ async function subirRunner() {
           if (flags.semLogin) return json(409, { success: false, error: 'sem login', howToFix: 'entrar', code: 'SEM_LOGIN' });
           if (!corpo.injectWhenIdle && corpo.submit !== false && s.status === 'resumable') return json(202, { success: true, data: { enfileirado: true, acordando: true } });
           if (s.status === 'resumable' || s.status === 'stopped' || s.status === 'errored') return json(409, { success: false, error: 'sem terminal', code: 'NO_PTY' });
+          if (flags.entregaIncerta) return json(202, { success: true, data: { enviado: false, entregaIncerta: true, submit: true, aviso: 'Não sei se o agente recebeu o texto: o terminal mudou.' } });
           return json(corpo.injectWhenIdle ? 202 : 200, { success: true, data: {} });
         }
         if (m[2] === 'permissao') { s.status = 'working'; s.pendingPermission = null; return json(200, { success: true, data: { decisao: corpo.decisao } }); }
@@ -306,6 +307,15 @@ try {
     const f = await lerJson(await chavePost('/api/sessoes/card-a1/recado', { texto: 'da chave' }));
     const ic = chamadas.filter((x) => x.caminho === '/api/agents/card-a1/input').pop();
     ok(f.status === 200 && ic.corpo.text === '[recado de agente-teste pelo painel] da chave', 'chave de API: o recado leva o prefixo com o nome da chave');
+    flags.entregaIncerta = true;
+    const inc = await lerJson(await p.json('/api/sessoes/card-a1/recado', { texto: 'talvez chegou', quando: 'agora' }));
+    flags.entregaIncerta = false;
+    ok(inc.status === 202 && inc.json.entregaIncerta === true && inc.json.enfileirado === false && inc.json.enviado === false, 'entrega incerta do runner (202): não vira "enfileirado" nem "enviado"');
+    ok(/Não sei se o agente recebeu/.test(inc.json.aviso) && /Confira a conversa do card antes de reenviar/.test(inc.json.aviso), 'entrega incerta: o aviso do runner e a orientação de conferir a conversa chegam até a resposta');
+    flags.entregaIncerta = true;
+    const incHand = await lerJson(await p.json('/api/sessoes/card-a1/handoff', { usar_existente: true }));
+    flags.entregaIncerta = false;
+    ok(incHand.status === 202 && incHand.json.entregaIncerta === true && /não sei se o card o recebeu/.test(incHand.json.aviso), 'entrega incerta no pedido de handoff: o aviso diz que a entrega é incerta');
     ok((await lerJson(await p.json('/api/sessoes/card-a1/recado', { texto: '   ' }))).status === 400, 'texto vazio: 400');
     ok((await lerJson(await p.json('/api/sessoes/card-a1/recado', { texto: 'x', quando: 'ontem' }))).status === 400, 'quando inválido: 400');
   }

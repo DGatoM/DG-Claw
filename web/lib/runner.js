@@ -137,7 +137,10 @@ function criarRunner({ log, timeoutMs }) {
       const r = await chamar(agente, 'POST', `/api/agents/${encodeURIComponent(agente.agente_id)}/input`, corpo);
       if (!r.ok && r.erro) return r;
       if (!r.ok) return { ok: false, status: r.status, erro: motivoDoRunner(agente, r), code: r.corpo && typeof r.corpo.code === 'string' ? r.corpo.code : undefined };
-      return { ok: true, status: r.status, dados: r.corpo && r.corpo.data };
+      const dados = r.corpo && r.corpo.data;
+      // 202 com entregaIncerta: o texto PODE ter sido digitado e o runner não sabe se o agente o recebeu. Não é "enfileirado".
+      const incerta = r.status === 202 && !!dados && dados.entregaIncerta === true;
+      return { ok: true, status: r.status, dados, ...(incerta ? { entregaIncerta: true, aviso: typeof dados.aviso === 'string' ? dados.aviso : 'Não sei se o agente recebeu o texto.' } : {}) };
     },
   };
 }
