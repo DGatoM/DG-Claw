@@ -354,6 +354,14 @@ restaurar_main() {
     if [ -f "$b/admin.tar.gz" ]; then _restaurar_extrair "$b/admin.tar.gz" "a pasta do Admin" "$antes"; fi
     if [ -f "$b/dados.tar.gz" ]; then _restaurar_extrair "$b/dados.tar.gz" "os dados em /var/lib/dgclaw" "$antes"; fi
     if [ -f "$b/extras.tar.gz" ]; then _restaurar_extrair "$b/extras.tar.gz" "os arquivos extras" "$antes"; fi
+    # O perfil da Tela que voltou do backup pode nao ser o da conta dedicada que o dono declarou: a declaracao
+    # (dgclaw agente youtube <nome> conta-dedicada sim) cai em todos os agentes e o dono liga de novo.
+    local marcador_yt
+    for marcador_yt in "$DG_CASAS"/*/config/youtube-conta-dedicada; do
+        [ -e "$marcador_yt" ] || [ -L "$marcador_yt" ] || continue
+        rm -f -- "$marcador_yt"
+        aviso "conta dedicada do YouTube desligada no agente $(basename "$(dirname "$(dirname "$marcador_yt")")") por causa da restauracao. Confira a conta na Tela e ligue de novo com: dgclaw agente youtube <nome> conta-dedicada sim"
+    done
     ok "restaurado (a conversa do Admin nao e tocada, para nao voltar o chat em que voce esta)"
     if [ "$(_env_de "$b/MANIFESTO.txt" casas_dos_agentes_no_backup)" != sim ]; then
         aviso "esse backup foi feito sem as casas dos agentes (--sem-casas): a memoria e as conversas dos agentes ficaram como estavam."

@@ -229,6 +229,7 @@ test('pediu login vira atenção com o passo a passo em português, sem falar de
   assert.ok(!/conta/i.test(r.motivo));
   assert.match(r.o_que_fazer, /Tela/);
   assert.match(r.o_que_fazer, /youtube\.com/);
+  assert.match(r.o_que_fazer, /conta Google dedicada a este agente, nunca com a sua conta pessoal/, 'diz qual conta usar');
   assert.ok(m.logs.some(([n, t]) => n === 'aviso' && /login/.test(t)), 'também fica no log');
   m.limpa();
 });

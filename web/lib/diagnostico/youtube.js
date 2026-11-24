@@ -263,12 +263,12 @@ function tarefaYoutube(ctx, ag, container) {
       if (v.tipo === 'nao_medido') return R('nao_medido', `A última tentativa de testar o download do YouTube (${horario}) não chegou a rodar. O teste roda sozinho a cada 6 horas.`, base);
       if (v.tipo === 'sem_perfil') {
         return R('atencao', 'O YouTube pediu login ao baixar o vídeo de teste e a Tela deste agente ainda não foi aberta, então não há o navegador dela para usar.', Object.assign(base, {
-          o_que_fazer: 'Abra a Tela do agente (menu do agente, grupo Conexões, "Navegador") e entre em youtube.com. O próximo teste automático confere o download.',
+          o_que_fazer: `Abra a Tela do agente ${slug} (menu do agente, grupo Conexões, "Navegador") e, no perfil principal, entre em youtube.com com a conta Google dedicada a este agente, nunca com a sua conta pessoal. O próximo teste automático confere o download.`,
         }));
       }
       if (v.tipo === 'login') {
         return R('atencao', 'O YouTube pediu login ao baixar o vídeo de teste, e por isso o download do YouTube parou.', Object.assign(base, {
-          o_que_fazer: 'Abra a Tela do agente (menu do agente, grupo Conexões, "Navegador") e entre em youtube.com. O próximo teste automático (a cada 6 horas) confere o download.',
+          o_que_fazer: `Abra a Tela do agente ${slug} (menu do agente, grupo Conexões, "Navegador") e, no perfil principal, entre em youtube.com com a conta Google dedicada a este agente, nunca com a sua conta pessoal. O próximo teste automático (a cada 6 horas) confere o download.`,
         }));
       }
       if (v.tipo === 'ausente') {
