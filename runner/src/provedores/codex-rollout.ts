@@ -247,6 +247,10 @@ export interface OpcoesDoVigia {
   /** Chamado quando um turno termina com erro (depois do `Stop` do mesmo registro). Só os de depois do spawn. */
   aoErroDeTurno?: (e: ErroDeTurnoDoCodex) => void;
   intervaloMs?: number;
+  /** Para um arquivo visto pela primeira vez: true começa no byte 0 (conversa nova, criada por este
+   *  processo, em que o primeiro `task_started` não pode ficar fora da janela). Por padrão lê só o
+   *  último 1 MiB, que serve para conversa retomada com histórico longo. */
+  lerDoInicio?: (arquivo: string) => boolean;
 }
 
 /**
@@ -272,7 +276,7 @@ export function vigiarRollout(op: OpcoesDoVigia): () => void {
       const st = await fd.stat();
       if (proximo !== arquivo || st.size < deslocamento) {
         arquivo = proximo;
-        deslocamento = Math.max(0, st.size - 1024 * 1024);
+        deslocamento = op.lerDoInicio?.(proximo) ? 0 : Math.max(0, st.size - 1024 * 1024);
         resto = "";
       }
       if (st.size === deslocamento) return;

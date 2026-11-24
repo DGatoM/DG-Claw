@@ -981,7 +981,12 @@
 
   async function carregaConversa(modo) {
     const d = det;
-    if (!d || d.carregandoConv) return;
+    if (!d) return;
+    if (d.carregandoConv) {
+      // Pedido de atualização durante uma carga em andamento: guarda e refaz ao terminar, senão a orientação fica velha.
+      if (modo === 'poll') d.recarregarConv = true;
+      return;
+    }
     d.carregandoConv = true;
     let url = `/api/sessoes/${encodeURIComponent(d.id)}/conversa?`;
     if (modo === 'antigos') url += `limite=30&before=${encodeURIComponent(d.antes)}`;
@@ -1007,6 +1012,10 @@
       d.carregandoConv = false;
     }
     renderConversa(modo === 'antigos');
+    if (d.recarregarConv && det === d) {
+      d.recarregarConv = false;
+      carregaConversa('poll');
+    }
   }
 
   function renderConversa(manterTopo) {

@@ -100,8 +100,11 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
   const desde = s.spawnEm;
   let arquivo: string | null = null;
   let avisouAusencia = false;
+  let arquivoNovo = false;
   return vigiarRollout({
     desdeMs: desde,
+    // Conversa nova (id descoberto agora): o primeiro task_started tem que ser lido, mesmo com mais de 1 MiB gravado.
+    lerDoInicio: (f) => arquivoNovo && f === arquivo,
     resolverArquivo: () => {
       if (s.proc !== esteProc) return null;
       if (arquivo) return arquivo;
@@ -112,6 +115,7 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
         const achado = descobrirRollout(ctx.cwd, desde, home, s.idsEmUso());
         if (achado) {
           arquivo = achado.arquivo;
+          arquivoNovo = true;
           log.info(s.a("codex"), `id da sessão descoberto no rollout: ${achado.id}`);
           s.mudar({ sessionId: achado.id });
           // O rollout nascer é o recibo do primeiro Enter (ele só existe depois do primeiro turno).
