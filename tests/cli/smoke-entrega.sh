@@ -7,6 +7,9 @@ set -uo pipefail
 SMOKE="$REPO/scripts/smoke-entrega.sh"
 
 preparar
+# A limpeza entre os casos apaga $STUB_ESTADO: sem a pasta temporaria criada, o teste para antes de apagar qualquer coisa.
+case "${TMP:-}" in /*) [ -d "$TMP" ] || { echo "smoke-entrega: o mktemp -d falhou" >&2; exit 1; } ;; *) echo "smoke-entrega: o mktemp -d falhou" >&2; exit 1 ;; esac
+[ "$STUB_ESTADO" = "$TMP/estado" ] || { echo "smoke-entrega: STUB_ESTADO fora da pasta temporaria" >&2; exit 1; }
 PATH="$AQUI/stubs-entrega:$PATH"
 export PATH
 export DGCLAW_CLI="$AQUI/stubs-entrega/dgclaw-falso"
@@ -28,7 +31,7 @@ cofre_com() { # <nome>...: o cofre falso com essas chaves (e uma revogada, que n
 }
 cgroup() { printf '%s\n' "$1" >"$CG/memory.max"; printf '%s\n' "$2" >"$CG/pids.max"; printf '%s\n' "${3:-max 100000}" >"$CG/cpu.max"; }
 smoke() { bash "$SMOKE" "$@" >"$TMP/s.txt" 2>&1; }
-limpar_estado() { find "$STUB_ESTADO" -mindepth 1 -delete; rm -f "$CG/memory.events"; cofre_com GROQ_API_KEY GEMINI_API_KEY; cgroup 4294967296 8192; printf 'GROQ_API_KEY=gsk_segredo_do_teste\nOUTRA=1\n' >"$ETC/web.env"; : >"$STUB_LOG"; }
+limpar_estado() { find "$STUB_ESTADO" -mindepth 1 -delete; cofre_com GROQ_API_KEY GEMINI_API_KEY; cgroup 4294967296 8192; printf 'GROQ_API_KEY=gsk_segredo_do_teste\nOUTRA=1\n' >"$ETC/web.env"; : >"$STUB_LOG"; }
 
 echo "smoke-entrega: tudo certo"
 limpar_estado
@@ -81,7 +84,7 @@ limpar_estado
 cofre_com GEMINI_API_KEY
 printf 'OUTRA=1\n' >"$ETC/web.env"
 cgroup 4294967296 1024; echo 153 >"$STUB_ESTADO/tasksmax"; echo 3 >"$STUB_ESTADO/nrestarts"
-: >"$STUB_ESTADO/oom-journal"; : >"$STUB_ESTADO/sem-ffmpeg-container"; printf 'oom 1\noom_kill 1\n' >"$CG/memory.events"
+: >"$STUB_ESTADO/oom-journal"; : >"$STUB_ESTADO/sem-ffmpeg-container"; : >"$STUB_ESTADO/oom-host"
 : >"$STUB_ESTADO/yt-falha"
 smoke ana
 igual "sai com 1" "1" "$?"
@@ -97,7 +100,7 @@ afirma "a dica de recriar avisa que pode recriar na hora" grep -q 'pode recriar 
 nega "a dica de recriar nao a apresenta como so listar" grep -q 'ele lista e para' "$TMP/s.txt"
 afirma "FALHA sem ffmpeg no container" grep -q 'FALHA  \[8\] ffmpeg nao esta no container' "$TMP/s.txt"
 afirma "o resumo manda nao entregar" grep -q 'NAO entregue a VPS' "$TMP/s.txt"
-afirma "oom_kill no cgroup: atribui ao container" grep -q 'o contador do kernel para o cgroup do container dgclaw-ana registra 1 processo' "$TMP/s.txt"
+nega "OOM nao manda aumentar o teto do agente direto" grep -q 'aumente o teto de memoria do agente' "$TMP/s.txt"
 afirma "a dica de recriar exige a releitura e avisa do 'nada a recriar'" grep -q 'nada havia a recriar, o container nao mudou e o item continua aberto' "$TMP/s.txt"
 afirma "a dica de recriar cita o que o inventario ignora" grep -q 'ignora /tmp, /var/tmp, /var/log e /var/cache' "$TMP/s.txt"
 nega "a dica do NRestarts nao manda despejar o journal" grep -q 'tail -n 80' "$TMP/s.txt"
@@ -207,7 +210,7 @@ afirma "journal do kernel sem entradas: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\
 rm -f "$STUB_ESTADO/kernel-vazio"; : >"$STUB_ESTADO/oom-host"
 smoke ana
 afirma "OOM no kernel: FALHA" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias' "$TMP/s.txt"
-afirma "OOM so no kernel: diz que nao da para atribuir" grep -q 'nao ha registro do kernel atribuindo o OOM ao container' "$TMP/s.txt"
+afirma "OOM so no kernel: diz que nao da para atribuir" grep -q 'a contagem sozinha nao diz de quem era o processo' "$TMP/s.txt"
 nega "OOM so no kernel: nao manda aumentar o teto do agente" grep -q 'aumente o teto de memoria do agente' "$TMP/s.txt"
 rm -f "$STUB_ESTADO/oom-host"; : >"$STUB_ESTADO/oom-journal"
 smoke ana
@@ -265,12 +268,34 @@ echo 2 >"$STUB_ESTADO/runner-dias"
 smoke ana
 afirma "runner com 2 dias: diz a cobertura de cada fonte" grep -q 'cobertura do runner: 2 dia(s) completo(s) (48 horas)) nem no do kernel do servidor (cobertura do kernel: 9 dias\|cobertura do kernel: 7 dias' "$TMP/s.txt"
 
+echo "smoke-entrega: ausencia no /bin/sh real, limpeza do render, os-release incompleto e senha"
+limpar_estado
+: >"$STUB_ESTADO/sem-yt-dlp"; : >"$STUB_ESTADO/rm-erro"
+smoke ana
+afirma "yt-dlp ausente (codigo do /bin/sh real): FALHA" grep -q 'FALHA  \[6\] o yt-dlp nao esta no PATH do agente' "$TMP/s.txt"
+afirma "rm do perfil com erro: AVISO de limpeza pendente" grep -q 'AVISO  \[7\] nao consegui apagar a pasta temporaria do render de teste' "$TMP/s.txt"
+afirma "rm do perfil com erro: o render continua OK" grep -q 'OK     \[7\] o Chrome headless rodou' "$TMP/s.txt"
+nega "a dica do yt-dlp nao manda repetir a consulta com texto" grep -q "sh -c 'command -v yt-dlp'" "$TMP/s.txt"
+afirma "a troca de senha do dono e pelo terminal nesta versao" grep -q 'nesta versao o painel nao troca a senha' "$TMP/s.txt"
+limpar_estado
+printf 'ID=ubuntu\n' >"$DGCLAW_RAIZ/etc/os-release"
+smoke ana
+igual "os-release sem VERSION_ID: sem FALHA" "0" "$?"
+afirma "os-release sem VERSION_ID: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[1\] o /etc/os-release nao traz ID e VERSION_ID' "$TMP/s.txt"
+nega "os-release incompleto nao manda reinstalar" grep -q 'INCONCLUSIVO \[1\].*recrie a VPS' "$TMP/s.txt"
+afirma "os-release incompleto: diz para nao reinstalar" grep -q 'Nao reinstale a VPS por causa disso' "$TMP/s.txt"
+printf 'ID=debian\nVERSION_ID="12"\n' >"$DGCLAW_RAIZ/etc/os-release"
+smoke ana
+afirma "sistema incompativel: FALHA" grep -q 'FALHA  \[1\] sistema' "$TMP/s.txt"
+afirma "sistema incompativel: reinstalar so com copia e decisao do dono" grep -q 'so com uma copia recuperavel dos dados e com a decisao do dono' "$TMP/s.txt"
+printf 'ID=ubuntu\nVERSION_ID="24.04"\n' >"$DGCLAW_RAIZ/etc/os-release"
+
 echo "smoke-entrega: OOM num journal com o outro ilegivel, saida cortada e systemctl com erro"
 limpar_estado
-: >"$STUB_ESTADO/oom-journal"; : >"$STUB_ESTADO/journal-host-erro"; printf 'oom_kill 2\n' >"$CG/memory.events"
+: >"$STUB_ESTADO/oom-journal"; : >"$STUB_ESTADO/journal-host-erro"
 smoke ana
-igual "OOM no runner e kernel ilegivel: sai com 1" "1" "$?"
-afirma "FALHA dizendo a fonte ilegivel (kernel)" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias.*o journal do kernel do servidor ficou ilegivel' "$TMP/s.txt"
+igual "OOM so no runner e kernel ilegivel: sem FALHA, sai com 0" "0" "$?"
+afirma "OOM so no runner com o kernel ilegivel: INCONCLUSIVO com o indicio" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal do kernel do servidor.*so indicio' "$TMP/s.txt"
 limpar_estado
 : >"$STUB_ESTADO/oom-host"; : >"$STUB_ESTADO/journal-erro"
 smoke ana
@@ -283,7 +308,7 @@ igual "journal acima de 1 MiB: sem FALHA, sai com 0" "0" "$?"
 afirma "journal acima de 1 MiB: INCONCLUSIVO de saida cortada" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal do runner.*saida cortada' "$TMP/s.txt"
 nega "journal cortado nao diz 'nenhum OOM'" grep -q 'nenhum OOM' "$TMP/s.txt"
 limpar_estado
-: >"$STUB_ESTADO/journal-oom-grande"; printf 'oom_kill 1\n' >"$CG/memory.events"
+: >"$STUB_ESTADO/journal-oom-grande"; : >"$STUB_ESTADO/oom-host"
 smoke ana
 igual "OOM achado e leitura cortada em 1 MiB: sai com 1" "1" "$?"
 afirma "OOM achado e leitura cortada: FALHA com nota de contagem parcial" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias.*contagem parcial' "$TMP/s.txt"

@@ -40,8 +40,10 @@ Os números abaixo são os mesmos que o script imprime entre colchetes.
 
 - **Conferir:** `cat /etc/os-release`. O script lê `ID` e `VERSION_ID`.
 - **Esperado:** Ubuntu 24.04 (ou 22.04). No 26.04 o instalador já avisa que o DG Claw foi testado no
-  24.04; o script repete o aviso. Qualquer outro sistema é `FALHA`.
-- **Se falhar:** recrie a VPS com Ubuntu 24.04.
+  24.04; o script repete o aviso. Qualquer outro sistema é `FALHA`. Arquivo ilegível ou sem `ID` e
+  `VERSION_ID` é `INCONCLUSIVO`: confira à mão e não reinstale por isso.
+- **Se falhar:** não entregue. Reinstalar a VPS apaga o cofre, as conversas e as configurações do cliente:
+  só com uma cópia recuperável dos dados e com a decisão do dono.
 
 ### 2. Chave SSH da equipe na criação da VPS (à mão)
 
@@ -60,10 +62,13 @@ Os números abaixo são os mesmos que o script imprime entre colchetes.
   consulta (o `ssh-keygen` não o lê). Se ela aparecer em algum lugar, remova a linha, porque o `desligar` não
   mexe nas chaves que não são do suporte. **Antes de remover**, peça ao cliente para abrir uma conexão SSH
   nova com a credencial dele, confirmar que tem root ou `sudo` e deixá-la aberta até o fim deste item. Sem
-  isso, numa VPS que só aceita chave para o root, a remoção pode deixar o dono sem acesso administrativo. Por fim, teste de uma conexão nova, a partir da origem de suporte que
-  antes era aceita, só com essa chave
+  isso, numa VPS que só aceita chave para o root, a remoção pode deixar o dono sem acesso administrativo.
+  Depois de remover todas as fontes de autorização da equipe, teste de uma conexão nova, a partir da origem de
+  suporte que antes era aceita, só com essa chave
   (`ssh -o IdentitiesOnly=yes -o IdentityAgent=none -i <chave da equipe> root@<servidor>`): ela precisa
-  ser recusada.
+  ser recusada. Uma recusa nova não derruba uma sessão já aberta, então, por último, pela conexão do cliente,
+  encerre as outras sessões SSH de root com `sudo dgclaw suporte desligar --derrubar-sessoes` (encerra todas,
+  menos a de quem roda) e confira em `sudo dgclaw suporte status` que só sobrou a sessão do cliente.
 - **Chaves de diagnóstico remoto:** desligar o SSH não revoga uma chave `diagnostico` emitida durante a
   instalação, e ela continua consultando serviços, agentes e canais. Rode `sudo dgclaw chave-api listar` e,
   para cada chave provisória da equipe que o cliente não autorizou manter, `sudo dgclaw chave-api revogar <id>`.
@@ -208,7 +213,8 @@ sucesso antes de recriar.
 2. Entregue a senha provisória ao cliente por canal seguro, nunca por e-mail comum nem por grupo.
 3. **No fim da entrega, o próprio cliente troca a senha**, num terminal privado dele, com
    `sudo dgclaw senha trocar` (o comando pede a senha nova duas vezes, sem mostrar o que se digita, e ela
-   precisa ter 12 caracteres ou mais) ou pelo painel em `/trocar-senha` (a partir da 1.1.1). Depois, ele
+   precisa ter 12 caracteres ou mais). Nesta versão o painel não troca a senha do dono (`/trocar-senha`
+   volta para o início), então o caminho é o terminal; o painel passa a servir a partir da 1.1.1. Depois, ele
    confirma que a senha antiga não entra mais. A equipe não fica sabendo a senha final.
 - **Esperado:** entra sem erro de "usuário não encontrado", sem rolagem horizontal e com o teclado do
   celular sem atrapalhar o campo. A senha antiga deixa de valer depois da troca.

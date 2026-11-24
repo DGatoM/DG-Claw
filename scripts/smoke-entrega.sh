@@ -153,14 +153,16 @@ if [ -r "$R/etc/os-release" ]; then
     os_id="$(sed -n 's/^ID=//p' "$R/etc/os-release" | head -n 1 | tr -d '"')"
     os_ver="$(sed -n 's/^VERSION_ID=//p' "$R/etc/os-release" | head -n 1 | tr -d '"')"
     so="${os_id:-?} ${os_ver:-?}"
+    if [ -z "$os_id" ] || [ -z "$os_ver" ]; then so="incompleto"; fi
     case "$so" in
+        incompleto) inconclusivo 1 "o /etc/os-release nao traz ID e VERSION_ID, entao nao sei qual e o sistema." "confira a mao: cat /etc/os-release. Nao reinstale a VPS por causa disso." ;;
         "ubuntu 24.04"|"ubuntu 22.04") ok 1 "Ubuntu ${so#ubuntu } (versao testada)" ;;
         "ubuntu 26.04") aviso 1 "Ubuntu 26.04: o DG Claw foi feito e testado no 24.04; o 26.04 tem funcionado, mas pode ter instabilidade." \
-            "se a entrega nao tem pressa, recrie a VPS com Ubuntu 24.04. Se ficar no 26.04, confira com atencao os itens 3, 6 e 7 abaixo." ;;
-        *) falha 1 "sistema '$(printf '%s' "$so" | limpar)': o DG Claw so instala em Ubuntu 22.04, 24.04 ou 26.04." "recrie a VPS com Ubuntu 24.04." ;;
+            "se a VPS ainda nao tem dados do cliente e a entrega nao tem pressa, recrie a VPS com Ubuntu 24.04 (com dados, so com copia recuperavel e decisao do dono). Se ficar no 26.04, confira com atencao os itens 3, 6 e 7 abaixo." ;;
+        *) falha 1 "sistema '$(printf '%s' "$so" | limpar)': o DG Claw so instala em Ubuntu 22.04, 24.04 ou 26.04." "nao entregue. Reinstalar a VPS apaga cofre, conversas e configuracoes: so com uma copia recuperavel dos dados e com a decisao do dono." ;;
     esac
 else
-    falha 1 "nao consegui ler $R/etc/os-release." "confira o sistema com: cat /etc/os-release"
+    inconclusivo 1 "nao consegui ler $R/etc/os-release, entao nao sei qual e o sistema." "confira o sistema com: cat /etc/os-release. Nao reinstale a VPS por causa disso."
 fi
 
 # --- 3. Limites do container e da unidade do runner ----------------------------------------------
@@ -310,28 +312,19 @@ else
     if [ "$rc_h" -ne 0 ]; then
         if [ -n "$fonte_ruim" ]; then fonte_ruim="$fonte_ruim e o journal do kernel do servidor"; else fonte_ruim="o journal do kernel do servidor"; fi
     fi
-    # Quem atribui o OOM ao agente e o contador oom_kill do memory.events do cgroup do container, escrito pelo kernel
-    # e lido no servidor (conta desde que o container foi criado). Texto no journal do runner e so indicio: o
-    # proprio agente escreve ali. Sem o contador, nao se sugere aumentar o teto do agente.
-    oomk=""
-    if [ "$cg_ok" = 1 ]; then
-        oomk="$(head -c 4096 "$R/sys/fs/cgroup$cg_path/memory.events" 2>/dev/null | awk '$1 == "oom_kill" { print $2; exit }')"
-        so_digitos "$oomk" 12 || oomk=""
-    fi
-    if [ -n "$oomk" ] && [ "$oomk" -gt 0 ]; then
-        oom_dica="o contador do kernel para o cgroup do container $C registra $oomk processo(s) morto(s) por falta de memoria desde que o container foi criado. Confira se foi um render ou um Chrome do agente e, se o servidor tiver RAM sobrando, aumente o teto de memoria do agente (a partir da 1.1.1, com DGCLAW_CONTAINER_MEMORIA, recriando e conferindo de novo depois de reiniciar o container). Sem RAM sobrando, o caminho e um plano de VPS maior."
-    else
-        oom_dica="nao ha registro do kernel atribuindo o OOM ao container $C (o contador oom_kill do cgroup dele esta zerado ou ilegivel; texto no journal do runner e so indicio, porque o agente escreve ali), entao nao aumente o teto do agente por causa disso. Num terminal seu (nunca no chat do Admin), leia as linhas oom-kill com journalctl _TRANSPORT=kernel --since '7 days ago' | grep -iE 'oom-kill|killed process' e veja o task_memcg: so se ele apontar para o container $C o problema e do agente. Se apontar para outro servico, o ajuste e nesse servico ou no plano da VPS."
-    fi
-    if { [ "$rc_h" -eq 0 ] && [ "${oom_h:-0}" -gt 0 ]; } || { [ -n "$oomk" ] && [ "$oomk" -gt 0 ]; }; then
+    # Nem o journal do runner (texto que o proprio agente escreve) nem a linha do kernel sozinha dizem que o agente
+    # estourou o proprio teto: so a leitura humana das linhas oom-kill (constraint e task_memcg) diz. Por isso a dica
+    # nunca manda aumentar a memoria direto.
+    oom_dica="a contagem sozinha nao diz de quem era o processo nem qual limite estourou, entao nao aumente o teto do agente por causa dela. Num terminal seu (nunca no chat do Admin), leia as linhas oom-kill com journalctl _TRANSPORT=kernel --since '7 days ago' | grep -iE 'oom-kill|killed process' e veja a data, o constraint e o task_memcg: so com CONSTRAINT_MEMCG e task_memcg do container $C o agente estourou o proprio teto. Com OOM do servidor inteiro (CONSTRAINT_NONE) ou de outro servico, o ajuste e nesse servico ou no plano da VPS."
+    if [ "$rc_h" -eq 0 ] && [ "${oom_h:-0}" -gt 0 ]; then
         falha 3 "OOM nos ultimos 7 dias: $([ "$rc_c" -eq 0 ] && echo "${oom_c:-0}" || echo "?") linha(s) no journal do runner e $([ "$rc_h" -eq 0 ] && echo "${oom_h:-0}" || echo "?") no kernel do servidor${fonte_ruim:+ ($fonte_ruim ficou ilegivel ou foi cortado, entao a conta esta incompleta)}${parcial:+ (contagem parcial: a leitura de $parcial passou de 1 MiB e foi cortada, entao ha pelo menos essas linhas)}." \
             "$oom_dica"
-    elif [ "$rc_c" -eq 0 ] && [ "${oom_c:-0}" -gt 0 ]; then
-        aviso 3 "o journal do runner menciona falta de memoria ${oom_c} vez(es) nos ultimos 7 dias, mas nem o kernel do servidor nem o contador oom_kill do cgroup do container registram processo morto${fonte_ruim:+ ($fonte_ruim ficou ilegivel ou foi cortado)}. E so indicio: o texto do journal do runner pode vir do proprio agente." \
-            "$oom_dica"
     elif [ -n "$fonte_ruim" ]; then
-        inconclusivo 3 "nao consegui ler $fonte_ruim dos ultimos 7 dias (erro, prazo ou saida cortada em 1 MiB). Isso nao quer dizer zero eventos de falta de memoria." \
+        inconclusivo 3 "nao consegui ler $fonte_ruim dos ultimos 7 dias (erro, prazo ou saida cortada em 1 MiB). Isso nao quer dizer zero eventos de falta de memoria.$([ "$rc_c" -eq 0 ] && [ "${oom_c:-0}" -gt 0 ] && echo " O journal do runner menciona falta de memoria ${oom_c} vez(es), o que e so indicio.")" \
             "confira se cada journal responde, pelo codigo de saida (0 = respondeu): podman exec $C journalctl -u dgclaw-runner -n 0 -q; echo \$? e journalctl _TRANSPORT=kernel -n 0 -q; echo \$?. Veja se o journal e persistente (ls /var/log/journal) e rode o smoke de novo. Nao troque a conferencia por uma contagem com grep: com o journal falhando, ela daria zero."
+    elif [ "${oom_c:-0}" -gt 0 ]; then
+        aviso 3 "o journal do runner menciona falta de memoria ${oom_c} vez(es) nos ultimos 7 dias, mas o journal do kernel do servidor nao registra processo morto. E so indicio: o texto do journal do runner pode vir do proprio agente." \
+            "$oom_dica"
     elif [ "$oom_c" -eq 0 ] && [ "$oom_h" -eq 0 ]; then
         sem_hist=""
         [ -n "$cob_c" ] || sem_hist="o journal do runner"
@@ -353,11 +346,12 @@ else
     falha 8 "ffmpeg nao esta no servidor. As miniaturas de video e foto do painel ficam sem previa." "apt-get install -y ffmpeg"
 fi
 if [ "$CONTAINER_OK" = 1 ]; then
-    ca sh -c 'command -v ffmpeg' >/dev/null 2>&1
+    # A ausencia vira o codigo 42 dentro do sh (o dash devolve 127 no command -v), separado dos erros do podman.
+    ca sh -c 'command -v ffmpeg >/dev/null 2>&1 || exit 42' >/dev/null 2>&1
     rc=$?
     if [ "$rc" -eq 0 ]; then
         ok 8 "ffmpeg presente no container"
-    elif [ "$rc" -ne 1 ]; then
+    elif [ "$rc" -ne 42 ]; then
         inconclusivo 8 "nao consegui perguntar ao container se o ffmpeg existe (codigo $rc: container parado, erro do podman ou prazo). Isso nao quer dizer que ele falta." "rode o smoke de novo com o container de pe."
     else
         falha 8 "ffmpeg nao esta no container $C. Video, audio e carrossel dependem dele." "a imagem esta velha ou incompleta: dgclaw imagem construir --agora (confira que terminou com sucesso), depois $RECRIAR_DICA"
@@ -424,17 +418,17 @@ printf '\n6. yt-dlp e perfil da Tela (o login do YouTube e a mao)\n'
 if [ "$CONTAINER_OK" != 1 ]; then
     aviso 6 "yt-dlp nao conferido: o container nao esta de pe." "resolva o item 3 e rode de novo."
 else
-    ytpath="$(capt ca sh -c 'command -v yt-dlp')"; rc=$?
+    ytpath="$(capt ca sh -c 'command -v yt-dlp || exit 42')"; rc=$?
     ytpath="$(uma_linha "$ytpath")" || rc=99
-    if [ "$rc" -eq 1 ] && [ -z "$ytpath" ]; then
+    if [ "$rc" -eq 42 ] && [ -z "$ytpath" ]; then
         falha 6 "o yt-dlp nao esta no PATH do agente." "a imagem esta velha: dgclaw imagem construir --agora (confira que terminou com sucesso), depois $RECRIAR_DICA"
     elif [ "$rc" -ne 0 ]; then
-        inconclusivo 6 "nao consegui perguntar ao container onde esta o yt-dlp (erro, prazo ou resposta grande demais)." "confira: podman exec --user agente $C sh -c 'command -v yt-dlp'"
+        inconclusivo 6 "nao consegui perguntar ao container onde esta o yt-dlp (erro, prazo ou resposta grande demais)." "rode o smoke de novo com o container de pe. Se repetir, confira pelo codigo de saida, sem trazer o texto: podman exec --user agente $C test -x /usr/local/bin/yt-dlp; echo \$? (0 = esta la)"
     elif [ "$ytpath" = /usr/local/bin/yt-dlp ]; then
         ok 6 "yt-dlp em /usr/local/bin/yt-dlp"
     else
         aviso 6 "o yt-dlp do agente nao esta em /usr/local/bin (a partir da 1.1.1 ele fica la). Fora dali, um processo sem o PATH do venv nao o acha." \
-            "veja onde ele esta: podman exec --user agente $C sh -c 'command -v yt-dlp'. Quando a 1.1.1 sair, atualize."
+            "quando a 1.1.1 sair, atualize e rode o smoke de novo. O caminho que o container devolve nao entra no relatorio: se precisar ve-lo, use um terminal seu, nunca o chat do Admin."
     fi
     # (a) a diretiva --js-runtimes node, ativa (nao comentada), na configuracao global do container.
     ca grep -qE '^[[:space:]]*--js-runtimes[[:space:]]+node([[:space:]]|$)' /etc/yt-dlp.conf >/dev/null 2>&1
@@ -480,6 +474,11 @@ else
         PRAZO=90 ca google-chrome-stable --headless=new --no-sandbox --disable-gpu --user-data-dir="$dir_ch/perfil" --dump-dom about:blank >/dev/null 2>&1
         rc=$?
         PRAZO=30 ca rm -rf -- "$dir_ch" >/dev/null 2>&1
+        rc_rm=$?
+        if [ "$rc_rm" -ne 0 ]; then
+            aviso 7 "nao consegui apagar a pasta temporaria do render de teste dentro do container (codigo $rc_rm). A limpeza ficou pendente." \
+                "rode de novo com o container de pe: podman exec --user agente $C rm -rf -- $dir_ch"
+        fi
         if [ "$rc" -ne 0 ]; then
             falha 7 "o Chrome headless nao rodou (codigo $rc). Render de carrossel e video nao vai funcionar." \
                 "rode a mao e leia o erro: podman exec --user agente $C google-chrome-stable --headless=new --no-sandbox --dump-dom about:blank"
@@ -505,8 +504,8 @@ Conferir a mao (detalhes em docs/ENTREGA-CLIENTE.md):
   6.  Login do YouTube pela Tela (VNC) com uma conta dedicada ao agente e o item de diagnostico
       agente.<agente>.youtube (a partir da 1.1.1), ou o yt-dlp a mao. O smoke deixa PENDENTE e nao baixa nada.
   9.  Login do dono pelo celular (largura 390), com usuario em maiuscula automatica. No fim, o proprio cliente
-      troca a senha em terminal privado (sudo dgclaw senha trocar) ou pelo painel e confirma que a antiga nao
-      entra mais; a equipe nao fica sabendo a senha final.
+      troca a senha em terminal privado (sudo dgclaw senha trocar; nesta versao o painel nao troca a senha do
+      dono) e confirma que a antiga nao entra mais; a equipe nao fica sabendo a senha final.
   10. Skills do cliente na pasta certa, com dono (chown) e CLAUDE_PLUGIN_ROOT resolvido.
   11. Conferir a sessao principal: mande um pedido curto e confira que ela responde. O reparo
       (dgclaw agente reparar) fica para uma falha diagnosticada.
