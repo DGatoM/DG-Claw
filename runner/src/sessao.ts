@@ -23,6 +23,7 @@
 //     `stopped`, `resumable`, `errored`), que o painel da pessoa já lê.
 import path from "node:path";
 import pty from "node-pty";
+import type { Terminal as TerminalXterm } from "@xterm/headless";
 import { EventEmitter } from "node:events";
 import { type ConfigDoRunner, PASTA_DE_ESTADO, STATE_FILE, gravarEstado, lerEstado } from "./config-runner.js";
 import { type ItemDaFila, caminhoDaFila, carregarFila } from "./fila-ocioso.js";
@@ -43,7 +44,7 @@ import {
 import { digitarEEnviar, vencerTelaDeConfianca } from "./sessao/digitacao.js";
 import { MedidorDeUso } from "./uso.js";
 import { type PayloadDeHook, receberHook } from "./sessao/eventos.js";
-import { type SemRecibo, enfileirarQuandoOcioso, itensNaoEntregues, recuperarDoDisco, talvezSoltarFila } from "./sessao/fila.js";
+import { type ResultadoDoEnfileirar, type SemRecibo, enfileirarQuandoOcioso, itensNaoEntregues, recuperarDoDisco, talvezSoltarFila } from "./sessao/fila.js";
 import { encerrarIncidenteDeLogin, entregarRecadoDeLogin, marcarLoginExpirado, retomarAposLoginExpirado } from "./sessao/login.js";
 import { ESC } from "./sessao/telas.js";
 
@@ -107,6 +108,9 @@ export class Sessao extends EventEmitter {
   proc: pty.IPty | null = null;
   buffer: string[] = [];
   bufferBytes = 0;
+  /** O emulador de terminal (headless) do spawn atual, alimentado com a mesma saída que vai para o buffer. Só ele sabe
+   *  o que está NA TELA agora: o buffer é o fluxo bruto, e um redesenho parcial com movimento de cursor não se lê nele. */
+  emulador: TerminalXterm | null = null;
   seq = 0;
   nonce: string | null = null;
   hooksVivos = false;
@@ -209,6 +213,8 @@ export class Sessao extends EventEmitter {
   readonly reintentoTelaBloqueadaMs: number;
   /** Vigia do Enter sem recibo (ver vigiarReciboAtrasado): um timer por vez e os intervalos dela. */
   vigiaDoRecibo: NodeJS.Timeout | null = null;
+  /** O envio (item da fila) que a vigia atual acompanha; null quando a vigia é de uma chamada direta ou não há vigia. */
+  vigiaDoEnvio: SemRecibo | null = null;
   readonly reciboVigiaPassosMs: number[];
   readonly bootTimerMs: number;
   readonly tetoBootSemSinalMs: number;
@@ -387,6 +393,16 @@ export class Sessao extends EventEmitter {
 
   telaInteira(): string {
     return this.buffer.join("");
+  }
+
+  /** As linhas VISÍVEIS do terminal agora (o que a pessoa vê), sem escapes, unidas por "\n". Vazio sem emulador. */
+  telaAtual(): string {
+    const t = this.emulador;
+    if (!t) return "";
+    const b = t.buffer.active;
+    const linhas: string[] = [];
+    for (let i = 0; i < t.rows; i++) linhas.push(b.getLine(b.viewportY + i)?.translateToString(true) ?? "");
+    return linhas.join("\n");
   }
 
   /** Os valores do cofre que não podem aparecer na tela nem no histórico. */
@@ -847,7 +863,7 @@ export class Sessao extends EventEmitter {
   }
 
   /** Guarda um texto para digitar quando o agente ficar ocioso (ver sessao/fila.ts). */
-  enfileirarQuandoOcioso(texto: string, esperou = false): boolean {
+  enfileirarQuandoOcioso(texto: string, esperou = false): ResultadoDoEnfileirar {
     return enfileirarQuandoOcioso(this, texto, esperou);
   }
 

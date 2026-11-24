@@ -1,7 +1,7 @@
 import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
-import { type SemRecibo, devolverNaoDigitado, liberarBarra, pendenteEm, reter, suspenderPorRascunho, talvezSoltarFila } from "./fila.js";
+import { MOTIVO_RECUSA_DE_ENTRADA, type SemRecibo, devolverNaoDigitado, liberarBarra, pararComCaixaSuja, pendenteEm, reter, suspenderPorRascunho, talvezSoltarFila } from "./fila.js";
 import { INTERVALO_MS, PEDACO, RECIBO_ENTER_TENTATIVAS } from "./constantes.js";
 import { ehDialogoDeAutoMode, estadoDaCaixa, telaDeConfiancaDoCodex } from "./telas.js";
 
@@ -56,7 +56,22 @@ async function digitar(s: Sessao, texto: string, daFila: boolean, envio: SemReci
     if (envio && !devolverNaoDigitado(s, envio)) envio.parada = { tipo: "terminal", motivo: "o terminal foi trocado antes de começar a digitar" };
     return false;
   }
-  // Esperou a vez na cadeia: o terminal pode ter passado a esperar uma resposta (permissão, pergunta) enquanto isso, e
+  // Esperou a vez na cadeia: o agente pode ter deixado de poder conversar (login, chave, restrição) enquanto isso.
+  // Nada foi escrito ainda. Pela fila o pedido volta para a frente dela e a fila tenta de novo sozinha; numa chamada
+  // direta a rota responde com o motivo, como faz antes de aceitar o pedido.
+  const recusa = s.recusaDeEntrada();
+  if (recusa) {
+    if (!daFila) log.erro(s.a("entrada"), `não digitei o texto: ${recusa.mensagem}`, recusa.comoResolver);
+    throw new ErroDeMotor(recusa.mensagem, MOTIVO_RECUSA_DE_ENTRADA, recusa.comoResolver);
+  }
+  // O pedido da fila só é digitado com o agente ocioso: enquanto esperava a vez, um turno pode ter começado. Nada foi
+  // escrito, então o item volta para a fila, que tenta de novo no próximo idle.
+  if (envio && s.estado.status !== "idle") {
+    log.aviso(s.a("entrada"), `o agente deixou de estar ocioso (${s.estado.status}) enquanto o pedido esperava a vez; não escrevi nada no terminal e o pedido volta para a fila`);
+    if (!devolverNaoDigitado(s, envio)) envio.parada = { tipo: "caixa", motivo: "o agente não está ocioso e nada foi digitado" };
+    return false;
+  }
+  // O terminal pode ter passado a esperar uma resposta (permissão, pergunta) enquanto isso, e
   // colar o texto e apertar Enter ali responderia o diálogo. Nada foi escrito ainda, então o item volta para a fila.
   if (s.estado.status === "waiting_input") {
     log.aviso(s.a("entrada"), "o agente passou a esperar uma resposta (permissão ou pergunta) enquanto o pedido esperava a vez; não escrevi nada no terminal");
@@ -69,29 +84,67 @@ async function digitar(s: Sessao, texto: string, daFila: boolean, envio: SemReci
   if (s.motor.provedor === "claude") recusarSeEstiverNoAvisoDoAutoMode(s, daFila);
   const pausa = s.motor.pausaAntesDoEnterMs;
   const ehComandoDeBarra = texto.trim().startsWith("/");
+  // Quantas escritas o PTY deve ter contado se só ESTE envio escreveu: guardado depois de cada escrita dele.
+  let esperadas = s.entradasManuais;
   if (texto.length <= 256) {
+    const antes = motivoDeCaixaMudada(s, esperadas);
+    if (antes) return naoEscreveu(s, envio, antes);
     s.escrever(texto);
+    esperadas = s.entradasManuais;
     await new Promise((r) => setTimeout(r, pausa));
-    return enviarComRecibo(s, { texto, comandoDeBarra: ehComandoDeBarra, envio, proc });
+    return enviarComRecibo(s, { texto, comandoDeBarra: ehComandoDeBarra, envio, proc, entradasAposTexto: esperadas });
   }
-  const inteiro = await new Promise<boolean>((resolve) => {
+  const resultado = await new Promise<{ ok: true } | { ok: false; motivo?: string; escreveu: boolean }>((resolve) => {
     let i = 0;
     const passo = () => {
-      if (s.proc !== proc) return resolve(false);
+      if (s.proc !== proc) return resolve({ ok: false, escreveu: i > 0 });
+      // Antes de CADA pedaço: o agente passou a esperar uma resposta, ou alguém escreveu no terminal no meio da colagem?
+      const motivo = motivoDeCaixaMudada(s, esperadas);
+      if (motivo) return resolve({ ok: false, motivo, escreveu: i > 0 });
       s.escrever(texto.slice(i, i + PEDACO));
+      esperadas = s.entradasManuais;
       i += PEDACO;
       if (i >= texto.length) {
         // Uma folga depois do último pedaço: o TUI ainda está processando o
         // burst quando o write retorna.
-        setTimeout(() => resolve(true), Math.max(120, pausa));
+        setTimeout(() => resolve({ ok: true }), Math.max(120, pausa));
         return;
       }
       setTimeout(passo, INTERVALO_MS);
     };
     passo();
   });
-  if (!inteiro || s.proc !== proc) return terminalTrocado(s, envio);
-  return enviarComRecibo(s, { texto, comandoDeBarra: ehComandoDeBarra, envio, proc });
+  if (!resultado.ok && resultado.motivo !== undefined) {
+    return resultado.escreveu
+      ? parouComTextoNaCaixa(s, envio, resultado.motivo)
+      : naoEscreveu(s, envio, resultado.motivo);
+  }
+  if (!resultado.ok || s.proc !== proc) return terminalTrocado(s, envio);
+  return enviarComRecibo(s, { texto, comandoDeBarra: ehComandoDeBarra, envio, proc, entradasAposTexto: esperadas });
+}
+
+/** Por que não se pode escrever mais nada AGORA neste envio: o agente passou a esperar uma resposta (permissão,
+ *  pergunta) ou houve uma escrita no terminal que não foi deste envio (o dono digitando, outro texto). null = pode. */
+function motivoDeCaixaMudada(s: Sessao, esperadas: number): string | null {
+  if (s.estado.status === "waiting_input") return "o agente passou a esperar uma resposta (permissão ou pergunta) no meio do envio";
+  if (s.entradasManuais !== esperadas) return "houve outra escrita no terminal no meio do envio, e a caixa já não é só este texto";
+  return null;
+}
+
+/** Nada foi escrito neste envio: o item da fila volta para a frente da fila; numa chamada direta só devolve false. */
+function naoEscreveu(s: Sessao, envio: SemRecibo | null, motivo: string): false {
+  log.aviso(s.a("entrada"), `não escrevi nada no terminal: ${motivo}`);
+  if (envio && !devolverNaoDigitado(s, envio)) envio.parada = { tipo: "caixa", motivo: `${motivo}; nada foi digitado` };
+  return false;
+}
+
+/** O texto (parcial ou inteiro) já está na caixa e o envio parou: não se escreve mais nada, e a caixa fica suspensa. */
+function parouComTextoNaCaixa(s: Sessao, envio: SemRecibo | null, motivo: string): false {
+  log.aviso(
+    s.a("entrada"),
+    `parei de escrever no terminal: ${motivo}; parte do texto (ou ele inteiro) pode estar na caixa de entrada, e não sei se o pedido foi recebido`,
+  );
+  return pararComCaixaSuja(s, envio, motivo);
 }
 
 /** Orientação quando a tela bloqueia a caixa. Pela fila o pedido fica guardado e a fila tenta de novo
@@ -166,6 +219,9 @@ export interface ContextoDoEnvio {
   envio: SemRecibo | null;
   /** O terminal em que o texto foi digitado. */
   proc: NonNullable<Sessao["proc"]>;
+  /** O valor de `entradasManuais` logo depois da última escrita do texto deste envio (antes da pausa da colagem).
+   *  Se for outro quando o primeiro Enter vai ser escrito, alguém escreveu no terminal no meio. Falta = não confere. */
+  entradasAposTexto?: number;
 }
 
 /** Só /compact tem recibo próprio (o PreCompact). Os outros comandos de barra não têm. */
@@ -188,7 +244,7 @@ function decidirEnter(s: Sessao, texto: string, entradasEsperadas: number): Deci
   if (s.estado.status === "waiting_input") {
     return { acao: "parar", tipo: "caixa", motivo: "o agente está esperando uma resposta (permissão ou pergunta), e um Enter ali poderia respondê-la" };
   }
-  const caixa = estadoDaCaixa(s.telaInteira(), texto);
+  const caixa = estadoDaCaixa(s.telaAtual(), texto);
   if (caixa === "mesmo-texto") return { acao: "enter" };
   if (caixa === "vazia") return { acao: "esperar" };
   return {
@@ -220,7 +276,7 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
   const { texto, comandoDeBarra, envio, proc } = ctx;
   const espera = s.motor.reciboMs;
   // Quantas escritas o PTY deve ter contado se só estes Enters escreveram (ver vigiarReciboAtrasado).
-  let entradasEsperadas = s.entradasManuais;
+  let entradasEsperadas = ctx.entradasAposTexto ?? s.entradasManuais;
   const compact = ehCompact(texto);
   // No Claude o recibo do /compact é o PreCompact: um prompt comum aceito (de outra pessoa) não prova nada sobre ele.
   const soCompactVale = compact && s.motor.provedor === "claude";
@@ -244,6 +300,10 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
       if (d.acao === "esperar" && comandoDeBarra && !compact) return true;
       escreveuEnter = d.acao === "enter";
     } else {
+      // O primeiro Enter só sai se, depois da pausa da colagem, o agente não passou a esperar uma resposta e ninguém
+      // escreveu no terminal: um Enter ali poderia responder um diálogo ou mandar um rascunho junto com o texto.
+      const motivo = motivoDeCaixaMudada(s, entradasEsperadas);
+      if (motivo) return parouComTextoNaCaixa(s, envio, motivo);
       escreveuEnter = true;
     }
     const antes = s.promptsAceitos;
@@ -256,9 +316,16 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
       }
       s.escrever("\r");
       entradasEsperadas = s.entradasManuais;
+      if (envio) envio.entradasNoEnter = entradasEsperadas;
     }
     const recebeu = await esperarRecibo(s, antes, espera, comandoDeBarra ? compactAntes : undefined, soCompactVale);
-    if (recebeu) return true;
+    if (recebeu) {
+      // Alguém escreveu no terminal depois do nosso Enter: o recibo pode ser de outra mensagem. Não é entrega provada.
+      if (s.entradasManuais !== entradasEsperadas) {
+        return parouComTextoNaCaixa(s, envio, "chegou um recibo, mas houve outra escrita no terminal depois do Enter deste pedido, então o recibo pode ser de outra mensagem");
+      }
+      return true;
+    }
     if (escreveuEnter) {
       const proxima = tentativa < RECIBO_ENTER_TENTATIVAS ? decidirEnter(s, texto, entradasEsperadas).acao : null;
       const fim =
@@ -271,11 +338,11 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
     }
     // Sem nenhum hook há mais de 60 s não existe recibo possível: esperar mais não prova nada. As tentativas
     // acabam aqui e o pedido fica retido como incerto (nunca declarado entregue, nunca digitado de novo).
-    if (semHooksDeVerdade(s) && estadoDaCaixa(s.telaInteira(), texto) !== "mesmo-texto") {
-      return semRecibosPossivel(s, envio, comandoDeBarra && !compact);
+    if (semHooksDeVerdade(s) && estadoDaCaixa(s.telaAtual(), texto) !== "mesmo-texto") {
+      return semRecibosPossivel(s, envio, texto, comandoDeBarra && !compact);
     }
   }
-  if (semHooksDeVerdade(s)) return semRecibosPossivel(s, envio, comandoDeBarra && !compact);
+  if (semHooksDeVerdade(s)) return semRecibosPossivel(s, envio, texto, comandoDeBarra && !compact);
   // Ainda dá para insistir sem segurar quem chamou: a vigia segue em segundo plano e só ela dá o ERRO final.
   const total = RECIBO_ENTER_TENTATIVAS + s.reciboVigiaPassosMs.length;
   const segundos = Math.round(s.reciboVigiaPassosMs.reduce((a, b) => a + b, 0) / 1000);
@@ -290,7 +357,12 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
 
 /** Claude sem nenhum hook há mais de 60 s: o pedido foi digitado e o Enter escrito, mas não há como provar que o
  *  CLI o recebeu. Não é declarado entregue. Comando de barra sem recibo próprio não tem o que provar. */
-function semRecibosPossivel(s: Sessao, envio: SemRecibo | null, barraSemRecibo: boolean): boolean {
+function semRecibosPossivel(s: Sessao, envio: SemRecibo | null, texto: string, barraSemRecibo: boolean): boolean {
+  // Com texto na caixa (ou uma tela que não se reconhece) nada prova que o comando foi consumido, e o texto pode
+  // continuar lá: a digitação fica suspensa e o pedido retido, mesmo para comando de barra.
+  if (estadoDaCaixa(s.telaAtual(), texto) !== "vazia") {
+    return parouComTextoNaCaixa(s, envio, "o agente não manda hooks (não há recibo possível) e a caixa de entrada não aparece vazia: o texto pode continuar nela");
+  }
   if (barraSemRecibo) return true;
   log.aviso(
     s.a("entrada"),
@@ -306,11 +378,23 @@ function semRecibosPossivel(s: Sessao, envio: SemRecibo | null, barraSemRecibo: 
  *  se bate a tecla: com a sessão fora de idle, algo abriu turno por outro caminho e basta esperar; com a
  *  caixa vazia o texto já saiu dela e também basta esperar; só com o MESMO texto na caixa o Enter se repete.
  *  Só no fim, sem recibo, o pedido vai para retidos. Uma vigia por sessão. */
-function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: number, entradasDoEnvio: number): void {
+export function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: number, entradasDoEnvio: number): void {
   const { texto, comandoDeBarra, envio, proc } = ctx;
+  // Uma vigia por sessão. Se a que existe acompanhava um item da fila ainda pendente, ela não pode simplesmente sumir:
+  // o item ficaria em semRecibo para sempre e travaria a fila. Ele é retido como incerto, explicitamente.
+  const anterior = s.vigiaDoEnvio;
   if (s.vigiaDoRecibo) clearTimeout(s.vigiaDoRecibo);
   s.vigiaDoRecibo = null;
-  if (s.proc !== proc) return;
+  s.vigiaDoEnvio = null;
+  const substituido = anterior && anterior !== envio && pendenteEm(s, anterior) ? anterior : null;
+  if (substituido) {
+    suspenderPorRascunho(s);
+    reter(s, substituido.item, "outro envio substituiu a vigia deste pedido antes do recibo");
+  }
+  if (s.proc !== proc) {
+    if (substituido) talvezSoltarFila(s);
+    return;
+  }
   const antes = s.promptsAceitos;
   const compactAntes = s.compactsIniciados;
   const compact = ehCompact(texto);
@@ -323,6 +407,9 @@ function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: number, en
   // está lá já não é o texto que esta vigia tenta enviar, e um Enter dela poderia mandar um rascunho.
   let entradasEsperadas = entradasDoEnvio;
 
+  const acabar = () => {
+    if (s.vigiaDoEnvio === envio) s.vigiaDoEnvio = null;
+  };
   const reterEste = (motivo: string, suspender: boolean) => {
     if (!envio?.aguardando) return;
     if (suspender) suspenderPorRascunho(s);
@@ -332,20 +419,20 @@ function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: number, en
 
   const passo = (i: number): void => {
     s.vigiaDoRecibo = null;
-    if (s.proc !== proc) return;
+    if (s.proc !== proc) return acabar();
     if (aceito()) {
       log.info(
         s.a("entrada"),
         `o turno abriu atrasado, ${Math.round((Date.now() - inicio) / 1000)}s depois do texto digitado`,
       );
       if (envio?.barra) liberarBarra(s, envio);
-      return;
+      return acabar();
     }
     const d = decidirEnter(s, texto, entradasEsperadas);
     if (comandoDeBarra && !compact && d.acao === "esperar") {
       // Comando de barra sem recibo próprio e a caixa vazia: o comando foi consumido.
       if (envio?.barra) liberarBarra(s, envio);
-      return;
+      return acabar();
     }
     if (i >= passos.length) {
       const naCaixa = d.acao === "enter";
@@ -365,7 +452,7 @@ function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: number, en
       // texto fica guardado no arquivo da fila). Nunca é digitado de novo sozinho. Se o texto pode ter ficado na
       // caixa, a digitação automática deste terminal fica suspensa.
       reterEste(`${total} tentativas e nenhuma virou turno`, d.acao !== "esperar");
-      return;
+      return acabar();
     }
     if (d.acao === "parar") {
       log.info(s.a("entrada"), `parei de insistir no Enter: ${d.motivo}`);
@@ -373,7 +460,7 @@ function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: number, en
       // na caixa (provavelmente o dono escrevendo, ou um diálogo), a digitação automática fica suspensa.
       if (envio) envio.interrompido = true;
       reterEste("a repetição do Enter parou porque a caixa de entrada mudou", true);
-      return;
+      return acabar();
     }
     if (d.acao === "enter" && s.estado.status === "idle") {
       log.info(
@@ -382,6 +469,7 @@ function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: number, en
       );
       s.escrever("\r");
       entradasEsperadas = s.entradasManuais;
+      if (envio) envio.entradasNoEnter = entradasEsperadas;
     }
     agendar(i + 1);
   };
@@ -390,6 +478,7 @@ function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: number, en
     s.vigiaDoRecibo = setTimeout(() => passo(i), i < passos.length ? passos[i] : s.motor.reciboMs);
     s.vigiaDoRecibo.unref();
   };
+  s.vigiaDoEnvio = envio;
   agendar(0);
 }
 

@@ -24,6 +24,8 @@ import { LoginAssistido } from "./provedores/login.js";
 import { tratarRotasDeProvedor } from "./provedores/rotas.js";
 import { MOTIVO_SEM_MEDICAO, deStatusline, paraResposta } from "./uso.js";
 import { ESC, nonceConfere } from "./sessao/telas.js";
+import { ErroDeMotor } from "./provedores/motor.js";
+import { MOTIVO_RECUSA_DE_ENTRADA } from "./sessao/fila.js";
 import { acharRolloutPorId, mensagensDoRollout } from "./provedores/codex-rollout.js";
 
 /** O estado de uma sessão como o painel e a API o veem. A paralela leva o campo
@@ -64,6 +66,20 @@ function ociosoHaMin(s: Sessao): number {
 
 function respostaDeRecusa(res: http.ServerResponse, r: Recusa): void {
   json(res, { success: false, error: r.error, howToFix: r.howToFix, code: "SEM_CAPACIDADE" }, 503);
+}
+
+/** O pedido NÃO entrou na fila porque o arquivo dela não pôde ser gravado: dizer 202 seria prometer algo que um reinício apaga. */
+function respostaFilaNaoGravada(res: http.ServerResponse): void {
+  json(
+    res,
+    {
+      success: false,
+      error: "O pedido NÃO foi enfileirado: o arquivo da fila não pôde ser gravado, e só em memória ele se perderia num reinício.",
+      howToFix: "Conferir o espaço em disco e as permissões da pasta de estado do runner e reenviar o pedido depois.",
+      code: "FILA_NAO_GRAVADA",
+    },
+    507,
+  );
 }
 
 export function criarServidor(gerente: GerenteDeSessoes): http.Server {
@@ -361,7 +377,10 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
               else json(res, { success: false, error: r.falha, howToFix: "ver o log do runner e tentar POST /api/agents/:id/resume", code: "NAO_ACORDOU" }, 500);
               return;
             }
-            sessao.enfileirarQuandoOcioso(texto, esperouNoPainel);
+            if (sessao.enfileirarQuandoOcioso(texto, esperouNoPainel) === "nao-gravado") {
+              respostaFilaNaoGravada(res);
+              return;
+            }
             json(res, { success: true, data: { enfileirado: true, acordando: true } }, 202);
             return;
           }
@@ -379,8 +398,12 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             // false = /compact repetido: já havia um na fila, sendo digitado ou em andamento. Esse /compact pendente
             // atende o pedido (quem chamou queria a sessão compactada, e o recibo dele vem do mesmo compact_boundary),
             // então a resposta é a mesma do enfileirado, só com `deduplicado` para quem quiser saber.
-            const novo = sessao.enfileirarQuandoOcioso(texto, esperouNoPainel);
-            json(res, { success: true, data: { enfileirado: true, aguardando: "idle", ...(novo ? {} : { deduplicado: true }) } }, 202);
+            const resultado = sessao.enfileirarQuandoOcioso(texto, esperouNoPainel);
+            if (resultado === "nao-gravado") {
+              respostaFilaNaoGravada(res);
+              return;
+            }
+            json(res, { success: true, data: { enfileirado: true, aguardando: "idle", ...(resultado === "deduplicado" ? { deduplicado: true } : {}) } }, 202);
             return;
           }
           if (!sessao.temPtyVivo()) {
@@ -400,7 +423,16 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             return;
           }
           if (enviar) {
-            const confirmado = await sessao.digitarEEnviar(texto);
+            let confirmado: boolean;
+            try {
+              confirmado = await sessao.digitarEEnviar(texto);
+            } catch (err) {
+              // O agente deixou de poder conversar (ou uma tela bloqueia a caixa) depois de o pedido ser aceito: nada foi
+              // digitado, e a resposta diz o motivo e o que fazer em vez de um erro interno sem orientação.
+              if (!(err instanceof ErroDeMotor)) throw err;
+              json(res, { success: false, error: err.message, howToFix: `${err.comoResolver}. Nada foi digitado: depois disso a mensagem pode ser reenviada.`, code: err.statusReason === MOTIVO_RECUSA_DE_ENTRADA ? "ENTRADA_RECUSADA" : "TELA_BLOQUEADA" }, 409);
+              return;
+            }
             if (!confirmado) {
               // 502, e não 4xx: o texto PODE ter sido escrito no terminal (um 4xx diria "comprovadamente não entrou"
               // e o chamador reenviaria, repetindo o pedido). Quem chama deve conferir a conversa antes de reenviar.

@@ -94,6 +94,7 @@ export function pararNoDialogoDeConfianca(s: Sessao): void {
 /** Guarda no buffer da tela (que o painel pede ao abrir) e entrega a quem está ouvindo. */
 export function guardarEEmitir(s: Sessao, texto: string): void {
   s.buffer.push(texto);
+  s.emulador?.write(texto);
   s.bufferBytes += texto.length;
   while (s.bufferBytes > BUFFER_MAX && s.buffer.length > 1) {
     s.bufferBytes -= s.buffer.shift()!.length;

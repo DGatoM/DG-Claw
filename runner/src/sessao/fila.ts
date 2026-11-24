@@ -4,7 +4,7 @@ import { type ItemDaFila, gravarFila } from "../fila-ocioso.js";
 import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
 import { caixaVaziaNaTela } from "./telas.js";
-import { AVISO_DE_FILA_APOS_MS, JANELA_DE_PRONTIDAO_MS, PRONTO_APOS_SPAWN_MS, QUIETO_ANTES_DE_DIGITAR_MS } from "./constantes.js";
+import { AVISO_DE_FILA_APOS_MS, JANELA_DE_PRONTIDAO_MS, PRONTO_APOS_SPAWN_MS, QUIETO_ANTES_DE_DIGITAR_MS, QUIETO_PARA_LER_TELA_MS } from "./constantes.js";
 
 /** Um texto que já foi digitado no terminal e ainda não tem recibo do CLI (UserPromptSubmit no Claude,
  *  task_started no Codex). Enquanto estiver aqui o pedido NÃO está entregue: se o terminal sair antes do
@@ -24,17 +24,28 @@ export interface SemRecibo {
   /** Por que o envio parou antes de ter o recibo (preenchido pela rotina do Enter, que recebe este item
    *  explicitamente): o terminal foi trocado, a caixa mudou ou não há recibo possível. A fila retém o pedido. */
   parada?: { tipo: "terminal" | "caixa" | "sem-hooks"; motivo: string };
+  /** O valor de `entradasManuais` logo depois do último Enter que o runner escreveu para este pedido. Se o contador
+   *  for outro quando o recibo chegar, alguém escreveu no terminal depois (o dono, por exemplo): o recibo pode ser de
+   *  outro turno e não prova nada sobre este pedido. */
+  entradasNoEnter?: number;
   /** true para o comando de barra (/compact, /clear): não tem o recibo do prompt (UserPromptSubmit). Fica em
    *  `Sessao.barraPendente`, no disco, até o recibo próprio (PreCompact) ou até ser retido como incerto. */
   barra?: boolean;
 }
 
-const MOTIVOS_DE_TELA_BLOQUEADA = ["runner:dialogo-auto-mode", "runner:tela-de-confianca"];
+/** `runner:recusa-de-entrada`: o agente deixou de poder conversar (login, chave, restrição) enquanto o pedido esperava a vez;
+ *  nada foi digitado, o pedido volta para a frente da fila e a fila olha de novo sozinha. */
+export const MOTIVO_RECUSA_DE_ENTRADA = "runner:recusa-de-entrada";
+const MOTIVOS_DE_TELA_BLOQUEADA = ["runner:dialogo-auto-mode", "runner:tela-de-confianca", MOTIVO_RECUSA_DE_ENTRADA];
+
+/** O que aconteceu com o texto: entrou na fila (e no arquivo), era um /compact repetido, ou NÃO foi gravado no arquivo
+ *  da fila e por isso foi tirado da fila em memória (quem pediu precisa saber, para reenviar). */
+export type ResultadoDoEnfileirar = "enfileirado" | "deduplicado" | "nao-gravado";
 
 /** Guarda um texto para digitar assim que o agente ficar ocioso. É como uma
  *  rotina agendada (ou o cliente, numa sessão que estava dormindo) fala com ele
  *  sem atropelar o turno em andamento. A fila é FIFO: nenhum texto apaga outro. */
-export function enfileirarQuandoOcioso(s: Sessao, texto: string, esperouNoPainel = false): boolean {
+export function enfileirarQuandoOcioso(s: Sessao, texto: string, esperouNoPainel = false): ResultadoDoEnfileirar {
   s.marcarAtividade();
   // Um /compact atrás de outro /compact só empilha recusas ("Not enough messages to compact."): se já há um na fila,
   // um sendo digitado, ou o PTY de agora está compactando, o segundo não entra. Devolve false nesse caso, para a rota
@@ -48,7 +59,7 @@ export function enfileirarQuandoOcioso(s: Sessao, texto: string, esperouNoPainel
       (s.compactando !== null && s.compactando === s.proc))
   ) {
     log.info(s.a("entrada"), "já havia um /compact na fila, sendo digitado ou em andamento; não enfileirei outro");
-    return false;
+    return "deduplicado";
   }
   // Entrou com o agente ocupado, com outra na frente ou com um item sendo digitado: vai ser lida depois de falas
   // dele que quem escreveu ainda não viu (ver avisoDeAtraso).
@@ -61,14 +72,25 @@ export function enfileirarQuandoOcioso(s: Sessao, texto: string, esperouNoPainel
     s.semRecibo.length > 0 ||
     s.barraPendente !== null ||
     s.digitacaoSuspensaEm !== null;
-  s.filaQuandoIdle.push({ texto, em: Date.now(), id: randomUUID().slice(0, 8), ...(esperou ? { esperou: true } : {}) });
-  espelharFila(s);
+  const novo: ItemDaFila = { texto, em: Date.now(), id: randomUUID().slice(0, 8), ...(esperou ? { esperou: true } : {}) };
+  s.filaQuandoIdle.push(novo);
+  if (!espelharFila(s)) {
+    // Só em memória o pedido se perderia num reinício, e quem pediu receberia um "aceito". Sai da fila e é recusado.
+    const i = s.filaQuandoIdle.indexOf(novo);
+    if (i >= 0) s.filaQuandoIdle.splice(i, 1);
+    log.erro(
+      s.a("entrada"),
+      `não enfileirei o pedido ${novo.id} (${texto.length} caracteres) porque não consegui gravar o arquivo da fila ${s.arquivoDaFila}; ele foi tirado da fila em memória`,
+      "conferir espaço em disco e permissões da pasta de estado do runner e reenviar o pedido depois",
+    );
+    return "nao-gravado";
+  }
   log.info(
     s.a("entrada"),
     `${texto.length} caracteres enfileirados para quando ficar ocioso (fila: ${s.filaQuandoIdle.length})`,
   );
   talvezSoltarFila(s);
-  return true;
+  return "enfileirado";
 }
 
 function duasCasas(n: number): string {
@@ -124,7 +146,13 @@ export function talvezSoltarFila(s: Sessao): void {
   // por cima. A suspensão só acaba quando, num idle, a tela mostra a caixa de composição vazia. Um recibo (hook)
   // sozinho não basta: ele pode ser de outro turno e a caixa continuar com texto.
   if (s.digitacaoSuspensaEm !== null) {
-    if (!caixaVaziaNaTela(s.telaInteira())) {
+    // A escrita no emulador é assíncrona: só se confia na leitura com o terminal quieto por um instante.
+    const quieto = s.ultimaSaidaEm ? Date.now() - s.ultimaSaidaEm : Infinity;
+    if (quieto < QUIETO_PARA_LER_TELA_MS) {
+      agendarReintento(s);
+      return;
+    }
+    if (!caixaVaziaNaTela(s.telaAtual())) {
       if (!s.suspensaoLogada) {
         s.suspensaoLogada = true;
         log.aviso(
@@ -258,7 +286,7 @@ export function talvezSoltarFila(s: Sessao): void {
 }
 
 /** Um único timer de nova tentativa; `cancelarReintentoDaFila` o desarma ao parar a sessão. */
-function agendarReintento(s: Sessao): void {
+export function agendarReintento(s: Sessao): void {
   if (s.reintentoDaFila) return;
   s.reintentoDaFila = setTimeout(() => {
     s.reintentoDaFila = null;
@@ -273,6 +301,7 @@ export function cancelarReintentoDaFila(s: Sessao): void {
   // A vigia do Enter sem recibo também morre quando a sessão para.
   if (s.vigiaDoRecibo) clearTimeout(s.vigiaDoRecibo);
   s.vigiaDoRecibo = null;
+  s.vigiaDoEnvio = null;
   s.bloqueioDaFilaLogado = false;
 }
 
@@ -378,6 +407,15 @@ export function suspenderPorRascunho(s: Sessao): void {
   );
 }
 
+/** O envio parou com a caixa do terminal possivelmente suja (texto parcial ou inteiro, ou um rascunho de outra pessoa):
+ *  não se escreve mais nada. Pela fila, `parada` do item faz a fila suspender a digitação e reter o pedido; numa chamada
+ *  direta (sem item) não há fila para isso, então a suspensão é feita aqui. Devolve false, para quem chamou devolver. */
+export function pararComCaixaSuja(s: Sessao, envio: SemRecibo | null, motivo: string): false {
+  if (envio) envio.parada = { tipo: "caixa", motivo };
+  else suspenderPorRascunho(s);
+  return false;
+}
+
 /** O CLI aceitou um prompt (`promptsAceitos` subiu). Só tira o pendente da frente se o Enter dele já foi escrito
  *  e o contador passou do valor de antes desse Enter; um recibo que chega antes é de outro turno (o dono, por
  *  exemplo) e não prova nada. Confirmar o recibo NÃO solta a fila: o próximo texto só sai no próximo idle, depois
@@ -392,6 +430,14 @@ export function confirmarRecibos(s: Sessao): void {
     return;
   }
   if (s.promptsAceitos <= e.promptsAntes) return;
+  if (e.entradasNoEnter !== undefined && s.entradasManuais !== e.entradasNoEnter) {
+    // Houve outra escrita no terminal depois do nosso último Enter (o dono apagou o texto e mandou outra mensagem, por
+    // exemplo): o recibo pode ser dela, e confirmar apagaria do disco um pedido que o agente talvez nunca tenha aceitado.
+    suspenderPorRascunho(s);
+    reter(s, e.item, "chegou um recibo, mas houve outra escrita no terminal depois do Enter deste pedido, então o recibo pode ser de outra mensagem");
+    talvezSoltarFila(s);
+    return;
+  }
   s.semRecibo = s.semRecibo.slice(1);
   if (s.itemEmVoo === e.item) s.itemEmVoo = null;
   if (e.aguardando) {

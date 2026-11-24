@@ -243,3 +243,13 @@ export function gravarTranscriptDoClaude(sessionId: string): string {
   fs.writeFileSync(arquivo, JSON.stringify({ type: "user", message: { role: "user", content: "oi" } }) + "\n");
   return arquivo;
 }
+
+/** Escreve na tela como se o CLI tivesse desenhado e espera o emulador de terminal processar (a escrita nele é assíncrona).
+ *  Só depois disso `s.telaAtual()` mostra o que foi escrito. */
+export async function alimentarTela(
+  s: { guardarEEmitir(t: string): void; emulador: { write(d: string, cb: () => void): void } | null },
+  texto: string,
+): Promise<void> {
+  s.guardarEEmitir(texto);
+  await new Promise<void>((resolve) => (s.emulador ? s.emulador.write("", resolve) : resolve()));
+}

@@ -113,6 +113,20 @@ function sincronizarPasta(pasta: string): void {
   }
 }
 
+/** O arquivo já está no lugar (o rename deu certo): uma falha só no fsync da pasta NÃO desfaz isso. Dizer "não gravado" faria
+ *  quem chamou reenviar o pedido, e ele entraria duas vezes. O risco que sobra é só o de uma queda de energia agora. */
+function sincronizarPastaDepoisDeGravar(pasta: string, caminho: string, area: string): void {
+  try {
+    sincronizarPasta(pasta);
+  } catch (err) {
+    log.aviso(
+      area,
+      `gravei a fila de textos pendentes em ${caminho}, mas a sincronização da pasta falhou (${err instanceof Error ? err.message : err}); ` +
+        `o arquivo está no lugar e o pedido vale como gravado, o risco é só de uma queda de energia nos próximos instantes perdê-lo`,
+    );
+  }
+}
+
 /**
  * Grava a fila de forma atômica (arquivo .tmp na mesma pasta, fsync do temporário, rename e fsync da pasta). Fila
  * vazia apaga o arquivo. Nunca lança: se falhar, loga e a fila continua valendo em memória. Devolve true só depois
@@ -123,7 +137,7 @@ export function gravarFila(caminho: string, itens: ItemDaFila[], area: string): 
     const pasta = path.dirname(caminho);
     if (itens.length === 0) {
       fs.rmSync(caminho, { force: true });
-      if (fs.existsSync(pasta)) sincronizarPasta(pasta);
+      if (fs.existsSync(pasta)) sincronizarPastaDepoisDeGravar(pasta, caminho, area);
       return true;
     }
     fs.mkdirSync(pasta, { recursive: true, mode: 0o700 });
@@ -141,7 +155,7 @@ export function gravarFila(caminho: string, itens: ItemDaFila[], area: string): 
       fs.rmSync(tmp, { force: true });
       throw e;
     }
-    sincronizarPasta(pasta);
+    sincronizarPastaDepoisDeGravar(pasta, caminho, area);
     return true;
   } catch (err) {
     log.erro(

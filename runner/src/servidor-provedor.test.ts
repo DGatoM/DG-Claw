@@ -608,3 +608,25 @@ test("GET /api/provedor?fresco=1: refaz a conferência sem o cache e diz `fresco
   assert.equal(fresco.corpo.conferido.ok, true);
   assert.equal("fresco" in (await req("GET", "/api/provedor?fresco=0")).corpo, false);
 });
+
+test("POST /input com injectWhenIdle: se o arquivo da fila não pode ser gravado, responde 507 FILA_NAO_GRAVADA e o pedido NÃO fica na fila", async () => {
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  const certo = principal.arquivoDaFila;
+  const bloqueio = path.join(amb.raiz, "arquivo-no-lugar-da-pasta");
+  fs.writeFileSync(bloqueio, "x"); // um arquivo no lugar da pasta: a gravação falha (ENOTDIR), até como root
+  (principal as unknown as { arquivoDaFila: string }).arquivoDaFila = path.join(bloqueio, "fila.json");
+  try {
+    const r = await req("POST", `/api/agents/${ID}/input`, { text: "pedido-que-nao-grava", injectWhenIdle: true });
+    assert.equal(r.status, 507);
+    assert.equal(r.corpo.code, "FILA_NAO_GRAVADA");
+    assert.match(r.corpo.error, /NÃO foi enfileirado/);
+    assert.match(r.corpo.howToFix, /espaço em disco e as permissões/);
+    assert.equal(principal.filaQuandoIdle.length, 0, "nada na fila em memória");
+  } finally {
+    (principal as unknown as { arquivoDaFila: string }).arquivoDaFila = certo;
+  }
+  const ok = await req("POST", `/api/agents/${ID}/input`, { text: "pedido-que-grava", injectWhenIdle: true });
+  assert.equal(ok.status, 202);
+});

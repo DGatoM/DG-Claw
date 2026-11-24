@@ -39,6 +39,9 @@ export const RESUME_MORREU_CEDO_MS = 15_000;
 export const PRONTO_APOS_SPAWN_MS = 5_000;
 export const QUIETO_ANTES_DE_DIGITAR_MS = 1_200;
 export const JANELA_DE_PRONTIDAO_MS = 30_000;
+/** A escrita no emulador de tela é assíncrona: para levantar a suspensão por rascunho o terminal precisa estar quieto
+ *  por este tempo, senão a leitura pegaria uma tela de alguns milissegundos atrás. */
+export const QUIETO_PARA_LER_TELA_MS = 500;
 /** A máscara de segredo retém o final do que pode ser começo de segredo. Passado este silêncio
  *  ela é descarregada, senão o fim da linha ficaria preso na tela. */
 export const SILENCIO_DA_MASCARA_MS = 50;

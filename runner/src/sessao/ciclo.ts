@@ -7,6 +7,7 @@ import { MascaraDeFluxo } from "../mascara.js";
 import { type CtxMotor, ErroDeMotor, redigirArgs } from "../provedores/motor.js";
 import { motorDe } from "../provedores/motores.js";
 import { conferirContaComRestricoes } from "../restricoes-conta.js";
+import xtermHeadless from "@xterm/headless";
 import { montarCtx } from "./configuracao.js";
 import { RESUME_MORREU_CEDO_MS } from "./constantes.js";
 import { inspecionarRolloutPorId } from "../provedores/codex-rollout.js";
@@ -310,6 +311,8 @@ async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPe
   return modo;
 }
 
+const { Terminal } = xtermHeadless;
+
 export async function spawn(s: Sessao, ctx: CtxMotor, args: string[], rolloutDaRetomada: string | null = null): Promise<void> {
   const cwd = ctx.cwd;
   const binario = s.motor.binario;
@@ -342,6 +345,9 @@ export async function spawn(s: Sessao, ctx: CtxMotor, args: string[], rolloutDaR
   log.info(s.a("pty"), `PTY de pé, pid ${esteProc.pid}`);
   s.buffer = [];
   s.bufferBytes = 0;
+  // Um emulador por spawn, do mesmo tamanho do PTY: a tela do terminal novo começa limpa, e o anterior é descartado.
+  s.emulador?.dispose();
+  s.emulador = new Terminal({ cols: 120, rows: 40, scrollback: 200, allowProposedApi: true });
   s.caudaDaTela = "";
   s.spawnEm = Date.now();
   // Hooks vivos é uma prova DESTE terminal: o do spawn anterior não vale para o novo (semHooksDeVerdade e o
