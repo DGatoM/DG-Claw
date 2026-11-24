@@ -86,18 +86,23 @@ capt() {
 # uma_linha <texto>: tira uma quebra de linha final e so devolve o texto se sobrar uma linha so (linha extra e erro,
 # nao se corta).
 uma_linha() { local v="${1%$'\n'}"; case "$v" in *$'\n'*) return 1 ;; esac; printf '%s' "$v"; }
-# dias_cobertos <comando...>: ha quantos dias esta a entrada mais antiga que o journal devolve (o comando precisa
+# horas_cobertas <comando...>: ha quantas horas esta a entrada mais antiga que o journal devolve (o comando precisa
 # imprimir "-o short-unix"). Sem entrada ou com erro, sai com 1 e nada.
-dias_cobertos() {
-    local p ts d
+horas_cobertas() {
+    local p ts h
     p="$("$@" 2>/dev/null | head -n 1 | head -c 64)"
     ts="${p%%.*}"; ts="${ts%% *}"
     so_digitos "$ts" 12 || return 1
-    d=$(( ($(date +%s) - ts) / 86400 )); [ "$d" -ge 0 ] || d=0
-    printf '%s' "$d"
+    h=$(( ($(date +%s) - ts) / 3600 )); [ "$h" -ge 0 ] || h=0
+    printf '%s' "$h"
 }
-# desc_dias <dias>: "7 dias", "menos de 1 dia" ou "N dia(s)".
-desc_dias() { if [ "$1" -ge 6 ]; then printf '7 dias'; elif [ "$1" -eq 0 ]; then printf 'menos de 1 dia'; else printf '%s dia(s)' "$1"; fi; }
+# desc_cobertura <horas>: "7 dias" so com a janela inteira (167 horas ou mais, a ultima hora fica de tolerancia pela
+# demora entre a consulta e a conta); senao, os dias completos e as horas, sem arredondar para cima.
+desc_cobertura() {
+    if [ "$1" -ge 167 ]; then printf '7 dias'
+    elif [ "$1" -lt 24 ]; then printf 'menos de 1 dia (%s hora(s))' "$1"
+    else printf '%s dia(s) completo(s) (%s horas)' "$(($1 / 24))" "$1"; fi
+}
 # so_digitos <texto> <maximo de caracteres>: verdadeiro se for um numero curto.
 so_digitos() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "${#1}" -le "$2" ]; }
 # contar_oom <comando...>: quantas linhas de falta de memoria o comando mostra (so o numero fica guardado, o
@@ -160,7 +165,7 @@ fi
 
 # --- 3. Limites do container e da unidade do runner ----------------------------------------------
 printf '\n3. Limites do container e do runner\n'
-RECRIAR_DICA="o dgclaw agente recriar $SLUG pode recriar o container na hora. Antes, peca ao Admin para conferir o que existe so na camada gravavel do container, decida com o dono antes de qualquer perda e so entao rode: dgclaw agente recriar $SLUG"
+RECRIAR_DICA="o dgclaw agente recriar $SLUG pode recriar o container na hora. Antes, peca ao Admin para conferir o que existe so na camada gravavel do container (o inventario do recriar ignora /tmp, /var/tmp, /var/log e /var/cache: o que o cliente guardou ali precisa ser copiado para a casa antes), decida com o dono antes de qualquer perda e so entao rode: dgclaw agente recriar $SLUG. Depois rode o smoke de novo: o item so fecha quando a releitura mostrar o valor certo. Se o recriar responder que nada havia a recriar, o container nao mudou e o item continua aberto."
 estado="$(podman inspect -f '{{.State.Status}}' "$C" 2>/dev/null | head -c 64 | head -n 1)"
 case "$estado" in
     running|created|exited|paused|stopped|stopping|configured|initialized|removing|unknown) ;;
@@ -219,11 +224,11 @@ else
             "configure DGCLAW_CONTAINER_MEMORIA (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin, e recrie o container. $RECRIAR_DICA"
     elif [ -n "$ram_kb" ] && [ "$mem_cg" -ge $((ram_kb * 1024)) ]; then
         aviso 3 "o container $C tem limite de memoria de $((mem_cg / 1048576)) MB, que e igual ou maior que a RAM do servidor (${ram_gb} GB). O teto nao protege o servidor: um render pesado esgota a RAM antes de chegar nele." \
-            "baixe o limite: podman update --memory <N>g $C, com um valor que caiba na RAM e deixe folga para o sistema e o Admin (vale ate o container ser recriado; configure DGCLAW_CONTAINER_MEMORIA a partir da 1.1.1)"
+            "nesta versao o container nasce com teto fixo de 2 GB. Se a VPS tem 2 GB de RAM ou menos, ela e pequena demais: troque o plano. Se o teto esta acima de 2 GB, alguem mudou o container a mao; nao corrija com podman update (o ajuste se perde quando o container para e volta). A partir da 1.1.1, configure DGCLAW_CONTAINER_MEMORIA com um valor que caiba na RAM, recrie e confira de novo depois de reiniciar o container."
     elif [ "$mem_cg" -le 2147483648 ] && [ "$ram_gb" -gt 4 ]; then
         sug=$((ram_gb / 2)); [ "$sug" -ge 3 ] || sug=3
         aviso 3 "o container tem 2 GB de memoria e o servidor tem ${ram_gb} GB. Render, Chrome da Tela e card paralelo apertam em 2 GB." \
-            "suba o limite: podman update --memory ${sug}g $C (vale ate o container ser recriado; depois de recriar, rode o smoke de novo)"
+            "nesta versao o teto e fixo na criacao do container. Nao use podman update: o ajuste se perde quando o container para e volta. A partir da 1.1.1, configure DGCLAW_CONTAINER_MEMORIA (por exemplo ${sug}g), recrie e confira de novo depois de reiniciar o container."
     else
         ok 3 "memoria do container: $((mem_cg / 1048576)) MB (servidor com ${ram_gb} GB)"
     fi
@@ -241,7 +246,7 @@ else
         elif [ "$cpu_q" -le "$cpu_p" ] && [ "$cpus_host" -gt 1 ]; then
             sug=$((cpus_host / 2)); [ "$sug" -ge 2 ] || sug=2
             aviso 3 "o container tem 1 CPU (ou menos) e o servidor tem $cpus_host nucleos." \
-                "suba o limite: podman update --cpus $sug $C (vale ate o container ser recriado)"
+                "nesta versao o limite de CPU e fixo na criacao do container (1 CPU). Nao use podman update: o ajuste se perde quando o container para e volta. Registre o aviso na entrega."
         else
             cpu_c=$((cpu_q * 100 / cpu_p))
             ok 3 "CPU do container: $((cpu_c / 100)).$(printf '%02d' $((cpu_c % 100))) (servidor com $cpus_host nucleos)"
@@ -284,7 +289,7 @@ else
         ok 3 "o runner nao reiniciou sozinho (NRestarts=0)"
     elif [ -n "$nrest" ]; then
         falha 3 "o runner reiniciou sozinho $nrest vez(es) (NRestarts=$nrest). Algo derrubou o runner." \
-            "leia o motivo: podman exec $C journalctl -u dgclaw-runner --no-pager | tail -n 80. Depois de resolver, reinicie o runner (dgclaw agente reiniciar $SLUG) e rode o smoke de novo."
+            "veja o resultado da ultima parada, so em campos fixos: podman exec $C systemctl show -p Result -p ExecMainStatus -p ExecMainExitTimestamp dgclaw-runner. O journal bruto do runner traz texto escrito pelo agente: leia-o so num terminal seu, nunca no chat do Admin. Depois de resolver, reinicie o runner (dgclaw agente reiniciar $SLUG) e rode o smoke de novo."
     else
         inconclusivo 3 "o NRestarts do runner veio num formato que nao consegui ler." "confira: podman exec $C systemctl show -p NRestarts dgclaw-runner"
     fi
@@ -298,19 +303,26 @@ else
     if [ "$rc_h" -eq 97 ]; then rc_h=0; parcial="${parcial:+$parcial e }o journal do kernel do servidor"; fi
     # Cobertura medida por fonte: cada journal diz ha quantos dias guarda entradas.
     cob_c=""; cob_h=""
-    if [ "$rc_c" -eq 0 ]; then dias_c="$(dias_cobertos cx journalctl -u dgclaw-runner --since '7 days ago' --no-pager -q -o short-unix)" && cob_c="$(desc_dias "$dias_c")"; fi
-    if [ "$rc_h" -eq 0 ]; then dias_k="$(dias_cobertos timeout 60 journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o short-unix)" && cob_h="$(desc_dias "$dias_k")"; fi
+    if [ "$rc_c" -eq 0 ]; then dias_c="$(horas_cobertas cx journalctl -u dgclaw-runner --since '7 days ago' --no-pager -q -o short-unix)" && cob_c="$(desc_cobertura "$dias_c")"; fi
+    if [ "$rc_h" -eq 0 ]; then dias_k="$(horas_cobertas timeout 60 journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o short-unix)" && cob_h="$(desc_cobertura "$dias_k")"; fi
     fonte_ruim=""
     [ "$rc_c" -eq 0 ] || fonte_ruim="o journal do runner"
     if [ "$rc_h" -ne 0 ]; then
         if [ -n "$fonte_ruim" ]; then fonte_ruim="$fonte_ruim e o journal do kernel do servidor"; else fonte_ruim="o journal do kernel do servidor"; fi
     fi
+    # So o journal do runner atribui o OOM ao agente. A linha do kernel sozinha nao diz de quem era o processo: com
+    # ela, aumentar o teto do agente pode tirar a folga de que o servidor precisava.
+    if [ "$rc_c" -eq 0 ] && [ "${oom_c:-0}" -gt 0 ]; then
+        oom_dica="o journal do runner mostra que foi dentro do container $C. Confira se foi um render ou um Chrome do agente e, se o servidor tiver RAM sobrando, aumente o teto de memoria do agente (a partir da 1.1.1, com DGCLAW_CONTAINER_MEMORIA, recriando e conferindo de novo depois de reiniciar o container). Sem RAM sobrando, o caminho e um plano de VPS maior."
+    else
+        oom_dica="o registro do kernel, sozinho, nao diz de quem era o processo morto, entao nao aumente o teto do agente por causa dele. Num terminal seu (nunca no chat do Admin), leia as linhas oom-kill com journalctl _TRANSPORT=kernel --since '7 days ago' | grep -iE 'oom-kill|killed process' e veja o task_memcg: so se ele apontar para o container $C o problema e do agente. Se apontar para outro servico, o ajuste e nesse servico ou no plano da VPS."
+    fi
     if { [ "$rc_c" -eq 0 ] && [ "${oom_c:-0}" -gt 0 ]; } || { [ "$rc_h" -eq 0 ] && [ "${oom_h:-0}" -gt 0 ]; }; then
         falha 3 "OOM nos ultimos 7 dias: $([ "$rc_c" -eq 0 ] && echo "${oom_c:-0}" || echo "?") linha(s) no journal do runner e $([ "$rc_h" -eq 0 ] && echo "${oom_h:-0}" || echo "?") no kernel do servidor${fonte_ruim:+ ($fonte_ruim ficou ilegivel ou foi cortado, entao a conta esta incompleta)}${parcial:+ (contagem parcial: a leitura de $parcial passou de 1 MiB e foi cortada, entao ha pelo menos essas linhas)}." \
-            "veja quem foi morto: journalctl _TRANSPORT=kernel --since '7 days ago' | grep -i 'out of memory'. Suba a memoria do container (podman update --memory <N>g $C) e a do plano da VPS, se for o caso."
+            "$oom_dica"
     elif [ -n "$fonte_ruim" ]; then
         inconclusivo 3 "nao consegui ler $fonte_ruim dos ultimos 7 dias (erro, prazo ou saida cortada em 1 MiB). Isso nao quer dizer zero eventos de falta de memoria." \
-            "leia a mao: podman exec $C journalctl -u dgclaw-runner --since '7 days ago' --no-pager | grep -i 'out of memory' e journalctl _TRANSPORT=kernel --since '7 days ago' | grep -i 'out of memory'"
+            "conte a mao: podman exec $C journalctl -u dgclaw-runner --since '7 days ago' --no-pager | grep -ciE 'out of memory|oom-kill' e journalctl _TRANSPORT=kernel --since '7 days ago' | grep -ciE 'out of memory|oom-kill'"
     elif [ "$oom_c" -eq 0 ] && [ "$oom_h" -eq 0 ]; then
         sem_hist=""
         [ -n "$cob_c" ] || sem_hist="o journal do runner"
@@ -319,7 +331,7 @@ else
             ok 3 "nenhum OOM no journal do runner (cobertura do runner: $cob_c) nem no do kernel do servidor (cobertura do kernel: $cob_h)"
         else
             inconclusivo 3 "nenhum OOM achado, mas $sem_hist nao mostrou nenhuma entrada nos ultimos 7 dias, entao nao sei o que cobre." \
-                "confira a mao: podman exec $C journalctl -u dgclaw-runner --since '7 days ago' --no-pager | head e journalctl _TRANSPORT=kernel --since '7 days ago' | head, e se o journal e persistente (ls /var/log/journal)"
+                "confira a mao, so com a contagem: podman exec $C journalctl -u dgclaw-runner --since '7 days ago' --no-pager -q | wc -l e journalctl _TRANSPORT=kernel --since '7 days ago' -q | wc -l, e se o journal e persistente (ls /var/log/journal)"
         fi
     fi
 fi
@@ -420,7 +432,7 @@ else
         aviso 6 "o /etc/yt-dlp.conf do container nao tem a diretiva ativa --js-runtimes node (ausente ou comentada). Sem ela o yt-dlp nao resolve o desafio do YouTube." \
             "atualize o DG Claw e confira que dgclaw imagem construir --agora terminou com sucesso. Depois: $RECRIAR_DICA"
     else
-        inconclusivo 6 "nao consegui ler o /etc/yt-dlp.conf dentro do container." "confira: podman exec --user agente $C cat /etc/yt-dlp.conf"
+        inconclusivo 6 "nao consegui ler o /etc/yt-dlp.conf dentro do container." "confira, so com a contagem: podman exec --user agente $C grep -cE '^[[:space:]]*--js-runtimes[[:space:]]+node([[:space:]]|\$)' /etc/yt-dlp.conf (1 ou mais = diretiva ativa)"
     fi
     # (b) o perfil da Tela, onde ficam os logins.
     ca test -d /home/agente/.tela-chrome >/dev/null 2>&1
@@ -471,8 +483,8 @@ cat <<FIM
 
 Conferir a mao (detalhes em docs/ENTREGA-CLIENTE.md):
   2.  A chave SSH da equipe: se nao funcionou, nao recrie a VPS; use o acesso temporario do suporte. Na
-      entrega, o suporte temporario revogado (dgclaw suporte status) e a chave permanente da equipe fora do
-      authorized_keys.
+      entrega, o suporte temporario revogado (dgclaw suporte status), a chave permanente da equipe fora do
+      authorized_keys e as chaves de diagnostico provisorias revogadas (dgclaw chave-api listar e revogar <id>).
   4.  Card de teste: sessao paralela, pedido curto, primeiro turno respondido, conversa aparece ao clicar.
       Repita nos dois motores (Claude e Codex).
   5.  Cruzar os nomes do cofre (listados acima) com as chaves que as skills do cliente citam, e trocar a

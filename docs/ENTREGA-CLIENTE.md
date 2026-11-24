@@ -62,6 +62,10 @@ Os números abaixo são os mesmos que o script imprime entre colchetes.
   antes era aceita, só com essa chave
   (`ssh -o IdentitiesOnly=yes -o IdentityAgent=none -i <chave da equipe> root@<servidor>`): ela precisa
   ser recusada.
+- **Chaves de diagnóstico remoto:** desligar o SSH não revoga uma chave `diagnostico` emitida durante a
+  instalação, e ela continua consultando serviços, agentes e canais. Rode `sudo dgclaw chave-api listar` e,
+  para cada chave provisória da equipe que o cliente não autorizou manter, `sudo dgclaw chave-api revogar <id>`.
+  Confira na listagem que ela aparece como revogada.
 
 ### 3. Limites do container e do runner (automático)
 
@@ -70,20 +74,36 @@ O script confere, para `dgclaw-<agente>`:
 | Item | Como confere | Esperado |
 | --- | --- | --- |
 | Processos | `pids.max` do cgroup do container, lido no servidor (`podman inspect -f '{{.State.CgroupPath}}'`, caminho validado, arquivo em `/sys/fs/cgroup<caminho>`), e `PidsLimit` do `podman inspect` | 4096 ou mais. Menos que isso, ou `max` (sem limite), é `FALHA`. Caminho ou arquivo ilegível é `INCONCLUSIVO` |
-| Memória | `memory.max` do mesmo cgroup e `MemTotal` do servidor | `max` (sem limite) é `FALHA`: configure `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin. Valor numérico igual ou maior que o `MemTotal` do servidor é `AVISO`: o teto não protege o servidor. Com 2 GB e a VPS com mais RAM, `AVISO` com o comando `podman update --memory <N>g` |
-| CPU | `cpu.max` do mesmo cgroup (quota dividida pelo período; `max` é sem limite) e `nproc` | Mais de 1 quando a VPS tem mais núcleos. Senão, `AVISO` com `podman update --cpus <N>`. Arquivo ilegível é `INCONCLUSIVO` |
+| Memória | `memory.max` do mesmo cgroup e `MemTotal` do servidor | `max` (sem limite) é `FALHA`: configure `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin. Valor numérico igual ou maior que o `MemTotal` do servidor é `AVISO`: o teto não protege o servidor. Com 2 GB e a VPS com mais RAM, `AVISO`: nesta versão o teto é fixo na criação, e a partir da 1.1.1 ele se ajusta com `DGCLAW_CONTAINER_MEMORIA` |
+| CPU | `cpu.max` do mesmo cgroup (quota dividida pelo período; `max` é sem limite) e `nproc` | Mais de 1 quando a VPS tem mais núcleos. Senão, `AVISO` (nesta versão o limite de CPU é fixo na criação). Arquivo ilegível é `INCONCLUSIVO` |
 | `TasksMax` do runner | `systemctl show -p TasksMax` dentro do container | 2400 ou mais. Menos que isso é `FALHA` |
 | `OOMPolicy` do runner | `systemctl show -p OOMPolicy` dentro do container, validado contra a lista `continue`, `stop`, `kill` | `continue` (a partir da 1.1.1; antes disso sai `AVISO`). Valor fora da lista é `AVISO`, sem repetir o que veio |
 | Reinícios do runner | `NRestarts` da unidade `dgclaw-runner` | 0. Mais que isso é `FALHA` |
 | Falta de memória (OOM) | `journalctl` do runner e `journalctl _TRANSPORT=kernel --since "7 days ago"` (o `-k` olharia só o boot atual), últimos 7 dias | Nenhuma linha de "out of memory" ou "oom-kill". Qualquer uma é `FALHA`. Se o `journalctl` der erro ou a saída passar de 1 MiB sem nenhuma ocorrência no trecho lido, é `INCONCLUSIVO`, que é diferente de "zero eventos". Se já achou OOM antes do corte de 1 MiB, é `FALHA`, com a nota de que a contagem é parcial Se uma fonte mostra OOM e a outra ficou ilegível, é `FALHA`, e a mensagem diz qual fonte falhou. Se o journal do kernel guarda menos de 7 dias, o relatório diz a cobertura real |
 
-Atenção: `podman update` vale até o container ser recriado (`dgclaw agente recriar`). Se a VPS é grande,
-suba o limite, confira com o smoke e avise o time para repetir isso depois de qualquer recriação.
+Atenção: não ajuste memória, CPU ou processos com `podman update`. No Podman 4.9 o ajuste se perde quando o
+container para e volta, e o smoke aprovaria um valor que o próximo reinício desfaz. Nesta versão os limites
+são fixos na criação do container; a partir da 1.1.1 a memória se ajusta com `DGCLAW_CONTAINER_MEMORIA`,
+seguida de `recriar`. Depois de qualquer ajuste, reinicie o container e rode o smoke de novo: o item só fecha
+quando o cgroup relido mostrar o valor certo.
+
+**OOM só no kernel.** A linha de falta de memória do kernel, sozinha, não diz de quem era o processo. Antes de
+mexer em qualquer limite, leia as linhas `oom-kill` num terminal seu (nunca no chat do Admin) e veja o
+`task_memcg`. Só aumente o teto do agente se o processo morto era do container dele; se era de outro serviço,
+aumentar o teto do agente tira ainda mais folga do servidor.
 
 **Recriar o agente sem perder nada.** O `dgclaw agente recriar <agente>` pode recriar o container na hora,
 então ele não é uma simples listagem. Antes dele, peça ao Admin para conferir o que existe só na camada
 gravável do container. Decida com o dono antes de qualquer perda e só então rode o `recriar`, sempre **sem** `--forcar`: sem a opção, se houver
-algo só dentro do container (pacotes instalados à mão, arquivos fora da casa), ele para e não recria.
+pacotes instalados à mão ou arquivos fora da casa, ele para e não recria. Esse inventário não cobre tudo: ele
+ignora `/tmp`, `/var/tmp`, `/var/log`, `/var/cache` e outras pastas de sistema. Se o cliente guarda algo
+nelas (um registro de auditoria em `/var/log`, por exemplo), copie para a casa do agente antes, porque o
+`recriar` apaga essas pastas sem perguntar.
+
+O `recriar` também pode terminar sem recriar nada: com a imagem atual, ele responde que não havia o que
+recriar e sai com sucesso. Por isso a correção só vale depois da releitura: rode o smoke de novo e confira que
+o valor apontado (por exemplo `pids.max`) mudou. Se não mudou, o item continua aberto; não entregue e chame a
+equipe técnica.
 Quando a correção pedir imagem nova, rode `dgclaw imagem construir --agora` e confira que terminou com
 sucesso antes de recriar.
 
@@ -110,10 +130,13 @@ sucesso antes de recriar.
   nome de cada chave ativa. Ele não afirma que as chaves das skills estão lá.
 - **Skills contra o cofre (à mão):** liste os nomes com `dgclaw agente cofre <agente> listar` e confira contra
   o que as skills do cliente citam. Para ver o que uma skill cita, como o usuário `agente`:
-  `podman exec --user agente dgclaw-<agente> grep -rhoE '\b[A-Z][A-Z0-9_]*_(API_KEY|TOKEN)\b' <pasta de skills>/<skill>`,
+  `podman exec --user agente dgclaw-<agente> grep -rhoE '\b([A-Z][A-Z0-9_]*_(API_KEY|API_TOKEN|TOKEN|SECRET|KEY|PASSWORD|WEBHOOK_URL|ID|SID|USERNAME|USER|ACCOUNT|URL|DSN|ENDPOINT|REGION|BUCKET|PROJECT|ORG|VERSION|EMAIL)|GOOGLE_APPLICATION_CREDENTIALS)\b' <pasta de skills>/<skill>`,
   com a pasta efetiva identificada no [passo 10](#10-skills-do-cliente-na-pasta-certa-à-mão)
   (`/home/agente/.claude/skills`, `/home/agente/.agents/skills` ou `/home/agente/.codex/skills`). Só marque a
   conferência se o `grep` leu a pasta com sucesso (código de saída 0 ou 1; 2 é pasta ilegível ou inexistente). Os nomes aceitam sublinhados internos (por exemplo `TELEGRAM_BOT_TOKEN`).
+  Os sufixos da busca são os que o cofre aceita (`panel/lib/cofre-regras.js`), mas ela é só apoio: o que vale
+  são os nomes que a própria skill declara (no `SKILL.md` e nos scripts dela). Leia essa lista e confira cada
+  nome, inclusive os que a busca não pegou.
 - **Esperado:** toda chave que uma skill do cliente cita (por exemplo `ELEVENLABS_API_KEY` ou
   `GEMINI_API_KEY`) está no cofre. O WhatsApp não usa chave no cofre: o pareamento é feito no painel,
   confira à mão.

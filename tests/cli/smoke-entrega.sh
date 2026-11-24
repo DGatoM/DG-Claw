@@ -68,8 +68,9 @@ echo /opt/venv/bin/yt-dlp >"$STUB_ESTADO/yt-path"; : >"$STUB_ESTADO/sem-yt-confi
 smoke ana
 igual "sai com 0 so com avisos" "0" "$?"
 afirma "avisa do 26.04" grep -q 'AVISO  \[1\] Ubuntu 26.04' "$TMP/s.txt"
-afirma "avisa da memoria com o comando" grep -q 'podman update --memory 7g dgclaw-ana' "$TMP/s.txt"
+afirma "avisa da memoria sem podman update" grep -q "DGCLAW_CONTAINER_MEMORIA (por exemplo 7g)" "$TMP/s.txt"
 afirma "avisa da CPU" grep -q 'AVISO  \[3\] o container tem 1 CPU' "$TMP/s.txt"
+nega "nenhuma dica manda podman update de memoria ou CPU" grep -qE 'podman update --(memory|cpus) [0-9<]' "$TMP/s.txt"
 afirma "avisa do OOMPolicy (a partir da 1.1.1)" grep -q 'AVISO  \[3\] OOMPolicy.*1.1.1' "$TMP/s.txt"
 afirma "avisa do yt-dlp fora do /usr/local/bin, com mensagem fixa" grep -q 'AVISO  \[6\] o yt-dlp do agente nao esta em /usr/local/bin' "$TMP/s.txt"
 nega "o caminho vindo do container nao entra no relatorio" grep -q '/opt/venv' "$TMP/s.txt"
@@ -96,6 +97,10 @@ afirma "a dica de recriar avisa que pode recriar na hora" grep -q 'pode recriar 
 nega "a dica de recriar nao a apresenta como so listar" grep -q 'ele lista e para' "$TMP/s.txt"
 afirma "FALHA sem ffmpeg no container" grep -q 'FALHA  \[8\] ffmpeg nao esta no container' "$TMP/s.txt"
 afirma "o resumo manda nao entregar" grep -q 'NAO entregue a VPS' "$TMP/s.txt"
+afirma "OOM no journal do runner: atribui ao container" grep -q 'o journal do runner mostra que foi dentro do container dgclaw-ana' "$TMP/s.txt"
+afirma "a dica de recriar exige a releitura e avisa do 'nada a recriar'" grep -q 'nada havia a recriar, o container nao mudou e o item continua aberto' "$TMP/s.txt"
+afirma "a dica de recriar cita o que o inventario ignora" grep -q 'ignora /tmp, /var/tmp, /var/log e /var/cache' "$TMP/s.txt"
+nega "a dica do NRestarts nao manda despejar o journal" grep -q 'tail -n 80' "$TMP/s.txt"
 
 echo "smoke-entrega: memoria e processos sem limite no cgroup"
 limpar_estado
@@ -135,6 +140,7 @@ limpar_estado
 : >"$STUB_ESTADO/yt-conf-erro"
 smoke ana
 afirma "erro lendo o yt-dlp.conf: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[6\] nao consegui ler o /etc/yt-dlp.conf' "$TMP/s.txt"
+nega "a dica do yt-dlp.conf nao manda imprimir o arquivo" grep -q "cat /etc/yt-dlp.conf" "$TMP/s.txt"
 
 echo "smoke-entrega: pasta privada do render e opcao --video removida"
 limpar_estado
@@ -185,13 +191,20 @@ echo "smoke-entrega: kernel em 7 dias (cobertura real do journal)"
 limpar_estado
 echo 2 >"$STUB_ESTADO/kernel-dias"
 smoke ana
-afirma "journal do kernel com 2 dias: diz a cobertura real" grep -q 'cobertura do kernel: 2 dia(s)' "$TMP/s.txt"
+afirma "journal do kernel com 2 dias: diz a cobertura real" grep -q 'cobertura do kernel: 2 dia(s) completo(s) (48 horas)' "$TMP/s.txt"
+rm -f "$STUB_ESTADO/kernel-dias"; echo 145 >"$STUB_ESTADO/kernel-horas"
+smoke ana
+afirma "journal do kernel com 6 dias e 1 hora: nao arredonda para 7" grep -q 'cobertura do kernel: 6 dia(s) completo(s) (145 horas)' "$TMP/s.txt"
+nega "6 dias e 1 hora nao vira 7 dias" grep -q 'cobertura do kernel: 7 dias' "$TMP/s.txt"
+rm -f "$STUB_ESTADO/kernel-horas"
 : >"$STUB_ESTADO/kernel-vazio"
 smoke ana
 afirma "journal do kernel sem entradas: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] nenhum OOM achado, mas o journal do kernel' "$TMP/s.txt"
 rm -f "$STUB_ESTADO/kernel-vazio"; : >"$STUB_ESTADO/oom-host"
 smoke ana
 afirma "OOM no kernel: FALHA" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias' "$TMP/s.txt"
+afirma "OOM so no kernel: diz que nao da para atribuir" grep -q 'nao diz de quem era o processo morto' "$TMP/s.txt"
+nega "OOM so no kernel: nao manda aumentar o teto do agente" grep -q 'aumente o teto de memoria do agente' "$TMP/s.txt"
 rm -f "$STUB_ESTADO/oom-host"; : >"$STUB_ESTADO/journal-host-erro"
 smoke ana
 afirma "journal do kernel com erro: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal' "$TMP/s.txt"
@@ -240,7 +253,7 @@ nega "o INCONCLUSIVO nao acusa o kernel" grep -q 'mas o journal do runner e o jo
 limpar_estado
 echo 2 >"$STUB_ESTADO/runner-dias"
 smoke ana
-afirma "runner com 2 dias: diz a cobertura de cada fonte" grep -q 'cobertura do runner: 2 dia(s)) nem no do kernel do servidor (cobertura do kernel: 9 dias\|cobertura do kernel: 7 dias' "$TMP/s.txt"
+afirma "runner com 2 dias: diz a cobertura de cada fonte" grep -q 'cobertura do runner: 2 dia(s) completo(s) (48 horas)) nem no do kernel do servidor (cobertura do kernel: 9 dias\|cobertura do kernel: 7 dias' "$TMP/s.txt"
 
 echo "smoke-entrega: OOM num journal com o outro ilegivel, saida cortada e systemctl com erro"
 limpar_estado
