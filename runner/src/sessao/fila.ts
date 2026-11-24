@@ -34,8 +34,22 @@ const MOTIVOS_DE_TELA_BLOQUEADA = ["runner:dialogo-auto-mode", "runner:tela-de-c
 /** Guarda um texto para digitar assim que o agente ficar ocioso. É como uma
  *  rotina agendada (ou o cliente, numa sessão que estava dormindo) fala com ele
  *  sem atropelar o turno em andamento. A fila é FIFO: nenhum texto apaga outro. */
-export function enfileirarQuandoOcioso(s: Sessao, texto: string, esperouNoPainel = false): void {
+export function enfileirarQuandoOcioso(s: Sessao, texto: string, esperouNoPainel = false): boolean {
   s.marcarAtividade();
+  // Um /compact atrás de outro /compact só empilha recusas ("Not enough messages to compact."): se já há um na fila,
+  // um sendo digitado, ou o PTY de agora está compactando, o segundo não entra. Devolve false nesse caso, para a rota
+  // dizer que não enfileirou.
+  // Vale também com argumentos ("/compact foque nas decisões"): o segundo cairia na mesma recusa.
+  const ehCompact = (t: string) => /^\/compact(?:\s|$)/.test(t.trim());
+  if (
+    ehCompact(texto) &&
+    (s.filaQuandoIdle.some((item) => ehCompact(item.texto)) ||
+      (s.itemEmVoo !== null && ehCompact(s.itemEmVoo.texto)) ||
+      (s.compactando !== null && s.compactando === s.proc))
+  ) {
+    log.info(s.a("entrada"), "já havia um /compact na fila, sendo digitado ou em andamento; não enfileirei outro");
+    return false;
+  }
   // Entrou com o agente ocupado, com outra na frente ou com um item sendo digitado: vai ser lida depois de falas
   // dele que quem escreveu ainda não viu (ver avisoDeAtraso).
   // Também com um pedido digitado esperando recibo, ou com a digitação suspensa por rascunho: o agente ainda vai falar antes.
@@ -54,6 +68,7 @@ export function enfileirarQuandoOcioso(s: Sessao, texto: string, esperouNoPainel
     `${texto.length} caracteres enfileirados para quando ficar ocioso (fila: ${s.filaQuandoIdle.length})`,
   );
   talvezSoltarFila(s);
+  return true;
 }
 
 function duasCasas(n: number): string {

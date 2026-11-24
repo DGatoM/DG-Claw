@@ -240,6 +240,69 @@ export function turnoEncerradoNoTranscript(
   return { encerrado: false, motivo: "nenhuma linha JSON válida no fim do transcript" };
 }
 
+/** A única saída do CLI que vale como recusa do /compact. Qualquer outro texto não conta. */
+const RX_RECUSA_DO_COMPACT = /^Not enough messages to compact\.?$/;
+
+/**
+ * O CLI recusou o último `/compact`? Quando a conversa é curta demais ("Not enough messages to compact."), o
+ * Claude Code dispara o hook PreCompact, grava uma linha `system/local_command` com `commandRun.command` "compact"
+ * e NÃO dispara SessionStart nem Stop. A recusa é a linha mais recente desse tipo, mais nova que `desdeMs` (o
+ * instante do PreCompact), cujo texto (sem as tags local-command) é exatamente a mensagem de recusa, e depois da
+ * qual só vieram metadados conhecidos (outro local_command, turn_duration, linha sem type): qualquer outra linha
+ * (conversa, ferramenta, fila, anexo, resumo, `compact_boundary`) mostra que o agente seguiu ou o compact aconteceu,
+ * e a recusa já não explica o estado.
+ * Devolve só o veredito: o texto cru do transcript nunca sai daqui, para não ir parar no log.
+ * Sem arquivo ou sem a linha, não afirma nada.
+ */
+export function compactRecusadoNoTranscript(
+  sessionId: string,
+  desdeMs: number,
+  configDir?: string | null,
+): { recusado: boolean } {
+  const arquivo = acharArquivoDaSessao(sessionId, configDir);
+  if (!arquivo) return { recusado: false };
+  let cauda: string;
+  try {
+    cauda = lerCauda(arquivo);
+  } catch (err) {
+    log.aviso("conversa", `não consegui ler o fim de ${arquivo}: ${err instanceof Error ? err.message : err}`);
+    return { recusado: false };
+  }
+  let recusado = false;
+  for (const linha of cauda.split("\n")) {
+    if (!linha.trim()) continue;
+    let o: { type?: string; subtype?: string; timestamp?: unknown; content?: unknown; commandRun?: { command?: unknown } };
+    try {
+      const lido: unknown = JSON.parse(linha);
+      if (!lido || typeof lido !== "object" || Array.isArray(lido)) continue;
+      o = lido as typeof o;
+    } catch {
+      // Linha ilegível (por exemplo, uma linha ainda sendo escrita): não dá para saber se o agente seguiu,
+      // então a recusa anterior deixa de valer e a próxima leitura decide.
+      recusado = false;
+      continue;
+    }
+    // A recusa só é aceita na linha de controle que o próprio CLI grava (system/local_command do comando compact).
+    // Uma linha de usuário pode citar o mesmo texto (inclusive com a tag local-command-stderr) e nunca conta.
+    const ehRecusaCandidata = o.type === "system" && o.subtype === "local_command" && o.commandRun?.command === "compact";
+    if (!ehRecusaCandidata) {
+      // Depois da recusa só valem metadados conhecidos (outro local_command, turn_duration, títulos, linha sem type).
+      // Qualquer outra coisa (conversa, ferramenta, fila, anexo, resumo, fronteira de compact) mostra que o agente seguiu.
+      const metadado =
+        o.type === undefined || o.type === "ai-title" || o.type === "custom-title" ||
+        (o.type === "system" && (o.subtype === "local_command" || o.subtype === "turn_duration"));
+      if (!metadado) recusado = false;
+      continue;
+    }
+    if (typeof o.timestamp !== "string") continue;
+    const quando = Date.parse(o.timestamp);
+    if (!Number.isFinite(quando) || quando < desdeMs) continue;
+    const texto = typeof o.content === "string" ? o.content.replace(/<\/?local-command-(?:stdout|stderr)>/g, "").replace(/\s+/g, " ").trim() : "";
+    recusado = RX_RECUSA_DO_COMPACT.test(texto);
+  }
+  return { recusado };
+}
+
 /** O texto que o Claude Code mostra (e devolve em `claude -p`) quando o OAuth da conta morreu. */
 export const RX_LOGIN_EXPIRADO =
   /login expired|please run \/login|oauth session expired|could not be refreshed|failed to authenticate|invalid api key/i;
