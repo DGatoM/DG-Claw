@@ -213,6 +213,9 @@ else
     elif [ "$mem_cg" = max ]; then
         falha 3 "o container $C esta sem limite de memoria (memory.max=max, o servidor tem ${ram_gb} GB). Um render pesado pode derrubar o servidor inteiro." \
             "configure DGCLAW_CONTAINER_MEMORIA (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin, e recrie o container. $RECRIAR_DICA"
+    elif ! so_digitos "$ram_kb" 12 || [ "$ram_kb" -le 0 ]; then
+        inconclusivo 3 "o container $C tem limite de memoria de $((mem_cg / 1048576)) MB, mas nao consegui ler a RAM do servidor (MemTotal em /proc/meminfo), entao nao sei se sobra memoria para o sistema e o Admin." \
+            "confira a mao a linha MemTotal de /proc/meminfo e rode o smoke de novo. Nao recrie o container por causa disso."
     elif [ -n "$ram_kb" ] && [ "$mem_cg" -ge $((ram_kb * 1024)) ]; then
         aviso 3 "o container $C tem limite de memoria de $((mem_cg / 1048576)) MB, que e igual ou maior que a RAM do servidor (${ram_gb} GB). O teto nao protege o servidor: um render pesado esgota a RAM antes de chegar nele." \
             "nesta versao o container nasce com teto fixo de 2 GB. Se a VPS tem 2 GB de RAM ou menos, ela e pequena demais: troque o plano. Se o teto esta acima de 2 GB, alguem mudou o container a mao; nao corrija com podman update (o ajuste se perde quando o container para e volta). A partir da 1.1.1, configure DGCLAW_CONTAINER_MEMORIA com um valor que caiba na RAM, recrie e confira de novo depois de reiniciar o container."
@@ -361,6 +364,11 @@ else
 fi
 
 # Cofre: so os NOMES das chaves ativas. Cruzar com o que as skills do cliente citam e passo a mao (item 5 do guia).
+# A CLI do cofre rele o web.env inteiro: com o arquivo acima de 1 MiB ela nem e chamada.
+if [ "$env_rc" -eq 0 ] && [ "$env_tam" -gt 1048576 ]; then
+    inconclusivo 5 "nao consultei o cofre do agente $SLUG: a CLI do cofre le o web.env inteiro, e ele passa de 1 MiB." \
+        "reduza o web.env ao tamanho normal (sem apagar as linhas de configuracao) e rode o smoke de novo"
+else
 cofre_saida="$("$CLI" agente cofre "$SLUG" listar --json 2>/dev/null | head -c 1048577; printf 'rc=%s' "${PIPESTATUS[0]}")"
 cofre_rc="${cofre_saida##*rc=}"; cofre_json="${cofre_saida%rc=*}"
 if ! so_digitos "$cofre_rc" 3 || [ "$cofre_rc" -ne 0 ] || [ "${#cofre_json}" -gt 1048576 ] || [ -z "${cofre_json//[[:space:]]/}" ]; then
@@ -376,6 +384,7 @@ else
         if [ "${#nome}" -le 64 ] && [[ "$nome" =~ ^[A-Z][A-Z0-9_]*$ ]]; then printf '           %s\n' "$nome"
         else printf '           (nome fora do formato)\n'; fi
     done <<<"$NOMES"
+fi
 fi
 
 # --- O que nao da para automatizar -----------------------------------------------------------------

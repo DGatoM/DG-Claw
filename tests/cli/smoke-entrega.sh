@@ -403,11 +403,18 @@ nega "4 GB num servidor de 16 GB: sem AVISO de memoria" grep -q 'AVISO  \[3\] .*
 cgroup 2147483648 8192
 smoke ana
 nega "2 GB num servidor de 16 GB: aviso sem OK de memoria junto" grep -q 'OK     \[3\] memoria' "$TMP/s.txt"
+printf 'lixo\n' >"$DGCLAW_RAIZ/proc/meminfo"
+smoke ana
+afirma "MemTotal ilegivel: INCONCLUSIVO com o limite do container" grep -q 'INCONCLUSIVO \[3\] o container dgclaw-ana tem limite de memoria de 2048 MB, mas nao consegui ler a RAM' "$TMP/s.txt"
+nega "MemTotal ilegivel: sem OK de memoria" grep -q 'OK     \[3\] memoria' "$TMP/s.txt"
+printf 'MemTotal:       16384000 kB\n' >"$DGCLAW_RAIZ/proc/meminfo"
 limpar_estado
 { head -c 1100000 /dev/zero | tr '\0' 'a'; printf '\nGROQ_API_KEY=\n'; } >"$ETC/web.env"
 smoke ana
 afirma "web.env acima de 1 MiB: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[5\] o web.env passa de 1 MiB' "$TMP/s.txt"
 nega "web.env cortado nao vira OK nem FALHA de microfone" grep -qE '(OK     |FALHA  )\[5\] (o servico Web|o web.env nao tem)' "$TMP/s.txt"
+nega "web.env acima de 1 MiB: nao chama a CLI do cofre" grep -q 'agente cofre' "$STUB_LOG"
+afirma "web.env acima de 1 MiB: cofre INCONCLUSIVO sem consultar" grep -q 'INCONCLUSIVO \[5\] nao consultei o cofre do agente ana' "$TMP/s.txt"
 
 limpar_estado
 rm -f "$ETC/web.env"; mkdir "$ETC/web.env"
