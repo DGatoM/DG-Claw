@@ -285,6 +285,28 @@ subir stop-failure
 ok "statusReason hook:StopFailure sai com 12" $([ $c = 12 ] && echo 0 || echo 1)
 grep -q "StopFailure rate_limit" "$T/e"; ok "o 12 do StopFailure traz o motivo" $?
 
+# --- erro de turno com o pedido ainda pendente pode ser de outra mensagem: 11, nao 12 -------------------------
+for modo in erro-com-pendencia erro-motivo-com-pendencia; do
+  subir "$modo"
+  "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
+  ok "$modo sai com 11, nao com 12" $([ $c = 11 ] && echo 0 || echo 1)
+  grep -q "vi um erro de turno" "$T/e" && grep -q "pode ser de outra mensagem" "$T/e" && ! grep -q "aceitou o pedido, mas o turno falhou" "$T/e"; ok "$modo: a mensagem cita o erro e diz que pode ser de outra mensagem" $?
+done
+subir erro-com-pendencia
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >/dev/null 2>"$T/e"
+grep -q "falha na mensagem do painel" "$T/e"; ok "o 11 com pendencia traz o texto do erro" $?
+subir erro-motivo-com-pendencia
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >/dev/null 2>"$T/e"
+grep -q "StopFailure rate_limit" "$T/e"; ok "o 11 com pendencia traz o statusReason" $?
+
+# --- Claude sem hook: estado e ler nao afirmam que o card nao trabalha ---------------------------------------
+subir sem-hook
+"$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 1 >/dev/null 2>&1
+"$BIN" estado card-abc123 >"$T/o" 2>"$T/e"
+! grep -q "NAO esta trabalhando\|o pedido nao virou turno" "$T/o" && grep -q "nao da para confirmar" "$T/o" && grep -q "nenhum hook do Claude" "$T/o"; ok "estado de Claude sem hook diz que nao da para confirmar" $?
+"$BIN" ler card-abc123 >"$T/o" 2>"$T/e"
+! grep -q "NAO esta trabalhando\|ainda nao virou turno" "$T/o" && grep -q "nao da para confirmar" "$T/o" && grep -q "nenhum hook do Claude" "$T/o"; ok "ler de Claude sem hook diz que nao da para confirmar" $?
+
 # --- turno com texto ainda na fila nao confirma o pedido (mensagem do painel digitada direto no terminal) -----
 subir turno-com-fila
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?

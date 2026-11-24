@@ -1,7 +1,7 @@
 // Runner falso para o teste do dgclaw-card. Grava cada requisicao em $LOG (uma linha JSON com
 // metodo, url, corpo e o cabecalho Authorization) e simula o ciclo de um card:
 // criado dormindo -> /input -> working -> idle com resposta do assistente.
-// Chaves de ambiente: RUNNER_BEARER (token esperado), MODO (normal|limite|sem-login|input-falha|nunca-termina|sem-turno|turno-lento|leitura-403|leitura-503|sem-contador|restaurado|lento-leitura|erro-turno|erro-campo|input-recusado|input-perdido|input-sem-capacidade|input-nao-acordou|working-sem-turno|stop-failure|ferramenta-com-erro-no-nome|sem-login-delete-falha|fila-parada|sem-hook|turno-com-fila|sem-processo|sem-campo-fila|item-em-voo|sem-turno-sem-total).
+// Chaves de ambiente: RUNNER_BEARER (token esperado), MODO (normal|limite|sem-login|input-falha|nunca-termina|sem-turno|turno-lento|leitura-403|leitura-503|sem-contador|restaurado|lento-leitura|erro-turno|erro-campo|input-recusado|input-perdido|input-sem-capacidade|input-nao-acordou|working-sem-turno|stop-failure|ferramenta-com-erro-no-nome|sem-login-delete-falha|fila-parada|sem-hook|turno-com-fila|sem-processo|sem-campo-fila|item-em-voo|sem-turno-sem-total|erro-com-pendencia|erro-motivo-com-pendencia).
 const http = require("http");
 const fs = require("fs");
 const LOG = process.env.LOG;
@@ -87,6 +87,10 @@ http.createServer((req, res) => {
         if (MODO === "recibo-pendente") { c.msgs.push({ role: "user", text: JSON.parse(corpo).text }); c.status = "working"; c.turnos = 1; c.fila = 0; c.recibo = true; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
         // sem-campo-recibo: turno aceito, tudo certo, mas a resposta nao traz reciboPendente (runner antigo).
         if (MODO === "sem-campo-recibo") { c.msgs.push({ role: "user", text: JSON.parse(corpo).text }); c.status = "working"; c.turnos = 1; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
+        // erro-com-pendencia: erro de turno visto (de outra mensagem), mas o pedido segue na fila (turnos 1, naFilaTotal 1).
+        if (MODO === "erro-com-pendencia") { c.msgs.push({ role: "user", text: JSON.parse(corpo).text }); c.status = "errored"; c.turnos = 1; c.fila = 1; c.erro = "falha na mensagem do painel"; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
+        // erro-motivo-com-pendencia: o mesmo, mas a falha so aparece no statusReason (StopFailure).
+        if (MODO === "erro-motivo-com-pendencia") { c.msgs.push({ role: "user", text: JSON.parse(corpo).text }); c.status = "working"; c.turnos = 1; c.fila = 1; c.motivo = "hook:StopFailure rate_limit"; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
         // sem-turno-sem-total: sem turno (contador 0, idle) e a resposta nao traz naFilaTotal.
         if (MODO === "sem-turno-sem-total") return j(202, { success: true, data: { enfileirado: true, acordando: true } });
         // sem-turno: 202 enfileirado, mas o CLI nunca aceita o pedido (nada na conversa, status parado, turnos 0).

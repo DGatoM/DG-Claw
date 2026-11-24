@@ -313,10 +313,10 @@ cmd_abrir() {
 # o card aceitou o pedido. Card em erro: 12 (o pedido foi aceito, mas o turno falhou).
 # Cada consulta e cada pausa ficam limitadas ao tempo que resta do prazo (minimo 1 s para a consulta).
 esperar_primeiro_turno() { # $1 id ; $2 segundos
-  local inicio=$SECONDS passo="${DGCLAW_CARD_INTERVALO:-5}" turnos status falha="" resta erro_turno razao fila="" fila_presa=0 ultimo_status="" recibo="" recibo_preso=0
+  local inicio=$SECONDS passo="${DGCLAW_CARD_INTERVALO:-5}" turnos status falha="" resta erro_turno razao fila="" fila_presa=0 ultimo_status="" recibo="" recibo_preso=0 erro_visto=""
   [ "$passo" = 5 ] && passo=1
   while :; do
-    falha=""; fila_presa=0; recibo_preso=0
+    falha=""; fila_presa=0; recibo_preso=0; erro_visto=""
     resta=$(( $2 - (SECONDS - inicio) )); [ "$resta" -ge 1 ] || resta=1
     if ! CARD_MAX_TEMPO="$resta" chamar GET "/api/agents/$1"; then
       falha="o runner nao respondeu a consulta do estado (erro de rede ou tempo esgotado)"
@@ -345,12 +345,18 @@ esperar_primeiro_turno() { # $1 id ; $2 segundos
       # o nome de uma ferramenta (ex.: "hook:PreToolUse mcp__logs__error_report"), que nao e falha. Nenhuma delas conta como sucesso, mesmo que haja turno ou o status seja working.
       erro_turno="$(campo .data.error)"; razao="$(campo .data.statusReason)"
       if [ "$status" = errored ] || [ -n "$erro_turno" ] || printf '%s' "${razao%% *}" | grep -qiE 'falh|erro|error|sem-login|sem-chave|login-expirado|identidade-grande|StopFailure'; then
-        avisar_monitor
         erro_turno="${erro_turno:-${razao:-sem detalhe}}"
-        if [ "$turnos" != 0 ]; then
+        # Com o pedido ainda pendente (fila, item em voo ou recibo do Enter), o erro pode ser de OUTRA mensagem
+        # (ex.: uma enviada pelo painel): nao sai com 12, segue esperando e deixa o prazo decidir.
+        if [ "$turnos" != 0 ] && { [ "$fila" != 0 ] || [ "$recibo" = true ]; }; then
+          erro_visto="$erro_turno"
+        elif [ "$turnos" != 0 ]; then
+          avisar_monitor
           CODIGO=12 die "o card $1 aceitou o pedido, mas o turno falhou e o card esta com erro: $erro_turno. Veja o que ele chegou a fazer com 'dgclaw-card ler $1' e conte ao dono o que aconteceu. Nao diga ao dono que o trabalho esta indo bem."
+        else
+          avisar_monitor
+          CODIGO=6 die "o card $1 foi criado, mas esta com erro antes de o pedido virar turno: $erro_turno. Veja 'dgclaw-card estado $1'. Nao diga ao dono que ele esta trabalhando."
         fi
-        CODIGO=6 die "o card $1 foi criado, mas esta com erro antes de o pedido virar turno: $erro_turno. Veja 'dgclaw-card estado $1'. Nao diga ao dono que ele esta trabalhando."
       fi
       # So o contador confirma o turno: working sozinho pode ser outra coisa (ex.: compactacao, hook:PreCompact).
       # Um turno so confirma o pedido se o texto dele ja saiu da fila: o painel pode digitar uma mensagem direto no
@@ -364,6 +370,9 @@ esperar_primeiro_turno() { # $1 id ; $2 segundos
     fi
     if [ $((SECONDS - inicio)) -ge "$2" ]; then
       [ -z "$falha" ] || sem_confirmacao "$1" "$falha"
+      if [ -n "$erro_visto" ]; then
+        sem_confirmacao "$1" "vi um erro de turno ($erro_visto), mas ele pode ser de outra mensagem, porque o pedido ainda esta pendente (na fila, sendo digitado ou esperando o recibo do Enter)"
+      fi
       [ "$fila_presa" = 0 ] || sem_confirmacao "$1" "o card teve um turno, mas ainda ha texto pendente (na fila ou sendo digitado); o pedido pode nao ter sido digitado ainda"
       [ "$recibo_preso" = 0 ] || sem_confirmacao "$1" "o card teve um turno, mas o runner ainda espera o recibo do Enter de um texto digitado (o pedido pode estar na caixa de texto)"
       # Resumable (tem conversa guardada, mas sem processo vivo): o contador da conversa pode ter zerado: dizer que o pedido nao virou turno seria um palpite.
@@ -445,11 +454,11 @@ provedor_do() {
 
 cmd_estado() {
   validar_id "${1:-}"
-  local id="$1" status titulo fila reason prov auth modelo turnos semturno=""
+  local id="$1" status titulo fila reason prov auth modelo turnos hook semturno=""
   chamar_ou_sair GET "/api/agents/$id"
   turnos="$(campo .data.turnosAceitosSessao)"
   status="$(campo .data.status)"; titulo="$(campo .data.sessao.titulo)"; fila="$(campo .data.sessao.fila)"
-  reason="$(campo .data.error)"
+  reason="$(campo .data.error)"; hook="$(campo .data.hookActive)"
   # Zero turnos desde que o runner subiu (ou desde a ultima troca de conversa) NAO quer dizer sem primeiro turno:
   # se a conversa atual ja tem resposta do assistente, o card trabalhou (ex.: runner reiniciado).
   if [ "$turnos" = 0 ]; then
@@ -459,7 +468,9 @@ cmd_estado() {
   fi
   chamar_ou_sair GET "/api/provedor?sessao=$id"
   prov="$(campo .provedor)"; auth="$(campo .auth)"; modelo="$(campo .modelo)"
-  if [ -n "$semturno" ] && [ "$status" = working ]; then
+  if [ -n "$semturno" ] && [ "$prov" = claude ] && [ "$hook" != true ]; then
+    status="${status:-desconhecido} (sem primeiro turno ainda; ainda nao da para confirmar se o pedido foi aceito: o runner nao recebeu nenhum hook do Claude neste card, entao o contador de turnos nao enxerga o aceite; confira a conversa daqui a pouco)"
+  elif [ -n "$semturno" ] && [ "$status" = working ]; then
     status="working (terminal ativo, por exemplo compactando; o pedido ainda nao virou turno)"
   elif [ -n "$semturno" ]; then
     status="${status:-desconhecido} (sem primeiro turno ainda: o pedido nao virou turno)"
@@ -531,15 +542,18 @@ cmd_ler() {
 
 # Diz por que a conversa do card esta vazia, pelo estado dele, em vez de so "sem mensagens".
 explicar_conversa_vazia() { # $1 id
-  local id="$1" status fila turnos
+  local id="$1" status fila turnos hook prov=""
   if chamar GET "/api/agents/$id" && [[ "$HTTP" == 2* ]]; then
-    status="$(campo .data.status)"; fila="$(campo .data.sessao.fila)"; fila="${fila:-0}"; turnos="$(campo .data.turnosAceitosSessao)"
+    status="$(campo .data.status)"; fila="$(campo .data.sessao.fila)"; fila="${fila:-0}"; turnos="$(campo .data.turnosAceitosSessao)"; hook="$(campo .data.hookActive)"
+    [ "$turnos" != 0 ] || prov="$(provedor_do "$id")"
     if [ "$fila" != 0 ] && { [ "$status" = stopped ] || [ "$status" = resumable ]; }; then
       echo "O card $id ainda nao tem mensagens: ha um pedido guardado na fila ($fila), mas a sessao esta sem terminal aberto. Retomar no painel (aba Sessoes) processa o pedido, sem reenviar o texto."
     elif [ "$fila" != 0 ]; then
       echo "O card $id ainda nao tem mensagens: o pedido esta na fila ($fila) e ainda nao virou turno. Espere com: dgclaw-card esperar $id"
     elif [ "$status" = resumable ]; then
       echo "O card $id ainda nao tem mensagens: a sessao esta dormindo (sem terminal aberto). Ela acorda quando voce manda um recado: dgclaw-card mandar $id \"...\""
+    elif [ "$turnos" = 0 ] && [ "$prov" = claude ] && [ "$hook" != true ]; then
+      echo "O card $id ainda nao tem mensagens e ainda nao da para confirmar se o pedido foi aceito: o runner nao recebeu nenhum hook do Claude neste card, entao o contador de turnos nao enxerga o aceite. Confira a conversa de novo daqui a pouco com 'dgclaw-card ler $id' e nao reenvie por conta propria."
     elif [ "$status" = working ] && [ "$turnos" = 0 ]; then
       echo "O card $id esta com o terminal ativo (por exemplo, compactando a conversa), mas o pedido ainda nao virou turno. Espere com 'dgclaw-card esperar $id' e nao reenvie por conta propria."
     elif [ "$status" = working ]; then
