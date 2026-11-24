@@ -43,6 +43,7 @@ Pedido longo vai por arquivo ou pipe, sem se preocupar com aspas:
 ```bash
 cod=0; saida="$(dgclaw-card abrir --provedor codex --titulo "Revisão do contrato" --pedido-arquivo /tmp/pedido.md)" || cod=$?
 id="$(printf '%s\n' "$saida" | head -1)"
+# Se o abrir for interrompido no meio da espera, o card pode já existir: confira com dgclaw-card listar antes de abrir outro.
 if [ "$cod" != 0 ]; then
   # Não siga para o esperar nem avise o dono de que o card trabalha. Confira o estado e nunca repita o pedido.
   echo "o abrir saiu com $cod: leia a mensagem de erro"; [ -z "$id" ] || dgclaw-card estado "$id"
@@ -83,6 +84,7 @@ ligue o modo monitor no mesmo comando que abre o card, com `--monitor` e o crit�
 cod=0; saida="$(dgclaw-card abrir --provedor codex --titulo "Relatório de vendas" --pedido-arquivo /tmp/pedido.md \
   --monitor --entregue "o arquivo /home/agente/relatorio.md existe e tem as três seções")" || cod=$?
 id="$(printf '%s\n' "$saida" | head -1)"
+# Se o abrir for interrompido no meio da espera, o card pode já existir: confira com dgclaw-card listar antes de abrir outro.
 if [ "$cod" != 0 ]; then
   # Só consulte e avise: nada de mandar, esperar ou fechar neste ramo, e não repita o pedido.
   echo "o abrir saiu com $cod: não anuncie o acompanhamento"; [ -z "$id" ] || dgclaw-card estado "$id"

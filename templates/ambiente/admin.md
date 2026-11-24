@@ -116,6 +116,7 @@ aba Sessões do painel. Os comandos `dgclaw-card` e `dgclaw-monitor` já falam c
 ```bash
 cod=0; saida="$(dgclaw-card abrir --provedor claude --titulo "Atualização do servidor" --pedido-arquivo /tmp/pedido.md --monitor --entregue "atualização feita e dgclaw status sem falhas")" || cod=$?
 id="$(printf '%s\n' "$saida" | head -1)"
+# Se o abrir for interrompido no meio da espera, o card pode já existir: confira com dgclaw-card listar antes de abrir outro.
 if [ "$cod" != 0 ]; then
   # Só consulte e avise. Não use mandar, esperar nem fechar neste ramo, e não repita o pedido.
   echo "abrir saiu com $cod: não anuncie"; [ -z "$id" ] || dgclaw-card estado "$id"

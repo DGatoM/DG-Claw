@@ -166,6 +166,7 @@ ou para tarefa em paralelo. Para o que você resolve em um minuto, não abra.
 ```bash
 cod=0; saida="$(dgclaw-card abrir --provedor claude --titulo "Revisão do contrato" --pedido-arquivo /tmp/pedido.md --monitor --entregue "contrato revisado e resumo das mudanças entregue")" || cod=$?
 id="$(printf '%s\n' "$saida" | head -1)"
+# Se o abrir for interrompido no meio da espera, o card pode já existir: confira com dgclaw-card listar antes de abrir outro.
 if [ "$cod" != 0 ]; then
   # Só consulte e avise. Não use mandar, esperar nem fechar neste ramo, e não repita o pedido.
   echo "abrir saiu com $cod: não anuncie"; [ -z "$id" ] || dgclaw-card estado "$id"
