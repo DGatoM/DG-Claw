@@ -69,6 +69,16 @@ nega "sim sem a pasta config falha" test "$?" = 0
 nega "nao recriou a pasta config" test -e "$CFG"
 mv "$CFG.fora" "$CFG"
 
+echo "youtube: com a trava do YouTube presa (restauracao em andamento), sim nao grava"
+TRAVA_YT="$DGCLAW_RAIZ/run/dgclaw-youtube.lock"; mkdir -p "$(dirname "$TRAVA_YT")"
+( flock 9; exec sleep 40 ) 9>"$TRAVA_YT" &
+PRESO=$!; sleep 1
+dgclaw agente youtube ana conta-dedicada sim >"$TMP/o.txt" 2>&1
+nega "sim com a trava presa falha" test "$?" = 0
+nega "e nao gravou o marcador" test -e "$M"
+afirma "e diz que ha restauracao em andamento" grep -q "restauracao de backup" "$TMP/o.txt"
+kill "$PRESO" 2>/dev/null; wait "$PRESO" 2>/dev/null
+
 echo "youtube: nome ou assunto invalido"
 nega "nome inexistente recusado" dgclaw agente youtube fulano conta-dedicada sim
 nega "nome invalido recusado" dgclaw agente youtube A conta-dedicada sim

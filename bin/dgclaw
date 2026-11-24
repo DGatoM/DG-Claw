@@ -2284,12 +2284,21 @@ agente_youtube() {
         info "[ensaio] conta-dedicada $valor: $( [ "$valor" = sim ] && echo "gravaria" || echo "removeria" ) $marcador"
         return 0
     fi
+    # Sob a trava do YouTube: nao liga nem desliga enquanto uma restauracao de backup estiver repondo perfis da Tela.
+    com_trava_youtube 30 _agente_youtube_gravar "$slug" "$valor" || exit $?
+}
+
+# _agente_youtube_gravar <slug> sim|nao: grava ou remove o marcador. Chamado sob com_trava_youtube.
+_agente_youtube_gravar() {
+    local slug="$1" valor="$2" casa marcador ub tmp
+    casa="$DG_CASAS/$slug"
+    marcador="$casa/config/youtube-conta-dedicada"
+    [ -n "$(agentes_obter "$slug")" ] || falha "o agente '$slug' nao esta no agentes.json." "veja os que existem com: dgclaw agente listar"
     [ -d "$casa/config" ] || falha "a pasta de configuracao do agente $slug ($casa/config) nao existe." \
         "rode: dgclaw agente reparar $slug"
-    local ub; ub="$(stat -c '%u:%g' "$casa/config")"
+    ub="$(stat -c '%u:%g' "$casa/config")"
     if [ "$valor" = sim ]; then
         # Sem mkdir -p: se a casa sumiu no meio (agente removido), a gravacao falha em vez de recriar a pasta.
-        local tmp
         tmp="$(mktemp "$casa/config/.youtube-conta-dedicada.XXXXXX")" \
             || falha "nao consegui gravar o marcador em $casa/config." "confira com: dgclaw agente listar"
         if ! { printf 'sim\n' >"$tmp" && chmod 644 "$tmp" && dono "$ub" "$tmp" && mv -f -T "$tmp" "$marcador"; }; then

@@ -261,6 +261,21 @@ com_trava() {
     ) 9>"$DG_TRAVA"
 }
 
+# com_trava_youtube <espera_s> <comando...>
+# Serializa a restauracao de backup com `dgclaw agente youtube ... conta-dedicada`: a conta dedicada nao pode ser
+# ligada enquanto um perfil da Tela esta voltando de um backup. A trava fica em /run, fora de tudo o que a
+# restauracao extrai.
+com_trava_youtube() {
+    local espera="$1" trava="${R:-}/run/dgclaw-youtube.lock"; shift
+    if [ "$ENSAIO" = 1 ]; then "$@"; return; fi
+    mkdir -p "$(dirname "$trava")"
+    (
+        flock -w "$espera" 9 || falha "uma restauracao de backup (ou outra mudanca na conta dedicada do YouTube) esta em andamento." \
+            "espere ela terminar e rode de novo. Se nada estiver rodando, confira com: fuser $trava"
+        "$@"
+    ) 9>"$trava"
+}
+
 # --- trava da faixa de rede ---------------------------------------------------------------
 # A faixa dos agentes (DGCLAW_FAIXA_REDE) e lida por `agente criar` ao montar a rede do agente e e
 # trocada pelo instalador. Sem uma trava compartilhada, um agente que nasce na faixa antiga enquanto o

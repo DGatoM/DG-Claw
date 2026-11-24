@@ -116,7 +116,8 @@ TMPX="$TMP/extrai-yt"; mkdir -p "$TMPX/var/lib/dgclaw/agentes/ana/config"; print
 tar -czf "$TMP/yt.tar.gz" -C "$TMPX" var; mkdir -p "$TMP/destino-yt"
 ( R="$TMP/destino-yt"; _C_ER=; _C_0=; falha() { echo "falha: $1"; exit 1; }; . "$REPO/lib/backup.sh"; _restaurar_extrair "$TMP/yt.tar.gz" teste agora )
 nega "a extracao nao repoe o marcador que veio no backup" test -e "$TMP/destino-yt/var/lib/dgclaw/agentes/ana/config/youtube-conta-dedicada"
-afirma "a conta dedicada cai ANTES da primeira extracao (restauracao interrompida nao deixa o marcador)" bash -c "awk '/^restaurar_main\(\)/{f=1} f&&/_restaurar_desligar_youtube/&&!d{d=NR} f&&/_restaurar_extrair \"/&&!e{e=NR} END{exit !(d&&e&&d<e)}' '$REPO/lib/backup.sh'"
+afirma "a extracao da restauracao roda sob a trava do YouTube" grep -q 'com_trava_youtube 600 _restaurar_extrair_tudo' "$REPO/lib/backup.sh"
+afirma "a conta dedicada cai ANTES da primeira extracao (restauracao interrompida nao deixa o marcador)" bash -c "awk '/^_restaurar_extrair_tudo\(\)/{f=1} f&&/_restaurar_desligar_youtube/&&!d{d=NR} f&&/_restaurar_extrair \"/&&!e{e=NR} END{exit !(d&&e&&d<e)}' '$REPO/lib/backup.sh'"
 afirma "fez o backup antes-de-restaurar" grep -rqx 'motivo=antes-de-restaurar' "$BACKUPS"
 ANTES="$(grep -rlx 'motivo=antes-de-restaurar' "$BACKUPS" | head -n 1)"
 afirma "esse backup guardou o web.env de antes de restaurar (com a linha nova)" bash -c "tar -xzOf '$(dirname "$ANTES")/config.tar.gz' etc/dgclaw/web.env | grep -qx 'LINHA_NOVA=1'"
