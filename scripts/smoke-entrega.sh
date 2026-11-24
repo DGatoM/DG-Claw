@@ -242,15 +242,16 @@ else
     parcial=0
     if [ "$rc_k" -eq 97 ]; then rc_k=0; parcial=1; fi
     # Cobertura so vale com o journalctl terminando em 0 e a leitura inteira (sem corte).
-    cob=""
+    cob=""; horas=0
     if [ "$rc_k" -eq 0 ] && [ "$parcial" -eq 0 ] && so_digitos "$oom_ts" 12; then
         horas=$(( ($(date +%s) - oom_ts) / 3600 )); [ "$horas" -ge 0 ] || horas=0
         cob="$(desc_cobertura "$horas")"
     fi
     # A linha do kernel sozinha nao diz que o agente estourou o proprio teto: so a leitura humana das linhas oom-kill
     # (oom_memcg e task_memcg) diz. Por isso a dica nunca manda aumentar a memoria direto.
-    oom_dica="a contagem sozinha nao diz de quem era o processo nem qual limite estourou, entao nao aumente o teto do agente por causa dela. Num terminal seu (nunca no chat do Admin), leia as linhas oom-kill com journalctl _TRANSPORT=kernel --since '7 days ago' | grep -iE 'oom-kill|killed process' e veja a data, o oom_memcg (o cgroup cujo limite estourou) e o task_memcg (quem foi morto). So com o oom_memcg igual ao cgroup do container $C o agente estourou o proprio teto. Com o oom_memcg de um ancestral, de outro servico ou com OOM do servidor inteiro (CONSTRAINT_NONE), o ajuste e nesse limite ou no plano da VPS. Nunca aumente o teto do agente direto."
-    oom_leitura="num terminal seu, leia a janela toda e veja o codigo de saida do journalctl: journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q | grep -ciE 'oom-kill|killed process'; echo \"journalctl saiu com \${PIPESTATUS[0]}\". A contagem so vale com o journalctl saindo com 0, e este item continua INCONCLUSIVO ate essa leitura ser feita. Veja tambem se o journal e persistente (ls /var/log/journal) e rode o smoke de novo."
+    oom_dica="a contagem sozinha nao diz de quem era o processo nem qual limite estourou, entao nao aumente o teto do agente por causa dela. Num terminal seu (nunca no chat do Admin), leia as linhas oom-kill com journalctl _TRANSPORT=kernel --since '7 days ago' | grep -iE 'out of memory|oom-kill|oom_kill|killed process' e veja a data, o oom_memcg (o cgroup cujo limite estourou) e o task_memcg (quem foi morto). So com o oom_memcg igual ao cgroup do container $C o agente estourou o proprio teto. Com o oom_memcg de um ancestral, de outro servico ou com OOM do servidor inteiro (CONSTRAINT_NONE), o ajuste e nesse limite ou no plano da VPS. Nunca aumente o teto do agente direto."
+    oom_cmd="journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q | grep -ciE 'out of memory|oom-kill|oom_kill|killed process'; echo \"journalctl=\${PIPESTATUS[0]} grep=\${PIPESTATUS[1]}\""
+    oom_leitura="num terminal seu, leia a janela toda: $oom_cmd. A contagem so vale com journalctl=0 e grep=0 ou 1 (grep=2 e erro), e este item continua INCONCLUSIVO ate essa leitura ser feita. Veja tambem se o journal e persistente (ls /var/log/journal) e rode o smoke de novo."
     if [ "$rc_k" -ne 0 ]; then
         inconclusivo 3 "nao consegui ler o journal do kernel do servidor dos ultimos 7 dias (erro, prazo ou saida cortada em 1 MiB). Isso nao quer dizer zero eventos de falta de memoria." \
             "$oom_leitura"
@@ -259,8 +260,11 @@ else
         [ "$parcial" -eq 0 ] || nota_parcial=" (contagem parcial: a leitura do journal do kernel do servidor passou de 1 MiB e foi cortada, entao ha pelo menos essas linhas)"
         falha 3 "OOM nos ultimos 7 dias: $oom_n linha(s) no journal do kernel do servidor${nota_parcial}." \
             "$oom_dica"
-    elif [ -n "$cob" ]; then
+    elif [ -n "$cob" ] && [ "$horas" -ge 167 ]; then
         ok 3 "nenhum OOM no journal do kernel do servidor (cobertura do kernel: $cob)"
+    elif [ -n "$cob" ]; then
+        inconclusivo 3 "nenhum OOM achado, mas o journal do kernel do servidor so cobre $cob, e nao os 7 dias inteiros (journal volatil, reinicio ou VPS criada ha menos de 7 dias)." \
+            "se a VPS foi criada ha menos de 7 dias, isso e esperado: registre a cobertura na entrega. Senao, confira se o journal e persistente (ls /var/log/journal) e leia a janela a mao: $oom_cmd. A contagem so vale com journalctl=0 e grep=0 ou 1 (grep=2 e erro)."
     else
         inconclusivo 3 "nenhum OOM achado, mas o journal do kernel do servidor nao mostrou nenhuma entrada nos ultimos 7 dias, entao nao sei o que cobre." \
             "$oom_leitura"

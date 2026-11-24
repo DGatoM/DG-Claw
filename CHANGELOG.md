@@ -9,16 +9,15 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 - **Novo: checklist de entrega de cliente e smoke test da VPS.** O `docs/ENTREGA-CLIENTE.md` reúne, para a equipe
   que entrega uma VPS pronta, os doze passos a conferir antes de passar o servidor ao cliente (versão do Ubuntu,
-  limites do container e do runner, cofre, YouTube, Chrome headless, ffmpeg, login pelo celular e outros),
+  limites do container, cofre, YouTube, Chrome headless, ffmpeg, login pelo celular e outros),
   cada um com o comando e o resultado esperado. O `scripts/smoke-entrega.sh <agente>` roda no servidor, como root, e
   automatiza a versão do Ubuntu, os limites e o estado do container, o microfone, os nomes do cofre e o `ffmpeg`
-  do servidor. De dentro do container ele só lê o `systemctl show` e o journal do runner, reduzidos a números
-  validados; render, `yt-dlp` e varredura de skills, que rodam programas ou leem arquivos do agente, ficam à mão. Ele
+  do servidor. Ele não executa nada dentro do container: `TasksMax`, `OOMPolicy` e `NRestarts` do runner, o
+  journal do runner, o render, o `yt-dlp` e a varredura de skills ficam à mão. Ele
   imprime OK, AVISO, FALHA ou INCONCLUSIVO com a causa e o que fazer. Os limites de
   processos, memória e CPU saem do cgroup do container, a falta de memória é procurada no journal do kernel dos
-  últimos 7 dias (com a cobertura real dita no relatório) e o microfone só passa se a última atribuição de
-  `ELEVENLABS_API_KEY`, `GROQ_API_KEY` ou `OPENAI_API_KEY` do `web.env` tiver valor. O relatório não repete nenhum texto vindo de dentro do container, e toda leitura de lá
-  tem limite de bytes. Ele nunca mostra o valor das chaves do cofre, só os nomes. O que não dá para automatizar
+  últimos 7 dias (só passa com cobertura de 7 dias; com menos, fica inconclusivo e diz o período examinado) e o microfone só passa se a última atribuição de
+  `ELEVENLABS_API_KEY`, `GROQ_API_KEY` ou `OPENAI_API_KEY` do `web.env` tiver valor. O relatório não repete nenhum texto vindo de dentro do container. Ele nunca mostra o valor das chaves do cofre, só os nomes. O que não dá para automatizar
   (cruzar as skills com o cofre, o `yt-dlp`, a Tela e o login do YouTube, o render do Chrome, o `ffmpeg` do
   container, a troca de senha pelo cliente) fica à mão, com os comandos no guia. Não muda o comportamento de
   quem já usa o DG Claw.

@@ -57,7 +57,7 @@ Os números abaixo são os mesmos que o script imprime entre colchetes.
 - **Se a chave permanente da equipe não funcionar:** não recrie a VPS. Entre pelo acesso temporário do
   suporte (`dgclaw suporte ligar`, veja o [projeto de cliente](PROJETO-DE-CLIENTE.md#2-o-fluxo-passo-a-passo)).
 - **Na entrega, confira as duas saídas:** (1) o suporte temporário foi revogado: `sudo dgclaw suporte status`,
-  rodado pelo console da VPS depois de encerrada a última sessão SSH de root (veja o fim deste item), diz
+  rodado numa sessão SSH do usuário nominal do cliente depois de encerrada a última sessão SSH de root (veja o fim deste item), diz
   "suporte: desligado"; (2) a chave permanente da equipe **não** autoriza mais o root. Confira a
   configuração efetiva do `sshd` para o root e para a origem de suporte, com
   `sudo sshd -T -C user=root,host=<host>,addr=<ip de suporte> | grep -iE 'authorizedkeys|permitrootlogin'`,
@@ -74,11 +74,12 @@ Os números abaixo são os mesmos que o script imprime entre colchetes.
   as duas primeiras opções equivalem a `-S none` e impedem que a conexão reaproveite um transporte multiplexado
   já aberto): ela precisa ser recusada. Uma recusa nova não derruba uma sessão já aberta, então, por último, pela conexão do cliente,
   encerre as outras sessões SSH de root com `sudo dgclaw suporte desligar --derrubar-sessoes` (encerra todas,
-  menos a de quem roda). Enquanto a conexão SSH de root do cliente estiver aberta, o `sudo dgclaw suporte status`
-  não confirma o desligamento. Por isso, para fechar: o cliente confirma que tem um segundo meio de administração
-  (o console da VPS no painel do provedor, por exemplo o terminal do navegador da Hostinger), encerra a última
-  sessão SSH de root (a dele) e faz a conferência final com `sudo dgclaw suporte status` pelo console da VPS, onde
-  precisa aparecer "suporte: desligado".
+  menos a de quem roda). Enquanto houver uma sessão SSH de root aberta, o `sudo dgclaw suporte status`
+  não confirma o desligamento (ele conta as sessões SSH do usuário root; o terminal de navegador da Hostinger usa
+  SSH por baixo e, entrando como root, também abre uma sessão de root). Por isso, para fechar: o cliente confirma
+  que tem acesso administrativo próprio com um usuário nominal (não root) com `sudo`, numa conexão SSH nova com
+  esse usuário; encerra a última sessão SSH de root; e faz a conferência final com `sudo dgclaw suporte status`
+  nessa sessão do usuário nominal, onde precisa aparecer "suporte: desligado".
 - **Chaves de diagnóstico remoto:** desligar o SSH não revoga uma chave `diagnostico` emitida durante a
   instalação, e ela continua consultando serviços, agentes e canais. Rode `sudo dgclaw chave-api listar` e,
   para cada chave provisória da equipe que o cliente não autorizou manter, `sudo dgclaw chave-api revogar <id>`.
@@ -94,7 +95,7 @@ O script confere, para `dgclaw-<agente>`:
 | Processos | `pids.max` do cgroup do container, lido no servidor (`podman inspect -f '{{.State.CgroupPath}}'`, caminho validado, arquivo em `/sys/fs/cgroup<caminho>`), e `PidsLimit` do `podman inspect` | 4096 ou mais. Menos que isso, ou `max` (sem limite), é `FALHA`. Caminho ou arquivo ilegível é `INCONCLUSIVO` |
 | Memória | `memory.max` do mesmo cgroup e `MemTotal` do servidor | `max` (sem limite) é `FALHA`: configure `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin. Valor abaixo de 2 GB (o teto que o DG Claw aplica na criação) é `AVISO`: se ninguém configurou `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) de propósito, recrie o container. Valor numérico igual ou maior que o `MemTotal` do servidor é `AVISO`: o teto não protege o servidor. Com exatamente 2 GB e a VPS com mais de 4 GB de RAM, `AVISO`: nesta versão o teto é fixo na criação, e a partir da 1.1.1 ele se ajusta com `DGCLAW_CONTAINER_MEMORIA`. Toda mensagem mostra o valor lido em MB |
 | CPU | `cpu.max` do mesmo cgroup (quota dividida pelo período; `max` é sem limite) e `nproc` | Mais de 1 quando a VPS tem mais núcleos. Senão, `AVISO` (nesta versão o limite de CPU é fixo na criação). Arquivo ilegível é `INCONCLUSIVO` |
-| Falta de memória (OOM) | `journalctl _TRANSPORT=kernel --since "7 days ago"` no servidor (o `-k` olharia só o boot atual), últimos 7 dias, com `-o short-unix` para medir a cobertura na mesma leitura | Nenhuma linha de "out of memory" ou "oom-kill". Qualquer ocorrência no kernel é `FALHA`; se ela veio antes do corte de 1 MiB, a mensagem avisa que a contagem é parcial. Kernel ilegível, `journalctl` com erro ou prazo, saída cortada em 1 MiB sem ocorrência, ou nenhuma entrada no período (cobertura desconhecida) é `INCONCLUSIVO`, que é diferente de "zero eventos". A cobertura só vale quando o `journalctl` termina com código 0 e a leitura não foi cortada, e o relatório diz quantos dias o journal guarda de fato. O journal do runner não entra na conta, porque o texto dele pode vir do agente: quem quiser lê à mão, como indício |
+| Falta de memória (OOM) | `journalctl _TRANSPORT=kernel --since "7 days ago"` no servidor (o `-k` olharia só o boot atual), últimos 7 dias, com `-o short-unix` para medir a cobertura na mesma leitura | `OK` só com nenhuma linha de "out of memory", "oom-kill", "oom_kill" ou "killed process" e cobertura de 7 dias (167 horas ou mais). Qualquer ocorrência no kernel é `FALHA`; se ela veio antes do corte de 1 MiB, a mensagem avisa que a contagem é parcial. Zero ocorrência com cobertura menor que 7 dias é `INCONCLUSIVO`, mostrando o período de fato examinado: o journal não sustenta a janela (journal volátil, reinício ou VPS criada há menos de 7 dias). Se a VPS foi criada há menos de 7 dias, isso é esperado: registre a cobertura na entrega. Senão, confira se o journal é persistente (`ls /var/log/journal`) e leia à mão com `journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q \| grep -ciE 'out of memory\|oom-kill\|oom_kill\|killed process'; echo "journalctl=${PIPESTATUS[0]} grep=${PIPESTATUS[1]}"`: a contagem só vale com journalctl 0 e grep 0 ou 1 (2 é erro). Kernel ilegível, `journalctl` com erro ou prazo, saída cortada em 1 MiB sem ocorrência, ou nenhuma entrada no período (cobertura desconhecida) também é `INCONCLUSIVO`, que é diferente de "zero eventos". O journal do runner não entra na conta, porque o texto dele pode vir do agente: quem quiser lê à mão, como indício |
 
 **À mão: `TasksMax`, `OOMPolicy` e `NRestarts` do runner.** Leia num terminal seu, nunca no chat do Admin:
 `podman exec dgclaw-<agente> systemctl show -p TasksMax -p OOMPolicy -p NRestarts dgclaw-runner`. O esperado é
@@ -197,23 +198,22 @@ confere num terminal dela, **nunca no chat do Admin**.
    primeiro olhe na Tela qual conta do YouTube está logada e confirme que é a conta dedicada ao agente
    (o vídeo público baixa mesmo com a sessão expirada, então o download sozinho não prova o login). Depois
    faça um download curto de verdade, numa pasta privada nova dentro do container, com a mesma chamada
-   isolada que o agente usa, como usuário `agente`:
-   `D="$(podman exec --user agente dgclaw-<agente> mktemp -d /tmp/yt-entrega.XXXXXX)"` e, antes de usar `$D`,
-   confira que o `mktemp` terminou com sucesso e que o caminho é exatamente uma pasta direto sob `/tmp`, com o
-   prefixo fixo e sufixo só de letras e números: `[[ "$D" =~ ^/tmp/yt-entrega\.[A-Za-z0-9]{6,}$ ]]`. Se a
-   conferência falhar, pare: não baixe, não renderize e não apague nada.
-   `podman exec --user agente dgclaw-<agente> yt-dlp --ignore-config --no-plugin-dirs --js-runtimes node --cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome/Default" --no-playlist -f "worst/worstvideo" --max-filesize 5M -P "$D" -- 'https://www.youtube.com/watch?v=jNQXAC9IJRQ'`.
-   Esperado: um arquivo com conteúdo na pasta (`podman exec --user agente dgclaw-<agente> ls -l "$D"`).
-   Depois apague só essa pasta, já validada: `podman exec --user agente dgclaw-<agente> rm -rf -- "$D"`.
+   isolada que o agente usa, numa única execução dentro do container (nada é capturado em variável do host, e o
+   host põe prazo e limite na saída):
+   `timeout 300 podman exec --user agente dgclaw-<agente> sh -c 'D="$(mktemp -d /tmp/yt-entrega.XXXXXX)" || exit 1; yt-dlp --ignore-config --no-plugin-dirs --js-runtimes node --cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome/Default" --no-playlist -f "worst/worstvideo" --max-filesize 5M -P "$D" -- "https://www.youtube.com/watch?v=jNQXAC9IJRQ"; r=$?; ls -l "$D"; rm -rf -- "$D"; exit $r' 2>&1 | head -c 65536; echo "podman=${PIPESTATUS[0]}"`.
+   Esperado: `podman=0` (o código do `head` não conta) e um arquivo com conteúdo na listagem.
 - **Se pedir login ou "não é um robô":** refaça o login na Tela com a conta do agente. Para ver o erro
   completo, repita o comando acima com `-v`.
 
 ### 7. Chrome headless roda (à mão)
 
 - **Conferir:** num card de teste, peça um render curto (a partir da 1.1.1, com `dgclaw-pesado --timeout`; antes
-  disso, envolvendo o comando em `timeout`), confira que ele terminou e, depois, que não sobrou Chrome rodando.
-- **Esperado:** o render termina sem erro e nenhum processo do Chrome fica para trás. Se sobrou, veja quem o
-  chamou sem prazo.
+  disso, envolvendo o comando em `timeout`), confira que ele terminou e, depois, que terminaram os processos criados pelo render. O Chrome da Tela
+  (`dgclaw-tela-chrome.service`) fica aberto de propósito e não conta. Compare a lista de processos do Chrome
+  antes e depois do render, num terminal seu (nunca no chat do Admin):
+  `podman exec dgclaw-<agente> ps -eo pid,ppid,lstart,cmd`, filtrando `chrome`.
+- **Esperado:** o render termina sem erro e nenhum processo do Chrome que nasceu da execução do card de teste
+  fica para trás (os da Tela, que já existiam antes, continuam). Se sobrou algum novo, veja quem o chamou sem prazo.
 - **Em render de verdade** (carrossel, vídeo), use sempre o `dgclaw-pesado --timeout` (a partir da 1.1.1), que
   encerra o que sobrar. Antes dele, envolva o comando em `timeout`.
 
@@ -278,20 +278,23 @@ Hoje é passo manual. Para cada skill do cliente:
 ### 12. Texto personalizado nas skills do cliente (à mão)
 
 - **Conferir:** abra as skills que levam texto do cliente (assinatura, nome do programa, encerramento fixo)
-  e procure o que não pertence a ele, dentro do container e sem trazer o texto das linhas para o terminal:
-  `podman exec --user agente dgclaw-<agente> grep -rlE '<nome de outro cliente>|<nome do modelo>' <pasta de skills>/<skill>`,
+  e procure só marcadores genéricos e dados do próprio cliente, dentro do container e sem trazer o texto das
+  linhas para o terminal:
+  `podman exec --user agente dgclaw-<agente> grep -rlE '<nome do modelo, se for genérico>|<NOME DO CLIENTE>|TODO' <pasta de skills>/<skill>`,
   com a pasta efetiva identificada no [passo 10](#10-skills-do-cliente-na-pasta-certa-à-mão)
   (`.claude/skills`, `.agents/skills` ou `.codex/skills`, dentro de `/home/agente`). Só marque a conferência se
   o `grep` leu a pasta com sucesso (código de saída 0 ou 1; 2 é pasta ilegível ou inexistente). O comando lista
   só os arquivos com ocorrência; com `-rc`, a contagem por arquivo. Para ver a linha, abra o
-  arquivo achado.
-- **Esperado:** nenhum nome de outro cliente e nenhum nome do modelo de onde a skill foi copiada. Leia a
+  arquivo achado. A comparação com nomes de outros clientes se faz no ambiente da equipe, contra a cópia
+  aprovada da skill, nunca na VPS do cliente: o nome de um terceiro não pode ficar à vista do agente do cliente.
+- **Esperado:** nenhum marcador genérico ou placeholder esquecido, e nada que não seja do cliente. Leia a
   assinatura e o encerramento com o olho: o `grep` só acha o que você lembrou de procurar.
 
 ## Antes de entregar
 
 - [ ] `scripts/smoke-entrega.sh <agente>` sai com 0 e nenhum `AVISO` ficou sem resposta
-- [ ] Os passos 2 (inclusive suporte temporário revogado, com o "suporte: desligado" visto pelo console da VPS, e chave permanente da equipe recusada
+- [ ] A parte à mão do passo 3 (`TasksMax`, `OOMPolicy` e `NRestarts` do runner, lidos num terminal seu) está feita
+- [ ] Os passos 2 (inclusive suporte temporário revogado, com o "suporte: desligado" visto na sessão SSH do usuário nominal do cliente, depois de encerrada a última sessão de root, e chave permanente da equipe recusada
       numa conexão nova), 4, 5 (skills contra o cofre e chave do cliente), 6 (yt-dlp, Tela e login do YouTube), 7 (render e Chrome), 8 (ffmpeg do container), 9 (inclusive a
       senha trocada pelo próprio cliente), 10, 11 e 12 estão feitos e marcados
 - [ ] Nenhum `INCONCLUSIVO` ficou sem conferência à mão

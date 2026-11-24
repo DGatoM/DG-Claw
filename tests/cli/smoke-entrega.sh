@@ -147,11 +147,19 @@ echo "smoke-entrega: kernel em 7 dias (cobertura real do journal)"
 limpar_estado
 echo 2 >"$STUB_ESTADO/kernel-dias"
 smoke ana
-afirma "journal do kernel com 2 dias: diz a cobertura real" grep -q 'cobertura do kernel: 2 dia(s) completo(s) (48 horas)' "$TMP/s.txt"
+afirma "journal do kernel com 2 dias: INCONCLUSIVO com a cobertura real" grep -q 'INCONCLUSIVO \[3\] nenhum OOM achado.*2 dia(s) completo(s) (48 horas)' "$TMP/s.txt"
+nega "journal do kernel com 2 dias: nenhum OK de OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
 rm -f "$STUB_ESTADO/kernel-dias"; echo 145 >"$STUB_ESTADO/kernel-horas"
 smoke ana
-afirma "journal do kernel com 6 dias e 1 hora: nao arredonda para 7" grep -q 'cobertura do kernel: 6 dia(s) completo(s) (145 horas)' "$TMP/s.txt"
-nega "6 dias e 1 hora nao vira 7 dias" grep -q 'cobertura do kernel: 7 dias' "$TMP/s.txt"
+afirma "journal do kernel com 6 dias e 1 hora: nao arredonda para 7" grep -q 'INCONCLUSIVO \[3\].*6 dia(s) completo(s) (145 horas)' "$TMP/s.txt"
+nega "6 dias e 1 hora nao vira OK de 7 dias" grep -q 'cobertura do kernel: 7 dias' "$TMP/s.txt"
+echo "smoke-entrega: zero OOM com a primeira entrada de 2 horas atras"
+echo 2 >"$STUB_ESTADO/kernel-horas"
+smoke ana
+afirma "primeira entrada de 2 horas: INCONCLUSIVO com menos de 1 dia" grep -q 'INCONCLUSIVO \[3\] nenhum OOM achado.*menos de 1 dia' "$TMP/s.txt"
+nega "primeira entrada de 2 horas: nenhum OK de OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
+afirma "a dica do OOM usa o filtro completo" grep -qF 'out of memory|oom-kill|oom_kill|killed process' "$TMP/s.txt"
+afirma "a dica do OOM confere o grep" grep -qF 'PIPESTATUS[1]' "$TMP/s.txt"
 rm -f "$STUB_ESTADO/kernel-horas"
 : >"$STUB_ESTADO/kernel-vazio"
 smoke ana
@@ -173,7 +181,7 @@ nega "kernel que sai com 1 nao vira OK" grep -q 'OK     \[3\] nenhum OOM' "$TMP/
 nega "kernel que sai com 1 nao mostra cobertura" grep -q 'cobertura do kernel' "$TMP/s.txt"
 echo "smoke-entrega: dica do INCONCLUSIVO de OOM"
 # shellcheck disable=SC2016  # texto literal, nao expande
-afirma "a dica le a janela toda e mostra o codigo do journalctl" grep -qF 'journalctl saiu com ${PIPESTATUS[0]}' "$TMP/s.txt"
+afirma "a dica le a janela toda e mostra o codigo do journalctl e do grep" grep -qF 'journalctl=${PIPESTATUS[0]} grep=${PIPESTATUS[1]}' "$TMP/s.txt"
 nega "a dica nao usa -n 0 (pede zero registros e nao examina nada)" grep -q -- '-n 0' "$TMP/s.txt"
 afirma "a dica diz que o item continua INCONCLUSIVO ate a leitura" grep -q 'continua INCONCLUSIVO ate essa leitura ser feita' "$TMP/s.txt"
 afirma "a dica manda ver a persistencia do journal" grep -q '/var/log/journal' "$TMP/s.txt"
