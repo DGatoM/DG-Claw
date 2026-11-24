@@ -406,6 +406,18 @@ function decidirComTela(s: Sessao, tela: string, texto: string, entradasEsperada
   };
 }
 
+/** Imediatamente antes de CADA repetição do Enter, depois da leitura assíncrona da tela: o mundo pode ter mudado enquanto o emulador
+ *  era esperado (o recibo chegou, o agente abriu turno, o item da fila foi baixado, o terminal foi trocado). Qualquer falha: o
+ *  Enter não é escrito, porque a tecla poderia cair na próxima interação do CLI. Roda no mesmo tick da escrita, sem await no meio. */
+function enterRepetidoAindaCabe(s: Sessao, proc: Sessao["proc"], envio: SemRecibo | null, antes: number, compactAntes: number, comandoDeBarra: boolean, soCompactVale: boolean, texto: string): boolean {
+  if (s.proc !== proc) return false;
+  if (!soCompactVale && reciboDoTexto(s, antes, texto)) return false;
+  if (comandoDeBarra && s.compactsIniciados > compactAntes) return false;
+  if (s.estado.status !== "idle") return false;
+  if (envio && !pendenteEm(s, envio)) return false;
+  return true;
+}
+
 /** A decisão sobre o Enter com a tela já sincronizada com o emulador. Quem escreve o Enter o faz no MESMO tick em que recebe
  *  esta resposta, sem await no meio, e só se `valida`. */
 async function decidirEnter(s: Sessao, texto: string, entradasEsperadas: number): Promise<DecisaoConferida> {
@@ -467,6 +479,10 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
       // Só vale com a leitura da tela válida: um redesenho durante a leitura pode mostrar a caixa vazia de antes. Leitura inválida repete a observação.
       if (d.acao === "esperar" && d.valida && comandoDeBarra && !compact) return true;
       escreveuEnter = d.acao === "enter" && d.valida;
+      if (escreveuEnter && !enterRepetidoAindaCabe(s, proc, envio, referencia?.prompts ?? s.promptsAceitos, referencia?.compacts ?? s.compactsIniciados, comandoDeBarra, soCompactVale, texto)) {
+        log.info(s.a("entrada"), `não repeti o Enter ${tentativa}/${RECIBO_ENTER_TENTATIVAS}: depois de ler a tela o recibo chegou, o agente já não está ocioso ou o pedido já não está pendente`);
+        escreveuEnter = false;
+      }
     } else {
       // O primeiro Enter só sai se, depois da pausa da colagem, o agente não passou a esperar uma resposta e ninguém
       // escreveu no terminal: um Enter ali poderia responder um diálogo ou mandar um rascunho junto com o texto.
@@ -683,7 +699,7 @@ export function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: num
       reterEste("a repetição do Enter parou porque a caixa de entrada mudou", true);
       return acabar();
     }
-    if (d.acao === "enter" && d.valida && s.estado.status === "idle") {
+    if (d.acao === "enter" && d.valida && enterRepetidoAindaCabe(s, proc, envio, antes, compactAntes, comandoDeBarra, soCompactVale, texto)) {
       log.info(
         s.a("entrada"),
         `o Enter atrasado ${RECIBO_ENTER_TENTATIVAS + i + 1}/${total} (ainda sem recibo, e o mesmo texto continua na caixa); batendo na tecla de novo`,

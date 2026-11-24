@@ -697,3 +697,22 @@ test("rodada 6, item 7: task_started numa leitura e o texto do usuário só na s
   assert.equal(s.promptsAceitos, antes + 1);
   assert.equal(escritas.filter((e) => e === "\r").length, 1, "um só Enter");
 });
+
+test("rodada 8, item 7: o registro de compactação do rollout do Codex é o recibo do /compact; o recado atrás dele sai logo, e o /compact não fica retido como incerto", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
+  const { eventoDoRollout } = await import("./provedores/codex-rollout.js");
+  const em = "2026-11-24T10:00:00.000Z";
+  assert.deepEqual(eventoDoRollout({ timestamp: em, type: "compacted", payload: { message: "", replacement_history: [] } }), { evento: "Compactado", em: Date.parse(em) });
+  assert.deepEqual(eventoDoRollout({ timestamp: em, type: "event_msg", payload: { type: "context_compacted" } }), { evento: "Compactado", em: Date.parse(em) });
+  const inicio = Date.now();
+  s.enfileirarQuandoOcioso("/compact");
+  s.enfileirarQuandoOcioso("recado-depois-do-compact");
+  await esperarAte(() => lerLinhasJson(amb.logDosClis).some((l) => l.bin === "codex" && l.texto === "recado-depois-do-compact"), 7_000, "o recado sair logo depois da compactação");
+  assert.ok(Date.now() - inicio < 8_000, "sem esperar a vigia (os 3 Enters sem recibo levam 9 s)");
+  assert.equal(s.retidos.length, 0, "o /compact não ficou como incerto");
+  assert.equal(s.barraPendente, null);
+  assert.equal(s.compactsIniciados >= 1, true);
+});

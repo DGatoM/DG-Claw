@@ -111,6 +111,12 @@ export class Sessao extends EventEmitter {
   /** O emulador de terminal (headless) do spawn atual, alimentado com a mesma saída que vai para o buffer. Só ele sabe
    *  o que está NA TELA agora: o buffer é o fluxo bruto, e um redesenho parcial com movimento de cursor não se lê nele. */
   emulador: TerminalXterm | null = null;
+  /** Não nulo quando a escrita no emulador lançou e ele foi recriado vazio: a tela dele não é prova de nada até um redesenho
+   *  completo (ver EMULADOR_REDESENHO_BYTES). `telaAtual()` devolve vazio nesse período, e vazio nunca é "caixa vazia". */
+  emuladorNaoConfiavel: { desde: number; bytesNovos: number } | null = null;
+  /** Bytes escritos no emulador que ele ainda não confirmou (controle de fluxo do PTY). */
+  emuladorPendente = 0;
+  ptyPausadoPeloEmulador = false;
   seq = 0;
   nonce: string | null = null;
   hooksVivos = false;
@@ -149,7 +155,7 @@ export class Sessao extends EventEmitter {
   /** Quando o último PreCompact chegou (ms); o transcript só vale como recusa do /compact se for mais novo que isto. */
   compactComecouEm = 0;
   /** O Esc pendente do turno (o PRIMEIRO, de qualquer origem; os seguintes não sobrescrevem): só com ele o transcript prova uma interrupção. Cai quando o turno termina ou outro começa. */
-  ultimoEscReal: { em: number; proc: unknown } | null = null;
+  ultimoEscReal: { em: number; proc?: unknown } | null = null;
   /**
    * A pergunta (processo + tool_use_id) cuja resposta já começou a ser digitada. Fica depois da trava cair:
    * a segunda aba que responde a mesma pergunta chega depois da última tecla e antes do PostToolUse, quando
@@ -414,7 +420,7 @@ export class Sessao extends EventEmitter {
    *  continua contando como texto. */
   telaAtual(): string {
     const t = this.emulador;
-    if (!t) return "";
+    if (!t || this.emuladorNaoConfiavel) return "";
     const b = t.buffer.active;
     const linhas: string[] = [];
     for (let i = 0; i < t.rows; i++) {
@@ -450,13 +456,18 @@ export class Sessao extends EventEmitter {
   async telaAtualSincronizada(): Promise<string> {
     const t = this.emulador;
     if (!t) return "";
-    await new Promise<void>((resolve) => t.write("", resolve));
+    try {
+      await new Promise<void>((resolve) => t.write("", resolve));
+    } catch {
+      // A fila do emulador está estourada: a tela não é prova de nada (o terminal.ts já recria o emulador na próxima saída).
+      return "";
+    }
     return this.telaAtual();
   }
 
   /** Um Enter vindo de fora (o dono, pelo terminal) pode virar um turno cujo recibo chega depois: até ele chegar, ou
    *  até vencer o prazo, a fila não solta um pedido que o recibo poderia confirmar por engano. */
-  enterManualPendente: { promptsAntes: number; em: number } | null = null;
+  enterManualPendente: { promptsAntes: number; em: number; proc?: unknown } | null = null;
 
   /** O número da última saída do terminal (`seq`) quando o dono escreveu por último, e o instante dessa escrita. A tela só
    *  vale como prova de "caixa vazia" se o terminal desenhou alguma coisa DEPOIS dela: antes disso a tela é a imagem velha,
@@ -476,7 +487,8 @@ export class Sessao extends EventEmitter {
       this.escritaDeForaEm = Date.now();
     }
     if (ehEnterDoDono(texto)) {
-      this.enterManualPendente = { promptsAntes: this.promptsAceitos, em: Date.now() };
+      // `proc` é o terminal que recebeu a tecla: o recibo de outro terminal não pode ser dela (zerado também na troca, em ciclo.ts).
+      this.enterManualPendente = { promptsAntes: this.promptsAceitos, em: Date.now(), proc: this.proc };
     } else if (texto !== "" && this.digitacaoSuspensaEm === null) {
       // Um rascunho do dono (digitado ou colado), sem Enter, já está na caixa: nada é digitado por cima até a caixa
       // aparecer vazia.

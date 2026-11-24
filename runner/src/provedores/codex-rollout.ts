@@ -158,7 +158,7 @@ export function descobrirRollout(
 }
 
 /** Os eventos internos que a Sessao já entende (os mesmos que o hook do Claude traz). */
-export type EventoInterno = "UserPromptSubmit" | "PreToolUse" | "Stop" | "TextoDoUsuario";
+export type EventoInterno = "UserPromptSubmit" | "PreToolUse" | "Stop" | "TextoDoUsuario" | "Compactado";
 
 export interface EventoDoRollout {
   evento: EventoInterno;
@@ -176,6 +176,10 @@ export function eventoDoRollout(registro: unknown): EventoDoRollout | null {
   const em = Date.parse(r?.timestamp ?? "");
   if (!r || !Number.isFinite(em)) return null;
   const tipo = r.payload?.type ?? "";
+  // A compactação do contexto (/compact, ou a automática): o Codex grava um registro `compacted` (campos do payload: message,
+  // replacement_history, window_number, first_window_id, previous_window_id, window_id) e, logo depois, um
+  // event_msg `context_compacted`. É o equivalente do PreCompact do Claude: o recibo do /compact (ver eventos.ts).
+  if (r.type === "compacted" || (r.type === "event_msg" && tipo === "context_compacted")) return { evento: "Compactado", em };
   if (r.type === "event_msg") {
     if (tipo === "task_started") return { evento: "UserPromptSubmit", em };
     // O que o usuário mandou naquele turno: é com ele que o runner confere de quem é o `task_started` (ver reciboDoTexto).

@@ -72,3 +72,12 @@ export const MAX_RETIDOS = 20;
 export const REDESENHO_DEPOIS_DA_TECLA_MS = 2_000;
 /** Codex: quantos turnos do rollout ficam guardados para conferir recibos. */
 export const TURNOS_DO_CODEX_GUARDADOS = 50;
+
+/** Emulador de tela: quando a escrita nele lança (a fila interna do @xterm/headless passa de 50 milhões de unidades), ele é
+ *  recriado vazio e a tela daquela sessão NÃO serve de prova (a digitação automática fica suspensa) até um redesenho completo:
+ *  uma limpeza de tela (ESC[2J, ESC[3J ou ESC c) recebida depois da recriação, ou este tanto de saída nova (o CLI redesenha a
+ *  tela inteira em bem menos que isso). */
+export const EMULADOR_REDESENHO_BYTES = 64 * 1024;
+/** Controle de fluxo PTY -> emulador: acima de PENDENTE_PAUSA o PTY é pausado, e só volta a ler abaixo de PENDENTE_RETOMA. */
+export const EMULADOR_PENDENTE_PAUSA = 4 * 1024 * 1024;
+export const EMULADOR_PENDENTE_RETOMA = 1024 * 1024;

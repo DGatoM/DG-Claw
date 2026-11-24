@@ -311,7 +311,8 @@ try {
     const inc = await lerJson(await p.json('/api/sessoes/card-a1/recado', { texto: 'talvez chegou', quando: 'agora' }));
     flags.entregaIncerta = false;
     ok(inc.status === 202 && inc.json.entregaIncerta === true && inc.json.enfileirado === false && inc.json.enviado === false, 'entrega incerta do runner (202): não vira "enfileirado" nem "enviado"');
-    ok(/Não sei se o agente recebeu/.test(inc.json.aviso) && /Confira a conversa do card antes de reenviar/.test(inc.json.aviso), 'entrega incerta: o aviso fixo do painel e a orientação de conferir a conversa chegam até a resposta');
+    ok(/Não sei se o agente recebeu/.test(inc.json.aviso) && /confira a conversa do card/.test(inc.json.aviso), 'entrega incerta: o aviso fixo do painel e a orientação de conferir a conversa chegam até a resposta');
+    ok(/ainda pode receber o recado em segundo plano por até 2 minutos/.test(inc.json.aviso) && /Espere esse prazo/.test(inc.json.aviso), 'rodada 8, item 6: o aviso informa o prazo da vigia do runner e manda esperar esse prazo antes de reenviar');
     ok(!JSON.stringify(inc.json).includes('FORJADO') && !JSON.stringify(inc.json).includes('rm -rf'), 'entrega incerta: o texto do aviso do runner (quebra de linha, texto forjado) não atravessa para a resposta');
     flags.entregaIncerta = true;
     const incHand = await lerJson(await p.json('/api/sessoes/card-a1/handoff', { usar_existente: true }));

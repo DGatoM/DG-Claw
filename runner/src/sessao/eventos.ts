@@ -127,6 +127,14 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       confirmarRecibos(s);
       break;
     }
+    case "Compactado":
+      // Codex: o rollout registrou a compactação. É o recibo do /compact (o Codex não tem PreCompact), no mesmo contador que o
+      // PreCompact do Claude usa: o comando de barra à espera do recibo próprio é liberado e a fila segue sem esperar a vigia.
+      if (s.motor.reciboPorRollout) {
+        s.compactsIniciados += 1;
+        log.info(s.a("hook"), "o rollout do Codex registrou a compactação do contexto: é o recibo do /compact");
+      }
+      break;
     case "PreToolUse":
       cancelarStopPendente(s);
       s.stopBloqueadoAte = 0;

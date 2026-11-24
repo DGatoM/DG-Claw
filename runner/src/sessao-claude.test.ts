@@ -1009,13 +1009,17 @@ test("recibo: turno anterior emitindo PreToolUse com a mensagem presa NÃO escon
     const ticker = setInterval(() => hook("PreToolUse", { toolName: "Bash" }), 300);
     const marca = lerTexto(amb.logDoRunner).length;
     await enviarMock(s);
-    assert.equal(enters.length, 3, "os 3 Enters normais saíram e a função já voltou");
+    // Rodada 8, item 3: com o agente em `working` (o turno anterior segue emitindo PreToolUse) a repetição do Enter não sai: só o
+    // primeiro. O PreToolUse do turno anterior também continua sem valer como recibo.
+    assert.equal(enters.length, 1, "só o primeiro Enter: as repetições exigem o agente ocioso");
+    assert.equal(s.promptsAceitos, 0, "o PreToolUse de outro turno não é recibo");
     assert.match(lerTexto(amb.logDoRunner).slice(marca), /continuo tentando em segundo plano/);
     await esperarAte(() => ERRO_SEM_RECIBO.test(lerTexto(amb.logDoRunner).slice(marca)), 5_000, "o erro final da vigia");
     clearInterval(ticker);
     assert.match(lerTexto(amb.logDoRunner).slice(marca), /digitei 5 Enters e nenhum abriu turno/);
 
-    // O 2º Enter entrega: o UserPromptSubmit chega depois dele e o runner para por aí.
+    // O turno anterior acabou (o agente voltou a idle). O 2º Enter entrega: o UserPromptSubmit chega depois dele e o runner para por aí.
+    s.mudar({ status: "idle", statusReason: "teste: o turno anterior acabou" });
     enters.length = 0;
     trocar((t) => { enters.push(t); if (enters.length === 2) hook("UserPromptSubmit"); });
     const marca2 = lerTexto(amb.logDoRunner).length;
@@ -3404,5 +3408,82 @@ test("rodada 6, item 4: saída do terminal chegando durante a leitura da tela de
   assert.equal(await s.digitarEEnviar("pedido-com-saida-que-assenta"), true);
   assert.equal(escritas[0], "pedido-com-saida-que-assenta");
   (s as unknown as { telaAtualSincronizada: unknown }).telaAtualSincronizada = original;
+  restaurar();
+});
+
+test("rodada 8, item 3: o recibo que chega durante a leitura da tela, antes de repetir o Enter, impede a repetição", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  const { enviarComRecibo } = await import("./sessao/digitacao.js");
+  const { cancelarReintentoDaFila } = await import("./sessao/fila.js");
+  await alimentarTela(s, caixaCom("pedido-do-recibo-atrasado"));
+  const original = s.telaAtualSincronizada.bind(s);
+  let leituras = 0;
+  (s as unknown as { telaAtualSincronizada: () => Promise<string> }).telaAtualSincronizada = async () => {
+    leituras += 1;
+    const t = await original();
+    // 1ª leitura: antes do primeiro Enter. 2ª: a da repetição. O recibo chega nela, sem mudar o estado nem o contador de saída
+    // (a decisão da tela continua "válida" e mostra o texto antigo na caixa).
+    if (leituras === 2) s.promptsAceitos += 1;
+    return t;
+  };
+  const r = await enviarComRecibo(s, { texto: "pedido-do-recibo-atrasado", comandoDeBarra: false, envio: null, proc: s.proc! });
+  assert.equal(r, true, "o recibo chegou");
+  assert.equal(escritas.filter((e) => e === "\r").length, 1, "só o primeiro Enter: a repetição foi cancelada");
+  (s as unknown as { telaAtualSincronizada: unknown }).telaAtualSincronizada = original;
+  cancelarReintentoDaFila(s);
+  restaurar();
+});
+
+test("rodada 8, item 4: o Enter manual do terminal antigo não torna ambíguo o recibo do primeiro pedido do terminal novo", async () => {
+  logarClaude(amb);
+  const { s } = await nova({}, { ...PASSOS_CURTOS });
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  s.registrarEscritaDeFora("\r");
+  assert.notEqual(s.enterManualPendente, null);
+  assert.equal(s.enterManualPendente!.proc, s.proc, "a tecla fica ligada ao terminal que a recebeu");
+  s.parar("troca de terminal simulada");
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  assert.equal(s.enterManualPendente, null, "zerado na troca de terminal");
+  s.digitacaoSuspensaEm = null;
+  await alimentarTela(s, CAIXA_VAZIA);
+  s.ultimaSaidaEm = Date.now() - 5_000;
+  const original = s.escrever.bind(s);
+  (s as unknown as { escrever: (t: string) => void }).escrever = (t: string) => void (s.entradasManuais += 1, t);
+  setTimeout(() => (s.promptsAceitos += 1), 500);
+  assert.equal(await s.digitarEEnviar("pedido-no-terminal-novo"), true);
+  assert.equal(s.retidos.length, 0, "nada retido como incerto");
+  (s as unknown as { escrever: unknown }).escrever = original;
+});
+
+test("rodada 8, item 5: a escrita no emulador que lança não derruba o runner; a sessão recria o emulador e não digita até um redesenho completo", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  const { ErroDeMotor } = await import("./provedores/motor.js");
+  await alimentarTela(s, CAIXA_VAZIA);
+  s.ultimaSaidaEm = Date.now() - 5_000;
+  const antigo = s.emulador!;
+  (antigo as unknown as { write: () => void }).write = () => {
+    throw new Error("write data discarded, use flow control to avoid losing data");
+  };
+  assert.doesNotThrow(() => s.guardarEEmitir("saida que estoura a fila"));
+  assert.notEqual(s.emulador, antigo, "emulador recriado");
+  assert.notEqual(s.emuladorNaoConfiavel, null);
+  assert.equal(s.telaAtual(), "", "a tela não serve de prova");
+  // A digitação automática fica suspensa nesta sessão: nem um byte escrito.
+  await assert.rejects(s.digitarEEnviar("pedido-com-emulador-perdido"), (e: unknown) => e instanceof ErroDeMotor);
+  assert.deepEqual(escritas, []);
+  // Redesenho completo (limpeza de tela + caixa): volta a valer.
+  await alimentarTela(s, CAIXA_VAZIA);
+  assert.equal(s.emuladorNaoConfiavel, null);
+  assert.notEqual(s.telaAtual(), "");
+  // Sem limpeza de tela: só depois de tanta saída nova.
+  (s.emulador as unknown as { write: () => void }).write = () => {
+    throw new Error("de novo");
+  };
+  s.guardarEEmitir("x");
+  assert.notEqual(s.emuladorNaoConfiavel, null);
+  s.guardarEEmitir("y".repeat(70 * 1024));
+  assert.equal(s.emuladorNaoConfiavel, null, "N KB de saída nova também restabelece");
   restaurar();
 });

@@ -592,7 +592,11 @@ function registrar(router, { CONFIG }) {
 
   /** Orientação para quando o runner responde 202 com entregaIncerta: o texto PODE ter sido digitado, e reenviar sem conferir pode
    *  executar o pedido duas vezes. */
-  const CONFERIR_ANTES_DE_REENVIAR = 'Confira a conversa do card antes de reenviar: se o recado não aparecer ali, aí sim mande de novo.';
+  // O runner ainda pode concluir o envio em segundo plano: 3 Enters (até ~9 s no Codex) e a vigia, que espaça mais 4 verificações
+  // (5+10+20+40 = 75 s, RECIBO_VIGIA_PASSOS_MS em runner/src/sessao/constantes.ts), ~87 s no pior caso. O texto diz 2 minutos
+  // (arredondado para cima) e deve acompanhar essa conta se ela mudar.
+  const PRAZO_DA_VIGIA_TEXTO = '2 minutos';
+  const CONFERIR_ANTES_DE_REENVIAR = `O agente ainda pode receber o recado em segundo plano por até ${PRAZO_DA_VIGIA_TEXTO}. Espere esse prazo e confira a conversa do card: se o recado não aparecer ali, aí sim mande de novo. Mandar antes pode executar o pedido duas vezes.`;
 
   /** O que vale para qualquer entrega de texto a uma sessão. Devolve {enviado, enfileirado, entregaIncerta, aviso?, quando, retomado}.
    *  Um 202 do runner com `data.entregaIncerta` NÃO é "enfileirado": o texto pode ter sido escrito no terminal e o runner não

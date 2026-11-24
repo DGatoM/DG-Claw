@@ -169,6 +169,15 @@ function lerStdin() {
         linha = "";
         registrar({ modo: "prompt", texto });
         anterior = texto.slice(0, 60);
+        if (/^\/compact(\s|$)/.test(texto)) {
+          // /compact do Codex: sem task_started e sem mensagem de usuário; só os registros da compactação, um instante depois.
+          const f = arquivoDoRollout();
+          setTimeout(() => {
+            reg(f, "compacted", { message: "", replacement_history: [], window_number: 1, window_id: "w1" });
+            reg(f, "event_msg", { type: "context_compacted" });
+          }, Number(process.env.FAKE_COMPACT_MS || 300));
+          continue;
+        }
         turno(texto);
       } else {
         if (ch >= " ") linha += ch; // teclas de controle (Esc) não viram texto na caixa, como no TUI de verdade

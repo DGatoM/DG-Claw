@@ -348,6 +348,9 @@ export async function spawn(s: Sessao, ctx: CtxMotor, args: string[], rolloutDaR
   // Um emulador por spawn, do mesmo tamanho do PTY: a tela do terminal novo começa limpa, e o anterior é descartado.
   s.emulador?.dispose();
   s.emulador = new Terminal({ cols: 120, rows: 40, scrollback: 200, allowProposedApi: true });
+  s.emuladorNaoConfiavel = null;
+  s.emuladorPendente = 0;
+  s.ptyPausadoPeloEmulador = false;
   s.caudaDaTela = "";
   s.spawnEm = Date.now();
   // Hooks vivos é uma prova DESTE terminal: o do spawn anterior não vale para o novo (semHooksDeVerdade e o
@@ -356,6 +359,9 @@ export async function spawn(s: Sessao, ctx: CtxMotor, args: string[], rolloutDaR
   s.estado.hookActive = false;
   // A caixa do terminal novo está vazia: o rascunho do dono no terminal antigo não suspende mais nada.
   s.digitacaoSuspensaEm = null;
+  // O Enter que o dono deu no terminal ANTIGO nunca vira recibo do novo: sem isto o primeiro pedido do terminal novo seria
+  // tratado como ambíguo e retido como incerto.
+  s.enterManualPendente = null;
   s.mudar({ status: "spawning", statusReason: "runner:spawn" });
   // O id da conversa só vale para este CLI e esta conta: grava de quem é, para o boot seguinte decidir.
   gravarEstado({ escolha: ctx.escolha }, s.arquivoDeEstado);
