@@ -120,6 +120,8 @@ if [ "$cod" != 0 ]; then
   # Só consulte e avise. Não use mandar, esperar nem fechar neste ramo, e não repita o pedido.
   echo "abrir saiu com $cod: não anuncie"; [ -z "$id" ] || dgclaw-card estado "$id"
 else
+  # Se o abrir disse que o card espera uma decisão do dono (ou o estado mostra waiting_input), repasse o aviso ao dono
+  # em vez de chamar o esperar. O código 7 do esperar significa término não confirmado a tempo.
   dgclaw-card mandar|esperar|ler|listar|fechar ...
 fi
 ```

@@ -302,10 +302,16 @@ cmd_abrir() {
   if [ "$espera" = 0 ]; then
     echo "Card criado em $(nome_do_provedor "$provedor") e pedido entregue a fila. Com --espera-turno 0 o aceite do pedido NAO foi verificado: nao diga ao dono que o card esta trabalhando antes de conferir com 'dgclaw-card estado $id'."
   else
-    ESPERANDO_DECISAO=0
+    ESPERANDO_DECISAO=0; MOTIVO_DECISAO=""
     esperar_primeiro_turno "$id" "$espera"
     if [ "$ESPERANDO_DECISAO" = 1 ]; then
-      echo "Card aberto em $(nome_do_provedor "$provedor"): ele aceitou o pedido e esta esperando uma decisao do dono (uma pergunta ou uma permissao). O dono responde na aba Sessoes do painel. Para ver o que ele pediu: dgclaw-card ler $id"
+      local quem_decide
+      case "$MOTIVO_DECISAO" in
+        pergunta) quem_decide="uma pergunta de escolha. O dono responde no cartao da pergunta (ou no terminal da sessao), na aba Sessoes do painel." ;;
+        permissao) quem_decide="uma permissao. O dono usa os botoes Aprovar ou Negar na aba Sessoes do painel." ;;
+        *) quem_decide="uma pergunta ou uma permissao. Confira qual das duas com 'dgclaw-card ler $id'." ;;
+      esac
+      echo "Card aberto em $(nome_do_provedor "$provedor"): ele aceitou o pedido e esta esperando uma decisao do dono, $quem_decide Para ver o que ele pediu: dgclaw-card ler $id"
     else
       echo "Card aberto em $(nome_do_provedor "$provedor"). Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
     fi
@@ -317,7 +323,7 @@ cmd_abrir() {
 dica_monitor() { # $1 id ; $2 entregue ; $3 cada
   [ "$monitor" != 0 ] || return 0
   local q; q="$(printf '%q' "$2")"
-  printf ' Como o abrir foi pedido com --monitor, depois de reenviar ligue o monitor com o mesmo criterio e intervalo: dgclaw-monitor add %s --entregue %s%s (o criterio vai escapado para o shell; confira se ele ficou igual ao que voce pediu).' "$1" "$q" "${3:+ --cada $3}"
+  printf ' Como o abrir foi pedido com --monitor, ANTES de reenviar ligue o monitor com o mesmo criterio e intervalo: dgclaw-monitor add %s --entregue %s%s (o criterio vai escapado para o shell; confira se ele ficou igual ao que voce pediu). So depois reenvie o pedido com dgclaw-card mandar.' "$1" "$q" "${3:+ --cada $3}"
 }
 
 # Espera o pedido virar turno: turnosAceitosSessao > 0 (turnos da conversa ATUAL) ou status working. Sem turno no
@@ -326,12 +332,14 @@ dica_monitor() { # $1 id ; $2 entregue ; $3 cada
 # o card aceitou o pedido. Card em erro: 12 (o pedido foi aceito, mas o turno falhou).
 # Cada consulta e cada pausa ficam limitadas ao tempo que resta do prazo (minimo 1 s para a consulta).
 esperar_primeiro_turno() { # $1 id ; $2 segundos
-  local inicio=$SECONDS passo="${DGCLAW_CARD_INTERVALO:-5}" turnos status falha="" resta erro_turno razao fila="" fila_presa=0 ultimo_status="" recibo="" recibo_preso=0 erro_visto=""
+  local limite inicio=$SECONDS passo="${DGCLAW_CARD_INTERVALO:-5}" turnos status falha="" resta erro_turno razao fila="" fila_presa=0 ultimo_status="" recibo="" recibo_preso=0 erro_visto=""
   [ "$passo" = 5 ] && passo=1
   while :; do
     falha=""; fila_presa=0; recibo_preso=0; erro_visto=""
     resta=$(( $2 - (SECONDS - inicio) )); [ "$resta" -ge 1 ] || resta=1
-    if ! CARD_MAX_TEMPO="$resta" chamar GET "/api/agents/$1"; then
+    # Prazo da consulta: o menor entre o prazo validado de cada chamada (CARD_MAX_TEMPO ou 60) e o que resta da espera.
+    limite="$(prazo_da_chamada)"; [ "$resta" -ge "$limite" ] || limite="$resta"
+    if ! CARD_MAX_TEMPO="$limite" chamar GET "/api/agents/$1"; then
       falha="o runner nao respondeu a consulta do estado (erro de rede ou tempo esgotado)"
     elif [ "$HTTP" != 200 ]; then
       falha="o runner respondeu HTTP $HTTP: $(campo .error)"
@@ -382,7 +390,7 @@ esperar_primeiro_turno() { # $1 id ; $2 segundos
             stopped|resumable)
               sem_confirmacao "$1" "o runner viu o turno do pedido, mas o terminal do card ja esta fechado (status $status); confira com 'dgclaw-card ler $1' antes de dizer qualquer coisa ao dono" ;;
           esac
-          [ "$status" != waiting_input ] || ESPERANDO_DECISAO=1
+          if [ "$status" = waiting_input ]; then ESPERANDO_DECISAO=1; MOTIVO_DECISAO="$(campo .data.motivo)"; fi
           return 0
         fi
       fi

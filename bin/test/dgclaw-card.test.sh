@@ -130,7 +130,25 @@ subir normal
 CARD_MAX_TEMPO=$'60\nurl = "http://127.0.0.1:1/roubo"' "$BIN" listar >"$T/o" 2>"$T/e"; c=$?
 ok "CARD_MAX_TEMPO com quebra de linha e 'url =' e ignorado (sai com 0)" $([ $c = 0 ] && echo 0 || echo 1)
 grep -q "CARD_MAX_TEMPO precisa ser um numero inteiro" "$T/e"; ok "o valor invalido gera aviso no stderr" $?
-! grep -q "roubo" "$LOG"; ok "a url injetada em CARD_MAX_TEMPO nao foi chamada" $?
+# Curl falso, so nesta chamada: grava os argumentos e a configuracao lida do stdin (-K -) e repassa tudo ao curl de verdade.
+mkdir -p "$T/fakebin"
+cat > "$T/fakebin/curl" <<'FAKE'
+#!/usr/bin/env bash
+{ printf 'ARGS'; printf ' [%s]' "$@"; printf '\n'; } >> "$CURL_LOG"
+cfg="$(cat)"
+printf '%s\n--FIM--\n' "$cfg" >> "$CURL_CFG"
+printf '%s\n' "$cfg" | exec "$CURL_REAL" "$@"
+FAKE
+chmod +x "$T/fakebin/curl"
+export CURL_REAL="$(command -v curl)"
+: > "$T/curl.args"; : > "$T/curl.cfg"
+CURL_LOG="$T/curl.args" CURL_CFG="$T/curl.cfg" PATH="$T/fakebin:$PATH" CARD_MAX_TEMPO=$'7\nurl = "http://127.0.0.1:1/roubo"' "$BIN" listar >"$T/o" 2>"$T/e"
+[ "$(grep -c '^url *=' "$T/curl.cfg")" = 1 ] && grep -q "^url = \"http://127.0.0.1:$RUNNER_PORT/" "$T/curl.cfg"; ok "o curl recebeu exatamente uma URL, a do runner" $?
+! grep -q "roubo" "$T/curl.args" "$T/curl.cfg"; ok "a URL injetada em CARD_MAX_TEMPO nao chegou ao curl (nem argumento nem configuracao)" $?
+grep -q -- "\[--max-time\] \[60\]" "$T/curl.args"; ok "o prazo invalido virou 60 e chegou em --max-time" $?
+: > "$T/curl.args"
+CURL_LOG="$T/curl.args" CURL_CFG="$T/curl.cfg" PATH="$T/fakebin:$PATH" CARD_MAX_TEMPO=7 "$BIN" listar >/dev/null 2>&1
+grep -q -- "\[--max-time\] \[7\]" "$T/curl.args"; ok "o prazo valido (7) chega em --max-time" $?
 CARD_MAX_TEMPO=99999 "$BIN" listar >/dev/null 2>"$T/e"; grep -q "CARD_MAX_TEMPO precisa" "$T/e"; ok "CARD_MAX_TEMPO fora da faixa vira o padrao, com aviso" $?
 CARD_MAX_TEMPO=08 "$BIN" listar >/dev/null 2>"$T/e"; c=$?; ok "CARD_MAX_TEMPO=08 e aceito em base decimal" $([ $c = 0 ] && ! grep -q "CARD_MAX_TEMPO" "$T/e" && echo 0 || echo 1)
 
@@ -270,6 +288,7 @@ subir input-sem-capacidade
 "$BIN" abrir --provedor claude --titulo x --pedido oi --monitor --entregue "relatorio pronto" --cada 5 >"$T/o" 2>"$T/e"; c=$?
 ok "503 SEM_CAPACIDADE com --monitor sai com 6" $([ $c = 6 ] && echo 0 || echo 1)
 grep -q "dgclaw-monitor add card-abc123 --entregue" "$T/e" && grep -q -- "--cada 5" "$T/e"; ok "a recusa com --monitor diz o comando dgclaw-monitor add com criterio e intervalo" $?
+grep -q "ANTES de reenviar ligue o monitor" "$T/e" && ! grep -q "depois de reenviar" "$T/e"; ok "a dica manda ligar o monitor ANTES de reenviar" $?
 subir input-recusado
 "$BIN" abrir --provedor claude --titulo x --pedido oi --monitor --entregue "feito" >"$T/o" 2>"$T/e"
 grep -q "dgclaw-monitor add card-abc123" "$T/e" && ! grep -q -- "--cada" "$T/e"; ok "recusa 4xx com --monitor sem --cada diz o comando sem --cada" $?
@@ -278,7 +297,28 @@ grep -q "dgclaw-monitor add card-abc123" "$T/e" && ! grep -q -- "--cada" "$T/e";
 subir aguardando-decisao
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 3 >"$T/o" 2>"$T/e"; c=$?
 ok "card em waiting_input depois do turno sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
-grep -q "esperando uma decisao do dono" "$T/o" && grep -q "aba Sessoes" "$T/o" && ! grep -q "dgclaw-card esperar" "$T/o"; ok "waiting_input diz que espera decisao, aponta a aba Sessoes e nao recomenda esperar" $?
+grep -q "esperando uma decisao do dono" "$T/o" && ! grep -q "dgclaw-card esperar" "$T/o"; ok "waiting_input diz que espera decisao e nao recomenda esperar" $?
+grep -q "uma pergunta ou uma permissao" "$T/o" && grep -q "dgclaw-card ler card-abc123" "$T/o" && ! grep -q "Aprovar\|cartao da pergunta" "$T/o"; ok "waiting_input sem motivo conhecido nao aponta botao e manda conferir com ler" $?
+subir aguardando-pergunta
+"$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 3 >"$T/o" 2>"$T/e"; c=$?
+ok "waiting_input com motivo pergunta sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
+grep -q "pergunta de escolha" "$T/o" && grep -q "cartao da pergunta" "$T/o" && ! grep -q "Aprovar" "$T/o"; ok "motivo pergunta: o dono responde no cartao da pergunta, sem botao de permissao" $?
+subir aguardando-permissao
+"$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 3 >"$T/o" 2>"$T/e"; c=$?
+ok "waiting_input com motivo permissao sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
+grep -q "esperando uma decisao do dono, uma permissao" "$T/o" && grep -q "Aprovar ou Negar" "$T/o" && ! grep -q "cartao da pergunta" "$T/o"; ok "motivo permissao: botoes Aprovar ou Negar na aba Sessoes" $?
+subir aguardando-motivo-estranho
+"$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 3 >"$T/o" 2>"$T/e"
+grep -q "uma pergunta ou uma permissao" "$T/o" && ! grep -q "Aprovar\|cartao da pergunta" "$T/o"; ok "motivo desconhecido (login) cai no texto neutro" $?
+
+# --- cada consulta do primeiro turno respeita o menor entre CARD_MAX_TEMPO e o que resta da espera ----------------
+subir sem-turno
+: > "$T/curl.args"
+CURL_LOG="$T/curl.args" CURL_CFG="$T/curl.cfg" PATH="$T/fakebin:$PATH" "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >/dev/null 2>&1
+grep -q -- "\[--max-time\] \[2\]" "$T/curl.args"; ok "com o prazo padrao (60 s) e espera de 2 s, a consulta usa o que resta da espera (2 s)" $?
+: > "$T/curl.args"
+CURL_LOG="$T/curl.args" CURL_CFG="$T/curl.cfg" PATH="$T/fakebin:$PATH" CARD_MAX_TEMPO=1 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 3 >/dev/null 2>&1
+[ "$(grep -c -- "\[--max-time\] \[1\]" "$T/curl.args")" -ge 3 ] && ! grep -q -- "\[--max-time\] \[3\]" "$T/curl.args"; ok "com CARD_MAX_TEMPO=1 e espera de 3 s, nenhuma consulta passa de 1 s" $?
 
 # --- working sozinho nao confirma: so o contador ---------------------------------------------------------------
 subir working-sem-turno

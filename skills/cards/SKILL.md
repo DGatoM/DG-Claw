@@ -47,8 +47,13 @@ if [ "$cod" != 0 ]; then
   # Não siga para o esperar nem avise o dono de que o card trabalha. Confira o estado e nunca repita o pedido.
   echo "o abrir saiu com $cod: leia a mensagem de erro"; [ -z "$id" ] || dgclaw-card estado "$id"
 else
-  dgclaw-card esperar "$id" --max 900
-  dgclaw-card ler "$id" --n 2
+  # Se o abrir disser que o card espera uma decisão do dono, repasse esse aviso ao dono em vez de chamar o esperar.
+  # O mesmo vale se 'dgclaw-card estado "$id"' mostrar waiting_input.
+  case "$saida" in
+    *"esperando uma decisao do dono"*) printf '%s\n' "$saida" ;;
+    *) dgclaw-card esperar "$id" --max 900
+       dgclaw-card ler "$id" --n 2 ;;
+  esac
 fi
 ```
 
@@ -61,8 +66,10 @@ fi
 - `esperar` serve para card CURTO ou segunda opinião, em que a resposta sai em poucos minutos. Para tarefa
   longa, a sessão principal NÃO espera: abre o card com `--monitor`, fica livre para conversar com o dono
   e deixa o monitor acordá-la (ver "Tarefa longa" abaixo e "Sempre livre para conversar" no seu prompt).
-- `esperar` volta quando o card termina o turno. Se estourar o tempo (código 7), o card segue
-  trabalhando: avise o dono e espere mais com `--max`, ou leia o parcial com `ler`.
+- `esperar` volta quando o card termina o turno. Se estourar o tempo (código 7), o término não foi
+  confirmado a tempo: isso não prova que o card segue trabalhando. Leia o parcial com `ler`, confira com
+  `estado` e espere mais com `--max` se fizer sentido. Se o `abrir` (ou o `estado`) disse que o card espera uma
+  decisão do dono, não chame o `esperar`: repasse o aviso ao dono, que responde na aba Sessões.
 - Para uma pergunta nova no mesmo card: `dgclaw-card mandar "$id" "texto"` e espere de novo.
 - `dgclaw-card estado "$id"` mostra provedor, auth, modelo e situação. `dgclaw-card listar` mostra
   os cards abertos.

@@ -171,7 +171,9 @@ if [ "$cod" != 0 ]; then
   echo "abrir saiu com $cod: não anuncie"; [ -z "$id" ] || dgclaw-card estado "$id"
 else
   dgclaw-card mandar "$id" "texto"     # recado novo no mesmo card
-  dgclaw-card esperar "$id" --max 900  # volta quando o card termina o turno
+  # Se o abrir disse que o card espera uma decisão do dono (ou o estado mostra waiting_input), repasse o aviso a {{DONO}}
+  # em vez de chamar o esperar. Fora desse caso:
+  dgclaw-card esperar "$id" --max 900  # volta quando o card termina o turno; código 7 = término não confirmado a tempo
   dgclaw-card ler "$id" --n 2          # as últimas respostas
   dgclaw-card listar                   # os cards abertos
   dgclaw-card fechar "$id"             # fecha (a conversa fica guardada); se o runner ainda não observou um turno, pede --forcar
