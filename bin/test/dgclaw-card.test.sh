@@ -294,22 +294,16 @@ subir input-recusado
 grep -q "dgclaw-monitor add card-abc123" "$T/e" && ! grep -q -- "--cada" "$T/e"; ok "recusa 4xx com --monitor sem --cada diz o comando sem --cada" $?
 
 # --- turno aceito e card esperando decisao do dono -----------------------------------------------------------------
-subir aguardando-decisao
-"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 3 >"$T/o" 2>"$T/e"; c=$?
-ok "card em waiting_input depois do turno sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
-grep -q "esperando uma decisao do dono" "$T/o" && ! grep -q "dgclaw-card esperar" "$T/o"; ok "waiting_input diz que espera decisao e nao recomenda esperar" $?
-grep -q "uma pergunta ou uma permissao" "$T/o" && grep -q "dgclaw-card ler card-abc123" "$T/o" && ! grep -q "Aprovar\|cartao da pergunta" "$T/o"; ok "waiting_input sem motivo conhecido nao aponta botao e manda conferir com ler" $?
-subir aguardando-pergunta
-"$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 3 >"$T/o" 2>"$T/e"; c=$?
-ok "waiting_input com motivo pergunta sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
-grep -q "pergunta de escolha" "$T/o" && grep -q "NAO respondem a essa pergunta" "$T/o" && grep -q "dgclaw-card ler card-abc123" "$T/o" && grep -q "NAO mande nada ao card" "$T/o" && ! grep -qi "cartao da pergunta" "$T/o"; ok "motivo pergunta: botoes Aprovar/Negar nao respondem, manda ler, nao mandar e nao cita cartao da pergunta" $?
-subir aguardando-permissao
-"$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 3 >"$T/o" 2>"$T/e"; c=$?
-ok "waiting_input com motivo permissao sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
-grep -q "esperando uma decisao do dono, uma permissao" "$T/o" && grep -q "Aprovar ou Negar" "$T/o" && ! grep -q "cartao da pergunta" "$T/o"; ok "motivo permissao: botoes Aprovar ou Negar na aba Sessoes" $?
-subir aguardando-motivo-estranho
-"$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 3 >"$T/o" 2>"$T/e"
-grep -q "uma pergunta ou uma permissao" "$T/o" && ! grep -q "Aprovar\|cartao da pergunta" "$T/o"; ok "motivo desconhecido (login) cai no texto neutro" $?
+# O aviso e o mesmo para pergunta, permissao ou motivo desconhecido: nao aponta botao nem o 'ler' como fonte.
+for modo in aguardando-decisao aguardando-pergunta aguardando-permissao aguardando-motivo-estranho; do
+  subir "$modo"
+  "$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 3 >"$T/o" 2>"$T/e"; c=$?
+  ok "$modo: card em waiting_input depois do turno sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
+  grep -q "esperando uma decisao do dono" "$T/o" && grep -q "Avise o dono agora" "$T/o" && grep -q "NAO mande nada ao card" "$T/o" \
+    && grep -q "Nao diga ao dono para clicar em Aprovar sem que ele veja" "$T/o" && grep -q "pode nao mostrar a pergunta" "$T/o" \
+    && ! grep -q "dgclaw-card esperar\|O dono usa os botoes\|cartao da pergunta\|Confira qual das duas" "$T/o"
+  ok "$modo: aviso unico, sem apontar botao, sem recomendar esperar e sem dar o ler como fonte da pergunta" $?
+done
 
 # --- cada consulta do primeiro turno respeita o menor entre CARD_MAX_TEMPO e o que resta da espera ----------------
 subir sem-turno

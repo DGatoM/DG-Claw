@@ -69,7 +69,7 @@ fi
 - `esperar` volta quando o card termina o turno. Se estourar o tempo (código 7), o término não foi
   confirmado a tempo: isso não prova que o card segue trabalhando. Leia o parcial com `ler`, confira com
   `estado` e espere mais com `--max` se fizer sentido. Se o `abrir` (ou o `estado`) disse que o card espera uma
-  decisão do dono, não chame o `esperar`: repasse o aviso ao dono, que responde na aba Sessões.
+  decisão do dono, não chame o `esperar`: repasse o aviso ao dono e não aprove nem mande nada ao card por ele.
 - Para uma pergunta nova no mesmo card: `dgclaw-card mandar "$id" "texto"` e espere de novo.
 - `dgclaw-card estado "$id"` mostra provedor, auth, modelo e situação. `dgclaw-card listar` mostra
   os cards abertos.

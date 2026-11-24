@@ -302,16 +302,12 @@ cmd_abrir() {
   if [ "$espera" = 0 ]; then
     echo "Card criado em $(nome_do_provedor "$provedor") e pedido entregue a fila. Com --espera-turno 0 o aceite do pedido NAO foi verificado: nao diga ao dono que o card esta trabalhando antes de conferir com 'dgclaw-card estado $id'."
   else
-    ESPERANDO_DECISAO=0; MOTIVO_DECISAO=""
+    ESPERANDO_DECISAO=0
     esperar_primeiro_turno "$id" "$espera"
     if [ "$ESPERANDO_DECISAO" = 1 ]; then
-      local quem_decide
-      case "$MOTIVO_DECISAO" in
-        pergunta) quem_decide="uma pergunta de escolha. Os botoes Aprovar e Negar da aba Sessoes do painel NAO respondem a essa pergunta. Veja a pergunta e as opcoes com 'dgclaw-card ler $id', conte ao dono a pergunta e as opcoes e NAO mande nada ao card por conta propria (um Enter pode escolher a opcao destacada)." ;;
-        permissao) quem_decide="uma permissao. O dono usa os botoes Aprovar ou Negar na aba Sessoes do painel." ;;
-        *) quem_decide="uma pergunta ou uma permissao. Confira qual das duas com 'dgclaw-card ler $id'." ;;
-      esac
-      echo "Card aberto em $(nome_do_provedor "$provedor"): ele aceitou o pedido e esta esperando uma decisao do dono, $quem_decide Para ver o que ele pediu: dgclaw-card ler $id"
+      # O aviso nao aponta botao nem o 'ler' como fonte: a aba Sessoes nao mostra a operacao pendente e o 'ler' nao
+      # traz o bloco da pergunta de escolha. Quem decide e o dono, vendo exatamente o que foi pedido.
+      echo "Card aberto em $(nome_do_provedor "$provedor"): ele aceitou o pedido e esta esperando uma decisao do dono (uma pergunta de escolha ou uma permissao). Avise o dono agora. NAO aprove, NAO negue e NAO mande nada ao card por conta propria (um Enter pode escolher a opcao destacada ou autorizar a operacao). Nao diga ao dono para clicar em Aprovar sem que ele veja exatamente o que esta sendo pedido: o 'dgclaw-card ler $id' pode nao mostrar a pergunta nem os argumentos da ferramenta."
     else
       echo "Card aberto em $(nome_do_provedor "$provedor"). Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
     fi
@@ -411,7 +407,7 @@ esperar_primeiro_turno() { # $1 id ; $2 segundos
             stopped|resumable)
               sem_confirmacao "$1" "o runner viu o turno do pedido, mas o terminal do card ja esta fechado (status $status); confira com 'dgclaw-card ler $1' antes de dizer qualquer coisa ao dono" ;;
           esac
-          if [ "$status" = waiting_input ]; then ESPERANDO_DECISAO=1; MOTIVO_DECISAO="$(campo .data.motivo)"; fi
+          if [ "$status" = waiting_input ]; then ESPERANDO_DECISAO=1; fi
           return 0
         fi
       fi
