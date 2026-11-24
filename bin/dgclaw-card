@@ -53,9 +53,10 @@
 #      Se o card abriu mas o "dgclaw-monitor add" falhou, a saida e 8: o card esta aberto e SEM monitor,
 #      e a mensagem traz o comando para ligar o monitor a mao.
 #   8  (so no "abrir --monitor") o card abriu e o pedido foi entregue, mas o monitor nao ligou
-#   9  (so no "abrir") o card foi criado e o texto entrou na fila, mas o pedido NAO virou turno dentro da espera
-#      (--espera-turno): o card nao esta trabalhando. O pedido ainda pode entrar sozinho: nao feche e nao reenvie
-#      por conta propria; confira com "estado" e "ler" depois de um tempo e, se continuar sem turno, avise o dono.
+#   9  (so no "abrir") o card foi criado, mas o runner nao OBSERVOU o primeiro turno do pedido dentro da espera
+#      (--espera-turno). Isso nao prova que o card esteja parado: o pedido ainda pode comecar (ou ja estar rodando sem
+#      ser observado). Nao feche e nao reenvie por conta propria (pode duplicar); confira com "estado" e "ler" depois
+#      de um tempo. Nao diga ao dono que o card esta trabalhando, nem que esta parado, antes de ver o primeiro turno.
 #  10  (so no "fechar") o card nunca teve turno (turnosAceitosSessao igual a 0), ainda tem texto na fila ou sendo digitado, o runner ainda espera o recibo do Enter de um texto (reciboPendente) ou nao deu para ler o estado dele.
 #      Fechar pode jogar fora o pedido. Repita com --forcar se for isso mesmo.
 #  11  (so no "abrir") o card foi criado e o pedido entregue, mas nao consegui confirmar se ele aceitou o pedido
@@ -385,23 +386,13 @@ esperar_primeiro_turno() { # $1 id ; $2 segundos
         sem_confirmacao "$1" "o runner ainda nao recebeu nenhum hook do Claude neste card, entao o contador de turnos nao consegue ver se o pedido foi aceito"
       fi
       avisar_monitor
-      CODIGO=9 die "o card $1 foi criado, mas o pedido ainda nao virou turno em $2 segundos: ele NAO esta trabalhando agora. O pedido pode ainda entrar sozinho: nao feche o card e nao reenvie por conta propria (isso pode duplicar o pedido). Confira com 'dgclaw-card estado $1' e 'dgclaw-card ler $1' depois de um tempo; se continuar sem turno, avise o dono. Nao diga ao dono que o card esta trabalhando antes de ver o primeiro turno."
+      CODIGO=9 die "o card $1 foi criado, mas o runner nao observou o primeiro turno do pedido em $2 segundos. Isso nao prova que o card esteja parado: o pedido ainda pode comecar, ou ja estar rodando sem ter sido observado. Nao feche o card e nao reenvie por conta propria (isso pode duplicar o pedido). Confira com 'dgclaw-card estado $1' e 'dgclaw-card ler $1' depois de um tempo. Ate ver o primeiro turno, nao diga ao dono que o card esta trabalhando, e tambem nao diga que ele esta parado."
     fi
     resta=$(( $2 - (SECONDS - inicio) ))
     if [ "$resta" -lt 1 ] || [ "$(awk -v a="$passo" -v b="$resta" 'BEGIN{print (a>b)}')" = 1 ]; then passo="$resta"; fi
     [ "$passo" != 0 ] && sleep "$passo"
     passo="${DGCLAW_CARD_INTERVALO:-5}"; [ "$passo" = 5 ] && passo=1
   done
-}
-
-# Diz se a conversa ATUAL do card tem pelo menos uma resposta do assistente. Retorno 0 = tem; 1 = nao tem;
-# 2 = nao deu para saber. Serve so para o texto do "estado"; o "fechar" nao usa a conversa.
-conversa_tem_resposta() { # $1 id
-  if ! chamar GET "/api/agents/$1/conversation?limit=30"; then return 2
-  elif [ "$HTTP" != 200 ]; then return 2
-  elif ! printf '%s' "$RESP" | jq -e '.data | type == "array"' >/dev/null 2>&1; then return 2
-  fi
-  [ "$(printf '%s' "$RESP" | jq '[.data[] | select(.role == "assistant")] | length')" != 0 ]
 }
 
 avisar_monitor() { [ -z "${MON_OUT:-}" ] || erro "$MON_OUT"; }
@@ -454,30 +445,19 @@ provedor_do() {
 
 cmd_estado() {
   validar_id "${1:-}"
-  local id="$1" status titulo fila reason prov auth modelo turnos hook semturno=""
+  local id="$1" status titulo fila reason prov auth modelo turnos hook
   chamar_ou_sair GET "/api/agents/$id"
   turnos="$(campo .data.turnosAceitosSessao)"
   status="$(campo .data.status)"; titulo="$(campo .data.sessao.titulo)"; fila="$(campo .data.sessao.fila)"
-  reason="$(campo .data.error)"; hook="$(campo .data.hookActive)"
-  # Zero turnos desde que o runner subiu (ou desde a ultima troca de conversa) NAO quer dizer sem primeiro turno:
-  # se a conversa atual ja tem resposta do assistente, o card trabalhou (ex.: runner reiniciado).
-  if [ "$turnos" = 0 ]; then
-    local r=0
-    conversa_tem_resposta "$id" || r=$?
-    [ "$r" != 1 ] || semturno=1
-  fi
+  reason="$(campo .data.error)"
   chamar_ou_sair GET "/api/provedor?sessao=$id"
   prov="$(campo .provedor)"; auth="$(campo .auth)"; modelo="$(campo .modelo)"
-  if [ -n "$semturno" ] && [ "$prov" = claude ] && [ "$hook" != true ]; then
-    status="${status:-desconhecido} (sem primeiro turno ainda; ainda nao da para confirmar se o pedido foi aceito: o runner nao recebeu nenhum hook do Claude neste card, entao o contador de turnos nao enxerga o aceite; confira a conversa daqui a pouco)"
-  elif [ -n "$semturno" ] && [ "$status" = working ]; then
-    status="working (terminal ativo, por exemplo compactando; o pedido ainda nao virou turno)"
-  elif [ -n "$semturno" ]; then
-    status="${status:-desconhecido} (sem primeiro turno ainda: o pedido nao virou turno)"
-  fi
   echo "$id: ${status:-desconhecido}${fila:+ (na fila: $fila)}${titulo:+ | titulo: $titulo}"
   echo "provedor: ${prov:-?} | auth: ${auth:-?} | modelo: ${modelo:-padrao}"
   [ -z "$reason" ] || echo "aviso do runner: $reason"
+  if [ "$turnos" = 0 ]; then
+    echo "primeiro turno ainda nao observado pelo runner (isso nao prova que o card esteja parado); confira com 'dgclaw-card ler $id'"
+  fi
 }
 
 cmd_esperar() {
@@ -542,24 +522,21 @@ cmd_ler() {
 
 # Diz por que a conversa do card esta vazia, pelo estado dele, em vez de so "sem mensagens".
 explicar_conversa_vazia() { # $1 id
-  local id="$1" status fila turnos hook prov=""
+  local id="$1" status fila turnos total
   if chamar GET "/api/agents/$id" && [[ "$HTTP" == 2* ]]; then
-    status="$(campo .data.status)"; fila="$(campo .data.sessao.fila)"; fila="${fila:-0}"; turnos="$(campo .data.turnosAceitosSessao)"; hook="$(campo .data.hookActive)"
-    [ "$turnos" != 0 ] || prov="$(provedor_do "$id")"
+    status="$(campo .data.status)"; fila="$(campo .data.sessao.fila)"; fila="${fila:-0}"; turnos="$(campo .data.turnosAceitosSessao)"; total="$(campo .data.naFilaTotal)"; total="${total:-$fila}"
     if [ "$fila" != 0 ] && { [ "$status" = stopped ] || [ "$status" = resumable ]; }; then
       echo "O card $id ainda nao tem mensagens: ha um pedido guardado na fila ($fila), mas a sessao esta sem terminal aberto. Retomar no painel (aba Sessoes) processa o pedido, sem reenviar o texto."
     elif [ "$fila" != 0 ]; then
-      echo "O card $id ainda nao tem mensagens: o pedido esta na fila ($fila) e ainda nao virou turno. Espere com: dgclaw-card esperar $id"
+      echo "O card $id ainda nao tem mensagens: ha texto na fila ($fila) e o runner ainda nao observou o primeiro turno (isso nao prova que esteja parado). Espere com: dgclaw-card esperar $id"
+    elif [ "$total" = 0 ] && { [ "$status" = stopped ] || { [ "$status" = resumable ] && [ "$turnos" = 0 ]; }; }; then
+      echo "O card $id ainda nao tem mensagens: nao ha terminal aberto e nao ha texto pendente na fila, entao nada vai comecar sozinho. Confira com o agente ou com o resultado esperado antes de reenviar. Para continuar, use Retomar no painel (aba Sessoes) ou 'dgclaw-card mandar $id \"...\"'."
     elif [ "$status" = resumable ]; then
       echo "O card $id ainda nao tem mensagens: a sessao esta dormindo (sem terminal aberto). Ela acorda quando voce manda um recado: dgclaw-card mandar $id \"...\""
-    elif [ "$turnos" = 0 ] && [ "$prov" = claude ] && [ "$hook" != true ]; then
-      echo "O card $id ainda nao tem mensagens e ainda nao da para confirmar se o pedido foi aceito: o runner nao recebeu nenhum hook do Claude neste card, entao o contador de turnos nao enxerga o aceite. Confira a conversa de novo daqui a pouco com 'dgclaw-card ler $id' e nao reenvie por conta propria."
-    elif [ "$status" = working ] && [ "$turnos" = 0 ]; then
-      echo "O card $id esta com o terminal ativo (por exemplo, compactando a conversa), mas o pedido ainda nao virou turno. Espere com 'dgclaw-card esperar $id' e nao reenvie por conta propria."
-    elif [ "$status" = working ]; then
-      echo "O card $id esta trabalhando no primeiro turno, e a conversa ainda nao gravou nada. Espere com: dgclaw-card esperar $id"
     elif [ "$turnos" = 0 ]; then
-      echo "O card $id nao tem mensagens: o pedido foi digitado e ainda nao virou turno (sem primeiro turno, estado $status). Ele NAO esta trabalhando agora. O pedido pode ainda entrar sozinho: espere com 'dgclaw-card esperar $id' e nao reenvie por conta propria; se continuar sem turno, avise o dono."
+      echo "O card $id ainda nao tem mensagens: o runner ainda nao observou o primeiro turno (estado $status). Isso nao prova que o card esteja parado: o pedido pode ainda comecar. Espere com 'dgclaw-card esperar $id', confira de novo com 'dgclaw-card ler $id' e nao reenvie por conta propria."
+    elif [ "$status" = working ]; then
+      echo "O card $id esta com o terminal ativo e a conversa ainda nao gravou nada. Espere com: dgclaw-card esperar $id"
     else
       echo "O card $id ainda nao tem mensagens para mostrar (estado $status). Se acabou de ser aberto, espere com: dgclaw-card esperar $id"
     fi

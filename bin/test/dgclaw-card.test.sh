@@ -83,7 +83,7 @@ grep -q "segue trabalhando" "$T/e"; ok "esperar diz que a sessao segue trabalhan
 subir sem-turno
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
 ok "pedido que nao vira turno sai com 9" $([ $c = 9 ] && echo 0 || echo 1)
-grep -q "card card-abc123 foi criado" "$T/e" && grep -q "NAO esta trabalhando" "$T/e" && grep -q "dgclaw-card estado card-abc123" "$T/e" && grep -q "nao reenvie por conta propria" "$T/e" && ! grep -q "reenvie com" "$T/e"; ok "a mensagem diz o id, que nao esta trabalhando, e manda conferir sem reenviar" $?
+grep -q "card card-abc123 foi criado" "$T/e" && grep -q "nao observou o primeiro turno" "$T/e" && grep -q "nao prova que o card esteja parado" "$T/e" && ! grep -qi "NAO esta trabalhando" "$T/e" && grep -q "dgclaw-card estado card-abc123" "$T/e" && grep -q "nao reenvie por conta propria" "$T/e" && ! grep -q "reenvie com" "$T/e"; ok "a mensagem diz o id, que o runner nao observou o turno (sem afirmar que esta parado), e manda conferir sem reenviar" $?
 ! grep -q "Card aberto" "$T/o"; ok "sem turno nao imprime 'Card aberto'" $?
 [ "$(head -1 "$T/o")" = "card-abc123" ] && [ "$(grep -c "card-abc123" "$T/o")" = 1 ]; ok "no 9 o id sai uma vez so, na primeira linha do stdout" $?
 subir sem-turno
@@ -98,8 +98,9 @@ subir sem-hook
 ok "Codex nao depende de hook: sem turno continua 9" $([ $c = 9 ] && echo 0 || echo 1)
 subir sem-turno
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >/dev/null 2>&1
-"$BIN" estado card-abc123 >"$T/o" 2>"$T/e"; grep -q "sem primeiro turno ainda" "$T/o"; ok "estado de card sem turno diz 'sem primeiro turno ainda'" $?
-"$BIN" ler card-abc123 >"$T/o" 2>"$T/e"; grep -q "ainda nao virou turno" "$T/o" && grep -q "NAO esta trabalhando" "$T/o"; ok "ler de card sem turno diz o motivo (e nao so 'sem mensagens')" $?
+"$BIN" estado card-abc123 >"$T/o" 2>"$T/e"; grep -q "primeiro turno ainda nao observado pelo runner" "$T/o" && grep -q "nao prova que o card esteja parado" "$T/o" && ! grep -qi "NAO esta trabalhando\|nao virou turno" "$T/o"; ok "estado de card sem turno e neutro (nao afirma que esta parado)" $?
+! grep -q '"url":"/api/agents/card-abc123/conversation' "$LOG"; ok "estado nao le a conversa (nenhum GET /conversation)" $?
+"$BIN" ler card-abc123 >"$T/o" 2>"$T/e"; grep -q "nao ha terminal aberto" "$T/o" && grep -q "nao ha texto pendente" "$T/o" && grep -q "Retomar" "$T/o" && grep -q "dgclaw-card mandar" "$T/o" && ! grep -qi "NAO esta trabalhando\|foi digitado" "$T/o"; ok "ler de card parado sem fila diz que nada comeca sozinho e aponta Retomar/mandar" $?
 "$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
 ok "fechar card sem turno recusa com 10" $([ $c = 10 ] && echo 0 || echo 1)
 grep -q -- "--forcar" "$T/e" && grep -q "jogar o pedido fora" "$T/e"; ok "a recusa explica e pede --forcar" $?
@@ -270,9 +271,9 @@ subir working-sem-turno
 ok "working com contador 0 e hook:PreCompact nao confirma: sai com 9" $([ $c = 9 ] && echo 0 || echo 1)
 ! grep -q "Card aberto" "$T/o"; ok "working sem contador nao imprime 'Card aberto'" $?
 "$BIN" estado card-abc123 >"$T/o3" 2>"$T/e3"
-grep -q "working (terminal ativo" "$T/o3" && grep -q "ainda nao virou turno" "$T/o3"; ok "estado com working e contador 0 avisa que o pedido ainda nao virou turno" $?
+grep -q "primeiro turno ainda nao observado pelo runner" "$T/o3" && ! grep -qi "NAO esta trabalhando\|nao virou turno" "$T/o3"; ok "estado com working e contador 0 diz que o primeiro turno nao foi observado" $?
 "$BIN" ler card-abc123 >"$T/o2" 2>"$T/e2"
-grep -q "terminal ativo" "$T/o2" && grep -q "ainda nao virou turno" "$T/o2" && ! grep -q "trabalhando no primeiro turno" "$T/o2"; ok "ler com working e contador 0 nao diz que o pedido esta no primeiro turno" $?
+grep -q "ainda nao observou o primeiro turno" "$T/o2" && ! grep -qi "NAO esta trabalhando" "$T/o2" && ! grep -q "trabalhando no primeiro turno" "$T/o2"; ok "ler com working e contador 0 nao diz que o pedido esta no primeiro turno" $?
 
 # --- nome de ferramenta com "error" no statusReason nao e falha de turno ----------------------------------------
 subir ferramenta-com-erro-no-nome
@@ -303,9 +304,9 @@ grep -q "StopFailure rate_limit" "$T/e"; ok "o 11 com pendencia traz o statusRea
 subir sem-hook
 "$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 1 >/dev/null 2>&1
 "$BIN" estado card-abc123 >"$T/o" 2>"$T/e"
-! grep -q "NAO esta trabalhando\|o pedido nao virou turno" "$T/o" && grep -q "nao da para confirmar" "$T/o" && grep -q "nenhum hook do Claude" "$T/o"; ok "estado de Claude sem hook diz que nao da para confirmar" $?
+! grep -q "NAO esta trabalhando\|o pedido nao virou turno" "$T/o" && grep -q "nao prova que o card esteja parado" "$T/o"; ok "estado de Claude sem hook e neutro" $?
 "$BIN" ler card-abc123 >"$T/o" 2>"$T/e"
-! grep -q "NAO esta trabalhando\|ainda nao virou turno" "$T/o" && grep -q "nao da para confirmar" "$T/o" && grep -q "nenhum hook do Claude" "$T/o"; ok "ler de Claude sem hook diz que nao da para confirmar" $?
+! grep -q "NAO esta trabalhando\|ainda nao virou turno" "$T/o" && grep -q "nada vai comecar sozinho" "$T/o"; ok "ler de Claude sem hook e neutro" $?
 
 # --- turno com texto ainda na fila nao confirma o pedido (mensagem do painel digitada direto no terminal) -----
 subir turno-com-fila

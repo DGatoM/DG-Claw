@@ -256,8 +256,8 @@ try {
     const ativos = await lerJson(await p.pedir('/api/sessoes'));
     ok(['card-t0', 'card-tf', 'card-td'].every((id) => ativos.json.itens.some((i) => i.id === id)), 'o filtro padrão "Ativas" mostra o card sem primeiro turno, inclusive o dormindo');
     const v0 = await lerJson(await p.pedir('/api/sessoes/card-t0/conversa'));
-    ok(v0.json.mensagens.length === 0 && /Nenhum pedido virou turno nesta conversa ainda/.test(v0.json.motivo_vazio) && /conversa nova, ela está pronta para a primeira mensagem/.test(v0.json.motivo_vazio) && !/foi digitado/.test(v0.json.motivo_vazio) && !/ainda não tem mensagens/.test(v0.json.motivo_vazio), 'conversa vazia sem pedido aceito: texto neutro, sem afirmar que algo foi digitado');
-    ok(/aguarde e confira/.test(v0.json.motivo_vazio) && /sem reenviar/.test(v0.json.motivo_vazio) && !/Mande o pedido de novo|feche o card|Retomar/i.test(v0.json.motivo_vazio), 'a mensagem manda aguardar e conferir, sem reenviar nem fechar');
+    ok(v0.json.mensagens.length === 0 && /runner ainda não observou nenhum turno nesta conversa/.test(v0.json.motivo_vazio) && /conversa nova, pronta para a primeira mensagem/.test(v0.json.motivo_vazio) && !/foi digitado/.test(v0.json.motivo_vazio) && !/ainda não tem mensagens/.test(v0.json.motivo_vazio), 'conversa vazia sem pedido aceito: texto neutro, sem afirmar que algo foi digitado');
+    ok(/aguarde e confira/i.test(v0.json.motivo_vazio) && /sem reenviar/.test(v0.json.motivo_vazio) && !/Mande o pedido de novo|feche o card|Retomar/i.test(v0.json.motivo_vazio), 'a mensagem manda aguardar e conferir, sem reenviar nem fechar');
     const vf = await lerJson(await p.pedir('/api/sessoes/card-tf/conversa'));
     ok(/na fila/.test(vf.json.motivo_vazio), 'conversa vazia com pedido na fila: motivo');
     const vd = await lerJson(await p.pedir('/api/sessoes/card-td/conversa'));
@@ -270,7 +270,7 @@ try {
     ok(/pedido guardado/.test(vtp.json.motivo_vazio) && /Retomar/.test(vtp.json.motivo_vazio) && !/Aguarde/.test(vtp.json.motivo_vazio), 'stopped com fila: manda usar Retomar');
     ok(por['card-te'].grupo === 'erro' && /sessão falhou/.test(por['card-te'].motivo) && /código 1/.test(por['card-te'].motivo) && por['card-te'].tem_terminal === false, 'processo que falhou antes do primeiro turno: mostra a causa e deixa Retomar, sem mandar aguardar');
     const vtw = await lerJson(await p.pedir('/api/sessoes/card-tw/conversa'));
-    ok(por['card-tw'].grupo === 'parado' && /ainda não virou turno/.test(por['card-tw'].motivo) && /compactando/.test(vtw.json.motivo_vazio) && !/trabalhando no primeiro turno/.test(vtw.json.motivo_vazio), 'working sem recibo (compactação): não diz que o pedido está no primeiro turno');
+    ok(por['card-tw'].grupo === 'parado' && /ainda não observou o turno/.test(por['card-tw'].motivo) && /compactando/.test(vtw.json.motivo_vazio) && !/trabalhando no primeiro turno/.test(vtw.json.motivo_vazio), 'working sem recibo (compactação): não diz que o pedido está no primeiro turno');
     const vf1 = await lerJson(await p.pedir('/api/sessoes/card-f1/conversa'));
     ok(vf1.json.mensagens.length === 1 && vf1.json.motivo_vazio === undefined, 'conversa com mensagens não traz motivo');
     for (const id of ['card-t0', 'card-t1', 'card-tf', 'card-td', 'card-tq', 'card-tr', 'card-tu', 'card-ts', 'card-tp', 'card-sp', 'card-te', 'card-tw']) sessoes.delete(id);

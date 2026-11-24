@@ -135,10 +135,11 @@ O comando já escreve a frase pronta. Repasse ao dono em linguagem simples:
 - Código 4 (limite): há cards demais abertos (o padrão desta instalação é 8). Rode `dgclaw-card listar`, feche os que acabaram com
   `dgclaw-card fechar <id>` e tente de novo. Se o dono quiser mais vagas, o limite sobe em
   `RUNNER_MAX_SESSOES_EXTRAS` (quem mantém a máquina ajusta).
-- Código 9 (o pedido não virou turno): o card foi criado e o texto entrou na fila, mas o card NÃO está
-  trabalhando agora. Não diga ao dono que ele está trabalhando, não feche o card e NÃO reenvie o pedido
-  por conta própria (o pedido pode ainda entrar sozinho, e reenviar o duplicaria). Confira com
-  `dgclaw-card estado <id>` e `dgclaw-card ler <id>` depois de um tempo; se continuar sem turno, avise o dono.
+- Código 9 (o runner não observou o primeiro turno): o card foi criado, mas o runner não viu o primeiro turno
+  do pedido dentro da espera. Isso não prova que o card esteja parado: o pedido pode ainda começar, ou já
+  estar rodando sem ter sido observado. Não diga ao dono que ele está trabalhando (nem que está parado), não
+  feche o card e NÃO reenvie o pedido por conta própria (reenviar poderia duplicá-lo). Confira com
+  `dgclaw-card estado <id>` e `dgclaw-card ler <id>` depois de um tempo.
   O `abrir` espera 60 segundos por isso; `--espera-turno SEG` muda o prazo (0 desliga).
 - Código 10 (`fechar` recusado): o card nunca teve um turno, ainda tem texto na fila, ou não deu para ler o
   estado dele, e fechar agora pode jogar o pedido fora. Só use `dgclaw-card fechar <id> --forcar`

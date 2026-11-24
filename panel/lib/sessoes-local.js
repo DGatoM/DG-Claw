@@ -269,7 +269,7 @@ function registrar(router, { CONFIG }) {
     const filaPositiva = !!(ag.sessao && ag.sessao.fila > 0);
     // Processo que falhou antes do primeiro turno: mostra a causa e deixa o Retomar, em vez de mandar aguardar.
     if (semPrimeiroTurno(ag, fala) && espacos(ag.error) && st !== 'working' && st !== 'spawning' && st !== 'waiting_input') {
-      return { grupo: 'erro', estado: 'erro', motivo: `o pedido não virou turno porque a sessão falhou: ${espacos(ag.error).slice(0, 200)}`, tem_terminal: false };
+      return { grupo: 'erro', estado: 'erro', motivo: `a sessão falhou antes de o runner observar o primeiro turno: ${espacos(ag.error).slice(0, 200)}`, tem_terminal: false };
     }
     if (semPrimeiroTurno(ag, fala) && (st === 'idle' || st === 'completed' || st === 'resumable' || (st === 'stopped' && filaPositiva))) {
       const dorme = st === 'resumable' || st === 'stopped';
@@ -277,17 +277,17 @@ function registrar(router, { CONFIG }) {
       return {
         grupo: 'parado', estado: 'esperando_primeiro_turno', tem_terminal: !dorme,
         motivo: fila ? 'esperando o primeiro turno: o pedido está na fila' : dorme
-          ? 'esperando o primeiro turno: sessão dormindo, o pedido ainda não virou turno'
-          : 'esperando o primeiro turno: o pedido ainda não foi aceito',
+          ? 'esperando o primeiro turno: sessão dormindo, o runner ainda não observou o turno'
+          : 'esperando o primeiro turno: o runner ainda não observou o turno',
       };
     }
     // Terminal ainda abrindo e sem recibo: o pedido nem chegou ao CLI, então não é "trabalhando no primeiro turno".
     if (st === 'spawning' && semPrimeiroTurno(ag, fala)) {
-      return { grupo: 'parado', estado: 'esperando_primeiro_turno', motivo: 'o terminal ainda está abrindo: o pedido ainda não virou turno', tem_terminal: true };
+      return { grupo: 'parado', estado: 'esperando_primeiro_turno', motivo: 'o terminal ainda está abrindo: o runner ainda não observou o turno', tem_terminal: true };
     }
-    // Terminal ativo sem recibo (ex.: compactando): o pedido ainda não virou turno, então não é "trabalhando no primeiro turno".
+    // Terminal ativo sem recibo (ex.: compactando): o runner ainda não observou o turno, então não é "trabalhando no primeiro turno".
     if (st === 'working' && semPrimeiroTurno(ag, fala)) {
-      return { grupo: 'parado', estado: 'esperando_primeiro_turno', motivo: 'o terminal está ativo (por exemplo, compactando), mas o pedido ainda não virou turno', tem_terminal: true };
+      return { grupo: 'parado', estado: 'esperando_primeiro_turno', motivo: 'o terminal está ativo (por exemplo, compactando), mas o runner ainda não observou o turno', tem_terminal: true };
     }
     switch (st) {
       case 'waiting_input':
@@ -493,24 +493,24 @@ function registrar(router, { CONFIG }) {
 
   function motivoDaConversaVazia(it) {
     if (/terminal ainda está abrindo/.test(it.motivo)) {
-      return 'O terminal ainda está abrindo e o pedido ainda não virou turno. Aguarde e confira o estado daqui a pouco.';
+      return 'O terminal ainda está abrindo e o runner ainda não observou o primeiro turno. Isso não prova que esteja parado. Aguarde e confira o estado daqui a pouco.';
     }
     if (it.grupo === 'fechado') return 'A sessão está dormindo, sem terminal aberto. Ela acorda com um recado ou com Retomar.';
-    if (/compactando/.test(it.motivo) && /ainda não virou turno/.test(it.motivo)) {
-      return 'O terminal está ativo (por exemplo, compactando a conversa), mas o pedido ainda não virou turno. Aguarde e confira o estado daqui a pouco, sem reenviar.';
+    if (/compactando/.test(it.motivo) && /ainda não observou o turno/.test(it.motivo)) {
+      return 'O terminal está ativo (por exemplo, compactando a conversa), mas o runner ainda não observou o primeiro turno. Isso não prova que esteja parado. Aguarde e confira o estado daqui a pouco, sem reenviar.';
     }
     if (it.estado === 'esperando_primeiro_turno') {
-      const espera = ' Aguarde e confira o estado daqui a pouco: o pedido pode ainda entrar sozinho.';
+      const espera = ' Isso não prova que esteja parado. Aguarde e confira o estado daqui a pouco: o pedido pode ainda começar.';
       if (/na fila/.test(it.motivo) && it.tem_terminal === false) {
         return 'Há um pedido guardado na fila, mas a sessão está sem terminal aberto. Use Retomar para processar o pedido, sem reenviar o texto.';
       }
-      if (/na fila/.test(it.motivo)) return `O pedido está na fila e ainda não virou turno.${espera}`;
+      if (/na fila/.test(it.motivo)) return `Há texto na fila e o runner ainda não observou o primeiro turno.${espera}`;
       // Sem terminal e sem item na fila, nada vai entregar o pedido sozinho.
       if (it.tem_terminal === false) {
         return 'A sessão está dormindo, sem terminal aberto e sem pedido na fila. Nenhum turno foi registrado desde que o runner subiu pela última vez e nenhuma mensagem foi encontrada no histórico, então não dá para saber se algum pedido foi feito. Confira com o agente ou pelo resultado esperado antes de reenviar qualquer coisa. Retomar abre o terminal.';
       }
-      if (/dormindo/.test(it.motivo)) return `A sessão está dormindo e o pedido ainda não virou turno.${espera}`;
-      return 'Nenhum pedido virou turno nesta conversa ainda. Se você acabou de abrir uma conversa nova, ela está pronta para a primeira mensagem. Se um pedido foi enviado, aguarde e confira o estado daqui a pouco, sem reenviar.';
+      if (/dormindo/.test(it.motivo)) return `A sessão está dormindo e o runner ainda não observou o primeiro turno.${espera}`;
+      return 'O runner ainda não observou nenhum turno nesta conversa. Pode ser uma conversa nova, pronta para a primeira mensagem, ou um pedido que ainda vai começar; isso não prova que a sessão esteja parada. Aguarde e confira o estado daqui a pouco, sem reenviar.';
     }
     if (it.grupo === 'trabalhando') return 'A sessão está trabalhando no primeiro turno e a conversa ainda não gravou nada.';
     return 'Esta sessão ainda não tem mensagens.';

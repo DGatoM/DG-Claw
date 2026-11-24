@@ -101,7 +101,7 @@ tarefa curta direto, e mande a longa para um card do mesmo jeito.
    pode ter sido entregue: não execute a tarefa pela conversa principal (ela rodaria duas vezes) e não
    reenvie. Confira o estado do card com `dgclaw-card estado <id>` e avise {{DONO}}.
    O `abrir` espera até 60 segundos o pedido virar o primeiro turno do card e só então sai com 0.
-   Sair com 9 quer dizer que o card existe, mas o pedido não virou turno e ele NÃO está trabalhando agora.
+   Sair com 9 quer dizer que o card existe, mas o runner não observou o primeiro turno dentro da espera. Isso não prova que o card esteja parado: o pedido ainda pode começar. Não feche, não reenvie e não diga a {{DONO}} nem que está trabalhando nem que está parado; confira depois com `estado` e `ler`.
    Sair com 11 quer dizer que não deu para confirmar se o card aceitou o pedido. Sair com 12 quer dizer
    que o card aceitou o pedido, mas o turno falhou e ele está em erro (veja com `dgclaw-card ler <id>`).
    Capture a saída e o código ANTES de pegar o id, senão o `head` esconde o código de saída:
