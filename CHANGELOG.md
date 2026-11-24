@@ -10,7 +10,7 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - **Novo: checklist de entrega de cliente e smoke test da VPS.** O `docs/ENTREGA-CLIENTE.md` reúne, para a equipe
   que entrega uma VPS pronta, os doze passos a conferir antes de passar o servidor ao cliente (versão do Ubuntu,
   limites do container, cofre, YouTube, Chrome headless, ffmpeg, login pelo celular e outros),
-  cada um com o comando e o resultado esperado. O `scripts/smoke-entrega.sh <agente>` roda no servidor, como root, e
+  cada um com o comando e o resultado esperado. O `/opt/dgclaw/app/scripts/smoke-entrega.sh <agente>` roda no servidor, como root, e
   automatiza a versão do Ubuntu, os limites e o estado do container, o microfone, os nomes do cofre e o `ffmpeg`
   do servidor. Ele não executa nada dentro do container: `TasksMax`, `OOMPolicy` e `NRestarts` do runner, o
   journal do runner, o render, o `yt-dlp` e a varredura de skills ficam à mão. Ele

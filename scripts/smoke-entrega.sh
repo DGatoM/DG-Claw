@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # smoke-entrega.sh: confere uma VPS de cliente antes da entrega. Roda no servidor, como root.
 #
-#   sudo bash scripts/smoke-entrega.sh <agente>
+#   sudo bash /opt/dgclaw/app/scripts/smoke-entrega.sh <agente>
 #
 # Automatiza os itens 1, 3, 5 (microfone e nomes do cofre) e 8 (so o ffmpeg do servidor) do checklist
 # (docs/ENTREGA-CLIENTE.md). So faz leituras do servidor que o agente nao controla: podman inspect, podman container
@@ -23,7 +23,7 @@ set -u
 R="${DGCLAW_RAIZ:-}"
 CLI="${DGCLAW_CLI:-dgclaw}"
 
-USO='uso: sudo bash scripts/smoke-entrega.sh <agente>'
+USO='uso: sudo bash /opt/dgclaw/app/scripts/smoke-entrega.sh <agente>'
 SLUG=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -76,35 +76,32 @@ desc_cobertura() {
 }
 # so_digitos <texto> <maximo de caracteres>: verdadeiro se for um numero curto.
 so_digitos() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "${#1}" -le "$2" ]; }
-# contar_oom <corte> <comando...>: quantas linhas de falta de memoria, com timestamp (parte inteira do primeiro campo)
-# maior ou igual ao corte (unix), o comando mostra, e o timestamp da primeira linha, no formato "<contagem> <timestamp>" (o comando precisa imprimir "-o short-unix"; sem linha, o
-# timestamp sai como "-"). So esses dois valores ficam guardados, o texto do journal passa direto pelo filtro. A
-# leitura tem limite de 1 MiB: se passar disso sem nenhuma ocorrencia no que foi lido, sai com 98 e nada (saida
-# cortada, INCONCLUSIVO); se ja achou ocorrencia, sai com 97 e a contagem parcial (e FALHA, com nota de contagem
-# parcial, e o timestamp nao vale como cobertura). Se o comando terminar com erro (journal ilegivel, prazo) depois de
-# ja ter mostrado ocorrencia, tambem sai com 97 e a contagem parcial. Erro sem nenhuma ocorrencia sai com 1 e nada:
-# isso e INCONCLUSIVO, nao "zero". O timestamp so vale como cobertura com o comando terminando em 0. A consulta comeca
-# uma hora antes do corte so para medir a cobertura: linha antes do corte, ou sem timestamp numerico, nao conta como OOM.
+# contar_oom <comando...>: quantas linhas de falta de memoria (eventos do OOM killer do kernel) o comando mostra
+# (o comando precisa imprimir "-o short-unix"; a janela de 7 dias ja vem do --since do proprio comando). So a
+# contagem fica guardada, o texto do journal passa direto pelo filtro. A leitura tem limite de 1 MiB: se passar
+# disso sem nenhuma ocorrencia no que foi lido, sai com 98 e nada (saida cortada, INCONCLUSIVO); se ja achou
+# ocorrencia, sai com 97 e a contagem parcial (e FALHA, com nota de contagem parcial). Se o comando terminar com erro
+# (journal ilegivel, prazo) depois de ja ter mostrado ocorrencia, tambem sai com 97 e a contagem parcial. Erro sem
+# nenhuma ocorrencia sai com 1 e nada: isso e INCONCLUSIVO, nao "zero".
 contar_oom() {
-    local r linha n bytes ts rc corte="$1"
-    shift
-    r="$("$@" 2>/dev/null | head -c 1048577 | LC_ALL=C awk -v corte="$corte" 'BEGIN { n = 0; b = 0; ts = "-" } NR == 1 { t = $1; sub(/\..*$/, "", t); if (t != "") ts = t } { b += length($0) + 1; t = $1; sub(/\..*$/, "", t); m = $0; sub(/^[^ ]+ [^ ]+ /, "", m); if (t ~ /^[0-9]+$/ && t + 0 >= corte + 0 && tolower(m) ~ /out of memory|oom-kill|oom_kill|killed process/) n++ } END { print n, b, ts }'; printf 'rc=%s' "${PIPESTATUS[0]}")"
+    local r linha n bytes rc
+    r="$("$@" 2>/dev/null | head -c 1048577 | LC_ALL=C awk 'BEGIN { n = 0; b = 0 } { b += length($0) + 1; m = $0; sub(/^[^ ]+ [^ ]+ /, "", m); if (tolower(m) ~ /invoked oom-killer|out of memory: killed process|memory cgroup out of memory|oom-kill:constraint=|oom_reaper: reaped process/) n++ } END { print n, b }'; printf 'rc=%s' "${PIPESTATUS[0]}")"
     rc="${r##*rc=}"; linha="${r%%$'\n'*}"
-    read -r n bytes ts <<<"$linha"
+    read -r n bytes <<<"$linha"
     so_digitos "$n" 9 || return 1
     so_digitos "$bytes" 9 || return 1
     [ "$bytes" -le 1048578 ] || return 1
     if [ "$bytes" -gt 1048576 ]; then
         [ "$n" -gt 0 ] || return 98
-        printf '%s -' "$n"
+        printf '%s' "$n"
         return 97
     fi
     if [ "$rc" != 0 ]; then
         [ "$n" -gt 0 ] || return 1
-        printf '%s -' "$n"
+        printf '%s' "$n"
         return 97
     fi
-    printf '%s %s' "$n" "${ts:--}"
+    printf '%s' "$n"
 }
 # ler_cpu <caminho validado>: "<quota> <periodo>" do cpu.max do cgroup do container, no host (quota "max" = sem limite).
 ler_cpu() {
@@ -249,27 +246,37 @@ else
     fi
 
     # Kernel do servidor: _TRANSPORT=kernel (o -k so olha o boot atual e perderia um OOM de antes de um reinicio).
-    # A mesma leitura conta o OOM e mede a cobertura (a entrada mais antiga que o journal ainda guarda dentro dos 7
-    # dias). Nao ha segunda chamada ao journalctl.
-    # A janela e calculada uma vez: o corte e agora menos 7 dias, e a consulta comeca uma hora antes dele para ver se o
-    # historico alcanca o corte.
+    # Duas consultas no host: a contagem de OOM so na janela de 7 dias e a cobertura (a entrada mais recente igual ou
+    # anterior ao corte: se existe, o historico do journal alcanca o inicio da janela, mesmo com o kernel quieto).
     agora="$(date +%s)"; corte=$((agora - 7 * 86400))
-    oom_k="$(contar_oom "$corte" timeout 60 journalctl _TRANSPORT=kernel --since "@$((corte - 3600))" --no-pager -q -o short-unix)"; rc_k=$?
-    oom_n=""; oom_ts=""
-    read -r oom_n oom_ts <<<"$oom_k"
+    oom_n="$(contar_oom timeout 60 journalctl _TRANSPORT=kernel --since "@$corte" --no-pager -q -o short-unix)"; rc_k=$?
     parcial=0
     if [ "$rc_k" -eq 97 ]; then rc_k=0; parcial=1; fi
-    # Cobertura so vale com o journalctl terminando em 0 e a leitura inteira (sem corte).
-    # Os 7 dias so valem com a primeira entrada igual ou anterior ao corte.
+    # A cobertura so e medida com a contagem lida inteira e sem OOM, e so vale com o journalctl terminando em 0.
     cob=""; cob7=0
-    if [ "$rc_k" -eq 0 ] && [ "$parcial" -eq 0 ] && so_digitos "$oom_ts" 12; then
-        horas=$(( (agora - oom_ts) / 3600 )); [ "$horas" -ge 0 ] || horas=0
-        if [ "$oom_ts" -le "$corte" ]; then cob7=1; cob="7 dias"; else cob="$(desc_cobertura "$horas")"; fi
+    if [ "$rc_k" -eq 0 ] && [ "$parcial" -eq 0 ] && [ "$oom_n" -eq 0 ]; then
+        cov_saida="$(timeout 60 journalctl _TRANSPORT=kernel --until "@$corte" -r -n 1 --no-pager -q -o short-unix 2>/dev/null | head -c 4096; printf 'rc=%s' "${PIPESTATUS[0]}")"
+        cov_rc="${cov_saida##*rc=}"; cov_linha="${cov_saida%%$'\n'*}"; cov_ts="${cov_linha%% *}"; cov_ts="${cov_ts%%.*}"
+        if ! so_digitos "$cov_rc" 3 || [ "$cov_rc" -ne 0 ]; then
+            rc_k=1
+        elif so_digitos "$cov_ts" 12 && [ "$cov_ts" -le "$corte" ]; then
+            cob7=1; cob="7 dias"
+        else
+            # O historico nao alcanca o corte: o periodo examinado vem da primeira entrada da janela (141 = SIGPIPE do head).
+            prim_saida="$(timeout 60 journalctl _TRANSPORT=kernel --since "@$corte" --no-pager -q -o short-unix 2>/dev/null | head -n 1; printf 'rc=%s' "${PIPESTATUS[0]}")"
+            prim_rc="${prim_saida##*rc=}"; prim_linha="${prim_saida%%$'\n'*}"; prim_ts="${prim_linha%% *}"; prim_ts="${prim_ts%%.*}"
+            if ! so_digitos "$prim_rc" 3 || { [ "$prim_rc" -ne 0 ] && [ "$prim_rc" -ne 141 ]; }; then
+                rc_k=1
+            elif so_digitos "$prim_ts" 12; then
+                horas=$(( (agora - prim_ts) / 3600 )); [ "$horas" -ge 0 ] || horas=0
+                cob="$(desc_cobertura "$horas")"
+            fi
+        fi
     fi
     # A linha do kernel sozinha nao diz que o agente estourou o proprio teto: so a leitura humana das linhas oom-kill
     # (oom_memcg e task_memcg) diz. Por isso a dica nunca manda aumentar a memoria direto.
-    oom_dica="a contagem sozinha nao diz de quem era o processo nem qual limite estourou, entao nao aumente o teto do agente por causa dela. Num terminal seu (nunca no chat do Admin), leia as linhas oom-kill com journalctl _TRANSPORT=kernel --since '7 days ago' -o cat | grep -iE 'out of memory|oom-kill|oom_kill|killed process' e veja a data, o oom_memcg (o cgroup cujo limite estourou) e o task_memcg (quem foi morto). So com o oom_memcg igual ao cgroup do container $C o agente estourou o proprio teto. Com o oom_memcg de um ancestral, de outro servico ou com OOM do servidor inteiro (CONSTRAINT_NONE), o ajuste e nesse limite ou no plano da VPS. Nunca aumente o teto do agente direto."
-    oom_cmd="journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o cat | grep -ciE 'out of memory|oom-kill|oom_kill|killed process'; echo \"journalctl=\${PIPESTATUS[0]} grep=\${PIPESTATUS[1]}\""
+    oom_dica="a contagem sozinha nao diz de quem era o processo nem qual limite estourou, entao nao aumente o teto do agente por causa dela. Num terminal seu (nunca no chat do Admin), leia as linhas de OOM com journalctl _TRANSPORT=kernel --since '7 days ago' -o cat | grep -iE 'invoked oom-killer|out of memory: killed process|memory cgroup out of memory|oom-kill:constraint=|oom_reaper: reaped process' e veja a data, o oom_memcg (o cgroup cujo limite estourou) e o task_memcg (quem foi morto). So com o oom_memcg igual ao cgroup do container $C o agente estourou o proprio teto. Com o oom_memcg de um ancestral, de outro servico ou com OOM do servidor inteiro (CONSTRAINT_NONE), o ajuste e nesse limite ou no plano da VPS. Nunca aumente o teto do agente direto."
+    oom_cmd="journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o cat | grep -ciE 'invoked oom-killer|out of memory: killed process|memory cgroup out of memory|oom-kill:constraint=|oom_reaper: reaped process'; echo \"journalctl=\${PIPESTATUS[0]} grep=\${PIPESTATUS[1]}\""
     oom_leitura="num terminal seu, leia a janela toda: $oom_cmd. A contagem so vale com journalctl=0 e grep=0 ou 1 (grep=2 e erro), e este item continua INCONCLUSIVO ate essa leitura ser feita. Veja tambem se o journal e persistente (ls /var/log/journal) e rode o smoke de novo."
     if [ "$rc_k" -ne 0 ]; then
         inconclusivo 3 "nao consegui ler o journal do kernel do servidor dos ultimos 7 dias (erro, prazo ou saida cortada em 1 MiB). Isso nao quer dizer zero eventos de falta de memoria." \
@@ -303,24 +310,12 @@ printf '\n5. Microfone do chat e nomes das chaves do cofre (so os nomes, nunca o
 # Microfone: o servico Web le a chave do proprio arquivo de ambiente (web.env). O arquivo e lido como texto
 # (nunca executado) e so o veredito "tem valor" sai; o valor nunca e impresso. Vale a ULTIMA atribuicao.
 WEBENV="$R/etc/dgclaw/web.env"
-# Uma leitura so, limitada: copia ate 1 MiB + 1 byte para um temporario e confere o codigo do head e o tamanho.
-env_tmp=""; env_rc=1; env_tam=0
+# Uma leitura so, em fluxo e limitada: o head le ate 1 MiB + 1 byte e o awk conta os bytes lidos e devolve so os
+# nomes das chaves com valor (nenhuma copia do arquivo vai para o disco). Confere o codigo do head e o tamanho.
+env_rc=1; env_tam=0; mic=""
 if [ -r "$WEBENV" ]; then
-    env_tmp="$(mktemp 2>/dev/null)" || env_tmp=""
-    if [ -n "$env_tmp" ]; then
-        head -c 1048577 "$WEBENV" >"$env_tmp" 2>/dev/null; env_rc=$?
-        env_tam="$(LC_ALL=C wc -c <"$env_tmp" 2>/dev/null | tr -d ' ')"
-        so_digitos "$env_tam" 9 || env_rc=1
-    fi
-fi
-if [ "$env_rc" -ne 0 ]; then
-    inconclusivo 5 "nao consegui ler o arquivo de ambiente do servico Web ($(printf '%s' "$WEBENV" | limpar)), entao nao sei se o microfone tem chave." \
-        "confira a mao a ultima linha de GROQ_API_KEY, OPENAI_API_KEY e ELEVENLABS_API_KEY no web.env (so se tem valor, sem mostrar o valor)"
-elif [ "$env_tam" -gt 1048576 ]; then
-    inconclusivo 5 "o web.env passa de 1 MiB e a leitura foi cortada, entao a ultima atribuicao das chaves do microfone pode ter ficado de fora." \
-        "confira a mao a ultima linha de GROQ_API_KEY, OPENAI_API_KEY e ELEVENLABS_API_KEY no web.env (so se tem valor, sem mostrar o valor)"
-else
-    mic="$(LC_ALL=C awk '
+    env_saida="$(head -c 1048577 "$WEBENV" 2>/dev/null | LC_ALL=C awk '
+        { b += length($0) + 1 }
         /^[[:space:]]*(export[[:space:]]+)?(GROQ|OPENAI|ELEVENLABS)_API_KEY[[:space:]]*=/ {
             k = $0; sub(/^[[:space:]]*(export[[:space:]]+)?/, "", k); sub(/[[:space:]]*=.*$/, "", k)
             v = $0; sub(/^[^=]*=/, "", v)
@@ -330,12 +325,25 @@ else
             cont[k]++
         }
         END {
+            print b + 0
             n = split("ELEVENLABS_API_KEY GROQ_API_KEY OPENAI_API_KEY", ordem, " ")
             for (i = 1; i <= n; i++) if (cont[ordem[i]] > 1) dup = dup (dup == "" ? "" : ", ") ordem[i]
             if (dup != "") { print "DUPLICADA " dup; exit }
             for (i = 1; i <= n; i++) if (tem[ordem[i]] == 1) lista = lista (lista == "" ? "" : ", ") ordem[i]
             print (lista == "" ? "NENHUMA" : lista)
-        }' "$env_tmp" 2>/dev/null)"
+        }' 2>/dev/null; printf 'rc=%s' "${PIPESTATUS[0]}")"
+    env_rc="${env_saida##*rc=}"; env_corpo="${env_saida%rc=*}"
+    env_tam="${env_corpo%%$'\n'*}"; mic="${env_corpo#*$'\n'}"; mic="${mic%%$'\n'*}"
+    so_digitos "$env_tam" 9 || env_rc=1
+    so_digitos "$env_rc" 3 || env_rc=1
+fi
+if [ "$env_rc" -ne 0 ]; then
+    inconclusivo 5 "nao consegui ler o arquivo de ambiente do servico Web ($(printf '%s' "$WEBENV" | limpar)), entao nao sei se o microfone tem chave." \
+        "confira a mao a ultima linha de GROQ_API_KEY, OPENAI_API_KEY e ELEVENLABS_API_KEY no web.env (so se tem valor, sem mostrar o valor)"
+elif [ "$env_tam" -gt 1048576 ]; then
+    inconclusivo 5 "o web.env passa de 1 MiB e a leitura foi cortada, entao a ultima atribuicao das chaves do microfone pode ter ficado de fora." \
+        "confira a mao a ultima linha de GROQ_API_KEY, OPENAI_API_KEY e ELEVENLABS_API_KEY no web.env (so se tem valor, sem mostrar o valor)"
+else
     case "$mic" in
         DUPLICADA\ *) inconclusivo 5 "o web.env tem mais de uma atribuicao da mesma chave de microfone (${mic#DUPLICADA }), com ou sem export. O servico carrega o arquivo de dois jeitos, entao qual linha ele usa fica ambigua e nao sei qual chave esta valendo." \
             "deixe uma unica linha simples NOME=valor para cada chave no web.env (sem mostrar o valor), reinicie o Web (sudo systemctl restart dgclaw-web) e rode o smoke de novo" ;;
@@ -347,7 +355,6 @@ else
         *) inconclusivo 5 "nao consegui interpretar o web.env." "confira a mao as linhas das chaves de microfone do web.env" ;;
     esac
 fi
-[ -z "$env_tmp" ] || rm -f -- "$env_tmp"
 
 # Cofre: so os NOMES das chaves ativas. Cruzar com o que as skills do cliente citam e passo a mao (item 5 do guia).
 cofre_saida="$("$CLI" agente cofre "$SLUG" listar --json 2>/dev/null | head -c 1048577; printf 'rc=%s' "${PIPESTATUS[0]}")"
@@ -359,7 +366,12 @@ elif ! printf '%s' "$cofre_json" | jq -s -e 'length==1 and (.[0] | type=="object
 else
     NOMES="$(printf '%s' "$cofre_json" | jq -r '.chaves[] | select((.revogadaEm // "") == "") | .envName' | sort -u)"
     total="$(printf '%s\n' "$NOMES" | sed '/^$/d' | wc -l | tr -d ' ')"
-    ok 5 "o cofre tem $total chave(s) ativa(s): $(printf '%s\n' "$NOMES" | sed '/^$/d' | paste -sd, - | sed 's/,/, /g' | limpar). Confira a mao contra as skills do cliente (passo 5 do guia)."
+    ok 5 "o cofre tem $total chave(s) ativa(s). Confira a mao contra as skills do cliente (passo 5 do guia). Nomes:"
+    while IFS= read -r nome; do
+        [ -n "$nome" ] || continue
+        if [ "${#nome}" -le 64 ] && [[ "$nome" =~ ^[A-Z][A-Z0-9_]*$ ]]; then printf '           %s\n' "$nome"
+        else printf '           (nome fora do formato)\n'; fi
+    done <<<"$NOMES"
 fi
 
 # --- O que nao da para automatizar -----------------------------------------------------------------

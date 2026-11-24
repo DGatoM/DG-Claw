@@ -10,8 +10,11 @@ ele acusar e fazer à mão o que não dá para automatizar.
 No servidor do cliente, como root:
 
 ```bash
-sudo bash scripts/smoke-entrega.sh <agente>
+sudo bash /opt/dgclaw/app/scripts/smoke-entrega.sh <agente>
 ```
+
+Use sempre o caminho completo da instalação. Com um caminho relativo, quem estiver numa pasta do agente pode
+executar como root uma cópia do script que o agente controla.
 
 O script automatiza os passos 1 e 3, a parte do passo 5 que lê o microfone e os nomes do cofre, e o `ffmpeg`
 do servidor (passo 8). Ele só faz leituras do servidor que o agente não controla (`podman inspect`,
@@ -89,7 +92,7 @@ O script confere, para `dgclaw-<agente>` (ou o nome que o registro `/etc/dgclaw/
 | Processos | `pids.max` do cgroup do container, lido no servidor (`podman inspect -f '{{.State.CgroupPath}}'`, caminho validado, arquivo em `/sys/fs/cgroup<caminho>`), e `PidsLimit` do `podman inspect` | 4096 ou mais. Menos que isso, ou `max` (sem limite), é `FALHA`. Caminho ou arquivo ilegível é `INCONCLUSIVO` |
 | Memória | `memory.max` do mesmo cgroup e `MemTotal` do servidor | `max` (sem limite) é `FALHA`: configure `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin. Valor abaixo de 2 GB (o teto que o DG Claw aplica na criação) é `AVISO`: se ninguém configurou `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) de propósito, recrie o container. Valor numérico igual ou maior que o `MemTotal` do servidor é `AVISO`: o teto não protege o servidor. Com exatamente 2 GB e a VPS com mais de 4 GB de RAM, `AVISO`: nesta versão o teto é fixo na criação, e a partir da 1.1.1 ele se ajusta com `DGCLAW_CONTAINER_MEMORIA`. Toda mensagem mostra o valor lido em MB |
 | CPU | `cpu.max` do mesmo cgroup (quota dividida pelo período; `max` é sem limite) e `nproc` | Mais de 1 quando a VPS tem mais núcleos. Senão, `AVISO` (nesta versão o limite de CPU é fixo na criação). Arquivo ilegível é `INCONCLUSIVO` |
-| Falta de memória (OOM) | `journalctl _TRANSPORT=kernel` no servidor (o `-k` olharia só o boot atual), desde uma hora antes do corte de 7 dias, com `-o short-unix` para medir a cobertura na mesma leitura | `OK` só com nenhuma linha de "out of memory", "oom-kill", "oom_kill" ou "killed process" e cobertura de 7 dias: o histórico do journal precisa alcançar o início da janela (a consulta começa uma hora antes do corte de 7 dias, e a primeira entrada precisa ser igual ou anterior ao corte). O filtro ignora o timestamp e o nome da máquina de cada linha, para que um hostname como `oom-kill-test` não conte. Qualquer ocorrência no kernel dentro dos 7 dias (a hora extra da consulta só mede a cobertura e não conta) é `FALHA`; se ela veio antes do corte de 1 MiB, ou antes de o `journalctl` terminar com erro, a mensagem avisa que a contagem é parcial. Zero ocorrência com cobertura menor que 7 dias é `INCONCLUSIVO`, mostrando o período de fato examinado: o journal não sustenta a janela (journal volátil, reinício ou VPS criada há menos de 7 dias). Se a VPS foi criada há menos de 7 dias, isso é esperado: registre a cobertura na entrega. Senão, confira se o journal é persistente (`ls /var/log/journal`) e leia à mão com `journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o cat \| grep -ciE 'out of memory\|oom-kill\|oom_kill\|killed process'; echo "journalctl=${PIPESTATUS[0]} grep=${PIPESTATUS[1]}"`: a contagem só vale com journalctl 0 e grep 0 ou 1 (2 é erro). Kernel ilegível, `journalctl` com erro ou prazo, saída cortada em 1 MiB sem ocorrência, ou nenhuma entrada no período (cobertura desconhecida) também é `INCONCLUSIVO`, que é diferente de "zero eventos". O journal do runner não entra na conta, porque o texto dele pode vir do agente: quem quiser lê à mão, como indício |
+| Falta de memória (OOM) | `journalctl _TRANSPORT=kernel` no servidor (o `-k` olharia só o boot atual), em duas consultas com `-o short-unix`: a contagem, só na janela de 7 dias, e a cobertura, com a entrada mais recente igual ou anterior ao corte | `OK` só com nenhuma linha de evento do OOM killer do kernel (`invoked oom-killer`, `out of memory: killed process`, `memory cgroup out of memory`, `oom-kill:constraint=` ou `oom_reaper: reaped process`) e cobertura de 7 dias: o histórico do journal precisa alcançar o início da janela, ou seja, existir uma entrada do kernel igual ou anterior ao corte de 7 dias (um kernel quieto na última hora antes do corte não atrapalha). O filtro ignora o timestamp e o nome da máquina de cada linha, para que um hostname como `oom-kill-test` não conte, e só olha esses formatos de evento, para que um registro de auditoria que cite `oom-kill` num nome de arquivo também não conte. Qualquer ocorrência no kernel dentro dos 7 dias é `FALHA`; se ela veio antes do corte de 1 MiB, ou antes de o `journalctl` terminar com erro, a mensagem avisa que a contagem é parcial. Zero ocorrência com cobertura menor que 7 dias é `INCONCLUSIVO`, mostrando o período de fato examinado: o journal não sustenta a janela (journal volátil, reinício ou VPS criada há menos de 7 dias). Se a VPS foi criada há menos de 7 dias, isso é esperado: registre a cobertura na entrega. Senão, confira se o journal é persistente (`ls /var/log/journal`) e leia à mão com `journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o cat \| grep -ciE 'invoked oom-killer\|out of memory: killed process\|memory cgroup out of memory\|oom-kill:constraint=\|oom_reaper: reaped process'; echo "journalctl=${PIPESTATUS[0]} grep=${PIPESTATUS[1]}"`: a contagem só vale com journalctl 0 e grep 0 ou 1 (2 é erro). Kernel ilegível, `journalctl` com erro ou prazo, saída cortada em 1 MiB sem ocorrência, ou nenhuma entrada no período (cobertura desconhecida) também é `INCONCLUSIVO`, que é diferente de "zero eventos". O journal do runner não entra na conta, porque o texto dele pode vir do agente: quem quiser lê à mão, como indício |
 
 **À mão: `TasksMax`, `OOMPolicy` e `NRestarts` do runner.** O esperado é `TasksMax` 2400 ou mais, `OOMPolicy`
 `continue` (a partir da 1.1.1) e `NRestarts` 0. Esses valores saem de dentro do container, onde o agente tem
@@ -145,9 +148,10 @@ sucesso antes de recriar.
   como vazio. Se nenhuma das três tem valor (inclusive uma atribuição antiga com valor seguida de uma vazia),
   é `FALHA`. Ele só diz os nomes que têm valor e nunca imprime o valor. Arquivo ilegível, leitura com erro, ou maior que 1 MiB (leitura cortada), é `INCONCLUSIVO`.
 - **Nomes do cofre (automático):** o script roda `dgclaw agente cofre <agente> listar --json` e mostra só o
-  nome de cada chave ativa. Ele não afirma que as chaves das skills estão lá.
-- **Skills contra o cofre (à mão):** compare os nomes das chaves ativas (`dgclaw agente cofre <agente> listar --json`,
-  que traz os nomes e nunca os valores) com o que cada skill do cliente pede, lendo a skill no
+  nome de cada chave ativa, um por linha. Ele não afirma que as chaves das skills estão lá.
+- **Skills contra o cofre (à mão):** compare os nomes das chaves ativas, que saem com
+  `dgclaw agente cofre <agente> listar --json | jq -r '.chaves[] | select((.revogadaEm // "") == "") | .envName'`
+  (o JSON bruto traz o final de cada valor e as chaves revogadas, por isso o filtro), com o que cada skill do cliente pede, lendo a skill no
   [passo 10](#10-skills-do-cliente-na-pasta-certa-à-mão). Quem diz o que se guarda é a autorização do cliente, não
   a skill.
 - **Esperado:** toda chave que uma skill do cliente cita (por exemplo `ELEVENLABS_API_KEY` ou
@@ -261,7 +265,7 @@ Hoje é passo manual. Para cada skill do cliente:
 
 ## Antes de entregar
 
-- [ ] `scripts/smoke-entrega.sh <agente>` sai com 0 e nenhum `AVISO` ficou sem resposta
+- [ ] `sudo bash /opt/dgclaw/app/scripts/smoke-entrega.sh <agente>` sai com 0 e nenhum `AVISO` ficou sem resposta
 - [ ] A parte à mão do passo 3 (`TasksMax`, `OOMPolicy` e `NRestarts` do runner, lidos num terminal seu) está feita
 - [ ] Os passos 2 (inclusive suporte temporário revogado, com o "suporte: desligado" visto na sessão SSH do usuário nominal do cliente, depois de encerrada a última sessão de root, e chave permanente da equipe recusada
       numa conexão nova), 4, 5 (skills contra o cofre e chave do cliente), 6 (yt-dlp, Tela e login do YouTube), 7 (render e Chrome), 8 (ffmpeg do container), 9 (inclusive a

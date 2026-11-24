@@ -48,9 +48,13 @@ afirma "item 5 OK no microfone (web.env)" grep -q 'OK     \[5\] o servico Web te
 afirma "item 3 OK na CPU (sem limite)" grep -q 'OK     \[3\] CPU do container: sem limite' "$TMP/s.txt"
 afirma "item 3 OK no kernel com a cobertura" grep -q 'OK     \[3\] nenhum OOM no journal do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
 afirma "o kernel e lido sem -k (todo o periodo, nao so o boot)" grep -q 'journalctl _TRANSPORT=kernel --since @[0-9]* --no-pager -q -o short-unix' "$STUB_LOG"
+afirma "a cobertura e uma consulta propria ate o corte" grep -qE 'journalctl _TRANSPORT=kernel --until @[0-9]+ -r -n 1 --no-pager -q -o short-unix' "$STUB_LOG"
 nega "nao usa journalctl -k" grep -qE 'journalctl -k' "$STUB_LOG"
 nega "nao mostra o valor da chave do web.env" grep -q 'gsk_segredo' "$TMP/s.txt"
-afirma "item 5 lista so os nomes do cofre" grep -q 'OK     \[5\] o cofre tem 2 chave(s) ativa(s): GEMINI_API_KEY, GROQ_API_KEY' "$TMP/s.txt"
+afirma "item 5 conta as chaves ativas do cofre" grep -q 'OK     \[5\] o cofre tem 2 chave(s) ativa(s)\.' "$TMP/s.txt"
+afirma "item 5 lista um nome por linha (GEMINI)" grep -qx ' *GEMINI_API_KEY' "$TMP/s.txt"
+afirma "item 5 lista um nome por linha (GROQ)" grep -qx ' *GROQ_API_KEY' "$TMP/s.txt"
+afirma "o uso aponta o caminho absoluto da instalacao" bash -c "bash '$SMOKE' --ajuda | grep -qxF 'uso: sudo bash /opt/dgclaw/app/scripts/smoke-entrega.sh <agente>'"
 nega "nao afirma que toda chave citada esta no cofre" grep -q 'toda chave citada' "$TMP/s.txt"
 nega "nao varre as skills no container" grep -q 'FIM-DA-VARREDURA' "$STUB_LOG"
 afirma "item 8 OK so no servidor" bash -c "grep -c 'OK     \[8\]' '$TMP/s.txt' | grep -qx 1"
@@ -159,7 +163,7 @@ echo 2 >"$STUB_ESTADO/kernel-horas"
 smoke ana
 afirma "primeira entrada de 2 horas: INCONCLUSIVO com menos de 1 dia" grep -q 'INCONCLUSIVO \[3\] nenhum OOM achado.*menos de 1 dia' "$TMP/s.txt"
 nega "primeira entrada de 2 horas: nenhum OK de OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
-afirma "a dica do OOM usa o filtro completo" grep -qF 'out of memory|oom-kill|oom_kill|killed process' "$TMP/s.txt"
+afirma "a dica do OOM usa o filtro dos eventos do kernel" grep -qF 'invoked oom-killer|out of memory: killed process|memory cgroup out of memory|oom-kill:constraint=|oom_reaper: reaped process' "$TMP/s.txt"
 afirma "a dica do OOM confere o grep" grep -qF 'PIPESTATUS[1]' "$TMP/s.txt"
 rm -f "$STUB_ESTADO/kernel-horas"
 : >"$STUB_ESTADO/kernel-vazio"
@@ -192,13 +196,20 @@ echo $((7 * 86400 + 1800)) >"$STUB_ESTADO/kernel-seg"
 smoke ana
 igual "primeira entrada 30 minutos antes do corte: sai com 0" "0" "$?"
 afirma "primeira entrada 30 minutos antes do corte: OK com cobertura de 7 dias" grep -q 'OK     \[3\] nenhum OOM no journal do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
+echo "smoke-entrega: historico de 30 dias com o kernel quieto atravessando o corte: OK com 7 dias"
+limpar_estado
+echo 30 >"$STUB_ESTADO/kernel-dias"
+echo $((7 * 86400 - 7200)) >"$STUB_ESTADO/kernel-extra"
+smoke ana
+igual "kernel quieto no corte: sai com 0" "0" "$?"
+afirma "kernel quieto no corte: OK com cobertura de 7 dias" grep -q 'OK     \[3\] nenhum OOM no journal do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
 echo "smoke-entrega: primeira entrada 1 hora depois do corte de 7 dias: INCONCLUSIVO"
 limpar_estado
-echo $((7 * 86400 - 3600)) >"$STUB_ESTADO/kernel-seg"
+echo $((7 * 86400 - 3600 + 60)) >"$STUB_ESTADO/kernel-seg"
 smoke ana
 afirma "primeira entrada 1 hora depois do corte: INCONCLUSIVO com o periodo examinado" grep -q 'INCONCLUSIVO \[3\] nenhum OOM achado.*6 dia(s) completo(s) (167 horas)' "$TMP/s.txt"
 nega "primeira entrada 1 hora depois do corte: nenhum OK de OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
-echo "smoke-entrega: o --since do smoke e @<numero> (uma hora antes do corte de 7 dias)"
+echo "smoke-entrega: o --since do smoke e @<numero> (o corte de 7 dias)"
 limpar_estado
 smoke ana
 afirma "o --since e @<numero>" grep -qE 'journalctl _TRANSPORT=kernel --since @[0-9]+ --no-pager -q -o short-unix' "$STUB_LOG"
@@ -217,19 +228,41 @@ smoke ana
 nega "hostname oom-kill-test: nenhum FALHA de OOM" grep -q 'FALHA  \[3\] OOM' "$TMP/s.txt"
 afirma "hostname oom-kill-test: OK de nenhum OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
 
-echo "smoke-entrega: OOM antes do corte de 7 dias (na hora extra da consulta) nao conta"
+echo "smoke-entrega: OOM antes do corte de 7 dias nao conta"
 limpar_estado
 echo $((1800 + 7 * 86400)) >"$STUB_ESTADO/oom-seg"
 smoke ana
 igual "OOM 30 minutos antes do corte: sai com 0" "0" "$?"
 nega "OOM 30 minutos antes do corte: nenhuma FALHA de OOM" grep -q 'FALHA  \[3\] OOM' "$TMP/s.txt"
 afirma "OOM 30 minutos antes do corte: OK com cobertura de 7 dias" grep -q 'OK     \[3\] nenhum OOM no journal do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
+echo "smoke-entrega: filtro de OOM so aceita eventos do kernel"
+limpar_estado
+printf '%s\n' 'kernel: audit: type=1400 apparmor="DENIED" name="/tmp/oom-kill-teste"' >"$STUB_ESTADO/kernel-msg"
+smoke ana
+igual "registro do AppArmor com oom-kill no nome: sai com 0" "0" "$?"
+nega "registro do AppArmor com oom-kill no nome: nenhuma FALHA de OOM" grep -q 'FALHA  \[3\] OOM' "$TMP/s.txt"
+printf '%s\n' 'kernel: audit: type=1400 apparmor="DENIED" name="/tmp/oom-kill-teste"' 'kernel: Out of memory: Killed process 1234 (node)' >"$STUB_ESTADO/kernel-msg"
+smoke ana
+igual "AppArmor mais OOM de verdade: sai com 1" "1" "$?"
+afirma "AppArmor mais OOM de verdade: FALHA com 1 linha" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias: 1 linha' "$TMP/s.txt"
 echo "smoke-entrega: OOM 30 minutos depois do corte de 7 dias conta"
 limpar_estado
 echo $((7 * 86400 - 1800)) >"$STUB_ESTADO/oom-seg"
 smoke ana
 igual "OOM 30 minutos depois do corte: sai com 1" "1" "$?"
 afirma "OOM 30 minutos depois do corte: FALHA" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias: 1 linha' "$TMP/s.txt"
+
+echo "smoke-entrega: 12 nomes longos do cofre aparecem inteiros, um por linha"
+limpar_estado
+nomes=(); for i in 01 02 03 04 05 06 07 08 09 10 11 12; do nomes+=("CHAVE_MUITO_LONGA_DO_CLIENTE_PARA_TESTAR_O_CORTE_${i}_API_KEY"); done
+cofre_com "${nomes[@]}"
+smoke ana
+afirma "12 chaves ativas" grep -q 'OK     \[5\] o cofre tem 12 chave(s) ativa(s)' "$TMP/s.txt"
+for n in "${nomes[@]}"; do afirma "nome inteiro em uma linha: $n" grep -qx " *$n" "$TMP/s.txt"; done
+cofre_com 'nome ruim;rm' minuscula
+smoke ana
+afirma "nome fora do formato vira linha fixa" grep -q '(nome fora do formato)' "$TMP/s.txt"
+nega "nome fora do formato nao e repetido" grep -q 'nome ruim' "$TMP/s.txt"
 
 echo "smoke-entrega: nome do container vindo do registro"
 limpar_estado
