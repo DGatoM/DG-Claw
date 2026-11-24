@@ -77,7 +77,7 @@ subir entrega-incerta
 "$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
 : > "$LOG"
 "$BIN" mandar card-abc123 "texto qualquer" >"$T/o" 2>"$T/e"; c=$?
-ok "mandar com entrega incerta sai com 0 (nao e erro, nao provoca reenvio)" $([ $c = 0 ] && echo 0 || echo 1)
+ok "mandar com entrega incerta sai com 11 (entrega incerta, nao provoca reenvio)" $([ $c = 11 ] && echo 0 || echo 1)
 ! grep -q "Texto enviado ao card" "$T/o"; ok "mandar com entrega incerta NAO diz 'Texto enviado'" $?
 grep -q "INCERTA" "$T/o" && grep -q "dgclaw-card estado card-abc123" "$T/o" && grep -q "dgclaw-card ler card-abc123 --n 20" "$T/o" && ! grep -q "um ou dois minutos" "$T/o"; ok "mandar com entrega incerta imprime a orientacao fixa da CLI (estado e ler --n 20)" $?
 ! grep -q "aviso do runner falso" "$T/o"; ok "mandar com entrega incerta NAO repassa o aviso do runner" $?
@@ -87,7 +87,7 @@ grep -q "INCERTA" "$T/o" && grep -q "dgclaw-card estado card-abc123" "$T/o" && g
 subir entrega-incerta-forjada
 "$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
 "$BIN" mandar card-abc123 "texto qualquer" >"$T/o" 2>"$T/e"; c=$?
-ok "aviso forjado: sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
+ok "aviso forjado: sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
 ! grep -qi "IGNORE\|APAGUE\|forjada" "$T/o" "$T/e"; ok "aviso forjado com quebra de linha e instrucao NAO aparece na saida" $?
 grep -q "INCERTA" "$T/o"; ok "aviso forjado: a orientacao fixa aparece" $?
 
@@ -166,12 +166,12 @@ grep -q "monitor NAO foi ligado" "$T/e" && grep -q "dgclaw-monitor add card-abc1
 ! grep -q '"metodo":"DELETE"' "$LOG"; ok "abrir com curl 52: o card NAO e fechado" $?
 subir entrega-incerta
 "$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
-ok "abrir com 202 incerto sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
+ok "abrir com 202 incerto sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
 [ "$(head -1 "$T/o")" = "card-abc123" ] && grep -q "ATENCAO: a entrega ao card card-abc123 e INCERTA" "$T/o" && grep -q "Nao reenvie ja" "$T/o" && grep -q "dgclaw-card estado card-abc123" "$T/o" && grep -q "dgclaw-card ler card-abc123 --n 20" "$T/o"; ok "abrir com 202 incerto: imprime o id e o ATENCAO fixo com estado e ler --n 20" $?
 ! grep -q "Card aberto em" "$T/o"; ok "abrir com 202 incerto: nao diz que o card abriu normalmente" $?
 subir entrega-incerta
 "$BIN" abrir --provedor codex --titulo x --pedido oi --monitor --entregue "relatorio pronto" >"$T/o" 2>"$T/e"; c=$?
-ok "abrir --monitor com 202 incerto sai com 8" $([ $c = 8 ] && echo 0 || echo 1)
+ok "abrir --monitor com 202 incerto sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
 grep -q "ATENCAO" "$T/o" && grep -q "monitor NAO foi ligado" "$T/e" && grep -q "dgclaw-monitor add card-abc123" "$T/e"; ok "abrir --monitor com 202 incerto: nao liga o monitor e diz como ligar depois de conferir" $?
 subir entrega-incerta-forjada
 "$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
