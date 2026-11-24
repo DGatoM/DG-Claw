@@ -28,6 +28,8 @@ primeira=$(( agora - seg - 60 )); [ "$primeira" -ge "$since" ] || primeira="$sin
 echo "$primeira.000000 $host kernel: boot"
 [ -f "$est/kernel-saida-erro" ] && exit 1
 [ -f "$est/kernel-oom-erro" ] && { echo "$(( agora - 60 )).000000 $host kernel: Out of memory: Killed process 99 (node)"; exit 1; }
+# oom-seg: uma linha de OOM esses segundos atras (negativo nao se usa); permite por o OOM antes ou depois do corte.
+[ -f "$est/oom-seg" ] && echo "$(( agora - $(cat "$est/oom-seg") )).000000 host kernel: Out of memory: Killed process 55 (node)"
 [ -f "$est/oom-host" ] && echo "$(( agora - 60 )).000000 host kernel: Out of memory: Killed process 77 (node)"
 [ -f "$est/journal-oom-grande" ] && { echo "$(( agora - 60 )).000000 host kernel: Out of memory: Killed process 4242 (chrome)"; head -c 1100000 /dev/zero | tr '\0' 'a'; exit 0; }
 [ -f "$est/journal-grande" ] && { head -c 1100000 /dev/zero | tr '\0' 'a'; exit 0; }

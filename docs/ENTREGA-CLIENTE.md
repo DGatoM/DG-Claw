@@ -56,35 +56,24 @@ Os números abaixo são os mesmos que o script imprime entre colchetes.
   VPS já criada, não entra no `authorized_keys`.
 - **Se a chave permanente da equipe não funcionar:** não recrie a VPS. Entre pelo acesso temporário do
   suporte (`dgclaw suporte ligar`, veja o [projeto de cliente](PROJETO-DE-CLIENTE.md#2-o-fluxo-passo-a-passo)).
-- **Na entrega, confira as duas saídas:** (1) o suporte temporário foi revogado: `sudo dgclaw suporte status`,
-  rodado numa sessão SSH do usuário nominal do cliente depois de encerrada a última sessão SSH de root (veja o fim deste item), diz
-  "suporte: desligado"; (2) a chave permanente da equipe **não** autoriza mais o root. Confira a
-  configuração efetiva do `sshd` para o root e para a origem de suporte, com
-  `sudo sshd -T -C user=root,host=<host>,addr=<ip de suporte> | grep -iE 'authorizedkeys|permitrootlogin'`,
-  porque o `sshd -T` sem `-C` não aplica as regras `Match`. Para cada arquivo listado, `ssh-keygen -lf <arquivo>`
-  mostra as impressões digitais. Se houver `authorizedkeyscommand`, confira a chave também na fonte que ele
-  consulta (o `ssh-keygen` não o lê). Um bloco `Match Address` (por exemplo a VPN) pode apontar outro
-  `AuthorizedKeysFile` e a chave continuar valendo por outra origem. Liste os blocos `Match` da configuração
-  ativa com `sudo grep -rniE '^[[:space:]]*match' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/` e repita o
-  `sshd -T -C user=root,host=<host>,addr=<ip>` para cada origem que algum bloco seleciona (VPN, rede interna).
-  Confira também `trustedusercakeys`: uma CA que assina a chave da equipe continua autorizando. Se alguma
-  fonte ficar sem conferência, o item continua pendente e não se entrega. Se a chave da equipe aparecer em algum lugar, remova a linha, porque o `desligar` não
-  mexe nas chaves que não são do suporte. **Antes de remover**, peça ao cliente para abrir uma conexão SSH
-  nova com a credencial e o método de autenticação dele, também com `-o ControlMaster=no -o ControlPath=none`
-  (transporte novo, sem reaproveitar conexão multiplexada), confirmar que tem root ou `sudo` e deixá-la aberta até o fim deste item. Sem
-  isso, numa VPS que só aceita chave para o root, a remoção pode deixar o dono sem acesso administrativo.
-  Depois de remover todas as fontes de autorização da equipe, teste de uma conexão nova, a partir da origem de
-  suporte que antes era aceita, só com essa chave
-  (`ssh -o ControlMaster=no -o ControlPath=none -o IdentitiesOnly=yes -o IdentityAgent=none -i <chave da equipe> root@<servidor>`;
-  as duas primeiras opções equivalem a `-S none` e impedem que a conexão reaproveite um transporte multiplexado
-  já aberto): ela precisa ser recusada. Uma recusa nova não derruba uma sessão já aberta, então, por último, pela conexão do cliente,
-  encerre as outras sessões SSH de root com `sudo dgclaw suporte desligar --derrubar-sessoes` (encerra todas,
-  menos a de quem roda). Enquanto houver uma sessão SSH de root aberta, o `sudo dgclaw suporte status`
-  não confirma o desligamento (ele conta as sessões SSH do usuário root; o terminal de navegador da Hostinger usa
-  SSH por baixo e, entrando como root, também abre uma sessão de root). Por isso, para fechar: o cliente confirma
-  que tem acesso administrativo próprio com um usuário nominal (não root) com `sudo`, numa conexão SSH nova com
-  esse usuário; encerra a última sessão SSH de root; e faz a conferência final com `sudo dgclaw suporte status`
-  nessa sessão do usuário nominal, onde precisa aparecer "suporte: desligado".
+- **Na entrega, confira as duas saídas:**
+  1. **Suporte temporário revogado.** O `sudo dgclaw suporte status` diz "suporte: desligado". Rode-o numa
+     sessão SSH do usuário nominal do cliente, depois de encerrada a última sessão SSH de root: o `status` só
+     confirma o desligamento com nenhuma sessão SSH de root aberta (o terminal de navegador da Hostinger usa SSH
+     por baixo e, entrando como root, também abre uma).
+  2. **Chave permanente da equipe sem acesso administrativo.** Ela não autoriza mais nenhuma conta com root ou
+     `sudo`, por nenhuma origem nem porta do `sshd`. O `desligar` não mexe em chave que não é do suporte, então
+     a conferência e a remoção são à mão. Se a chave aparecer em algum lugar, remova. Se alguma fonte de
+     autorização ficar sem conferência, o item continua pendente e não se entrega.
+  3. **Acesso do cliente garantido antes de remover.** O cliente confirma que tem acesso administrativo próprio
+     (root ou `sudo`) numa conexão SSH nova, com a credencial dele, e a deixa aberta até o fim. Sem isso, a
+     remoção pode deixar o dono sem acesso.
+  4. **Recusa e sessões abertas.** Depois de remover, uma conexão nova só com a chave da equipe precisa ser
+     recusada. Uma recusa não derruba sessão já aberta, então, pela conexão do cliente, rode
+     `sudo dgclaw suporte desligar --derrubar-sessoes` (encerra as sessões SSH de root, menos a de quem roda) e
+     encerre à mão as da equipe nas outras contas.
+  5. **Fechamento.** O cliente encerra a última sessão SSH de root e faz a conferência final com
+     `sudo dgclaw suporte status` na sessão do usuário nominal, onde precisa aparecer "suporte: desligado".
 - **Chaves de diagnóstico remoto:** desligar o SSH não revoga uma chave `diagnostico` emitida durante a
   instalação, e ela continua consultando serviços, agentes e canais. Rode `sudo dgclaw chave-api listar` e,
   para cada chave provisória da equipe que o cliente não autorizou manter, `sudo dgclaw chave-api revogar <id>`.
@@ -92,7 +81,7 @@ Os números abaixo são os mesmos que o script imprime entre colchetes.
 
 ### 3. Limites do container e do runner (automático)
 
-O script confere, para `dgclaw-<agente>`:
+O script confere, para `dgclaw-<agente>` (ou o nome que o registro `/etc/dgclaw/agentes.json` traz no campo `container`):
 
 | Item | Como confere | Esperado |
 | --- | --- | --- |
@@ -100,12 +89,12 @@ O script confere, para `dgclaw-<agente>`:
 | Processos | `pids.max` do cgroup do container, lido no servidor (`podman inspect -f '{{.State.CgroupPath}}'`, caminho validado, arquivo em `/sys/fs/cgroup<caminho>`), e `PidsLimit` do `podman inspect` | 4096 ou mais. Menos que isso, ou `max` (sem limite), é `FALHA`. Caminho ou arquivo ilegível é `INCONCLUSIVO` |
 | Memória | `memory.max` do mesmo cgroup e `MemTotal` do servidor | `max` (sem limite) é `FALHA`: configure `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin. Valor abaixo de 2 GB (o teto que o DG Claw aplica na criação) é `AVISO`: se ninguém configurou `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) de propósito, recrie o container. Valor numérico igual ou maior que o `MemTotal` do servidor é `AVISO`: o teto não protege o servidor. Com exatamente 2 GB e a VPS com mais de 4 GB de RAM, `AVISO`: nesta versão o teto é fixo na criação, e a partir da 1.1.1 ele se ajusta com `DGCLAW_CONTAINER_MEMORIA`. Toda mensagem mostra o valor lido em MB |
 | CPU | `cpu.max` do mesmo cgroup (quota dividida pelo período; `max` é sem limite) e `nproc` | Mais de 1 quando a VPS tem mais núcleos. Senão, `AVISO` (nesta versão o limite de CPU é fixo na criação). Arquivo ilegível é `INCONCLUSIVO` |
-| Falta de memória (OOM) | `journalctl _TRANSPORT=kernel` no servidor (o `-k` olharia só o boot atual), desde uma hora antes do corte de 7 dias, com `-o short-unix` para medir a cobertura na mesma leitura | `OK` só com nenhuma linha de "out of memory", "oom-kill", "oom_kill" ou "killed process" e cobertura de 7 dias: o histórico do journal precisa alcançar o início da janela (a consulta começa uma hora antes do corte de 7 dias, e a primeira entrada precisa ser igual ou anterior ao corte). O filtro ignora o timestamp e o nome da máquina de cada linha, para que um hostname como `oom-kill-test` não conte. Qualquer ocorrência no kernel é `FALHA`; se ela veio antes do corte de 1 MiB, ou antes de o `journalctl` terminar com erro, a mensagem avisa que a contagem é parcial. Zero ocorrência com cobertura menor que 7 dias é `INCONCLUSIVO`, mostrando o período de fato examinado: o journal não sustenta a janela (journal volátil, reinício ou VPS criada há menos de 7 dias). Se a VPS foi criada há menos de 7 dias, isso é esperado: registre a cobertura na entrega. Senão, confira se o journal é persistente (`ls /var/log/journal`) e leia à mão com `journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o cat \| grep -ciE 'out of memory\|oom-kill\|oom_kill\|killed process'; echo "journalctl=${PIPESTATUS[0]} grep=${PIPESTATUS[1]}"`: a contagem só vale com journalctl 0 e grep 0 ou 1 (2 é erro). Kernel ilegível, `journalctl` com erro ou prazo, saída cortada em 1 MiB sem ocorrência, ou nenhuma entrada no período (cobertura desconhecida) também é `INCONCLUSIVO`, que é diferente de "zero eventos". O journal do runner não entra na conta, porque o texto dele pode vir do agente: quem quiser lê à mão, como indício |
+| Falta de memória (OOM) | `journalctl _TRANSPORT=kernel` no servidor (o `-k` olharia só o boot atual), desde uma hora antes do corte de 7 dias, com `-o short-unix` para medir a cobertura na mesma leitura | `OK` só com nenhuma linha de "out of memory", "oom-kill", "oom_kill" ou "killed process" e cobertura de 7 dias: o histórico do journal precisa alcançar o início da janela (a consulta começa uma hora antes do corte de 7 dias, e a primeira entrada precisa ser igual ou anterior ao corte). O filtro ignora o timestamp e o nome da máquina de cada linha, para que um hostname como `oom-kill-test` não conte. Qualquer ocorrência no kernel dentro dos 7 dias (a hora extra da consulta só mede a cobertura e não conta) é `FALHA`; se ela veio antes do corte de 1 MiB, ou antes de o `journalctl` terminar com erro, a mensagem avisa que a contagem é parcial. Zero ocorrência com cobertura menor que 7 dias é `INCONCLUSIVO`, mostrando o período de fato examinado: o journal não sustenta a janela (journal volátil, reinício ou VPS criada há menos de 7 dias). Se a VPS foi criada há menos de 7 dias, isso é esperado: registre a cobertura na entrega. Senão, confira se o journal é persistente (`ls /var/log/journal`) e leia à mão com `journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o cat \| grep -ciE 'out of memory\|oom-kill\|oom_kill\|killed process'; echo "journalctl=${PIPESTATUS[0]} grep=${PIPESTATUS[1]}"`: a contagem só vale com journalctl 0 e grep 0 ou 1 (2 é erro). Kernel ilegível, `journalctl` com erro ou prazo, saída cortada em 1 MiB sem ocorrência, ou nenhuma entrada no período (cobertura desconhecida) também é `INCONCLUSIVO`, que é diferente de "zero eventos". O journal do runner não entra na conta, porque o texto dele pode vir do agente: quem quiser lê à mão, como indício |
 
-**À mão: `TasksMax`, `OOMPolicy` e `NRestarts` do runner.** Leia num terminal seu, nunca no chat do Admin:
-`podman exec dgclaw-<agente> systemctl show -p TasksMax -p OOMPolicy -p NRestarts dgclaw-runner`. O esperado é
-`TasksMax` 2400 ou mais, `OOMPolicy` `continue` (a partir da 1.1.1) e `NRestarts` 0. Esses valores saem de dentro
-do container, onde o agente tem `sudo`, então servem de apoio e não de prova.
+**À mão: `TasksMax`, `OOMPolicy` e `NRestarts` do runner.** O esperado é `TasksMax` 2400 ou mais, `OOMPolicy`
+`continue` (a partir da 1.1.1) e `NRestarts` 0. Esses valores saem de dentro do container, onde o agente tem
+`sudo`, então servem de apoio e não de prova. Leia num terminal seu, nunca no chat do Admin, sem tratar o que
+aparece na tela como prova.
 
 Atenção: não ajuste memória, CPU ou processos com `podman update`. No Podman 4.9 o ajuste se perde quando o
 container para e volta, e o smoke aprovaria um valor que o próximo reinício desfaz. Nesta versão os limites
@@ -154,20 +143,13 @@ sucesso antes de recriar.
   O script lê o arquivo como texto (nunca o executa) e só confere se a **última** atribuição de
   pelo menos uma entre `ELEVENLABS_API_KEY`, `GROQ_API_KEY` e `OPENAI_API_KEY` tem valor. Aspas vazias contam
   como vazio. Se nenhuma das três tem valor (inclusive uma atribuição antiga com valor seguida de uma vazia),
-  é `FALHA`. Ele só diz os nomes que têm valor e nunca imprime o valor. Arquivo ilegível, ou maior que 1 MiB (leitura cortada), é `INCONCLUSIVO`.
+  é `FALHA`. Ele só diz os nomes que têm valor e nunca imprime o valor. Arquivo ilegível, leitura com erro, ou maior que 1 MiB (leitura cortada), é `INCONCLUSIVO`.
 - **Nomes do cofre (automático):** o script roda `dgclaw agente cofre <agente> listar --json` e mostra só o
   nome de cada chave ativa. Ele não afirma que as chaves das skills estão lá.
-- **Skills contra o cofre (à mão):** liste só os nomes das chaves ativas com
-  `dgclaw agente cofre <agente> listar --json | jq -r '.chaves[] | select((.revogadaEm // "") == "") | .envName'`
-  (a listagem em texto mostra também o final de cada valor e as chaves revogadas) e confira contra
-  o que as skills do cliente citam. Para ver o que uma skill cita, como o usuário `agente`:
-  `podman exec --user agente dgclaw-<agente> grep -rhoE '\b([A-Z][A-Z0-9_]*_(API_KEY|API_TOKEN|TOKEN|SECRET|KEY|PASSWORD|WEBHOOK_URL|ID|SID|USERNAME|USER|ACCOUNT|URL|DSN|ENDPOINT|REGION|BUCKET|PROJECT|ORG|VERSION|EMAIL)|GOOGLE_APPLICATION_CREDENTIALS)\b' <pasta de skills>/<skill>`,
-  com a pasta efetiva identificada no [passo 10](#10-skills-do-cliente-na-pasta-certa-à-mão)
-  (`/home/agente/.claude/skills`, `/home/agente/.agents/skills` ou `/home/agente/.codex/skills`). Só marque a
-  conferência se o `grep` leu a pasta com sucesso (código de saída 0 ou 1; 2 é pasta ilegível ou inexistente). Os nomes aceitam sublinhados internos (por exemplo `TELEGRAM_BOT_TOKEN`).
-  Os sufixos da busca são os que o cofre aceita (`panel/lib/cofre-regras.js`), mas ela é só apoio. A lista da
-  skill (no `SKILL.md` e nos scripts dela) diz o que ela pede; quem diz o que se guarda é a autorização do
-  cliente. Leia essa lista e confira cada nome, inclusive os que a busca não pegou.
+- **Skills contra o cofre (à mão):** compare os nomes das chaves ativas (`dgclaw agente cofre <agente> listar --json`,
+  que traz os nomes e nunca os valores) com o que cada skill do cliente pede, lendo a skill no
+  [passo 10](#10-skills-do-cliente-na-pasta-certa-à-mão). Quem diz o que se guarda é a autorização do cliente, não
+  a skill.
 - **Esperado:** toda chave que uma skill do cliente cita (por exemplo `ELEVENLABS_API_KEY` ou
   `GEMINI_API_KEY`) está no cofre. O WhatsApp não usa chave no cofre: o pareamento é feito no painel,
   confira à mão.
@@ -188,40 +170,25 @@ sucesso antes de recriar.
 
 ### 6. YouTube e yt-dlp (à mão)
 
-O smoke não executa nada disso: `yt-dlp` e a Tela são programas e arquivos que o agente controla. A pessoa
-confere num terminal dela, **nunca no chat do Admin**.
+O smoke não executa nada disso: o `yt-dlp` e a Tela são programas e arquivos que o agente controla. A pessoa
+confere pela Tela e por um card de teste, **nunca no chat do Admin**.
 
-1. **`yt-dlp` no PATH em `/usr/local/bin`** (a partir da 1.1.1; antes, em `/opt/venv/bin`): como usuário
-   `agente`, `podman exec --user agente dgclaw-<agente> sh -c 'command -v yt-dlp'`.
-2. **Diretiva `--js-runtimes node` ativa** (a partir da 1.1.1), não comentada, no `/etc/yt-dlp.conf` do
-   container. Antes da 1.1.1 a imagem não instala esse arquivo, então a ausência dele não reprova: vale o
-   download de teste do item 5, que passa `--js-runtimes node` na linha de comando. Esse download usa
-   `--ignore-config`, então ele não valida o arquivo. Não existe mais configuração global de cookies. Sem a
-   diretiva (ou sem a opção na linha de comando) o `yt-dlp` não resolve o desafio do YouTube.
-3. **Perfil da Tela:** `/home/agente/.tela-chrome` existe. Se não existir, a Tela nunca foi aberta.
-4. **Login com conta dedicada:** abra a Tela do agente (veja [TELA-DO-AGENTE.md](TELA-DO-AGENTE.md)) e entre no
+1. **Login com conta dedicada:** abra a Tela do agente (veja [TELA-DO-AGENTE.md](TELA-DO-AGENTE.md)) e entre no
    YouTube pelo navegador dela com uma **conta dedicada ao agente**, deixando a sessão aberta. A senha da Tela se
-   troca com `dgclaw agente tela-senha <agente>`.
-5. **Confira o login:** a partir da 1.1.1, olhe o item de diagnóstico `agente.<agente>.youtube`. Antes disso,
-   primeiro olhe na Tela qual conta do YouTube está logada e confirme que é a conta dedicada ao agente
-   (o vídeo público baixa mesmo com a sessão expirada, então o download sozinho não prova o login). Depois
-   faça um download curto de verdade, numa pasta privada nova dentro do container, com a mesma chamada
-   isolada que o agente usa, numa única execução dentro do container. A saída do `yt-dlp` é descartada lá
-   dentro (ele é um programa que o agente pode trocar, e o texto dele pode trazer caracteres de controle), a
-   verificação do arquivo baixado também é feita lá, e o host só imprime uma mensagem fixa pelo código de saída:
-   `timeout 300 podman exec --user agente dgclaw-<agente> sh -c 'D="$(mktemp -d /tmp/yt-entrega.XXXXXX)" || exit 1; yt-dlp --ignore-config --no-plugin-dirs --js-runtimes node --cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome/Default" --no-playlist -f "worst/worstvideo" --max-filesize 5M -P "$D" -- "https://www.youtube.com/watch?v=jNQXAC9IJRQ" >/dev/null 2>&1; r=$?; n=$(find "$D" -type f -size +0c | wc -l); rm -rf -- "$D"; [ "$r" -eq 0 ] && [ "$n" -gt 0 ]' >/dev/null 2>&1 </dev/null && echo "download de teste: ok" || echo "download de teste: falhou"`.
-   Esperado: `download de teste: ok`.
-- **Se pedir login ou "não é um robô":** refaça o login na Tela com a conta do agente. Para ver o erro
-  completo, repita o comando acima num terminal seu (nunca no chat do Admin), sem o `>/dev/null 2>&1` do
-  `yt-dlp`, com `-v`, e passe a saída por `cat -v` no host, que escapa os caracteres de controle.
+   troca com `dgclaw agente tela-senha <agente>`. Se o perfil da Tela ainda não existe, ela nunca foi aberta.
+2. **Conta certa:** a partir da 1.1.1, olhe o item de diagnóstico `agente.<agente>.youtube`. Antes disso, confira
+   na Tela qual conta do YouTube está logada e que é a dedicada ao agente: o vídeo público baixa mesmo com a
+   sessão expirada, então o download sozinho não prova o login.
+3. **Download de teste:** num card de teste, peça ao agente que baixe um vídeo curto e público do YouTube e
+   confira que o arquivo chegou. Isso cobre o `yt-dlp` instalado e a diretiva `--js-runtimes node` (sem ela o
+   `yt-dlp` não resolve o desafio do YouTube).
+- **Se pedir login ou "não é um robô":** refaça o login na Tela com a conta do agente.
 
 ### 7. Chrome headless roda (à mão)
 
 - **Conferir:** num card de teste, peça um render curto (a partir da 1.1.1, com `dgclaw-pesado --timeout`; antes
-  disso, envolvendo o comando em `timeout`), confira que ele terminou e, depois, que terminaram os processos criados pelo render. O Chrome da Tela
-  (`dgclaw-tela-chrome.service`) fica aberto de propósito e não conta. Compare a lista de processos do Chrome
-  antes e depois do render, num terminal seu (nunca no chat do Admin):
-  `podman exec dgclaw-<agente> ps -eo pid,ppid,lstart,cmd`, filtrando `chrome`.
+  disso, envolvendo o comando em `timeout`) e confira que ele terminou e que não deixou processo do Chrome para
+  trás. O Chrome da Tela (`dgclaw-tela-chrome.service`) fica aberto de propósito e não conta.
 - **Esperado:** o render termina sem erro e nenhum processo do Chrome que nasceu da execução do card de teste
   fica para trás (os da Tela, que já existiam antes, continuam). Se sobrou algum novo, veja quem o chamou sem prazo.
 - **Em render de verdade** (carrossel, vídeo), use sempre o `dgclaw-pesado --timeout` (a partir da 1.1.1), que
@@ -231,9 +198,8 @@ confere num terminal dela, **nunca no chat do Admin**.
 
 - **Servidor (automático):** o script confere `command -v ffmpeg` no servidor, onde ele gera as miniaturas do
   painel. Se faltar: `apt-get install -y ffmpeg`.
-- **Container (à mão):** num card de teste, peça ao agente `ffmpeg -version`, ou rode num terminal seu
-  `podman exec --user agente dgclaw-<agente> sh -c 'command -v ffmpeg'`. No container, o agente usa o `ffmpeg`
-  para áudio, vídeo e carrossel.
+- **Container (à mão):** num card de teste, peça ao agente `ffmpeg -version`. No container, o agente usa o
+  `ffmpeg` para áudio, vídeo e carrossel.
 - **Se faltar no container:** `dgclaw imagem construir --agora`, confira que terminou com sucesso e depois
   recrie o agente como descrito no passo 3 (olhe antes, só em leitura, e decida com o dono antes de qualquer
   perda).
@@ -260,7 +226,7 @@ Hoje é passo manual. Para cada skill do cliente:
    no Claude, e `.agents/skills/<skill>/` ou `.codex/skills/<skill>/` no Codex (caminhos em
    [PARIDADE-CODEX.md](PARIDADE-CODEX.md)). Depois, num card de teste desse motor, peça ao agente que
    localize a skill pelo nome e diga em que pasta ela está.
-2. Conferir o dono: `ls -ld` na pasta e nos arquivos deve mostrar o dono do agente, e não `root`. Se estiver
+2. Conferir o dono: a pasta e os arquivos da skill têm que ser do agente, e não de `root`. Se estiver
    `root`, corrija **dentro do container, como `agente`**, só na pasta da skill identificada, por exemplo
    `podman exec --user agente dgclaw-<agente> chown -R agente: /home/agente/.claude/skills/<skill>`
    (como `agente`, só dá para mexer no que já é dele; o que é de `root` pede ajuste da origem da cópia).
@@ -277,26 +243,19 @@ Hoje é passo manual. Para cada skill do cliente:
 
 - **Fazer:** abra o painel do agente e mande um pedido curto na conversa principal.
 - **Esperado:** a sessão principal responde, com o terminal vivo e em estado normal.
-- **Se falhar:** veja o resultado da última parada do runner:
-  `podman exec dgclaw-<agente> systemctl show -p Result -p ExecMainStatus -p ExecMainExitTimestamp dgclaw-runner`.
-  O comando roda dentro do container, onde o agente tem `sudo`, então a saída é apoio e pode ter sido alterada;
-  leia-a num terminal seu, nunca no chat do Admin. O journal bruto do runner traz texto escrito pelo agente: leia-o só num terminal seu, nunca no chat do
-  Admin. Se preciso, `dgclaw agente reiniciar <agente>`. O `dgclaw agente reparar <agente>` fica para uma
+- **Se falhar:** veja o resultado da última parada do runner, num terminal seu e nunca no chat do Admin. Essa
+  saída vem de dentro do container, onde o agente tem `sudo`, então é apoio e pode ter sido alterada. O journal
+  bruto do runner traz texto escrito pelo agente, com a mesma regra. Se preciso, `dgclaw agente reiniciar <agente>`. O `dgclaw agente reparar <agente>` fica para uma
   falha diagnosticada, não para um agente saudável: ele regrava a configuração do agente. Veja
   [SESSAO-PRINCIPAL.md](SESSAO-PRINCIPAL.md).
 
 ### 12. Texto personalizado nas skills do cliente (à mão)
 
-- **Conferir:** abra as skills que levam texto do cliente (assinatura, nome do programa, encerramento fixo)
-  e procure só marcadores genéricos e dados do próprio cliente, dentro do container e sem trazer o texto das
-  linhas para o terminal:
-  `podman exec --user agente dgclaw-<agente> grep -rlE '<nome do modelo, se for genérico>|<NOME DO CLIENTE>|TODO' <pasta de skills>/<skill>`,
-  com a pasta efetiva identificada no [passo 10](#10-skills-do-cliente-na-pasta-certa-à-mão)
-  (`.claude/skills`, `.agents/skills` ou `.codex/skills`, dentro de `/home/agente`). Só marque a conferência se
-  o `grep` leu a pasta com sucesso (código de saída 0 ou 1; 2 é pasta ilegível ou inexistente). O comando lista
-  só os arquivos com ocorrência; com `-rc`, a contagem por arquivo. Para ver a linha, abra o
-  arquivo achado. A comparação com nomes de outros clientes se faz no ambiente da equipe, contra a cópia
-  aprovada da skill, nunca na VPS do cliente: o nome de um terceiro não pode ficar à vista do agente do cliente.
+- **Conferir:** abra as skills que levam texto do cliente (assinatura, nome do programa, encerramento fixo) e
+  procure marcadores genéricos esquecidos e dados do próprio cliente, na pasta efetiva identificada no
+  [passo 10](#10-skills-do-cliente-na-pasta-certa-à-mão). A comparação com nomes de outros clientes se faz no
+  ambiente da equipe, contra a cópia aprovada da skill, nunca na VPS do cliente: o nome de um terceiro não pode
+  ficar à vista do agente do cliente.
 - **Esperado:** nenhum marcador genérico ou placeholder esquecido, e nada que não seja do cliente. Leia a
   assinatura e o encerramento com o olho: o `grep` só acha o que você lembrou de procurar.
 

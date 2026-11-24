@@ -40,7 +40,8 @@ igual "sai com 0" "0" "$?"
 afirma "item 1 OK" grep -q 'OK     \[1\] Ubuntu 24.04' "$TMP/s.txt"
 afirma "item 3 OK no pids.max" grep -q 'OK     \[3\] pids.max do container: 8192' "$TMP/s.txt"
 nega "o smoke nao executa nada dentro do container (nenhum podman exec)" grep -q 'podman exec' "$STUB_LOG"
-afirma "a lista a mao traz a leitura do runner num terminal do dono" grep -q 'systemctl show -p TasksMax -p OOMPolicy -p NRestarts dgclaw-runner' "$TMP/s.txt"
+afirma "a lista a mao traz a leitura do runner num terminal do dono" grep -q 'TasksMax, OOMPolicy e NRestarts do runner, lidos num terminal seu' "$TMP/s.txt"
+nega "a lista a mao nao traz comando podman exec" grep -q 'podman exec' "$TMP/s.txt"
 afirma "a lista a mao diz que serve de apoio e nao de prova" grep -q 'servem de apoio e nao de prova' "$TMP/s.txt"
 afirma "item 3 OK sem OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
 afirma "item 5 OK no microfone (web.env)" grep -q 'OK     \[5\] o servico Web tem chave para o microfone e o audio (a ultima atribuicao tem valor): GROQ_API_KEY' "$TMP/s.txt"
@@ -216,6 +217,42 @@ smoke ana
 nega "hostname oom-kill-test: nenhum FALHA de OOM" grep -q 'FALHA  \[3\] OOM' "$TMP/s.txt"
 afirma "hostname oom-kill-test: OK de nenhum OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
 
+echo "smoke-entrega: OOM antes do corte de 7 dias (na hora extra da consulta) nao conta"
+limpar_estado
+echo $((1800 + 7 * 86400)) >"$STUB_ESTADO/oom-seg"
+smoke ana
+igual "OOM 30 minutos antes do corte: sai com 0" "0" "$?"
+nega "OOM 30 minutos antes do corte: nenhuma FALHA de OOM" grep -q 'FALHA  \[3\] OOM' "$TMP/s.txt"
+afirma "OOM 30 minutos antes do corte: OK com cobertura de 7 dias" grep -q 'OK     \[3\] nenhum OOM no journal do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
+echo "smoke-entrega: OOM 30 minutos depois do corte de 7 dias conta"
+limpar_estado
+echo $((7 * 86400 - 1800)) >"$STUB_ESTADO/oom-seg"
+smoke ana
+igual "OOM 30 minutos depois do corte: sai com 1" "1" "$?"
+afirma "OOM 30 minutos depois do corte: FALHA" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias: 1 linha' "$TMP/s.txt"
+
+echo "smoke-entrega: nome do container vindo do registro"
+limpar_estado
+jq -n --arg casa "$CASA" '{versao: 1, agentes: [{slug: "ana", tipo: "agente", runner: "127.0.0.1:4301", home_host: $casa, provedor: "claude", container: "dgclaw-ana-novo"}]}' >"$ETC/agentes.json"
+smoke ana
+igual "container do registro: sai com 0" "0" "$?"
+afirma "usa o container do registro (container exists)" grep -q 'podman container exists dgclaw-ana-novo' "$STUB_LOG"
+afirma "usa o container do registro (inspect)" grep -q 'podman inspect.*dgclaw-ana-novo' "$STUB_LOG"
+nega "nao usa o nome padrao quando o registro traz outro" grep -qE 'podman (container exists|inspect.*) dgclaw-ana( |$)' "$STUB_LOG"
+jq -n --arg casa "$CASA" '{versao: 1, agentes: [{slug: "ana", tipo: "agente", runner: "127.0.0.1:4301", home_host: $casa, provedor: "claude", container: ""}]}' >"$ETC/agentes.json"
+limpar_estado
+smoke ana
+afirma "container vazio no registro: usa dgclaw-<agente>" grep -q 'podman container exists dgclaw-ana$' "$STUB_LOG"
+for ruim in 'ana-novo' 'dgclaw-' 'dgclaw-Ana' 'dgclaw-a;rm' 'dgclaw-a b'; do
+    jq -n --arg casa "$CASA" --arg c "$ruim" '{versao: 1, agentes: [{slug: "ana", tipo: "agente", runner: "127.0.0.1:4301", home_host: $casa, provedor: "claude", container: $c}]}' >"$ETC/agentes.json"
+    limpar_estado
+    smoke ana
+    igual "container registrado invalido ($ruim): sai com 2" "2" "$?"
+    afirma "container invalido: mensagem fixa" grep -q 'o nome de container registrado para o agente nao e valido' "$TMP/s.txt"
+    [ "$ruim" = 'dgclaw-' ] || nega "container invalido: nao repete o valor" grep -qF -- "$ruim" "$TMP/s.txt"
+done
+jq -n --arg casa "$CASA" '{versao: 1, agentes: [{slug: "ana", tipo: "agente", runner: "127.0.0.1:4301", home_host: $casa, provedor: "claude"}]}' >"$ETC/agentes.json"
+
 echo "smoke-entrega: chaves de microfone no web.env (ultima atribuicao, valor vazio, sem executar o arquivo)"
 limpar_estado
 printf 'GROQ_API_KEY=""\n' >"$ETC/web.env"
@@ -306,6 +343,13 @@ smoke ana
 afirma "web.env acima de 1 MiB: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[5\] o web.env passa de 1 MiB' "$TMP/s.txt"
 nega "web.env cortado nao vira OK nem FALHA de microfone" grep -qE '(OK     |FALHA  )\[5\] (o servico Web|o web.env nao tem)' "$TMP/s.txt"
 
+limpar_estado
+rm -f "$ETC/web.env"; mkdir "$ETC/web.env"
+smoke ana
+igual "web.env com leitura falhando: sai com 0" "0" "$?"
+afirma "leitura do web.env falhando: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[5\] nao consegui ler o arquivo de ambiente' "$TMP/s.txt"
+nega "leitura falhando nao vira FALHA nem OK de microfone" grep -qE '(OK     |FALHA  )\[5\] (o servico Web|o web.env nao tem)' "$TMP/s.txt"
+rmdir "$ETC/web.env"
 
 echo "smoke-entrega: consulta ao cofre sem resposta valida"
 limpar_estado

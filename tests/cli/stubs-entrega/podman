@@ -2,6 +2,7 @@
 # podman de mentira do smoke-entrega: o estado vem de arquivos em $STUB_ESTADO (ausente = valor padrao).
 # O smoke nao pode chamar "podman exec": se chamar, a linha fica no log e o teste falha.
 est="${STUB_ESTADO:?}"
+echo "podman $*" >>"${STUB_LOG:?}"
 val() { if [ -f "$est/$1" ]; then cat "$est/$1"; else printf '%s' "$2"; fi; }
 case "${1:-}" in
     container)

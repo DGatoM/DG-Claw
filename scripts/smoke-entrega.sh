@@ -43,12 +43,21 @@ for f in jq podman; do
     command -v "$f" >/dev/null 2>&1 || { echo "falta o programa '$f' no PATH. Instale com: apt-get install -y $f" >&2; exit 2; }
 done
 
-C="dgclaw-$SLUG"
 AGENTES_JSON="$R/etc/dgclaw/agentes.json"
 [ -s "$AGENTES_JSON" ] || { echo "nao achei $AGENTES_JSON, entao nao sei quais agentes existem. Rode o smoke no servidor do DG Claw, como root." >&2; exit 2; }
-REG="$(jq -r --arg s "$SLUG" '.agentes[] | select(.slug == $s and .tipo == "agente") | [(.runner // ""), (.home_host // ""), (.provedor // "?")] | @tsv' "$AGENTES_JSON" 2>/dev/null | head -n 1)"
+REG="$(jq -r --arg s "$SLUG" '.agentes[] | select(.slug == $s and .tipo == "agente") | def n: if . == "" then "-" else . end; [((.runner // "") | tostring | n), ((.home_host // "") | tostring | n), (.provedor // "?"), ((.container // "") | tostring | n)] | @tsv' "$AGENTES_JSON" 2>/dev/null | head -n 1)"
 [ -n "$REG" ] || { echo "o agente '$SLUG' nao esta em $AGENTES_JSON. Veja os que existem com: dgclaw agente listar" >&2; exit 2; }
-IFS=$'\t' read -r _ _ PROVEDOR <<<"$REG"
+IFS=$'\t' read -r _ _ PROVEDOR CONT_REG <<<"$REG"
+# Nome do container: o campo "container" do registro (o bin/dgclaw grava "dgclaw-<slug>"); vazio ou ausente, o padrao.
+C="dgclaw-$SLUG"
+if [ -n "$CONT_REG" ] && [ "$CONT_REG" != "-" ]; then
+    case "$CONT_REG" in
+        dgclaw-|dgclaw-*[!a-z0-9-]*) CONT_REG="" ;;
+        dgclaw-*) C="$CONT_REG" ;;
+        *) CONT_REG="" ;;
+    esac
+    [ -n "$CONT_REG" ] || { echo "o nome de container registrado para o agente nao e valido (esperado: dgclaw- e letras minusculas, numeros e hifen). Confira o registro com: dgclaw agente listar" >&2; exit 2; }
+fi
 
 FALHAS=0
 AVISOS=0
@@ -67,17 +76,19 @@ desc_cobertura() {
 }
 # so_digitos <texto> <maximo de caracteres>: verdadeiro se for um numero curto.
 so_digitos() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "${#1}" -le "$2" ]; }
-# contar_oom <comando...>: quantas linhas de falta de memoria o comando mostra e o timestamp (unix, parte inteira) da
-# primeira linha, no formato "<contagem> <timestamp>" (o comando precisa imprimir "-o short-unix"; sem linha, o
+# contar_oom <corte> <comando...>: quantas linhas de falta de memoria, com timestamp (parte inteira do primeiro campo)
+# maior ou igual ao corte (unix), o comando mostra, e o timestamp da primeira linha, no formato "<contagem> <timestamp>" (o comando precisa imprimir "-o short-unix"; sem linha, o
 # timestamp sai como "-"). So esses dois valores ficam guardados, o texto do journal passa direto pelo filtro. A
 # leitura tem limite de 1 MiB: se passar disso sem nenhuma ocorrencia no que foi lido, sai com 98 e nada (saida
 # cortada, INCONCLUSIVO); se ja achou ocorrencia, sai com 97 e a contagem parcial (e FALHA, com nota de contagem
 # parcial, e o timestamp nao vale como cobertura). Se o comando terminar com erro (journal ilegivel, prazo) depois de
 # ja ter mostrado ocorrencia, tambem sai com 97 e a contagem parcial. Erro sem nenhuma ocorrencia sai com 1 e nada:
-# isso e INCONCLUSIVO, nao "zero". O timestamp so vale como cobertura com o comando terminando em 0.
+# isso e INCONCLUSIVO, nao "zero". O timestamp so vale como cobertura com o comando terminando em 0. A consulta comeca
+# uma hora antes do corte so para medir a cobertura: linha antes do corte, ou sem timestamp numerico, nao conta como OOM.
 contar_oom() {
-    local r linha n bytes ts rc
-    r="$("$@" 2>/dev/null | head -c 1048577 | LC_ALL=C awk 'BEGIN { n = 0; b = 0; ts = "-" } NR == 1 { t = $1; sub(/\..*$/, "", t); if (t != "") ts = t } { b += length($0) + 1; m = $0; sub(/^[^ ]+ [^ ]+ /, "", m); if (tolower(m) ~ /out of memory|oom-kill|oom_kill|killed process/) n++ } END { print n, b, ts }'; printf 'rc=%s' "${PIPESTATUS[0]}")"
+    local r linha n bytes ts rc corte="$1"
+    shift
+    r="$("$@" 2>/dev/null | head -c 1048577 | LC_ALL=C awk -v corte="$corte" 'BEGIN { n = 0; b = 0; ts = "-" } NR == 1 { t = $1; sub(/\..*$/, "", t); if (t != "") ts = t } { b += length($0) + 1; t = $1; sub(/\..*$/, "", t); m = $0; sub(/^[^ ]+ [^ ]+ /, "", m); if (t ~ /^[0-9]+$/ && t + 0 >= corte + 0 && tolower(m) ~ /out of memory|oom-kill|oom_kill|killed process/) n++ } END { print n, b, ts }'; printf 'rc=%s' "${PIPESTATUS[0]}")"
     rc="${r##*rc=}"; linha="${r%%$'\n'*}"
     read -r n bytes ts <<<"$linha"
     so_digitos "$n" 9 || return 1
@@ -243,7 +254,7 @@ else
     # A janela e calculada uma vez: o corte e agora menos 7 dias, e a consulta comeca uma hora antes dele para ver se o
     # historico alcanca o corte.
     agora="$(date +%s)"; corte=$((agora - 7 * 86400))
-    oom_k="$(contar_oom timeout 60 journalctl _TRANSPORT=kernel --since "@$((corte - 3600))" --no-pager -q -o short-unix)"; rc_k=$?
+    oom_k="$(contar_oom "$corte" timeout 60 journalctl _TRANSPORT=kernel --since "@$((corte - 3600))" --no-pager -q -o short-unix)"; rc_k=$?
     oom_n=""; oom_ts=""
     read -r oom_n oom_ts <<<"$oom_k"
     parcial=0
@@ -292,14 +303,24 @@ printf '\n5. Microfone do chat e nomes das chaves do cofre (so os nomes, nunca o
 # Microfone: o servico Web le a chave do proprio arquivo de ambiente (web.env). O arquivo e lido como texto
 # (nunca executado) e so o veredito "tem valor" sai; o valor nunca e impresso. Vale a ULTIMA atribuicao.
 WEBENV="$R/etc/dgclaw/web.env"
-if [ ! -r "$WEBENV" ]; then
+# Uma leitura so, limitada: copia ate 1 MiB + 1 byte para um temporario e confere o codigo do head e o tamanho.
+env_tmp=""; env_rc=1; env_tam=0
+if [ -r "$WEBENV" ]; then
+    env_tmp="$(mktemp 2>/dev/null)" || env_tmp=""
+    if [ -n "$env_tmp" ]; then
+        head -c 1048577 "$WEBENV" >"$env_tmp" 2>/dev/null; env_rc=$?
+        env_tam="$(LC_ALL=C wc -c <"$env_tmp" 2>/dev/null | tr -d ' ')"
+        so_digitos "$env_tam" 9 || env_rc=1
+    fi
+fi
+if [ "$env_rc" -ne 0 ]; then
     inconclusivo 5 "nao consegui ler o arquivo de ambiente do servico Web ($(printf '%s' "$WEBENV" | limpar)), entao nao sei se o microfone tem chave." \
         "confira a mao a ultima linha de GROQ_API_KEY, OPENAI_API_KEY e ELEVENLABS_API_KEY no web.env (so se tem valor, sem mostrar o valor)"
-elif [ "$(head -c 1048577 "$WEBENV" 2>/dev/null | LC_ALL=C wc -c)" -gt 1048576 ]; then
+elif [ "$env_tam" -gt 1048576 ]; then
     inconclusivo 5 "o web.env passa de 1 MiB e a leitura foi cortada, entao a ultima atribuicao das chaves do microfone pode ter ficado de fora." \
         "confira a mao a ultima linha de GROQ_API_KEY, OPENAI_API_KEY e ELEVENLABS_API_KEY no web.env (so se tem valor, sem mostrar o valor)"
 else
-    mic="$(head -c 1048576 "$WEBENV" 2>/dev/null | LC_ALL=C awk '
+    mic="$(LC_ALL=C awk '
         /^[[:space:]]*(export[[:space:]]+)?(GROQ|OPENAI|ELEVENLABS)_API_KEY[[:space:]]*=/ {
             k = $0; sub(/^[[:space:]]*(export[[:space:]]+)?/, "", k); sub(/[[:space:]]*=.*$/, "", k)
             v = $0; sub(/^[^=]*=/, "", v)
@@ -314,7 +335,7 @@ else
             if (dup != "") { print "DUPLICADA " dup; exit }
             for (i = 1; i <= n; i++) if (tem[ordem[i]] == 1) lista = lista (lista == "" ? "" : ", ") ordem[i]
             print (lista == "" ? "NENHUMA" : lista)
-        }' 2>/dev/null)"
+        }' "$env_tmp" 2>/dev/null)"
     case "$mic" in
         DUPLICADA\ *) inconclusivo 5 "o web.env tem mais de uma atribuicao da mesma chave de microfone (${mic#DUPLICADA }), com ou sem export. O servico carrega o arquivo de dois jeitos, entao qual linha ele usa fica ambigua e nao sei qual chave esta valendo." \
             "deixe uma unica linha simples NOME=valor para cada chave no web.env (sem mostrar o valor), reinicie o Web (sudo systemctl restart dgclaw-web) e rode o smoke de novo" ;;
@@ -326,6 +347,7 @@ else
         *) inconclusivo 5 "nao consegui interpretar o web.env." "confira a mao as linhas das chaves de microfone do web.env" ;;
     esac
 fi
+[ -z "$env_tmp" ] || rm -f -- "$env_tmp"
 
 # Cofre: so os NOMES das chaves ativas. Cruzar com o que as skills do cliente citam e passo a mao (item 5 do guia).
 cofre_saida="$("$CLI" agente cofre "$SLUG" listar --json 2>/dev/null | head -c 1048577; printf 'rc=%s' "${PIPESTATUS[0]}")"
@@ -347,10 +369,10 @@ Conferir a mao (detalhes em docs/ENTREGA-CLIENTE.md):
   2.  A chave SSH da equipe: se nao funcionou, nao recrie a VPS; use o acesso temporario do suporte. Na
       entrega, o suporte temporario revogado (dgclaw suporte status), a chave permanente da equipe fora do
       authorized_keys e as chaves de diagnostico provisorias revogadas (dgclaw chave-api listar e revogar <id>).
-  3.  TasksMax, OOMPolicy e NRestarts do runner, num terminal seu (nunca no chat do Admin): podman exec
-      dgclaw-<agente> systemctl show -p TasksMax -p OOMPolicy -p NRestarts dgclaw-runner. Esperado: TasksMax
-      2400 ou mais, OOMPolicy continue (a partir da 1.1.1), NRestarts 0. Esses valores saem de dentro do
-      container, onde o agente tem sudo, entao servem de apoio e nao de prova. O journal do runner, se quiser
+  3.  TasksMax, OOMPolicy e NRestarts do runner, lidos num terminal seu (nunca no chat do Admin). Esperado:
+      TasksMax 2400 ou mais, OOMPolicy continue (a partir da 1.1.1), NRestarts 0. Esses valores saem de dentro
+      do container, onde o agente tem sudo, entao servem de apoio e nao de prova: nao confie no que aparece na
+      tela como prova. O journal do runner, se quiser
       ler, tambem so num terminal seu e so como indicio: o texto dele pode vir do agente.
   4.  Card de teste: sessao paralela, pedido curto, primeiro turno respondido, conversa aparece ao clicar.
       Repita nos dois motores (Claude e Codex).
