@@ -576,24 +576,24 @@ nega "o recriar tambem nao deixou o descritor 7 nem o 6 para o podman" test -e "
 
 echo "trava por agente: reparar e recriar do mesmo agente nao rodam juntos"
 mkdir -p "$ETC/travas"
-( flock -x "$ETC/travas/ta.lock" sleep 6 ) &
+( flock -x "$ETC/travas/agentes/ta.lock" sleep 6 ) &
 sleep 1
 DGCLAW_TRAVA_AGENTE_ESPERA=1 dgclaw agente reparar ta >"$TMP/rep.txt" 2>&1
 nega "reparar com a trava do agente ocupada falha" test "$?" -eq 0
-afirma "com mensagem em portugues" grep -q "esta segurando .*travas/ta.lock ha mais de 1s" "$TMP/rep.txt"
+afirma "com mensagem em portugues" grep -q "esta segurando .*travas/agentes/ta.lock ha mais de 1s" "$TMP/rep.txt"
 afirma "e o que fazer" grep -q 'O que fazer: espere o outro comando terminar' "$TMP/rep.txt"
 echo imagem-nova-u >"$STUB_ESTADO/imagem-id"
 : >"$STUB_LOG"
 DGCLAW_TRAVA_AGENTE_ESPERA=1 dgclaw agente recriar ta --forcar >"$TMP/rec.txt" 2>&1
 nega "recriar com a trava do agente ocupada falha" test "$?" -eq 0
-afirma "com a mesma mensagem" grep -q "esta segurando .*travas/ta.lock" "$TMP/rec.txt"
+afirma "com a mesma mensagem" grep -q "esta segurando .*travas/agentes/ta.lock" "$TMP/rec.txt"
 nega "e nao mexeu no container" grep -q '^podman stop\|^podman rm\|^podman create' "$STUB_LOG"
 wait
 : >"$STUB_LOG"
 dgclaw agente recriar ta --forcar >"$TMP/rec.txt" 2>&1
 igual "o recriar chama o reparar por dentro sem travar em si mesmo" "0" "$?"
 afirma "e o reparar de dentro rodou" grep -q 'Conferindo os limites de memoria, CPU e processos' "$TMP/rec.txt"
-afirma "a trava do agente solta no fim" flock -n -x "$ETC/travas/ta.lock" true
+afirma "a trava do agente solta no fim" flock -n -x "$ETC/travas/agentes/ta.lock" true
 dgclaw agente reparar ta >"$TMP/rep.txt" 2>&1
 igual "o reparar sozinho termina com 0" "0" "$?"
 nega "nenhuma chamada ao podman herdou os descritores 6 e 7" test -e "$STUB_ESTADO/fd6-aberto" -o -e "$STUB_ESTADO/fd7-aberto"
@@ -650,13 +650,13 @@ criar_agente pm --nome X
 igual "depois de um criar: a pasta das travas e 700" "700" "$(modo "$ETC/travas")"
 igual "a trava dos limites e 600" "600" "$(modo "$ETC/travas/limites.lock")"
 dgclaw agente reparar pm >"$TMP/rep.txt" 2>&1
-igual "depois de um reparar: a trava do agente e 600" "600" "$(modo "$ETC/travas/pm.lock")"
-chmod 755 "$ETC/travas"; chmod 644 "$ETC/travas/limites.lock" "$ETC/travas/pm.lock"
-ino_l="$(stat -c %i "$ETC/travas/limites.lock")"; ino_p="$(stat -c %i "$ETC/travas/pm.lock")"
+igual "depois de um reparar: a trava do agente e 600" "600" "$(modo "$ETC/travas/agentes/pm.lock")"
+chmod 755 "$ETC/travas"; chmod 644 "$ETC/travas/limites.lock" "$ETC/travas/agentes/pm.lock"
+ino_l="$(stat -c %i "$ETC/travas/limites.lock")"; ino_p="$(stat -c %i "$ETC/travas/agentes/pm.lock")"
 dgclaw agente reparar pm >"$TMP/rep.txt" 2>&1
 igual "pasta aberta que ja existia volta para 700" "700" "$(modo "$ETC/travas")"
-igual "trava do agente aberta volta para 600" "600" "$(modo "$ETC/travas/pm.lock")"
-igual "e o arquivo e o mesmo (inode), nao foi recriado" "$ino_p" "$(stat -c %i "$ETC/travas/pm.lock")"
+igual "trava do agente aberta volta para 600" "600" "$(modo "$ETC/travas/agentes/pm.lock")"
+igual "e o arquivo e o mesmo (inode), nao foi recriado" "$ino_p" "$(stat -c %i "$ETC/travas/agentes/pm.lock")"
 echo imagem-nova-m >"$STUB_ESTADO/imagem-id"
 dgclaw agente recriar pm --forcar >"$TMP/rec.txt" 2>&1
 igual "o recriar termina com 0" "0" "$?"
@@ -692,3 +692,12 @@ nega "e nada foi parado nem removido" grep -q '^podman stop\|^podman rm' "$STUB_
 rm -f "$STUB_ESTADO/inventario-demora"
 
 fim
+
+echo "trava por agente: agente chamado limites nao colide com a trava global"
+nova_raiz
+maquina 8 2
+criar_agente limites --nome X
+echo "2147483648 100000 100000 1024" >"$STUB_ESTADO/lim-dgclaw-limites"
+dgclaw agente reparar limites >"$TMP/rep.txt" 2>&1
+igual "o reparar do agente 'limites' termina sem esperar por si mesmo" "0" "$?"
+afirma "a trava do agente fica em travas/agentes/" test -f "$ETC/travas/agentes/limites.lock"

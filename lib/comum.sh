@@ -292,7 +292,7 @@ trava_faixa_soltar() { exec 8>&-; }
 
 # --- trava por agente (reparar e recriar) -------------------------------------------------
 # Reparar e recriar do MESMO agente nao podem rodar juntos: um troca o container enquanto o outro ajusta os limites
-# dele. Uma trava exclusiva por agente, em $DG_ETC/travas/<slug>.lock, e o descritor 6 do processo (o podman roda com
+# dele. Uma trava exclusiva por agente, em $DG_ETC/travas/agentes/<slug>.lock (pasta propria: um agente chamado "limites" nao pode colidir com a trava global), e o descritor 6 do processo (o podman roda com
 # ele fechado, pelo mesmo motivo do 8). O recriar chama o reparar por dentro: DG_TRAVA_AGENTE_COM guarda o slug que ESTE
 # processo ja segura, e quem o ve igual passa direto, sem esperar por si mesmo. Sair do processo solta a trava.
 # O slug vira nome de arquivo: quem chama passa antes por exigir_slug (bin/dgclaw); aqui so se confere de novo.
@@ -317,10 +317,12 @@ trava_agente_pegar() {
     [ "$ENSAIO" = 1 ] && return 0
     [ "$DG_TRAVA_AGENTE_COM" = "$slug" ] && return 0
     [[ "$slug" =~ ^[a-z0-9][a-z0-9-]{1,30}$ ]] || falha "o nome curto '$slug' nao serve para a trava do agente." "isso e um erro do DG Claw; abra uma issue."
-    arq="$DG_ETC/travas/$slug.lock"
+    arq="$DG_ETC/travas/agentes/$slug.lock"
+    # A pasta mae das travas tambem fica 700 (a dos limites mora nela); a de agentes fica dentro dela.
+    { mkdir -p "$DG_ETC/travas" && chmod 700 "$DG_ETC/travas"; } || falha "nao consegui preparar a pasta das travas ($DG_ETC/travas)." "confira se voce e root e se $DG_ETC aceita gravar."
     trava_arquivo_preparar "$arq"
     exec 6>"$arq" || falha "nao consegui abrir a trava do agente $slug em $arq." \
-        "confira se voce e root e se a pasta $DG_ETC/travas existe e aceita gravar."
+        "confira se voce e root e se a pasta $DG_ETC/travas/agentes existe e aceita gravar."
     flock -x -w "$espera" 6 || falha "outro 'dgclaw agente reparar' ou 'dgclaw agente recriar' do agente $slug esta segurando $arq ha mais de ${espera}s: os dois nao rodam ao mesmo tempo no mesmo agente." \
         "espere o outro comando terminar e rode de novo. Se nada estiver rodando, veja quem segura com: fuser -v $arq"
     DG_TRAVA_AGENTE_COM="$slug"
