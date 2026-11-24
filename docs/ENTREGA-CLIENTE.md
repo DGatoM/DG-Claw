@@ -181,7 +181,7 @@ confere pela Tela e por um card de teste, **nunca no chat do Admin**.
 
 1. Abra o painel no celular (largura 390) e entre com o usuário na grafia cadastrada. Confira que o campo de
    usuário não capitaliza sozinho (`autocapitalize="none"`): a equivalência de maiúsculas não existe nesta
-   versão.
+   versão. Depois de entrar, confira que a lista de agentes mostra o Admin e cada agente do cliente.
 2. Entregue a senha provisória ao cliente por canal seguro, nunca por e-mail comum nem por grupo.
 3. **No fim da entrega, o próprio cliente troca a senha**, num terminal privado dele, com
    `sudo dgclaw senha trocar` (o comando pede a senha nova duas vezes, sem mostrar o que se digita, e ela
