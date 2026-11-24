@@ -62,10 +62,10 @@ Nada roda dentro do container. Tudo o que não está nessa lista é conferido à
      `sudo`, por nenhuma origem nem porta do `sshd`. O `desligar` não mexe em chave que não é do suporte, então
      a conferência e a remoção são à mão. Se a chave aparecer em algum lugar, remova. Se alguma fonte de
      autorização ficar sem conferência, o item continua pendente e não se entrega.
-  3. **Recusa e sessões abertas.** Depois de remover, uma conexão nova só com a chave da equipe precisa ser
-     recusada. Uma recusa não derruba sessão já aberta, então, pela conexão do cliente, rode
-     `sudo dgclaw suporte desligar --derrubar-sessoes` (encerra as sessões SSH de root, menos a de quem roda) e
-     encerre à mão as da equipe nas outras contas.
+  3. **Desligar o suporte e testar a recusa.** Pela conexão do cliente, rode
+     `sudo dgclaw suporte desligar --derrubar-sessoes` (revoga o acesso temporário e encerra as sessões SSH de
+     root, menos a de quem roda) e encerre à mão as da equipe nas outras contas. Só depois disso, uma conexão
+     nova (sem reaproveitar conexão SSH aberta) só com a chave da equipe precisa ser recusada.
   4. **Fechamento.** O cliente encerra a última sessão SSH de root e faz a conferência final com
      `sudo dgclaw suporte status` numa sessão SSH do usuário nominal, onde precisam aparecer as duas linhas:
      "suporte: desligado" e "sessoes SSH de root abertas agora: nenhuma". A primeira sozinha não basta, porque
@@ -75,6 +75,9 @@ Nada roda dentro do container. Tudo o que não está nessa lista é conferido à
   instalação, e ela continua consultando serviços, agentes e canais. Rode `sudo dgclaw chave-api listar` e,
   para cada chave provisória da equipe que o cliente não autorizou manter, `sudo dgclaw chave-api revogar <id>`.
   Confira na listagem que ela aparece como revogada.
+- **Chaves de API dos agentes:** as chaves criadas no painel de cada agente (aba **Cofre**, seção **Chaves de
+  acesso à API**) não saem com o `chave-api revogar` nem com a troca da senha do dono. Revogue ali as que a
+  equipe criou para configurar o agente.
 
 ### 3. Limites do container e do runner (à mão, além do que o smoke lê)
 

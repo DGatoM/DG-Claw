@@ -148,4 +148,10 @@ afirma "container divergente: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[4\] o regist
 nega "container divergente: nao inspeciona dgclaw-ana" grep -q 'podman .*dgclaw-ana$' "$STUB_LOG"
 afirma "container igual ao padrao: confere bia" grep -q 'OK     \[4\] dgclaw-bia rodando' "$TMP/s.txt"
 
+limpar_estado
+echo '{"versao":1,"agentes":[{"slug":"ana","tipo":" agente "}]}' >"$ETC/agentes.json"
+smoke
+afirma "tipo com espacos: confere o agente, como o painel" grep -q 'OK     \[4\] dgclaw-ana rodando' "$TMP/s.txt"
+afirma "curl sem proxy e sem curlrc" grep -q "curl -q -s --noproxy \* " "$STUB_LOG"
+
 fim

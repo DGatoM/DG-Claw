@@ -52,7 +52,7 @@ fi
 printf '\n2. Painel\n'
 PORTA="$(sed -n 's/^DGCLAW_PORTA_PAINEL=//p' "$R/etc/dgclaw/dgclaw.env" 2>/dev/null | head -n 1)"
 if ! so_digitos "$PORTA" 5 || [ "$PORTA" -lt 1 ] || [ "$PORTA" -gt 65535 ]; then PORTA=8300; fi
-CODIGO="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:$PORTA/" 2>/dev/null)"; curl_rc=$?
+CODIGO="$(curl -q -s --noproxy '*' -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:$PORTA/" 2>/dev/null)"; curl_rc=$?
 [ "$curl_rc" -eq 0 ] || CODIGO="000, curl saiu com $curl_rc"
 case "$CODIGO" in
     2??|3??) ok 2 "o painel respondeu na porta $PORTA (HTTP $CODIGO)" ;;
@@ -74,13 +74,13 @@ if [ ! -s "$AGENTES_JSON" ]; then
     inconclusivo 4 "nao achei ou nao consegui ler $AGENTES_JSON." "rode o smoke no servidor do DG Claw, como root, e confira com: dgclaw agente listar"
 # Mesma regra do painel (web/lib/registro.js): sem "tipo", e agente (o slug "admin" e o Admin). Cada linha sai como
 # "<igual|diverge> <slug>": diverge quando o campo "container" do registro nao e vazio nem dgclaw-<slug>.
-elif ! SLUGS="$(jq -r '.agentes[] | (if ((.tipo | strings) // "") != "" then .tipo elif .slug == "admin" then "admin" else "agente" end) as $t | select($t == "agente") | (.slug | tostring) as $s | ((.container // "") | tostring) as $c | (if $c == "" or $c == ("dgclaw-" + $s) then "igual" else "diverge" end) + " " + $s' "$AGENTES_JSON" 2>/dev/null)"; then
+elif ! SLUGS="$(jq -r '.agentes[] | ((.tipo | strings | gsub("^\\s+|\\s+$"; "")) // "") as $tp | (if $tp != "" then $tp elif .slug == "admin" then "admin" else "agente" end) as $t | select($t == "agente") | (.slug | tostring) as $s | ((.container // "") | tostring) as $c | (if $c == "" or $c == ("dgclaw-" + $s) then "igual" else "diverge" end) + " " + $s' "$AGENTES_JSON" 2>/dev/null)"; then
     inconclusivo 4 "o registro de agentes nao pode ser lido." "confira com: dgclaw agente listar"
 elif [ -z "$SLUGS" ]; then
     aviso 4 "o registro nao tem nenhum agente." "crie o agente do cliente antes da entrega (dgclaw agente criar)"
 else
     while read -r reg slug; do
-        if [ "${#slug}" -gt 40 ] || ! [[ "$slug" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+        if [ "${#slug}" -gt 32 ] || ! [[ "$slug" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
             inconclusivo 4 "um agente do registro tem nome fora do formato e nao foi conferido." "confira com: dgclaw agente listar"
             continue
         fi
