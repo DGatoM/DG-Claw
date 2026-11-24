@@ -396,6 +396,10 @@ esperar_primeiro_turno() { # $1 id ; $2 segundos
           CODIGO=6 die "o card $1 foi criado, mas esta com erro antes de o pedido virar turno: $erro_turno. Veja 'dgclaw-card estado $1'. Nao diga ao dono que ele esta trabalhando."
         fi
       fi
+      # Card esperando decisao do dono sem o aceite do pedido confirmado: nao ha o que esperar no prazo, avisa ja (11).
+      if [ "$status" = waiting_input ] && { [ "$turnos" = 0 ] || [ "$fila" != 0 ] || [ "$recibo" = true ]; }; then
+        sem_confirmacao "$1" "o card esta esperando uma decisao do dono e a aceitacao do pedido ainda nao esta confirmada"
+      fi
       # So o contador confirma o turno: working sozinho pode ser outra coisa (ex.: compactacao, hook:PreCompact).
       # Um turno so confirma o pedido se o texto dele ja saiu da fila: o painel pode digitar uma mensagem direto no
       # terminal (sem passar pela fila), e esse turno nao e o do pedido.
@@ -481,9 +485,10 @@ provedor_do() {
 
 cmd_estado() {
   validar_id "${1:-}"
-  local id="$1" status titulo fila reason prov auth modelo turnos hook
+  local id="$1" status titulo fila reason prov auth modelo turnos hook total recibo
   chamar_ou_sair GET "/api/agents/$id"
   turnos="$(campo .data.turnosAceitosSessao)"
+  total="$(campo .data.naFilaTotal)"; recibo="$(campo_booleano .data.reciboPendente)"
   status="$(campo .data.status)"; titulo="$(campo .data.sessao.titulo)"; fila="$(campo .data.sessao.fila)"
   reason="$(campo .data.error)"
   chamar_ou_sair GET "/api/provedor?sessao=$id"
@@ -491,6 +496,10 @@ cmd_estado() {
   echo "$id: ${status:-desconhecido}${fila:+ (na fila: $fila)}${titulo:+ | titulo: $titulo}"
   echo "provedor: ${prov:-?} | auth: ${auth:-?} | modelo: ${modelo:-padrao}"
   [ -z "$reason" ] || echo "aviso do runner: $reason"
+  echo "textos pendentes (naFilaTotal): ${total:-?} | recibo do Enter pendente (reciboPendente): ${recibo:-?}"
+  if [ "$turnos" != 0 ] && { ! [[ "$total" =~ ^[0-9]+$ ]] || [ "$total" != 0 ] || [ "$recibo" != false ]; }; then
+    echo "a aceitacao do ultimo pedido ainda nao esta confirmada (ha texto pendente ou o runner nao informou); nao diga ao dono que a nova tarefa comecou"
+  fi
   if [ "$turnos" = 0 ]; then
     echo "primeiro turno ainda nao observado pelo runner (isso nao prova que o card esteja parado); confira com 'dgclaw-card ler $id'"
   fi
@@ -561,7 +570,9 @@ explicar_conversa_vazia() { # $1 id
   local id="$1" status fila turnos total
   if chamar GET "/api/agents/$id" && [[ "$HTTP" == 2* ]]; then
     status="$(campo .data.status)"; fila="$(campo .data.sessao.fila)"; fila="${fila:-0}"; turnos="$(campo .data.turnosAceitosSessao)"; total="$(campo .data.naFilaTotal)"; total="${total:-$fila}"
-    if [ "$fila" != 0 ] && { [ "$status" = stopped ] || [ "$status" = resumable ]; }; then
+    if [ "$status" = waiting_input ]; then
+      echo "O card $id ainda nao tem mensagens para mostrar e $(aviso_decisao "$id")"
+    elif [ "$fila" != 0 ] && { [ "$status" = stopped ] || [ "$status" = resumable ]; }; then
       echo "O card $id ainda nao tem mensagens: ha um pedido guardado na fila ($fila), mas a sessao esta sem terminal aberto. Retomar no painel (aba Sessoes) processa o pedido, sem reenviar o texto."
     elif [ "$fila" != 0 ]; then
       echo "O card $id ainda nao tem mensagens: ha texto na fila ($fila) e o runner ainda nao observou o primeiro turno (isso nao prova que esteja parado). Confira 'dgclaw-card estado $id' e leia de novo com 'dgclaw-card ler $id' mais tarde, sem reenviar por conta propria."

@@ -1,7 +1,7 @@
 // Runner falso para o teste do dgclaw-card. Grava cada requisicao em $LOG (uma linha JSON com
 // metodo, url, corpo e o cabecalho Authorization) e simula o ciclo de um card:
 // criado dormindo -> /input -> working -> idle com resposta do assistente.
-// Chaves de ambiente: RUNNER_BEARER (token esperado), MODO (normal|limite|sem-login|input-falha|nunca-termina|sem-turno|turno-lento|leitura-403|leitura-503|sem-contador|restaurado|lento-leitura|erro-turno|erro-campo|input-recusado|input-perdido|input-sem-capacidade|input-nao-acordou|working-sem-turno|stop-failure|ferramenta-com-erro-no-nome|sem-login-delete-falha|fila-parada|sem-hook|turno-com-fila|sem-processo|sem-campo-fila|item-em-voo|sem-turno-sem-total|erro-com-pendencia|erro-motivo-com-pendencia|turno-resumable|aguardando-decisao|aguardando-pergunta|aguardando-permissao|aguardando-motivo-estranho|turno-so-na-2a-consulta|decisao-com-fila|decisao-sem-conversa).
+// Chaves de ambiente: RUNNER_BEARER (token esperado), MODO (normal|limite|sem-login|input-falha|nunca-termina|sem-turno|turno-lento|leitura-403|leitura-503|sem-contador|restaurado|lento-leitura|erro-turno|erro-campo|input-recusado|input-perdido|input-sem-capacidade|input-nao-acordou|working-sem-turno|stop-failure|ferramenta-com-erro-no-nome|sem-login-delete-falha|fila-parada|sem-hook|turno-com-fila|sem-processo|sem-campo-fila|item-em-voo|sem-turno-sem-total|erro-com-pendencia|erro-motivo-com-pendencia|turno-resumable|aguardando-decisao|aguardando-pergunta|aguardando-permissao|aguardando-motivo-estranho|turno-so-na-2a-consulta|decisao-com-fila|decisao-sem-conversa|decisao-sem-turno).
 const http = require("http");
 const fs = require("fs");
 const LOG = process.env.LOG;
@@ -84,6 +84,8 @@ http.createServer((req, res) => {
         // decisao-com-fila: o card pede uma decisao do dono no turno atual e o pedido ainda esta na fila.
         if (MODO === "decisao-com-fila") { c.status = "waiting_input"; c.turnos = 1; c.fila = 1; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
         // decisao-sem-conversa: pedido aceito, card em waiting_input e a conversa ainda sem nada gravado.
+        // decisao-sem-turno: card em waiting_input, contador 0 e fila 0.
+        if (MODO === "decisao-sem-turno") { c.status = "waiting_input"; c.turnos = 0; c.fila = 0; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
         if (MODO === "decisao-sem-conversa") { c.status = "waiting_input"; c.turnos = 1; c.fila = 0; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
         if (MODO === "aguardando-decisao") { c.msgs.push({ role: "user", text: JSON.parse(corpo).text }); c.status = "waiting_input"; c.turnos = 1; c.fila = 0; return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
         // aguardando-pergunta / aguardando-permissao / aguardando-motivo-estranho: waiting_input com o campo motivo do runner.

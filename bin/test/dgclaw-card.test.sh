@@ -309,6 +309,19 @@ subir decisao-com-fila
 "$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
 ok "decisao com o pedido na fila: abrir sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
 grep -q "Agora o card esta esperando uma decisao do dono" "$T/e" && grep -q "Avise o dono agora" "$T/e"; ok "decisao com o pedido na fila: o 11 traz o aviso de decisao do dono" $?
+subir decisao-com-fila
+"$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 2 >/dev/null 2>&1
+"$BIN" ler card-abc123 >"$T/o" 2>"$T/e"
+grep -q "esperando uma decisao do dono" "$T/o" && ! grep -q "dgclaw-card esperar" "$T/o"; ok "ler com waiting_input e texto na fila da o aviso de decisao" $?
+subir decisao-com-fila
+t0=$SECONDS
+"$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 30 >"$T/o" 2>"$T/e"; c=$?
+ok "decisao com o pedido na fila e espera 30: sai com 11 rapido" $([ $c = 11 ] && [ $((SECONDS - t0)) -lt 10 ] && echo 0 || echo 1)
+grep -q "Agora o card esta esperando uma decisao do dono" "$T/e"; ok "o 11 rapido traz o aviso de decisao" $?
+subir decisao-sem-turno
+"$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 30 >"$T/o" 2>"$T/e"; c=$?
+ok "waiting_input com contador 0 e fila 0: sai com 11 (nao 9)" $([ $c = 11 ] && echo 0 || echo 1)
+grep -q "Agora o card esta esperando uma decisao do dono" "$T/e"; ok "waiting_input sem turno traz o aviso de decisao" $?
 subir decisao-sem-conversa
 "$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 2 >/dev/null 2>&1
 "$BIN" ler card-abc123 >"$T/o" 2>"$T/e"
@@ -381,6 +394,8 @@ grep -q "1 texto(s) pendente(s) no card" "$T/e"; ok "a recusa do fechar com fila
 subir item-em-voo
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
 ok "turno com item em voo (fila 0, naFilaTotal 1) nao confirma: sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+"$BIN" estado card-abc123 >"$T/o" 2>"$T/e"
+grep -q "naFilaTotal): 1" "$T/o" && grep -q "reciboPendente): false" "$T/o" && grep -q "aceitacao do ultimo pedido ainda nao esta confirmada" "$T/o"; ok "estado com item em voo mostra o pendente e que a aceitacao nao esta confirmada" $?
 ! grep -q "Card aberto" "$T/o"; ok "item em voo nao imprime 'Card aberto'" $?
 "$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
 ok "fechar com item em voo recusa com 10" $([ $c = 10 ] && echo 0 || echo 1)
