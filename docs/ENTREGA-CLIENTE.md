@@ -56,24 +56,21 @@ Nada roda dentro do container. Tudo o que não está nessa lista é conferido à
   suporte (`dgclaw suporte ligar`, veja o [projeto de cliente](PROJETO-DE-CLIENTE.md#2-o-fluxo-passo-a-passo)).
 - **Na entrega, nesta ordem:**
   1. **Acesso do cliente garantido antes de remover (primeiro).** O cliente confirma que tem acesso
-     administrativo próprio (root ou `sudo`) numa conexão SSH nova, com a credencial dele, e a deixa aberta até o fim. Sem isso, a
-     remoção pode deixar o dono sem acesso.
-  2. **Suporte temporário revogado.** Rode o `sudo dgclaw suporte status` numa sessão SSH do usuário nominal
-     do cliente, depois de encerrada a última sessão SSH de root, e confira as duas linhas: "suporte: desligado"
-     **e** "sessoes SSH de root abertas agora: nenhuma". A primeira sozinha não basta, porque uma conexão de
-     root aberta antes de a chave sair continua ativa (o terminal de navegador da Hostinger usa SSH por baixo e,
-     entrando como root, também abre uma).
-  3. **Chave permanente da equipe sem acesso administrativo.** Ela não autoriza mais nenhuma conta com root ou
+     administrativo próprio (root ou `sudo`) numa conexão SSH nova, com a credencial dele, e a deixa aberta
+     até o fim. Sem isso, a remoção pode deixar o dono sem acesso.
+  2. **Chave permanente da equipe sem acesso administrativo.** Ela não autoriza mais nenhuma conta com root ou
      `sudo`, por nenhuma origem nem porta do `sshd`. O `desligar` não mexe em chave que não é do suporte, então
      a conferência e a remoção são à mão. Se a chave aparecer em algum lugar, remova. Se alguma fonte de
      autorização ficar sem conferência, o item continua pendente e não se entrega.
-  4. **Recusa e sessões abertas.** Depois de remover, uma conexão nova só com a chave da equipe precisa ser
+  3. **Recusa e sessões abertas.** Depois de remover, uma conexão nova só com a chave da equipe precisa ser
      recusada. Uma recusa não derruba sessão já aberta, então, pela conexão do cliente, rode
      `sudo dgclaw suporte desligar --derrubar-sessoes` (encerra as sessões SSH de root, menos a de quem roda) e
      encerre à mão as da equipe nas outras contas.
-  5. **Fechamento.** O cliente encerra a última sessão SSH de root e faz a conferência final com
-     `sudo dgclaw suporte status` na sessão do usuário nominal, onde precisam aparecer "suporte: desligado" e
-     "sessoes SSH de root abertas agora: nenhuma".
+  4. **Fechamento.** O cliente encerra a última sessão SSH de root e faz a conferência final com
+     `sudo dgclaw suporte status` numa sessão SSH do usuário nominal, onde precisam aparecer as duas linhas:
+     "suporte: desligado" e "sessoes SSH de root abertas agora: nenhuma". A primeira sozinha não basta, porque
+     uma conexão de root aberta antes de a chave sair continua ativa (o terminal de navegador da Hostinger usa
+     SSH por baixo e, entrando como root, também abre uma).
 - **Chaves de diagnóstico remoto:** desligar o SSH não revoga uma chave `diagnostico` emitida durante a
   instalação, e ela continua consultando serviços, agentes e canais. Rode `sudo dgclaw chave-api listar` e,
   para cada chave provisória da equipe que o cliente não autorizou manter, `sudo dgclaw chave-api revogar <id>`.
@@ -198,9 +195,9 @@ Hoje é passo manual. Para cada skill do cliente:
    [PARIDADE-CODEX.md](PARIDADE-CODEX.md)). Depois, num card de teste desse motor, peça ao agente que
    localize a skill pelo nome e diga em que pasta ela está.
 2. Conferir o dono: a pasta e os arquivos da skill têm que ser do agente, e não de `root`. Se estiver
-   `root`, ajuste a origem da cópia (o pacote aprovado pela equipe) e copie a skill de novo. Não monte comando
-   com o nome que o agente informou no card. Nada de `chown -R` como root no host, e não toque nos links das skills oficiais: o ajuste vale só para a
-   pasta personalizada, com `-h` quando houver link dentro dela.
+   `root`, instale de novo o pacote aprovado pela equipe dentro do container, como o agente. Nunca copie nem
+   ajuste dono como root no host numa pasta que o agente grava (um link no caminho leva a gravação para fora da
+   casa dele), e não monte comando com o nome que o agente informou no card.
 3. Conferir que `CLAUDE_PLUGIN_ROOT` resolve: abra a skill e veja os caminhos que ela usa. Antes de rodar
    o `setup-check.sh` dela (quando tiver), leia o script e confira que é a versão esperada, porque o agente
    tem `sudo` sem senha no container e o script enxerga o cofre e a sessão do navegador. Se não der para
