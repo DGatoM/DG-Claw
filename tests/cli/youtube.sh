@@ -70,14 +70,30 @@ nega "nao recriou a pasta config" test -e "$CFG"
 mv "$CFG.fora" "$CFG"
 
 echo "youtube: com a trava do YouTube presa (restauracao em andamento), sim nao grava"
-TRAVA_YT="$DGCLAW_RAIZ/run/dgclaw-youtube.lock"; mkdir -p "$(dirname "$TRAVA_YT")"
+TRAVA_YT="$DGCLAW_RAIZ/run/dgclaw-travas/youtube.lock"; mkdir -p "$(dirname "$TRAVA_YT")"
 ( flock 9; exec sleep 40 ) 9>"$TRAVA_YT" &
 PRESO=$!; sleep 1
+t0=$(date +%s)
 dgclaw agente youtube ana conta-dedicada sim >"$TMP/o.txt" 2>&1
-nega "sim com a trava presa falha" test "$?" = 0
+rc=$?; t1=$(date +%s)
+nega "sim com a trava presa falha" test "$rc" = 0
+afirma "e recusa na hora, sem esperar a restauracao acabar" test $((t1 - t0)) -lt 10
 nega "e nao gravou o marcador" test -e "$M"
 afirma "e diz que ha restauracao em andamento" grep -q "restauracao de backup" "$TMP/o.txt"
 kill "$PRESO" 2>/dev/null; wait "$PRESO" 2>/dev/null
+
+echo "youtube: a trava fica numa pasta 0700 e o arquivo e 0600"
+dgclaw agente youtube ana conta-dedicada nao >/dev/null 2>&1
+igual "pasta da trava 0700" "700" "$(stat -c %a "$DGCLAW_RAIZ/run/dgclaw-travas")"
+igual "arquivo da trava 0600" "600" "$(stat -c %a "$DGCLAW_RAIZ/run/dgclaw-travas/youtube.lock")"
+
+echo "youtube: remocao recusada nao diz DESLIGADA"
+mkdir -p "$M/preso" && : >"$M/preso/x"
+dgclaw agente youtube ana conta-dedicada nao >"$TMP/o.txt" 2>&1
+nega "nao com remocao recusada falha" test "$?" = 0
+nega "e nao diz DESLIGADA" grep -q "DESLIGADA para o agente" "$TMP/o.txt"
+afirma "e diz que continua LIGADA" grep -q "continua LIGADA" "$TMP/o.txt"
+rm -rf "$M"
 
 echo "youtube: nome ou assunto invalido"
 nega "nome inexistente recusado" dgclaw agente youtube fulano conta-dedicada sim

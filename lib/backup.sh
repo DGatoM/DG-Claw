@@ -266,7 +266,7 @@ backup_listar() {
 # _restaurar_extrair <tar> <rotulo> <backup agora>: extrai por cima, sem apagar o que for mais novo.
 _restaurar_extrair() {
     # O marcador da conta dedicada do YouTube nunca volta de um backup: a declaracao vale para o perfil da Tela de agora.
-    tar -xzf "$1" -C "${R:-/}" --numeric-owner --exclude='var/lib/dgclaw/agentes/*/config/youtube-conta-dedicada' \
+    tar -xzf "$1" -C "${R:-/}" --numeric-owner --no-wildcards-match-slash --exclude='var/lib/dgclaw/agentes/*/config/youtube-conta-dedicada' \
         || falha "nao consegui restaurar $1 ($2)." "os agentes ja foram parados; o estado de antes de restaurar esta em $3. Veja a mensagem do tar acima e rode de novo,"
 }
 

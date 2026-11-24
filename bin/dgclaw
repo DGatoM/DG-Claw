@@ -2285,7 +2285,8 @@ agente_youtube() {
         return 0
     fi
     # Sob a trava do YouTube: nao liga nem desliga enquanto uma restauracao de backup estiver repondo perfis da Tela.
-    com_trava_youtube 30 _agente_youtube_gravar "$slug" "$valor" || exit $?
+    # Espera 0: se uma restauracao estiver em curso, recusa na hora; o dono confere a Tela depois e pede de novo.
+    com_trava_youtube 0 _agente_youtube_gravar "$slug" "$valor" || exit $?
 }
 
 # _agente_youtube_gravar <slug> sim|nao: grava ou remove o marcador. Chamado sob com_trava_youtube.
@@ -2307,7 +2308,8 @@ _agente_youtube_gravar() {
         fi
         ok "conta dedicada do YouTube LIGADA para o agente $slug (vale na hora, sem reiniciar). O yt-dlp usa a sessao que estiver na Tela dele: nao entre la com a sua conta pessoal enquanto estiver ligada."
     else
-        rm -f -- "$marcador"
+        rm -f -- "$marcador" || falha "nao consegui remover o marcador $marcador: a conta dedicada do YouTube continua LIGADA." "confira o disco e a permissao de $casa/config e rode de novo."
+        [ ! -e "$marcador" ] || falha "o marcador $marcador continua la: a conta dedicada do YouTube continua LIGADA." "confira o disco e a permissao de $casa/config e rode de novo."
         ok "conta dedicada do YouTube DESLIGADA para o agente $slug. Os proximos downloads nao usam os cookies da Tela; um download que ja comecou vai ate o fim, e o perfil da Tela continua na casa do agente."
     fi
 }

@@ -266,11 +266,17 @@ com_trava() {
 # ligada enquanto um perfil da Tela esta voltando de um backup. A trava fica em /run, fora de tudo o que a
 # restauracao extrai.
 com_trava_youtube() {
-    local espera="$1" trava="${R:-}/run/dgclaw-youtube.lock"; shift
+    local espera="$1" pasta="${R:-}/run/dgclaw-travas" trava; shift
+    trava="$pasta/youtube.lock"
     if [ "$ENSAIO" = 1 ]; then "$@"; return; fi
-    mkdir -p "$(dirname "$trava")"
+    # Pasta 0700 e arquivo 0600 de quem roda (root): nenhum outro usuario consegue abrir a trava para segura-la.
+    (umask 077 && mkdir -p "$pasta") || falha "nao consegui criar a pasta da trava $pasta." "confira a permissao de ${R:-}/run e rode de novo."
+    chmod 700 "$pasta" || falha "nao consegui proteger a pasta da trava $pasta." "confira a permissao e rode de novo."
+    { (umask 077 && : >>"$trava") && chmod 600 "$trava"; } || falha "nao consegui proteger a trava $trava." "confira a permissao e rode de novo."
     (
-        flock -w "$espera" 9 || falha "uma restauracao de backup (ou outra mudanca na conta dedicada do YouTube) esta em andamento." \
+        umask 077
+        # Espera 0: desiste na hora se a trava estiver presa (a ativacao da conta dedicada nunca espera uma restauracao).
+        if [ "$espera" = 0 ]; then flock -n 9; else flock -w "$espera" 9; fi || falha "uma restauracao de backup (ou outra mudanca na conta dedicada do YouTube) esta em andamento." \
             "espere ela terminar e rode de novo. Se nada estiver rodando, confira com: fuser $trava"
         "$@"
     ) 9>"$trava"
