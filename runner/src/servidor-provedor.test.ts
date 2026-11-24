@@ -630,3 +630,22 @@ test("POST /input com injectWhenIdle: se o arquivo da fila não pode ser gravado
   const ok = await req("POST", `/api/agents/${ID}/input`, { text: "pedido-que-grava", injectWhenIdle: true });
   assert.equal(ok.status, 202);
 });
+
+test("POST /input direto com a digitação suspensa e rascunho na caixa => 409 CAIXA_COM_RASCUNHO; tecla crua com Enter registra o Enter do dono e continua livre", async () => {
+  const { alimentarTela } = await import("./apoio-teste.js");
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  principal.digitacaoSuspensaEm = Date.now();
+  principal.ultimaSaidaEm = Date.now() - 5_000;
+  await alimentarTela(principal, "\u001b[2J\u001b[H╭──╮\r\n│ ❯ rascunho-do-dono\r\n╰──╯\r\n? for shortcuts\r\n");
+  const r = await req("POST", `/api/agents/${ID}/input`, { text: "mensagem-direta" });
+  assert.equal(r.status, 409, JSON.stringify(r.corpo));
+  assert.equal(r.corpo.code, "CAIXA_COM_RASCUNHO");
+  assert.match(r.corpo.howToFix, /terminal do agente/);
+  const crua = await req("POST", `/api/agents/${ID}/input`, { text: "x\r", submit: false });
+  assert.equal(crua.status, 200, "tecla crua continua livre");
+  assert.notEqual(principal.enterManualPendente, null);
+  principal.digitacaoSuspensaEm = null;
+  principal.enterManualPendente = null;
+});

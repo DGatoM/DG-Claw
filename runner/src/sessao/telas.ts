@@ -137,8 +137,10 @@ function lerCaixa(tela: string): { conteudo: string; marcaDeDialogoDepois: boole
   }
   if (l < 0) return null;
   // Outro marcador no começo de linha dentro da mesma caixa (sem limite nem linha em branco entre eles).
+  // Só a borda da caixa encerra a busca: uma linha em branco pode estar no meio de um rascunho de vários parágrafos,
+  // e um parágrafo que começa com ❯ ou › não pode passar por "o marcador da caixa".
   for (let i = l - 1; i >= 0; i--) {
-    if (linhas[i].trim() === "" || RE_LIMITE_DA_CAIXA.test(linhas[i])) break;
+    if (RE_LIMITE_DA_CAIXA.test(linhas[i])) break;
     if (RE_MARCADOR_NO_INICIO.test(linhas[i])) return "ambigua";
   }
   const partes = [linhas[l].replace(RE_MARCADOR_NO_INICIO, "")];
@@ -163,6 +165,15 @@ export function estadoDaCaixa(tela: string, texto: string): EstadoDaCaixa {
   if (caixa.marcaDeDialogoDepois || RE_MARCA_DE_DIALOGO.test(caixa.conteudo)) return "indeterminada";
   if (caixa.conteudo === "") return "vazia";
   return caixa.conteudo === compacta(texto) ? "mesmo-texto" : "indeterminada";
+}
+
+/** A tela de agora mostra um diálogo (permissão, pergunta, aviso de modo)? Olha só o que é do diálogo: as telas de aviso
+ *  conhecidas e as marcas de diálogo ABAIXO do marcador da caixa. O texto da própria caixa não conta (o pedido pode
+ *  conter "yes," e continua sendo só um pedido). */
+export function haDialogoNaTela(tela: string): boolean {
+  if (haDialogoAberto(tela)) return true;
+  const caixa = lerCaixa(tela);
+  return typeof caixa === "object" && caixa !== null && caixa.marcaDeDialogoDepois;
 }
 
 /** A tela mostra a caixa de composição sem nenhum texto (só o prompt e o rodapé)? */

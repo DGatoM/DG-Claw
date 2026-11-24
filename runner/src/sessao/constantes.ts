@@ -60,3 +60,8 @@ export const PRAZO_SEM_HOOKS_MS = 60_000;
 
 /** Mensagem que esperou na fila mais que isto chega ao agente com um aviso de atraso (ver avisoDeAtraso). */
 export const AVISO_DE_FILA_APOS_MS = 20_000;
+
+/** Um Enter vindo de fora (o dono, pelo terminal) segura a fila até o recibo dele chegar ou até este prazo. */
+export const ENTER_MANUAL_SEGURA_FILA_MS = 15_000;
+/** Quantos pedidos retidos (incertos) ficam guardados no arquivo; ao passar disso o mais antigo é descartado, com aviso. */
+export const MAX_RETIDOS = 20;

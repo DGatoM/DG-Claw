@@ -1,9 +1,9 @@
 import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
-import { MOTIVO_RECUSA_DE_ENTRADA, type SemRecibo, devolverNaoDigitado, liberarBarra, pararComCaixaSuja, pendenteEm, reter, suspenderPorRascunho, talvezSoltarFila } from "./fila.js";
+import { MOTIVO_CAIXA_COM_RASCUNHO, MOTIVO_RECUSA_DE_ENTRADA, type SemRecibo, devolverNaoDigitado, levantarSuspensao, liberarBarra, pararComCaixaSuja, pendenteEm, reter, suspenderPorRascunho, talvezSoltarFila, terminalQuietoParaLerTela } from "./fila.js";
 import { INTERVALO_MS, PEDACO, RECIBO_ENTER_TENTATIVAS } from "./constantes.js";
-import { ehDialogoDeAutoMode, estadoDaCaixa, telaDeConfiancaDoCodex } from "./telas.js";
+import { caixaVaziaNaTela, ehDialogoDeAutoMode, estadoDaCaixa, haDialogoNaTela, telaDeConfiancaDoCodex } from "./telas.js";
 
 /**
  * Digita e ENVIA. Espera a fila de colagem drenar antes do Enter, que é o
@@ -78,8 +78,24 @@ async function digitar(s: Sessao, texto: string, daFila: boolean, envio: SemReci
     if (envio && !devolverNaoDigitado(s, envio)) envio.parada = { tipo: "caixa", motivo: "o agente está esperando uma resposta e nada foi digitado" };
     return false;
   }
+  // Chamada direta com a digitação suspensa (rascunho do dono, diálogo): só segue se a tela de AGORA, já sincronizada e com
+  // o terminal quieto, mostrar a caixa vazia. Senão nada é escrito, e quem chamou recebe o motivo.
+  if (!envio && s.digitacaoSuspensaEm !== null) {
+    const tela = await s.telaAtualSincronizada();
+    if (s.proc !== proc) return terminalTrocado(s, null);
+    if (terminalQuietoParaLerTela(s) && caixaVaziaNaTela(tela)) {
+      levantarSuspensao(s);
+    } else {
+      const motivo =
+        "A digitação automática deste terminal está suspensa e a caixa de entrada do agente ainda tem texto (ou um diálogo aberto, ou o terminal acabou de escrever). " +
+        "Não digitei nada para não misturar com ele.";
+      const comoResolver = "abrir o terminal do agente (aba Sessões, botão Terminal), enviar ou apagar o texto que está na caixa e depois reenviar a mensagem";
+      log.erro(s.a("entrada"), motivo, comoResolver);
+      throw new ErroDeMotor(motivo, MOTIVO_CAIXA_COM_RASCUNHO, comoResolver);
+    }
+  }
   s.marcarAtividade();
-  if (s.motor.provedor === "codex") await s.vencerTelaDeConfianca(daFila, proc);
+  if (s.motor.provedor === "codex") await s.vencerTelaDeConfianca(daFila, proc, envio);
   if (s.proc !== proc) return terminalTrocado(s, envio);
   if (s.motor.provedor === "claude") recusarSeEstiverNoAvisoDoAutoMode(s, daFila);
   const pausa = s.motor.pausaAntesDoEnterMs;
@@ -89,6 +105,7 @@ async function digitar(s: Sessao, texto: string, daFila: boolean, envio: SemReci
   if (texto.length <= 256) {
     const antes = motivoDeCaixaMudada(s, esperadas);
     if (antes) return naoEscreveu(s, envio, antes);
+    if (envio) envio.escreveuAlgo = true;
     s.escrever(texto);
     esperadas = s.entradasManuais;
     await new Promise((r) => setTimeout(r, pausa));
@@ -101,6 +118,7 @@ async function digitar(s: Sessao, texto: string, daFila: boolean, envio: SemReci
       // Antes de CADA pedaço: o agente passou a esperar uma resposta, ou alguém escreveu no terminal no meio da colagem?
       const motivo = motivoDeCaixaMudada(s, esperadas);
       if (motivo) return resolve({ ok: false, motivo, escreveu: i > 0 });
+      if (envio) envio.escreveuAlgo = true;
       s.escrever(texto.slice(i, i + PEDACO));
       esperadas = s.entradasManuais;
       i += PEDACO;
@@ -176,7 +194,7 @@ function recusarSeEstiverNoAvisoDoAutoMode(s: Sessao, daFila: boolean): void {
  * se o menu está lá, responde 1 + Enter e só segue quando a tela mudou e o menu não voltou.
  * Se não sumir, NÃO digita: erro claro, e quem chamou trata como trata qualquer falha de digitação.
  */
-export async function vencerTelaDeConfianca(s: Sessao, daFila = false, procDoEnvio: Sessao["proc"] = s.proc): Promise<void> {
+export async function vencerTelaDeConfianca(s: Sessao, daFila = false, procDoEnvio: Sessao["proc"] = s.proc, envio: SemRecibo | null = null): Promise<void> {
   if (!s.proc || s.proc !== procDoEnvio || !telaDeConfiancaDoCodex(s.telaInteira())) return;
   const area = s.a("entrada");
   log.aviso(
@@ -189,6 +207,7 @@ export async function vencerTelaDeConfianca(s: Sessao, daFila = false, procDoEnv
   };
   s.on("terminal", ouvir);
   try {
+    if (envio) envio.escreveuAlgo = true;
     s.escrever("1");
     await new Promise((r) => setTimeout(r, 300));
     // Se o terminal foi trocado nesse meio tempo, o Enter não pode cair no terminal novo.
@@ -230,13 +249,16 @@ function ehCompact(texto: string): boolean {
 }
 
 type DecisaoDoEnter = { acao: "enter" } | { acao: "esperar" } | { acao: "parar"; tipo: "caixa"; motivo: string };
+/** `valida` é false quando a saída do terminal ou o estado do agente mudaram enquanto a tela era sincronizada: a decisão
+ *  não vale para escrever nada (volta-se a decidir no próximo passo). */
+type DecisaoConferida = DecisaoDoEnter & { valida: boolean };
 
 /** Antes de repetir o Enter, três perguntas: alguém escreveu no terminal depois do último Enter? A tela mostra o
  *  MESMO texto na caixa de composição? Só com as duas respostas certas o Enter se repete. Caixa vazia: o texto
  *  saiu da caixa (o CLI provavelmente o aceitou e o recibo está atrasado), então só espera. Diálogo, menu, texto
  *  diferente ou tela que não se reconhece: não aperta nada, porque um Enter ali poderia aprovar uma permissão ou
  *  mandar um rascunho do dono. */
-function decidirEnter(s: Sessao, texto: string, entradasEsperadas: number): DecisaoDoEnter {
+function decidirComTela(s: Sessao, tela: string, texto: string, entradasEsperadas: number): DecisaoDoEnter {
   if (s.entradasManuais !== entradasEsperadas) {
     return { acao: "parar", tipo: "caixa", motivo: "houve outra escrita no terminal depois do Enter anterior, e a caixa já não é a mesma" };
   }
@@ -244,7 +266,7 @@ function decidirEnter(s: Sessao, texto: string, entradasEsperadas: number): Deci
   if (s.estado.status === "waiting_input") {
     return { acao: "parar", tipo: "caixa", motivo: "o agente está esperando uma resposta (permissão ou pergunta), e um Enter ali poderia respondê-la" };
   }
-  const caixa = estadoDaCaixa(s.telaAtual(), texto);
+  const caixa = estadoDaCaixa(tela, texto);
   if (caixa === "mesmo-texto") return { acao: "enter" };
   if (caixa === "vazia") return { acao: "esperar" };
   return {
@@ -252,6 +274,16 @@ function decidirEnter(s: Sessao, texto: string, entradasEsperadas: number): Deci
     tipo: "caixa",
     motivo: "a tela não mostra o mesmo texto na caixa de composição (pode haver um diálogo, um menu ou outro texto no lugar)",
   };
+}
+
+/** A decisão sobre o Enter com a tela já sincronizada com o emulador. Quem escreve o Enter o faz no MESMO tick em que recebe
+ *  esta resposta, sem await no meio, e só se `valida`. */
+async function decidirEnter(s: Sessao, texto: string, entradasEsperadas: number): Promise<DecisaoConferida> {
+  const seq = s.seq;
+  const status = s.estado.status;
+  const tela = await s.telaAtualSincronizada();
+  const d = decidirComTela(s, tela, texto, entradasEsperadas);
+  return { ...d, valida: s.seq === seq && s.estado.status === status };
 }
 
 /** O Enter, com recibo.
@@ -284,7 +316,8 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
     if (s.proc !== proc) return terminalTrocado(s, envio);
     let escreveuEnter = false;
     if (tentativa > 1) {
-      const d = decidirEnter(s, texto, entradasEsperadas);
+      const d = await decidirEnter(s, texto, entradasEsperadas);
+      if (s.proc !== proc) return terminalTrocado(s, envio);
       if (d.acao === "parar") {
         log.aviso(
           s.a("entrada"),
@@ -298,12 +331,26 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
       }
       // Comando de barra sem recibo próprio (/clear, /model...) com a caixa vazia: o comando foi consumido.
       if (d.acao === "esperar" && comandoDeBarra && !compact) return true;
-      escreveuEnter = d.acao === "enter";
+      escreveuEnter = d.acao === "enter" && d.valida;
     } else {
       // O primeiro Enter só sai se, depois da pausa da colagem, o agente não passou a esperar uma resposta e ninguém
       // escreveu no terminal: um Enter ali poderia responder um diálogo ou mandar um rascunho junto com o texto.
+      // A tela vem sincronizada com o emulador; se a saída do terminal ainda estiver mudando, espera um pouco e tenta de novo.
+      let tela: string | null = null;
+      for (let k = 0; k < 5 && tela === null; k++) {
+        const seq = s.seq;
+        const status = s.estado.status;
+        const lida = await s.telaAtualSincronizada();
+        if (s.proc !== proc) return terminalTrocado(s, envio);
+        if (s.seq === seq && s.estado.status === status) tela = lida;
+        else await new Promise((r) => setTimeout(r, 50));
+      }
+      if (tela === null) return parouComTextoNaCaixa(s, envio, "a tela do terminal não parou de mudar antes do primeiro Enter, e não dá para saber o que há na caixa");
       const motivo = motivoDeCaixaMudada(s, entradasEsperadas);
       if (motivo) return parouComTextoNaCaixa(s, envio, motivo);
+      // Um diálogo aberto (permissão, pergunta, aviso): o Enter o responderia. Aqui não se exige "mesmo texto": uma colagem
+      // longa aparece resumida na caixa.
+      if (haDialogoNaTela(tela)) return parouComTextoNaCaixa(s, envio, "a tela mostra um diálogo aberto, e um Enter ali poderia respondê-lo");
       escreveuEnter = true;
     }
     const antes = s.promptsAceitos;
@@ -327,7 +374,7 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
       return true;
     }
     if (escreveuEnter) {
-      const proxima = tentativa < RECIBO_ENTER_TENTATIVAS ? decidirEnter(s, texto, entradasEsperadas).acao : null;
+      const proxima = tentativa < RECIBO_ENTER_TENTATIVAS ? decidirComTela(s, s.telaAtual(), texto, entradasEsperadas).acao : null;
       const fim =
         proxima === "enter" ? "; o mesmo texto continua na caixa, batendo na tecla de novo"
         : proxima === "esperar" ? "; o texto já saiu da caixa, só espero o recibo"
@@ -383,6 +430,7 @@ export function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: num
   // Uma vigia por sessão. Se a que existe acompanhava um item da fila ainda pendente, ela não pode simplesmente sumir:
   // o item ficaria em semRecibo para sempre e travaria a fila. Ele é retido como incerto, explicitamente.
   const anterior = s.vigiaDoEnvio;
+  const minhaGeracao = ++s.vigiaGeracao;
   if (s.vigiaDoRecibo) clearTimeout(s.vigiaDoRecibo);
   s.vigiaDoRecibo = null;
   s.vigiaDoEnvio = null;
@@ -417,10 +465,19 @@ export function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: num
     talvezSoltarFila(s);
   };
 
-  const passo = (i: number): void => {
+  const passo = async (i: number): Promise<void> => {
     s.vigiaDoRecibo = null;
     if (s.proc !== proc) return acabar();
+    // A tela vem sincronizada com o emulador. Durante a espera a vigia pode ter sido substituída ou cancelada.
+    const d = await decidirEnter(s, texto, entradasEsperadas);
+    if (s.vigiaGeracao !== minhaGeracao || s.proc !== proc) return;
     if (aceito()) {
+      // Houve escrita de fora depois do nosso último Enter: o recibo (ou o PreCompact) pode ser de outra coisa.
+      if (envio && pendenteEm(s, envio) && s.entradasManuais !== entradasEsperadas) {
+        log.aviso(s.a("entrada"), "chegou um recibo, mas houve outra escrita no terminal depois do Enter deste pedido; não o dou como entregue");
+        reterEste("chegou um recibo, mas houve outra escrita no terminal depois do Enter deste pedido", true);
+        return acabar();
+      }
       log.info(
         s.a("entrada"),
         `o turno abriu atrasado, ${Math.round((Date.now() - inicio) / 1000)}s depois do texto digitado`,
@@ -428,7 +485,6 @@ export function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: num
       if (envio?.barra) liberarBarra(s, envio);
       return acabar();
     }
-    const d = decidirEnter(s, texto, entradasEsperadas);
     if (comandoDeBarra && !compact && d.acao === "esperar") {
       // Comando de barra sem recibo próprio e a caixa vazia: o comando foi consumido.
       if (envio?.barra) liberarBarra(s, envio);
@@ -462,7 +518,7 @@ export function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: num
       reterEste("a repetição do Enter parou porque a caixa de entrada mudou", true);
       return acabar();
     }
-    if (d.acao === "enter" && s.estado.status === "idle") {
+    if (d.acao === "enter" && d.valida && s.estado.status === "idle") {
       log.info(
         s.a("entrada"),
         `o Enter atrasado ${RECIBO_ENTER_TENTATIVAS + i + 1}/${total} (ainda sem recibo, e o mesmo texto continua na caixa); batendo na tecla de novo`,
@@ -475,7 +531,7 @@ export function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: num
   };
   // O último passo só confere o recibo do último Enter, então espera o mesmo que o Enter normal.
   const agendar = (i: number): void => {
-    s.vigiaDoRecibo = setTimeout(() => passo(i), i < passos.length ? passos[i] : s.motor.reciboMs);
+    s.vigiaDoRecibo = setTimeout(() => void passo(i), i < passos.length ? passos[i] : s.motor.reciboMs);
     s.vigiaDoRecibo.unref();
   };
   s.vigiaDoEnvio = envio;

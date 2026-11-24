@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { Sessao } from "../sessao.js";
-import { type ItemDaFila, gravarFila } from "../fila-ocioso.js";
+import { type ItemDaFila, type ResultadoDaGravacao, gravarFila } from "../fila-ocioso.js";
 import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
 import { caixaVaziaNaTela } from "./telas.js";
-import { AVISO_DE_FILA_APOS_MS, JANELA_DE_PRONTIDAO_MS, PRONTO_APOS_SPAWN_MS, QUIETO_ANTES_DE_DIGITAR_MS, QUIETO_PARA_LER_TELA_MS } from "./constantes.js";
+import { AVISO_DE_FILA_APOS_MS, JANELA_DE_PRONTIDAO_MS, PRONTO_APOS_SPAWN_MS, QUIETO_ANTES_DE_DIGITAR_MS, QUIETO_PARA_LER_TELA_MS, ENTER_MANUAL_SEGURA_FILA_MS, MAX_RETIDOS } from "./constantes.js";
 
 /** Um texto que já foi digitado no terminal e ainda não tem recibo do CLI (UserPromptSubmit no Claude,
  *  task_started no Codex). Enquanto estiver aqui o pedido NÃO está entregue: se o terminal sair antes do
@@ -28,6 +28,9 @@ export interface SemRecibo {
    *  for outro quando o recibo chegar, alguém escreveu no terminal depois (o dono, por exemplo): o recibo pode ser de
    *  outro turno e não prova nada sobre este pedido. */
   entradasNoEnter?: number;
+  /** true depois que algum byte deste envio foi escrito no terminal (marcado imediatamente antes da primeira escrita).
+   *  Sem ele, parar ou reiniciar o terminal devolve o pedido para a frente da fila em vez de retê-lo como incerto. */
+  escreveuAlgo?: boolean;
   /** true para o comando de barra (/compact, /clear): não tem o recibo do prompt (UserPromptSubmit). Fica em
    *  `Sessao.barraPendente`, no disco, até o recibo próprio (PreCompact) ou até ser retido como incerto. */
   barra?: boolean;
@@ -36,6 +39,8 @@ export interface SemRecibo {
 /** `runner:recusa-de-entrada`: o agente deixou de poder conversar (login, chave, restrição) enquanto o pedido esperava a vez;
  *  nada foi digitado, o pedido volta para a frente da fila e a fila olha de novo sozinha. */
 export const MOTIVO_RECUSA_DE_ENTRADA = "runner:recusa-de-entrada";
+/** Chamada direta com a digitação suspensa e a caixa do terminal ainda com texto: nada foi digitado. */
+export const MOTIVO_CAIXA_COM_RASCUNHO = "runner:caixa-com-rascunho";
 const MOTIVOS_DE_TELA_BLOQUEADA = ["runner:dialogo-auto-mode", "runner:tela-de-confianca", MOTIVO_RECUSA_DE_ENTRADA];
 
 /** O que aconteceu com o texto: entrou na fila (e no arquivo), era um /compact repetido, ou NÃO foi gravado no arquivo
@@ -56,6 +61,7 @@ export function enfileirarQuandoOcioso(s: Sessao, texto: string, esperouNoPainel
     ehCompact(texto) &&
     (s.filaQuandoIdle.some((item) => ehCompact(item.texto)) ||
       (s.itemEmVoo !== null && ehCompact(s.itemEmVoo.texto)) ||
+      (s.barraPendente !== null && ehCompact(s.barraPendente.item.texto)) ||
       (s.compactando !== null && s.compactando === s.proc))
   ) {
     log.info(s.a("entrada"), "já havia um /compact na fila, sendo digitado ou em andamento; não enfileirei outro");
@@ -74,7 +80,8 @@ export function enfileirarQuandoOcioso(s: Sessao, texto: string, esperouNoPainel
     s.digitacaoSuspensaEm !== null;
   const novo: ItemDaFila = { texto, em: Date.now(), id: randomUUID().slice(0, 8), ...(esperou ? { esperou: true } : {}) };
   s.filaQuandoIdle.push(novo);
-  if (!espelharFila(s)) {
+  // "sem-fsync-da-pasta" vale como enfileirado: o arquivo tem o pedido, e quem pediu não deve reenviar (duplicaria).
+  if (espelharFilaDetalhado(s) === "falhou") {
     // Só em memória o pedido se perderia num reinício, e quem pediu receberia um "aceito". Sai da fila e é recusado.
     const i = s.filaQuandoIdle.indexOf(novo);
     if (i >= 0) s.filaQuandoIdle.splice(i, 1);
@@ -140,6 +147,17 @@ export function talvezSoltarFila(s: Sessao): void {
     }
   }
   if (s.estado.status !== "idle") return;
+  // Um Enter do dono, pelo terminal, pode virar um turno cujo recibo ainda não chegou: esse recibo não pode confirmar
+  // o pedido que a fila digitar agora. Espera o recibo dele (ou o prazo) antes de soltar.
+  const manual = s.enterManualPendente;
+  if (manual) {
+    if (s.promptsAceitos > manual.promptsAntes || Date.now() - manual.em >= ENTER_MANUAL_SEGURA_FILA_MS) {
+      s.enterManualPendente = null;
+    } else {
+      agendarReintento(s);
+      return;
+    }
+  }
   // Um envio automático sem recibo por vez: enquanto houver um digitado sem confirmação, a fila espera.
   if (s.semRecibo.length || s.barraPendente) return;
   // Pode haver texto (um rascunho do dono, o pedido que ficou na caixa) ou um diálogo no terminal: nada é digitado
@@ -147,8 +165,7 @@ export function talvezSoltarFila(s: Sessao): void {
   // sozinho não basta: ele pode ser de outro turno e a caixa continuar com texto.
   if (s.digitacaoSuspensaEm !== null) {
     // A escrita no emulador é assíncrona: só se confia na leitura com o terminal quieto por um instante.
-    const quieto = s.ultimaSaidaEm ? Date.now() - s.ultimaSaidaEm : Infinity;
-    if (quieto < QUIETO_PARA_LER_TELA_MS) {
+    if (!terminalQuietoParaLerTela(s)) {
       agendarReintento(s);
       return;
     }
@@ -165,8 +182,7 @@ export function talvezSoltarFila(s: Sessao): void {
       agendarReintento(s);
       return;
     }
-    s.digitacaoSuspensaEm = null;
-    s.suspensaoLogada = false;
+    levantarSuspensao(s);
   }
   const item = s.filaQuandoIdle[0];
   if (!item) {
@@ -199,7 +215,7 @@ export function talvezSoltarFila(s: Sessao): void {
   };
   if (ehBarra) s.barraPendente = entrada;
   else s.semRecibo.push(entrada);
-  if (!espelharFila(s)) {
+  if (espelharFilaDetalhado(s) !== "gravado") {
     retirarSemRecibo(s, entrada);
     delete item.digitado;
     s.itemEmVoo = null;
@@ -302,12 +318,18 @@ export function cancelarReintentoDaFila(s: Sessao): void {
   if (s.vigiaDoRecibo) clearTimeout(s.vigiaDoRecibo);
   s.vigiaDoRecibo = null;
   s.vigiaDoEnvio = null;
+  s.vigiaGeracao += 1;
   s.bloqueioDaFilaLogado = false;
 }
 
 /** Grava no disco o que ainda não foi entregue: o digitado sem recibo, o item em digitação, a fila e os
  *  pedidos retidos (incertos). Cada item aparece uma vez só. */
 export function espelharFila(s: Sessao): boolean {
+  return espelharFilaDetalhado(s) !== "falhou";
+}
+
+/** Quem vai digitar um texto exige "gravado" (a marca `digitado` precisa estar firme no disco antes da primeira tecla). */
+export function espelharFilaDetalhado(s: Sessao): ResultadoDaGravacao {
   const vistos = new Set<ItemDaFila>();
   const lista: ItemDaFila[] = [];
   const somar = (it: ItemDaFila | null | undefined) => {
@@ -385,6 +407,7 @@ export function reter(s: Sessao, item: ItemDaFila, motivo: string): void {
   item.incerto = true;
   if (!item.id) item.id = randomUUID().slice(0, 8);
   if (!s.retidos.includes(item)) s.retidos.push(item);
+  descartarRetidosAlemDoLimite(s);
   log.aviso(
     s.a("entrada"),
     `um pedido de ${item.texto.length} caracteres (id ${item.id}) ficou retido sem confirmação: ${motivo}. ` +
@@ -393,6 +416,18 @@ export function reter(s: Sessao, item: ItemDaFila, motivo: string): void {
       `O texto continua guardado em ${s.arquivoDaFila}, marcado como incerto`,
   );
   espelharFila(s);
+}
+
+/** Guarda no máximo MAX_RETIDOS pedidos incertos: o mais antigo sai do arquivo, com aviso (o texto nunca vai para o log). */
+function descartarRetidosAlemDoLimite(s: Sessao): void {
+  while (s.retidos.length > MAX_RETIDOS) {
+    const velho = s.retidos.shift()!;
+    log.aviso(
+      s.a("fila"),
+      `há pedidos retidos demais (mais de ${MAX_RETIDOS}): descartei do arquivo da fila o mais antigo, o id ${velho.id ?? "?"} (${velho.texto.length} caracteres). ` +
+        `O que fazer: conferir na conversa do agente se esse pedido foi executado e, se não foi, reenviá-lo pela conversa`,
+    );
+  }
 }
 
 /** A caixa do terminal pode ter texto (rascunho do dono, pedido que ficou lá) ou um diálogo: a digitação automática
@@ -405,6 +440,18 @@ export function suspenderPorRascunho(s: Sessao): void {
     "a caixa do terminal do agente pode ter texto ou um diálogo: a digitação automática dos próximos pedidos fica suspensa até a caixa aparecer vazia com o agente ocioso. " +
       "Os pedidos seguintes continuam guardados na fila",
   );
+}
+
+/** O terminal está quieto há tempo suficiente para a leitura da tela (o emulador escreve de forma assíncrona). */
+export function terminalQuietoParaLerTela(s: Sessao): boolean {
+  const quieto = s.ultimaSaidaEm ? Date.now() - s.ultimaSaidaEm : Infinity;
+  return quieto >= QUIETO_PARA_LER_TELA_MS;
+}
+
+/** A caixa apareceu vazia: a digitação automática volta a valer. */
+export function levantarSuspensao(s: Sessao): void {
+  s.digitacaoSuspensaEm = null;
+  s.suspensaoLogada = false;
 }
 
 /** O envio parou com a caixa do terminal possivelmente suja (texto parcial ou inteiro, ou um rascunho de outra pessoa):
@@ -423,6 +470,8 @@ export function pararComCaixaSuja(s: Sessao, envio: SemRecibo | null, motivo: st
 export function confirmarRecibos(s: Sessao): void {
   // Não limpa a suspensão por rascunho: um recibo não prova que a caixa ficou vazia (pode ser de outro turno, e o
   // texto continuar lá). Quem encerra a suspensão é talvezSoltarFila, ao ver a caixa vazia num idle.
+  // O recibo que o Enter do dono esperava chegou: a fila volta a poder soltar pedidos.
+  if (s.enterManualPendente && s.promptsAceitos > s.enterManualPendente.promptsAntes) s.enterManualPendente = null;
   const e = s.semRecibo[0];
   if (!e) return;
   if (!e.enterEscrito) {
@@ -450,6 +499,13 @@ export function confirmarRecibos(s: Sessao): void {
  *  agente. Ele fica retido como incerto, com o texto guardado no arquivo da fila, e NUNCA é digitado de novo
  *  sozinho. Vale também para um comando de barra que estava sendo digitado. */
 export function devolverSemRecibo(s: Sessao, motivo: string): void {
+  // Quem nunca teve um byte escrito no terminal (esperava a vez na cadeia quando o terminal saiu) não é incerto: volta
+  // para a frente da fila, na mesma ordem. Os outros ficam retidos, como sempre.
+  const naoEscritos = [...s.semRecibo, ...(s.barraPendente ? [s.barraPendente] : [])].filter((e) => !e.escreveuAlgo && !e.enterEscrito);
+  for (const e of naoEscritos.reverse()) {
+    log.info(s.a("entrada"), `o terminal saiu antes de o pedido ${e.item.id ?? "?"} ser digitado (${motivo}); ele volta para a frente da fila`);
+    devolverNaoDigitado(s, e);
+  }
   const pendentes = s.semRecibo;
   s.semRecibo = [];
   for (const e of pendentes) {
@@ -494,5 +550,7 @@ export function recuperarDoDisco(s: Sessao): void {
     }
   }
   s.filaQuandoIdle = fila;
-  if (mudou) espelharFila(s);
+  const antes = s.retidos.length;
+  descartarRetidosAlemDoLimite(s);
+  if (mudou || s.retidos.length !== antes) espelharFila(s);
 }

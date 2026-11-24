@@ -215,6 +215,8 @@ export class Sessao extends EventEmitter {
   vigiaDoRecibo: NodeJS.Timeout | null = null;
   /** O envio (item da fila) que a vigia atual acompanha; null quando a vigia é de uma chamada direta ou não há vigia. */
   vigiaDoEnvio: SemRecibo | null = null;
+  /** Sobe a cada vigia instalada ou cancelada: um passo que esperava a tela sincronizar e acorda numa geração diferente não faz nada. */
+  vigiaGeracao = 0;
   readonly reciboVigiaPassosMs: number[];
   readonly bootTimerMs: number;
   readonly tetoBootSemSinalMs: number;
@@ -403,6 +405,24 @@ export class Sessao extends EventEmitter {
     const linhas: string[] = [];
     for (let i = 0; i < t.rows; i++) linhas.push(b.getLine(b.viewportY + i)?.translateToString(true) ?? "");
     return linhas.join("\n");
+  }
+
+  /** O mesmo que `telaAtual()`, depois de o emulador processar tudo o que já recebeu (a escrita nele é assíncrona). Toda
+   *  decisão que leva a uma escrita no terminal lê a tela por aqui. */
+  async telaAtualSincronizada(): Promise<string> {
+    const t = this.emulador;
+    if (!t) return "";
+    await new Promise<void>((resolve) => t.write("", resolve));
+    return this.telaAtual();
+  }
+
+  /** Um Enter vindo de fora (o dono, pelo terminal) pode virar um turno cujo recibo chega depois: até ele chegar, ou
+   *  até vencer o prazo, a fila não solta um pedido que o recibo poderia confirmar por engano. */
+  enterManualPendente: { promptsAntes: number; em: number } | null = null;
+
+  /** Chamado por toda escrita que vem de fora do runner (tecla do terminal, entrada crua). */
+  registrarEscritaDeFora(texto: string): void {
+    if (/[\r\n]/.test(texto)) this.enterManualPendente = { promptsAntes: this.promptsAceitos, em: Date.now() };
   }
 
   /** Os valores do cofre que não podem aparecer na tela nem no histórico. */
@@ -858,8 +878,8 @@ export class Sessao extends EventEmitter {
   }
 
   /** Responde à tela de confiança de pasta do Codex (ver sessao/digitacao.ts). */
-  vencerTelaDeConfianca(daFila = false, proc: Sessao["proc"] = this.proc): Promise<void> {
-    return vencerTelaDeConfianca(this, daFila, proc);
+  vencerTelaDeConfianca(daFila = false, proc: Sessao["proc"] = this.proc, envio: SemRecibo | null = null): Promise<void> {
+    return vencerTelaDeConfianca(this, daFila, proc, envio);
   }
 
   /** Guarda um texto para digitar quando o agente ficar ocioso (ver sessao/fila.ts). */

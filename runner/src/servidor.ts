@@ -25,7 +25,7 @@ import { tratarRotasDeProvedor } from "./provedores/rotas.js";
 import { MOTIVO_SEM_MEDICAO, deStatusline, paraResposta } from "./uso.js";
 import { ESC, nonceConfere } from "./sessao/telas.js";
 import { ErroDeMotor } from "./provedores/motor.js";
-import { MOTIVO_RECUSA_DE_ENTRADA } from "./sessao/fila.js";
+import { MOTIVO_CAIXA_COM_RASCUNHO, MOTIVO_RECUSA_DE_ENTRADA } from "./sessao/fila.js";
 import { acharRolloutPorId, mensagensDoRollout } from "./provedores/codex-rollout.js";
 
 /** O estado de uma sessão como o painel e a API o veem. A paralela leva o campo
@@ -430,7 +430,7 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
               // O agente deixou de poder conversar (ou uma tela bloqueia a caixa) depois de o pedido ser aceito: nada foi
               // digitado, e a resposta diz o motivo e o que fazer em vez de um erro interno sem orientação.
               if (!(err instanceof ErroDeMotor)) throw err;
-              json(res, { success: false, error: err.message, howToFix: `${err.comoResolver}. Nada foi digitado: depois disso a mensagem pode ser reenviada.`, code: err.statusReason === MOTIVO_RECUSA_DE_ENTRADA ? "ENTRADA_RECUSADA" : "TELA_BLOQUEADA" }, 409);
+              json(res, { success: false, error: err.message, howToFix: `${err.comoResolver}. Nada foi digitado: depois disso a mensagem pode ser reenviada.`, code: err.statusReason === MOTIVO_RECUSA_DE_ENTRADA ? "ENTRADA_RECUSADA" : err.statusReason === MOTIVO_CAIXA_COM_RASCUNHO ? "CAIXA_COM_RASCUNHO" : "TELA_BLOQUEADA" }, 409);
               return;
             }
             if (!confirmado) {
@@ -450,6 +450,7 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
               return;
             }
           } else {
+            sessao.registrarEscritaDeFora(texto);
             sessao.escrever(texto);
           }
           json(res, { success: true, data: { enviado: true, submit: enviar, chars: texto.length } });
@@ -727,6 +728,7 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             }
             return;
           }
+          sessao.registrarEscritaDeFora(msg.data);
           sessao.escrever(msg.data);
           return;
         case "request_terminal_buffer": {

@@ -97,7 +97,7 @@ test("a gravação faz fsync do temporário antes do rename e da pasta depois; s
   (fs as unknown as { fsyncSync: (fd: number) => void }).fsyncSync = (fd: number) => { chamadas.push("fsync"); return fsync(fd); };
   (fs as unknown as { renameSync: (a: string, b: string) => void }).renameSync = (a: string, b: string) => { chamadas.push("rename"); return rename(a, b); };
   try {
-    assert.equal(gravarFila(arq, [{ texto: "a", em: 1 }], "teste"), true);
+    assert.equal(gravarFila(arq, [{ texto: "a", em: 1 }], "teste"), "gravado");
   } finally {
     (fs as unknown as { fsyncSync: typeof fsync }).fsyncSync = fsync;
     (fs as unknown as { renameSync: typeof rename }).renameSync = rename;
@@ -111,7 +111,7 @@ test("se o fsync falha, a gravação não conta como sucesso e nenhum temporári
   const fsync = fs.fsyncSync;
   (fs as unknown as { fsyncSync: (fd: number) => void }).fsyncSync = () => { throw Object.assign(new Error("EIO simulado"), { code: "EIO" }); };
   try {
-    assert.equal(gravarFila(arq, [{ texto: "a", em: 1 }], "teste"), false);
+    assert.equal(gravarFila(arq, [{ texto: "a", em: 1 }], "teste"), "falhou");
   } finally {
     (fs as unknown as { fsyncSync: typeof fsync }).fsyncSync = fsync;
   }
@@ -127,7 +127,7 @@ test("gravar: writeSync que grava só parte dos bytes não deixa o arquivo da fi
   (fs as unknown as { writeSync: unknown }).writeSync = (fd: number, buf: Buffer, off: number, len: number) =>
     original(fd, buf, off, Math.min(7, len));
   try {
-    assert.equal(gravarFila(arq, [{ texto: "um texto bem mais comprido que sete bytes", em: 1 }], "teste"), true);
+    assert.equal(gravarFila(arq, [{ texto: "um texto bem mais comprido que sete bytes", em: 1 }], "teste"), "gravado");
   } finally {
     (fs as unknown as { writeSync: unknown }).writeSync = original;
   }
@@ -146,7 +146,7 @@ test("falha só no fsync da pasta depois do rename: o arquivo está no lugar e v
     return original(fd);
   }) as typeof fs.fsyncSync;
   try {
-    assert.equal(gravarFila(arq, [{ texto: "pedido-importante", em: 1 }], "teste"), true);
+    assert.equal(gravarFila(arq, [{ texto: "pedido-importante", em: 1 }], "teste"), "sem-fsync-da-pasta");
   } finally {
     fs.fsyncSync = original;
   }
@@ -158,5 +158,5 @@ test("falha de gravação de verdade (antes do rename) continua devolvendo false
   const estado = pastaTemporaria("fila");
   const bloqueio = path.join(estado, "arquivo");
   fs.writeFileSync(bloqueio, "x");
-  assert.equal(gravarFila(path.join(bloqueio, "fila.json"), [{ texto: "a", em: 1 }], "teste"), false);
+  assert.equal(gravarFila(path.join(bloqueio, "fila.json"), [{ texto: "a", em: 1 }], "teste"), "falhou");
 });

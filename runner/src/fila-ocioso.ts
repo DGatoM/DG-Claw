@@ -113,32 +113,38 @@ function sincronizarPasta(pasta: string): void {
   }
 }
 
+/** `gravado`: no disco e com a pasta sincronizada. `sem-fsync-da-pasta`: o arquivo está no lugar, mas a sincronização da
+ *  pasta falhou (só uma queda de energia agora o perderia). `falhou`: o arquivo não foi gravado. */
+export type ResultadoDaGravacao = "gravado" | "falhou" | "sem-fsync-da-pasta";
+
 /** O arquivo já está no lugar (o rename deu certo): uma falha só no fsync da pasta NÃO desfaz isso. Dizer "não gravado" faria
  *  quem chamou reenviar o pedido, e ele entraria duas vezes. O risco que sobra é só o de uma queda de energia agora. */
-function sincronizarPastaDepoisDeGravar(pasta: string, caminho: string, area: string): void {
+function sincronizarPastaDepoisDeGravar(pasta: string, caminho: string, area: string): ResultadoDaGravacao {
   try {
     sincronizarPasta(pasta);
+    return "gravado";
   } catch (err) {
     log.aviso(
       area,
       `gravei a fila de textos pendentes em ${caminho}, mas a sincronização da pasta falhou (${err instanceof Error ? err.message : err}); ` +
         `o arquivo está no lugar e o pedido vale como gravado, o risco é só de uma queda de energia nos próximos instantes perdê-lo`,
     );
+    return "sem-fsync-da-pasta";
   }
 }
 
 /**
  * Grava a fila de forma atômica (arquivo .tmp na mesma pasta, fsync do temporário, rename e fsync da pasta). Fila
- * vazia apaga o arquivo. Nunca lança: se falhar, loga e a fila continua valendo em memória. Devolve true só depois
- * de o conteúdo estar no disco e false quando falhou: quem vai digitar um texto só digita depois de um true.
+ * vazia apaga o arquivo. Nunca lança: se falhar, loga e a fila continua valendo em memória. Devolve "gravado" só
+ * depois de o conteúdo estar no disco com a pasta sincronizada, "sem-fsync-da-pasta" quando só essa última etapa
+ * falhou e "falhou" quando o arquivo não foi gravado: quem vai digitar um texto só digita depois de "gravado".
  */
-export function gravarFila(caminho: string, itens: ItemDaFila[], area: string): boolean {
+export function gravarFila(caminho: string, itens: ItemDaFila[], area: string): ResultadoDaGravacao {
   try {
     const pasta = path.dirname(caminho);
     if (itens.length === 0) {
       fs.rmSync(caminho, { force: true });
-      if (fs.existsSync(pasta)) sincronizarPastaDepoisDeGravar(pasta, caminho, area);
-      return true;
+      return fs.existsSync(pasta) ? sincronizarPastaDepoisDeGravar(pasta, caminho, area) : "gravado";
     }
     fs.mkdirSync(pasta, { recursive: true, mode: 0o700 });
     const tmp = `${caminho}.${process.pid}.tmp`;
@@ -155,14 +161,13 @@ export function gravarFila(caminho: string, itens: ItemDaFila[], area: string): 
       fs.rmSync(tmp, { force: true });
       throw e;
     }
-    sincronizarPastaDepoisDeGravar(pasta, caminho, area);
-    return true;
+    return sincronizarPastaDepoisDeGravar(pasta, caminho, area);
   } catch (err) {
     log.erro(
       area,
       `não consegui gravar a fila de textos pendentes em ${caminho}: ${err instanceof Error ? err.message : err}`,
       "conferir espaço em disco e permissões da pasta de estado; a fila continua em memória, mas um reinício agora perderia os textos",
     );
-    return false;
+    return "falhou";
   }
 }
