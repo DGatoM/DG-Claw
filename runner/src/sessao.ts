@@ -133,6 +133,9 @@ export class Sessao extends EventEmitter {
   /** Quantas vezes o CLI começou a compactar (hook PreCompact). É o recibo do Enter de um comando de
    *  barra como `/compact`, que não dispara UserPromptSubmit; ver esperarRecibo(). */
   compactsIniciados = 0;
+  /** Codex: já contei um Compactado e ainda não houve turno novo (task_started) nem texto do usuário desde então. O rollout grava
+   *  `compacted` e `context_compacted` para a MESMA compactação; o segundo, sem turno no meio, não conta de novo. */
+  compactadoSemTurno = false;
   stopPendente: NodeJS.Timeout | null = null;
   /** Até quando um Stop deve ser ignorado porque a trava de resposta devolveu o turno (evento StopBloqueado). */
   stopBloqueadoAte = 0;
@@ -269,6 +272,9 @@ export class Sessao extends EventEmitter {
   /** O contexto do último spawn: dele saem o ambiente e a checagem de login/chave. */
   ctxVivo: CtxMotor | null = null;
   modoDoUltimoSpawn: "retomar" | "nova" | null = null;
+  /** O último spawn escolheu os argumentos de sessão nova (true) ou de retomada (false). Difere do modo quando se pede
+   *  "retomar" sem id anterior (o primeiro uso, via acordar()): o modo fica "retomar" mas os argumentos são de sessão nova. */
+  spawnSemRetomada = false;
 
   readonly estado: AgentState;
   readonly papel: "principal" | "paralela";

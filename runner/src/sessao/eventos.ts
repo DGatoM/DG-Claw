@@ -122,6 +122,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       // de que o texto virou turno em vez de ficar escrito na caixa. Quem espera
       // por ele é o enviarComRecibo().
       s.promptsAceitos += 1;
+      s.compactadoSemTurno = false;
       // Codex: o turno guarda os textos do usuário gravados nele; o recibo só vale com o texto do pedido (ver reciboDoTexto).
       if (s.motor.reciboPorRollout) {
         s.turnosDoCodex.push({ n: s.promptsAceitos, textos: s.textosSoltosDoCodex.splice(0) });
@@ -137,6 +138,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       if (!s.motor.reciboPorRollout || typeof payload.texto !== "string") break;
       const texto = normalizarTexto(payload.texto);
       if (texto === "") break;
+      s.compactadoSemTurno = false;
       // O rollout grava o mesmo texto duas vezes no turno (user_message e response_item): guarda uma só.
       const ultimo = s.turnosDoCodex[s.turnosDoCodex.length - 1];
       const destino = ultimo ? ultimo.textos : s.textosSoltosDoCodex;
@@ -150,6 +152,13 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       // Codex: o rollout registrou a compactação. É o recibo do /compact (o Codex não tem PreCompact), no mesmo contador que o
       // PreCompact do Claude usa: o comando de barra à espera do recibo próprio é liberado e a fila segue sem esperar a vigia.
       if (s.motor.reciboPorRollout) {
+        // O rollout grava `compacted` e `context_compacted` para a mesma compactação: sem turno novo nem texto do usuário entre
+        // os dois, o segundo é a outra representação da primeira e não conta de novo.
+        if (s.compactadoSemTurno) {
+          log.info(s.a("hook"), "compactação repetida no rollout, sem turno no meio: é a mesma, ignorada");
+          break;
+        }
+        s.compactadoSemTurno = true;
         s.compactsIniciados += 1;
         log.info(s.a("hook"), "o rollout do Codex registrou a compactação do contexto: é o recibo do /compact");
       }

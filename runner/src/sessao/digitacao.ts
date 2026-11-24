@@ -32,6 +32,11 @@ export function digitarEEnviar(
   const bytes = Buffer.byteLength(texto);
   const direto = !daFila && envio === null;
   if (direto) {
+    // Um texto que sozinho passa do limite nunca caberia, nem com a cadeia vazia: esperar e reenviar não resolve, é preciso reduzir.
+    if (bytes > MAX_BYTES_DIRETOS_ESPERANDO) {
+      log.aviso(s.a("entrada"), `recusei um envio direto de ${bytes} bytes: o texto sozinho passa do limite de ${MAX_BYTES_DIRETOS_ESPERANDO} bytes. Nada foi escrito`);
+      return Promise.reject(new ErroTextoGrandeDemais(bytes));
+    }
     const e = s.diretosEsperando;
     if (e.pedidos >= MAX_ENVIOS_DIRETOS_ESPERANDO || e.bytes + bytes > MAX_BYTES_DIRETOS_ESPERANDO) {
       log.aviso(
@@ -105,6 +110,15 @@ export class ErroEnviosDemais extends Error {
     this.name = "ErroEnviosDemais";
   }
   readonly howToFix = "esperar os envios anteriores terminarem (o agente digita um por vez) e reenviar a mensagem";
+}
+
+/** Um envio direto cujo próprio texto passa do limite (a rota responde 413 TEXTO_GRANDE_DEMAIS). Nada foi escrito. */
+export class ErroTextoGrandeDemais extends Error {
+  constructor(readonly bytes: number) {
+    super(`O texto tem ${bytes} bytes e passa do limite de ${MAX_BYTES_DIRETOS_ESPERANDO} bytes por envio. Não escrevi nada.`);
+    this.name = "ErroTextoGrandeDemais";
+  }
+  readonly howToFix = "reduzir o texto ou mandá-lo como arquivo (guardar o conteúdo num arquivo e pedir ao agente para ler esse arquivo)";
 }
 
 /** O terminal deste envio saiu ou foi trocado: nada mais é escrito no terminal novo e o pedido fica retido. */
@@ -429,7 +443,6 @@ export async function vencerTelaDeConfianca(s: Sessao, daFila = false, procDoEnv
   };
   s.on("terminal", ouvir);
   try {
-    if (envio) envio.escreveuAlgo = true;
     s.escrever("1");
     await new Promise((r) => setTimeout(r, 300));
     // Se o terminal foi trocado nesse meio tempo, o Enter não pode cair no terminal novo.

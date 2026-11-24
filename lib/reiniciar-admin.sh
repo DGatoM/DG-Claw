@@ -72,6 +72,8 @@ for tentativa in 1 2 3; do
     rc=$?
     if [ "$rc" -eq 0 ]; then
         status="${resposta##*$'\n'}"
+        # O status vai para o log: so entra se for mesmo 3 digitos.
+        [[ "$status" =~ ^[0-9]{3}$ ]] || status="vazio"
         dados="${resposta%$'\n'*}"
         if [ "$status" = 202 ] && [ "$(printf '%s' "$dados" | jq -r '.data.entregaIncerta // false' 2>/dev/null)" = true ]; then
             log "ATENCAO: a entrega do aviso ao Admin e INCERTA (o runner respondeu 202 com entregaIncerta: o texto pode ter sido digitado e nao se sabe se o Admin o recebeu). Nao repeti o pedido, para nao avisar duas vezes. Confira a conversa do Admin; se o aviso nao apareceu, peca a ele que leia o resumo em $RESUMO."
@@ -86,6 +88,14 @@ for tentativa in 1 2 3; do
                 exit 0 ;;
         esac
         codigo="$(printf '%s' "$dados" | jq -r '.code // empty | tostring | .[0:40]' 2>/dev/null)"
+        # O code vem do corpo da resposta e vai para o log: so entra se for um dos que o runner devolve em POST /input
+        # (runner/src/servidor.ts); qualquer outro valor (inclusive com quebra de linha ou texto forjado) vira CODIGO_DESCONHECIDO.
+        case "$codigo" in
+            "" | NAO_ENTROU | ENVIO_PENDENTE | CAIXA_COM_RASCUNHO | TELA_BLOQUEADA | ENTRADA_RECUSADA | ENVIOS_DEMAIS | FILA_NAO_GRAVADA | TEXTO_GRANDE_DEMAIS \
+                | SEM_LOGIN | SEM_CHAVE | RESTRICAO_CONTA | LOGIN_EXPIRADO | NO_PTY | NAO_ACORDOU | SEM_CAPACIDADE | ESC_SO_IMEDIATO \
+                | RUNNER_SEM_TOKEN | SEM_TOKEN | TOKEN_ERRADO | RESPOSTA_EM_ANDAMENTO | MUITO_RAPIDO | ERRO_INTERNO | AGENTE_DE_OUTRO_RUNNER | RUNNER_DE_UM_AGENTE | ROTA_INEXISTENTE) ;;
+            *) codigo="CODIGO_DESCONHECIDO" ;;
+        esac
         repetir=0
         case "$status:$codigo" in
             409:NAO_ENTROU|409:ENVIO_PENDENTE|409:CAIXA_COM_RASCUNHO|409:TELA_BLOQUEADA|409:ENTRADA_RECUSADA|429:ENVIOS_DEMAIS|507:FILA_NAO_GRAVADA)

@@ -875,3 +875,65 @@ test("correção D: sessão NOVA cujo Stop traz o id de uma conversa ANTIGA (/re
   assert.equal(s.promptsAceitos, 0, "o task_started do começo da conversa antiga ficou fora da leitura");
   assert.equal(s.semRecibo.includes(entrada as never), true);
 });
+
+test("revisão rodada 12, item A: `compacted` e `context_compacted` da mesma compactação dão um único recibo; dois /compact com turno entre eles dão dois", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
+  const { aplicarEvento } = await import("./sessao/eventos.js");
+  const antes = s.compactsIniciados;
+  // Leituras distintas do rollout, sem turno entre elas: as duas representações da mesma compactação.
+  aplicarEvento(s, { event: "Compactado" });
+  aplicarEvento(s, { event: "Compactado" });
+  assert.equal(s.compactsIniciados, antes + 1, "uma compactação vale uma baixa só");
+  // Um turno novo (task_started) separa a segunda compactação de verdade.
+  aplicarEvento(s, { event: "UserPromptSubmit" });
+  aplicarEvento(s, { event: "Compactado" });
+  aplicarEvento(s, { event: "Compactado" });
+  assert.equal(s.compactsIniciados, antes + 2, "dois /compact de verdade dão dois recibos");
+  // O texto do usuário também separa.
+  aplicarEvento(s, { event: "TextoDoUsuario", texto: "algo-do-usuario" });
+  aplicarEvento(s, { event: "Compactado" });
+  assert.equal(s.compactsIniciados, antes + 3);
+});
+
+test("revisão rodada 12, item C: primeiro envio pelo acordar() (subir retomar sem id), com o id chegando pelo Stop, lê o rollout grande desde o início", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  assert.equal(s.estado.sessionId ?? null, null, "sem id anterior");
+  await s.subir("retomar");
+  await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
+  assert.equal(s.modoDoUltimoSpawn, "retomar", "o modo continua sendo o pedido");
+  assert.equal(s.spawnSemRetomada, true, "mas os argumentos foram de sessão nova");
+  const entrada = pedidoPendenteComEnter(s, "pedido-do-primeiro-uso-por-acordar");
+  const id = "a0b1c2d3-6666-4777-8888-e99900011122";
+  s.mudar({ sessionId: id });
+  gravarRolloutGrandeDeUmaVez(s.estado.config.cwd as string, id, "pedido-do-primeiro-uso-por-acordar", new Date());
+  await esperarAte(() => s.promptsAceitos >= 1, 10_000, "o task_started do começo do arquivo ser lido");
+  await esperarAte(() => s.semRecibo.length === 0, 6_000, "o texto do usuário do começo confirmar o pedido");
+  assert.equal(s.semRecibo.includes(entrada as never), false);
+});
+
+test("revisão rodada 12, item D: o Codex sai entre o `1` e o Enter da tela de confiança: nada do pedido foi digitado, e ele volta intacto para a fila (não fica retido)", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
+  const priv = s as unknown as { guardarEEmitir(t: string): void; escrever(t: string): void };
+  const escritos: string[] = [];
+  const original = priv.escrever.bind(s);
+  priv.escrever = (t: string) => {
+    escritos.push(t);
+    original(t);
+    if (t === "1") setTimeout(() => matarOTerminal(s), 100); // sai antes do Enter (o Enter vem 300 ms depois do `1`)
+  };
+  priv.guardarEEmitir("\x1b[2J\x1b[1mTrust this folder?\x1b[0m\n  › 1. Trust and continue\n    2. Quit\n");
+  s.enfileirarQuandoOcioso("pedido-que-nao-chegou-a-ser-digitado");
+  await esperarAte(() => s.estado.status === "resumable" || s.estado.status === "stopped", 10_000, "o terminal morrer");
+  priv.escrever = original;
+  assert.deepEqual(escritos, ["1"], "só o `1` foi escrito: o Enter e o pedido não");
+  assert.equal(s.retidos.length, 0, "nada ficou retido como incerto");
+  assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["pedido-que-nao-chegou-a-ser-digitado"], "voltou para a fila");
+  assert.equal(s.filaQuandoIdle[0].digitado, undefined, "sem a marca de digitado");
+});

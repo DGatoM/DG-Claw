@@ -103,7 +103,7 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
   // Sessão NOVA (o spawn não é uma retomada): o rollout é recém-criado por este spawn e é lido desde o início, quer o id chegue
   // pela varredura, quer pelo Stop do notify antes dela (o id vindo primeiro não faz do rollout novo uma conversa antiga). O de
   // uma retomada de conversa existente é antigo e continua saltando para o último MiB.
-  const sessaoNova = s.modoDoUltimoSpawn === "nova";
+  const sessaoNova = s.spawnSemRetomada;
   // Arquivo que ESTE spawn acabou de descobrir (rollout novo) também é lido desde o início.
   let descobertoAgora: string | null = null;
   return vigiarRollout({

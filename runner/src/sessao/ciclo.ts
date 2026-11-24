@@ -273,6 +273,7 @@ async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPe
   let args: string[];
   if (modo === "retomar" && s.estado.sessionId) {
     args = s.motor.argsRetomar(ctx, s.estado.sessionId);
+    s.spawnSemRetomada = false;
     s.retomando = { sessionId: s.estado.sessionId, em: Date.now() };
     s.mudar({ status: "spawning", error: null, statusReason: "runner:resume" });
     log.info(s.a("pty"), `retomando a sessão ${s.estado.sessionId}`);
@@ -292,6 +293,7 @@ async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPe
       statusReason: "runner:sessao-nova",
     });
     args = s.motor.argsNova(ctx);
+    s.spawnSemRetomada = true;
     log.info(
       s.a("pty"),
       `sessão nova ${novo ?? "(o id será descoberto no rollout do Codex)"}` +

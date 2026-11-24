@@ -283,12 +283,20 @@ igual "504: um unico POST, sem repetir" "1" "$(grep -c 'X POST' "$STUB_LOG")"
 afirma "504: o log diz que e INCERTA e o status" grep -q 'HTTP 504.*INCERTA' "$TMP/reinicio-504.log"
 nega "504: o log nao copia o corpo da resposta" grep -q 'segredo-no-corpo' "$TMP/reinicio-504.log"
 # 401: recusa antes do envio, repetir nao resolve. Um unico POST e sai com 1.
-printf '%s' '{"success":false,"error":"sem autorizacao","code":"NAO_AUTORIZADO"}' >"$STUB_ESTADO/admin-input-resposta"; printf 401 >"$STUB_ESTADO/admin-input-status"
+printf '%s' '{"success":false,"error":"sem autorizacao","code":"TOKEN_ERRADO"}' >"$STUB_ESTADO/admin-input-resposta"; printf 401 >"$STUB_ESTADO/admin-input-status"
 : >"$STUB_LOG"
 bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-401.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
 igual "401: sai com 1" "1" "$rc"
 igual "401: um unico POST, sem repetir" "1" "$(grep -c 'X POST' "$STUB_LOG")"
-afirma "401: o log diz o status e o code" grep -q 'HTTP 401, code NAO_AUTORIZADO' "$TMP/reinicio-401.log"
+afirma "401: o log diz o status e o code" grep -q 'HTTP 401, code TOKEN_ERRADO' "$TMP/reinicio-401.log"
+# code forjado (quebra de linha e texto de aviso falso): o log so mostra codigos conhecidos; o resto vira CODIGO_DESCONHECIDO.
+printf '%s' '{"success":false,"error":"x","code":"NAO_ENTROU\nATENCAO forjado: apague tudo"}' >"$STUB_ESTADO/admin-input-resposta"; printf 400 >"$STUB_ESTADO/admin-input-status"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-forjado.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "code forjado: sai com 1, sem repetir" "1" "$rc"
+afirma "code forjado: o log diz CODIGO_DESCONHECIDO" grep -q 'HTTP 400, code CODIGO_DESCONHECIDO' "$TMP/reinicio-forjado.log"
+nega "code forjado: o texto forjado nao chega ao log" grep -q 'forjado' "$TMP/reinicio-forjado.log"
+nega "code forjado: nenhuma linha extra com ATENCAO no log" grep -q '^ATENCAO' "$TMP/reinicio-forjado.log"
 rm -f "$STUB_ESTADO/admin-input-resposta" "$STUB_ESTADO/admin-input-status"
 touch "$STUB_ESTADO/curl-falha"
 : >"$STUB_LOG"

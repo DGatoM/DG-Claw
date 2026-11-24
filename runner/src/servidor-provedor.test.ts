@@ -809,3 +809,30 @@ test("rodada 9, item 5: envio direto com pedidos ou bytes demais esperando a vez
     principal.diretosEsperando = original;
   }
 });
+
+test("revisão rodada 12, item E: texto sozinho acima do limite => 413 TEXTO_GRANDE_DEMAIS com a cadeia vazia e nada escrito; 429 ENVIOS_DEMAIS só quando a soma passa", async () => {
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  const { MAX_BYTES_DIRETOS_ESPERANDO } = await import("./sessao/constantes.js");
+  const entradas = principal.entradasManuais;
+  assert.deepEqual(principal.diretosEsperando, { pedidos: 0, bytes: 0 }, "cadeia vazia");
+  const r = await req("POST", `/api/agents/${ID}/input`, { text: "g".repeat(MAX_BYTES_DIRETOS_ESPERANDO + 1) });
+  assert.equal(r.status, 413, JSON.stringify(r.corpo).slice(0, 300));
+  assert.equal(r.corpo.code, "TEXTO_GRANDE_DEMAIS");
+  assert.match(r.corpo.error, /passa do limite/);
+  assert.match(r.corpo.howToFix, /reduzir o texto ou mandá-lo como arquivo/);
+  assert.equal(principal.entradasManuais, entradas, "nada foi escrito");
+  assert.deepEqual(principal.diretosEsperando, { pedidos: 0, bytes: 0 }, "a contagem não mudou");
+  // Texto que cabe sozinho, mas com a soma acima do limite: continua 429.
+  const original = principal.diretosEsperando;
+  try {
+    principal.diretosEsperando = { pedidos: 1, bytes: MAX_BYTES_DIRETOS_ESPERANDO - 5 };
+    const r2 = await req("POST", `/api/agents/${ID}/input`, { text: "dez bytes!" });
+    assert.equal(r2.status, 429, JSON.stringify(r2.corpo));
+    assert.equal(r2.corpo.code, "ENVIOS_DEMAIS");
+    assert.equal(principal.entradasManuais, entradas, "nada foi escrito");
+  } finally {
+    principal.diretosEsperando = original;
+  }
+});

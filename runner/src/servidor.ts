@@ -25,7 +25,7 @@ import { tratarRotasDeProvedor } from "./provedores/rotas.js";
 import { MOTIVO_SEM_MEDICAO, deStatusline, paraResposta } from "./uso.js";
 import { ESC, nonceConfere } from "./sessao/telas.js";
 import { ErroDeMotor } from "./provedores/motor.js";
-import { ErroEnviosDemais } from "./sessao/digitacao.js";
+import { ErroEnviosDemais, ErroTextoGrandeDemais } from "./sessao/digitacao.js";
 import { MOTIVO_CAIXA_COM_RASCUNHO, MOTIVO_ENVIO_PENDENTE, MOTIVO_NAO_ENTROU, MOTIVO_RECUSA_DE_ENTRADA } from "./sessao/fila.js";
 import { acharRolloutPorId, mensagensDoRollout } from "./provedores/codex-rollout.js";
 
@@ -438,6 +438,10 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             try {
               confirmado = await sessao.digitarEEnviar(texto, false, null, () => desistiu, aborto.signal);
             } catch (err) {
+              if (err instanceof ErroTextoGrandeDemais) {
+                erroHttp(res, 413, "TEXTO_GRANDE_DEMAIS", err.message, err.howToFix);
+                return;
+              }
               if (err instanceof ErroEnviosDemais) {
                 erroHttp(res, 429, "ENVIOS_DEMAIS", err.message, err.howToFix);
                 return;

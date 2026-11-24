@@ -44,6 +44,8 @@
 #      e a mensagem traz o comando para ligar o monitor a mao.
 #   8  (so no "abrir --monitor") o card abriu e o pedido foi entregue, mas o monitor nao ligou
 #   9  envios demais esperando para o card (429 ENVIOS_DEMAIS): o texto nao foi enviado; espere e tente de novo
+#   10 texto grande demais para um envio (413 TEXTO_GRANDE_DEMAIS): o texto nao foi enviado; reduza o texto
+#      (repetir o mesmo texto nao resolve) ou guarde-o num arquivo e peca ao card para le-lo
 set -euo pipefail
 umask 077
 
@@ -119,6 +121,8 @@ falha_geral() {
       CODIGO=3 die "o runner recusou o acesso (token invalido). Isso e um problema de instalacao, nao do pedido. Peca ao dono para reiniciar o agente pelo painel; se continuar, o instalador precisa ser rodado de novo." ;;
     *:ENVIOS_DEMAIS)
       CODIGO=9 die "ha envios demais esperando para este card: o runner so aceita alguns pedidos de cada vez e recusou este para nao se enrolar. Espere os envios anteriores a este card terminarem e tente de novo em alguns segundos. O texto NAO foi enviado." ;;
+    *:TEXTO_GRANDE_DEMAIS)
+      CODIGO=10 die "o texto do pedido e grande demais para um envio so: o runner recusou e nao escreveu nada. Repetir o mesmo texto nao resolve. Reduza o texto, ou guarde o conteudo num arquivo e mande ao card apenas o pedido para ler esse arquivo. O texto NAO foi enviado." ;;
     429:*|*:LIMITE_DE_SESSOES)
       CODIGO=4 die "${err:-Ja ha cards demais abertos.} Para liberar uma vaga, feche um card que nao precisa mais: veja com 'dgclaw-card listar' e feche com 'dgclaw-card fechar <id>'. Se o dono quiser mais vagas, o limite sobe em RUNNER_MAX_SESSOES_EXTRAS na unidade do runner." ;;
     *:SEM_LOGIN|*:SEM_CHAVE)

@@ -89,7 +89,8 @@ pasta não confirmar o pedido errado. O envio direto (`POST /input`, `dgclaw-car
 agente não confirmou. Nesse último caso o `dgclaw-card mandar` e o painel mostram o aviso para conferir a conversa antes
 de reenviar, em vez de dizer que o texto foi enviado. Com envios demais esperando para o mesmo agente, o runner responde
 429 (`ENVIOS_DEMAIS`) sem escrever nada, e o `dgclaw-card` sai com o código 9 pedindo para esperar os envios anteriores
-(o código 4 continua sendo só o limite de cards abertos). O aviso que o Admin recebe ao fim de uma atualização não é
+(o código 4 continua sendo só o limite de cards abertos). Um texto que sozinho passa de 1 MiB recebe 413
+(`TEXTO_GRANDE_DEMAIS`), e o `dgclaw-card` sai com o código 10 pedindo para reduzi-lo ou mandá-lo num arquivo. O aviso que o Admin recebe ao fim de uma atualização não é
 repetido quando a entrega fica incerta (resposta 202 com `entregaIncerta`, erro 5xx, tempo esgotado ou conexão cortada
 depois do envio): o script registra no log para conferir a conversa do Admin e termina com o código 3. Ele só tenta de
 novo quando o runner garante que nada foi escrito. Funciona igual no Claude e

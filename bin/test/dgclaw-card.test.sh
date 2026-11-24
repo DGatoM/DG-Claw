@@ -110,6 +110,11 @@ subir envios-demais
 "$BIN" mandar card-abc123 "texto" >"$T/o" 2>"$T/e"; c=$?
 ok "ENVIOS_DEMAIS sai com 9" $([ $c = 9 ] && echo 0 || echo 1)
 grep -q "tente de novo em alguns segundos" "$T/e" && ! grep -q "dgclaw-card fechar" "$T/e"; ok "ENVIOS_DEMAIS manda esperar e nao sugere fechar card" $?
+subir texto-grande
+"$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
+"$BIN" mandar card-abc123 "texto" >"$T/o" 2>"$T/e"; c=$?
+ok "TEXTO_GRANDE_DEMAIS sai com 10" $([ $c = 10 ] && echo 0 || echo 1)
+grep -q "Reduza o texto" "$T/e" && ! grep -q "tente de novo" "$T/e" && ! grep -q "dgclaw-card fechar" "$T/e"; ok "TEXTO_GRANDE_DEMAIS manda reduzir o texto, sem repetir nem fechar card" $?
 subir 429-sem-code
 "$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
 "$BIN" mandar card-abc123 "texto" >"$T/o" 2>"$T/e"; c=$?
