@@ -9,6 +9,7 @@ import inject as inj  # _lib já está no sys.path (ver auto-compact.py)
 from .ambiente import env, escalation_marks, log, resolve_compact_mode, resolve_session_dir, resolve_slug, resolve_state_file, resolve_threshold, resolve_workspace
 from .ciclo import esperar_assentar_e_fechar, fechar_ciclo_pendente
 from .estado import _antes, _modo_seguro, cooldown_remaining, load_state, notify_owner, save_state
+from .guardas import acabou_de_compactar, agente_ocupado_no_bunker
 from .injecao import inject_compact
 from .modo_restart import do_restart_compact
 from .poke import resume_poke_enabled, write_resume_poke
@@ -179,6 +180,20 @@ def main():
                                   state_file, st, args.dry_run, transcript=transcript,
                                   snap=snap, nivel=("CRITICO" if args.force else nivel),
                                   idle_eff=(0 if args.force else idle_eff))
+
+    # 4.2) guardas do runner (so modo bunker, e --force as ignora): nao enfileirar /compact atras de
+    # trabalho nem logo depois de uma compactacao. Saem sem gravar last_compact_ts nem contar falha.
+    # A checagem e uma foto: a corrida entre ela e o POST continua possivel. O pior caso e um /compact atras de
+    # uma mensagem, e o runner nao deixa empilhar mais de um /compact na fila; a recusa ele trata (vigias.ts).
+    if not args.force:
+        motivo = agente_ocupado_no_bunker()
+        if motivo:
+            log(motivo)
+            return 0
+        if inj.resolve_mode() == "bunker" and acabou_de_compactar(transcript):
+            log("acabou de compactar (compact_boundary recente no transcript); "
+                "nao enfileiro outro /compact, tento no proximo ciclo")
+            return 0
 
     # 4.5) a injecao ANTERIOR surtiu efeito? Se ja injetamos antes e NENHUM compact_boundary
     # apareceu desde entao (e ainda estamos acima do teto), o /compact foi engolido (sessao
