@@ -368,6 +368,9 @@ export interface ContextoDoEnvio {
    *  para ela não redefinir a referência do recibo. Falta = a vigia usa os do item da fila, ou os de quando começa. */
   promptsAntes?: number;
   compactsAntes?: number;
+  /** O dono tinha um Enter no terminal ainda sem recibo quando o Enter deste envio foi escrito. Vale para o envio inteiro (todas as
+   *  tentativas e a vigia): o recibo do contador pode ser da mensagem dele, então nada o confirma. */
+  enterDoDonoAmbiguo?: boolean;
 }
 
 /** Só /compact tem recibo próprio (o PreCompact). Os outros comandos de barra não têm. */
@@ -441,6 +444,8 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
   const soCompactVale = compact && s.motor.provedor === "claude";
   // Os contadores de antes do PRIMEIRO Enter deste envio. Só são lidos depois de ele ter sido escrito (a tentativa 1 sempre o escreve).
   let referencia: { prompts: number; compacts: number } | null = null;
+  // A ambiguidade vista no Enter deste envio (um Enter do dono pendente) vale para TODO o envio, e não só para a tentativa em que foi vista.
+  let enterDoDonoAmbiguo = ctx.enterDoDonoAmbiguo === true;
   for (let tentativa = 1; tentativa <= RECIBO_ENTER_TENTATIVAS; tentativa++) {
     if (s.proc !== proc) return terminalTrocado(s, envio);
     let escreveuEnter = false;
@@ -459,7 +464,8 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
         return false;
       }
       // Comando de barra sem recibo próprio (/clear, /model...) com a caixa vazia: o comando foi consumido.
-      if (d.acao === "esperar" && comandoDeBarra && !compact) return true;
+      // Só vale com a leitura da tela válida: um redesenho durante a leitura pode mostrar a caixa vazia de antes. Leitura inválida repete a observação.
+      if (d.acao === "esperar" && d.valida && comandoDeBarra && !compact) return true;
       escreveuEnter = d.acao === "enter" && d.valida;
     } else {
       // O primeiro Enter só sai se, depois da pausa da colagem, o agente não passou a esperar uma resposta e ninguém
@@ -504,11 +510,11 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
       if (envio) envio.entradasNoEnter = entradasEsperadas;
     }
     // Um Enter do dono pelo terminal ainda sem recibo: o recibo que chegar agora pode ser dele, e não deste envio.
-    const enterDoDonoPendente = escreveuEnter && s.enterManualPendente !== null;
+    if (escreveuEnter && s.enterManualPendente !== null) enterDoDonoAmbiguo = true;
     const ref = referencia ?? { prompts: s.promptsAceitos, compacts: s.compactsIniciados };
     const recebeu = await esperarRecibo(s, ref.prompts, espera, comandoDeBarra ? ref.compacts : undefined, soCompactVale, texto);
     if (recebeu) {
-      if (enterDoDonoPendente) {
+      if (enterDoDonoAmbiguo) {
         return parouComTextoNaCaixa(s, envio, "chegou um recibo, mas o dono tinha dado um Enter no terminal ainda sem recibo, então o recibo pode ser da mensagem dele");
       }
       // Alguém escreveu no terminal depois do nosso Enter: o recibo pode ser de outra mensagem. Não é entrega provada.
@@ -542,7 +548,7 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
     `${RECIBO_ENTER_TENTATIVAS} Enters sem recibo; continuo tentando em segundo plano por ~${segundos}s (até ${s.reciboVigiaPassosMs.length} verificações espaçadas; o Enter só se repete com o mesmo texto na caixa)`,
   );
   if (s.proc !== proc) return terminalTrocado(s, envio);
-  vigiarReciboAtrasado(s, { ...ctx, promptsAntes: referencia?.prompts, compactsAntes: referencia?.compacts }, total, entradasEsperadas);
+  vigiarReciboAtrasado(s, { ...ctx, promptsAntes: referencia?.prompts, compactsAntes: referencia?.compacts, enterDoDonoAmbiguo }, total, entradasEsperadas);
   return false;
 }
 
@@ -598,6 +604,7 @@ export function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: num
   // própria vigia, alguém mexeu na caixa (o dono pelo terminal, ou um texto novo sendo digitado): o que
   // está lá já não é o texto que esta vigia tenta enviar, e um Enter dela poderia mandar um rascunho.
   let entradasEsperadas = entradasDoEnvio;
+  let ambiguo = ctx.enterDoDonoAmbiguo === true;
 
   // Fim desta vigia (se ela ainda é a vigente): enquanto `vigiaDoRecibo` não for nulo a fila não solta nada (ver
   // talvezSoltarFila), então quem a encerra reavalia a fila.
@@ -624,6 +631,12 @@ export function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: num
     if (s.vigiaGeracao !== minhaGeracao) return;
     if (s.proc !== proc) return acabar();
     if (aceito()) {
+      // Um Enter do dono estava pendente quando o nosso foi escrito: o recibo pode ser da mensagem dele. Entrega incerta.
+      if (ambiguo) {
+        log.aviso(s.a("entrada"), "chegou um recibo, mas o dono tinha dado um Enter no terminal ainda sem recibo; não o dou como entregue");
+        reterEste("chegou um recibo, mas o dono tinha dado um Enter no terminal ainda sem recibo, então o recibo pode ser da mensagem dele", true);
+        return acabar();
+      }
       // Houve escrita de fora depois do nosso último Enter: o recibo (ou o PreCompact) pode ser de outra coisa.
       if (envio && pendenteEm(s, envio) && s.entradasManuais !== entradasEsperadas) {
         log.aviso(s.a("entrada"), "chegou um recibo, mas houve outra escrita no terminal depois do Enter deste pedido; não o dou como entregue");
@@ -637,7 +650,7 @@ export function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: num
       if (envio?.barra) liberarBarra(s, envio);
       return acabar();
     }
-    if (comandoDeBarra && !compact && d.acao === "esperar") {
+    if (comandoDeBarra && !compact && d.acao === "esperar" && d.valida) {
       // Comando de barra sem recibo próprio e a caixa vazia: o comando foi consumido.
       if (envio?.barra) liberarBarra(s, envio);
       return acabar();
@@ -678,6 +691,7 @@ export function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: num
       s.escrever("\r");
       entradasEsperadas = s.entradasManuais;
       if (envio) envio.entradasNoEnter = entradasEsperadas;
+      if (s.enterManualPendente !== null) ambiguo = true;
     }
     agendar(i + 1);
   };

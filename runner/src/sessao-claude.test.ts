@@ -2843,6 +2843,46 @@ test("Enter do dono pendente depois dos 15 s: o recibo que chega com o Enter de 
   assert.equal(s.retidos.length, 1);
 });
 
+// --- Rodada 7 da revisão ---
+
+test("rodada 7, item 4: o Enter do dono já pendente vale para o envio inteiro; o recibo que chega só na segunda espera NÃO confirma (entrega incerta)", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  try {
+    const { enviarComRecibo } = await import("./sessao/digitacao.js");
+    s.enterManualPendente = { promptsAntes: s.promptsAceitos, em: Date.now() }; // o dono deu Enter e o hook dele ainda não veio
+    const texto = "pedido-com-enter-do-dono-pendente";
+    // O hook (do dono, no fim das contas) chega só depois da 1ª espera, quando a 2ª tentativa já não escreve Enter.
+    setTimeout(() => s.receberHook({ agentId: s.id, event: "UserPromptSubmit", nonce: s.nonce ?? undefined }), s.motor.reciboMs + 300);
+    const confirmado = await enviarComRecibo(s, { texto, comandoDeBarra: false, envio: null, proc: s.proc! });
+    assert.equal(confirmado, false, "recibo sem correlação: não confirma");
+    assert.equal(escritas.filter((e) => e === "\r").length, 1, "um só Enter do runner");
+    assert.notEqual(s.digitacaoSuspensaEm, null, "a digitação fica suspensa: a entrega é incerta");
+  } finally { restaurar(); }
+});
+
+test("rodada 7, item 5: comando de barra com leitura de tela inválida (redesenho durante a leitura) NÃO é dado como consumido", async () => {
+  const { s, restaurar } = await sessaoComEscritaAnotada();
+  try {
+    const { enviarComRecibo } = await import("./sessao/digitacao.js");
+    await alimentarTela(s, "\u001b[2J\u001b[H╭──────────────────────────────────────────╮\r\n│ ❯ \r\n╰──────────────────────────────────────────╯\r\n? for shortcuts\r\n");
+    // Toda leitura sincronizada termina com o terminal tendo redesenhado (seq mudou): `valida` fica falso, mesmo com a caixa vazia.
+    const original = s.telaAtualSincronizada.bind(s);
+    (s as unknown as { telaAtualSincronizada: () => Promise<string> }).telaAtualSincronizada = async () => {
+      const t = await original();
+      s.seq += 1;
+      return t;
+    };
+    const { item, entrada } = novoItem("/clear");
+    s.semRecibo.push(entrada);
+    s.itemEmVoo = item;
+    const consumido = await enviarComRecibo(s, { texto: "/clear", comandoDeBarra: true, envio: entrada, proc: s.proc! });
+    assert.equal(consumido, false, "leitura inválida não conclui sucesso");
+    await new Promise((r) => setTimeout(r, 1_500)); // a vigia (passos curtos) também lê com leitura inválida
+    assert.ok(s.semRecibo.includes(entrada) || s.retidos.some((i) => i.texto === "/clear"), "o item continua guardado (pendente ou retido), não foi descartado");
+    assert.ok(filaEmDisco(s).some((i) => i.texto === "/clear") || s.semRecibo.includes(entrada), "e não foi apagado");
+  } finally { restaurar(); }
+});
+
 // --- Rodada 4 da revisão ---
 
 test("rodada 4, item 2: menu com UMA opção marcada (pergunta acima, recusa abaixo, sem moldura) NÃO é caixa de composição, no Claude e no Codex", async () => {

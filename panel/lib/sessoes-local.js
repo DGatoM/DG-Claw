@@ -620,8 +620,8 @@ function registrar(router, { CONFIG }) {
     const incerta = r.status === 202 && dados.entregaIncerta === true;
     const res = { enviado: r.status === 200, enfileirado: r.status === 202 && !incerta, entregaIncerta: incerta, quando, retomado };
     if (incerta) {
-      const aviso = typeof dados.aviso === 'string' && dados.aviso.trim() ? dados.aviso.trim() : 'Não sei se o agente recebeu o recado.';
-      res.aviso = `${aviso} ${CONFERIR_ANTES_DE_REENVIAR}`;
+      // Texto fixo: o `aviso` do runner nunca é repassado (pode trazer quebra de linha ou texto forjado).
+      res.aviso = `Não sei se o agente recebeu o recado. ${CONFERIR_ANTES_DE_REENVIAR}`;
       console.error(`sessoes-local: o runner respondeu 202 com entrega incerta ao recado de ${it.id}; o recado não foi para a fila e pode não ter chegado`);
     }
     return res;

@@ -193,6 +193,7 @@ function lerCaixa(tela: string): { conteudo: string; marcaDeDialogoDepois: boole
     if (RE_MARCADOR_NO_INICIO.test(linhas[i])) return "ambigua";
   }
   let fim = -1; // índice da primeira linha que NÃO é conteúdo (a borda de baixo, ou o começo do rodapé)
+  let indiceDaLinhaDeStatus = -1; // linha de status do Codex reconhecida (fora da busca por marcas de diálogo)
   if (bordaAcima) {
     let bordas = 0;
     for (let i = l + 1; i < linhas.length; i++) {
@@ -217,6 +218,7 @@ function lerCaixa(tela: string): { conteudo: string; marcaDeDialogoDepois: boole
     let achouRodape = linhasDeRodape > 0;
     let fimDoConteudo = k;
     if (k - 1 > l && ehLinhaDeStatusDoCodex(linhas[k - 1])) {
+      indiceDaLinhaDeStatus = k - 1;
       // Se a linha anterior (não em branco) também puder ser lida como status, a última linha do rascunho pode ser uma delas:
       // nada desempata, então a tela é duvidosa.
       let j = k - 2;
@@ -232,7 +234,9 @@ function lerCaixa(tela: string): { conteudo: string; marcaDeDialogoDepois: boole
   if (fim < 0) return "duvidosa";
   // Marca de diálogo FORA da caixa (da borda de baixo, ou da linha de status, em diante) torna a tela duvidosa. O conteúdo
   // já delimitado da caixa não é procurado: o pedido pode conter "yes," ou "Do you want...?" e continua sendo só um pedido.
-  const marcaDeDialogoDepois = RE_MARCA_DE_DIALOGO.test(compacta(linhas.slice(fim).join("\n")));
+  // A linha de status do Codex (modelo, pasta e o TÍTULO da sessão, que é texto livre: "Do you want coffee?") não é diálogo.
+  const depois = linhas.slice(fim).filter((_, i) => fim + i !== indiceDaLinhaDeStatus);
+  const marcaDeDialogoDepois = RE_MARCA_DE_DIALOGO.test(compacta(depois.join("\n")));
   const partes = [linhas[l].replace(RE_MARCADOR_NO_INICIO, ""), ...linhas.slice(l + 1, fim)];
   return { conteudo: compacta(partes.join("\n").replace(/[│┃]\s*$/gm, "")), marcaDeDialogoDepois };
 }

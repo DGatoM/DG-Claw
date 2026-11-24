@@ -140,10 +140,14 @@ function criarRunner({ log, timeoutMs }) {
       const dados = r.corpo && r.corpo.data;
       // 202 com entregaIncerta: o texto PODE ter sido digitado e o runner não sabe se o agente o recebeu. Não é "enfileirado".
       const incerta = r.status === 202 && !!dados && dados.entregaIncerta === true;
-      return { ok: true, status: r.status, dados, ...(incerta ? { entregaIncerta: true, aviso: typeof dados.aviso === 'string' ? dados.aviso : 'Não sei se o agente recebeu o texto.' } : {}) };
+      // Só o booleano atravessa: o texto `aviso` do runner nunca chega ao log nem ao cliente (o runner pode estar comprometido).
+      const { aviso: _descartado, ...dadosSemAviso } = dados && typeof dados === 'object' ? dados : {};
+      return { ok: true, status: r.status, dados: dados && typeof dados === 'object' ? dadosSemAviso : dados, ...(incerta ? { entregaIncerta: true, aviso: AVISO_ENTREGA_INCERTA } : {}) };
     },
   };
 }
+
+const AVISO_ENTREGA_INCERTA = 'Não sei se o agente recebeu o texto.';
 
 function motivoDoRunner(agente, r) {
   const c = r.corpo || {};

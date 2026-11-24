@@ -654,6 +654,24 @@ test("rodada 6, item 0: Codex de vários turnos pela fixture (histórico e títu
   await esperarAte(() => s.promptsAceitos === 2, 6_000, "o segundo task_started");
 });
 
+test("rodada 7, item 6: título da sessão com \"Do you want coffee?\" na linha de status do Codex não vira diálogo: caixa identificada e vazia, e o segundo envio sai", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  const { caixaIdentificada, caixaVaziaNaTela, haDialogoNaTela } = await import("./sessao/telas.js");
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
+  assert.equal(await s.digitarEEnviar("Do you want coffee?"), true);
+  await esperarAte(() => s.estado.status === "idle", 6_000, "o primeiro turno terminar");
+  await dormir(700);
+  const tela = await s.telaAtualSincronizada();
+  assert.match(tela, /GPT-6\.2-Astra high · \/tmp\/fake-codex · Do you want coffee\?/, "a linha de status ganhou o título com a frase");
+  assert.equal(caixaIdentificada(tela), true);
+  assert.equal(caixaVaziaNaTela(tela), true);
+  assert.equal(haDialogoNaTela(tela), false);
+  assert.equal(await s.digitarEEnviar("segundo pedido depois do café"), true, "o segundo envio sai normalmente");
+  await esperarAte(() => s.promptsAceitos === 2, 6_000, "o segundo task_started");
+});
+
 test("rodada 6, item 7: task_started numa leitura e o texto do usuário só na seguinte (depois do prazo da primeira tentativa): o envio é confirmado", async () => {
   logarCodex(amb);
   const { s, id } = await nova();
