@@ -105,7 +105,7 @@ limpar_estado
 echo 1073741824 >"$STUB_ESTADO/memoria"
 smoke
 igual "memoria abaixo de 2 GB: sai com 0" "0" "$?"
-afirma "memoria abaixo de 2 GB: AVISO" grep -q 'AVISO  \[4\] dgclaw-ana tem 1024 MB, abaixo dos 2 GB' "$TMP/s.txt"
+afirma "memoria abaixo de 2 GB: AVISO" grep -q 'AVISO  \[4\] dgclaw-ana tem 1024 MB, abaixo de 2 GB. O DG Claw so cria assim' "$TMP/s.txt"
 nega "o aviso nao manda recriar" grep -qi 'recri' "$TMP/s.txt"
 limpar_estado
 echo 2147483648 >"$STUB_ESTADO/memoria"

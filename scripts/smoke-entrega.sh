@@ -109,7 +109,7 @@ else
         elif [ "$mem" -eq 0 ]; then
             falha 4 "$c esta sem limite de memoria." "registre e confira com a equipe"
         elif [ "$mem" -lt 2147483648 ]; then
-            aviso 4 "$c tem $((mem / 1048576)) MB, abaixo dos 2 GB que o DG Claw aplica na criacao." "registre e confira com a equipe"
+            aviso 4 "$c tem $((mem / 1048576)) MB, abaixo de 2 GB. O DG Claw so cria assim um agente adicional numa VPS sem folga de memoria." "registre e confira com a equipe se a VPS comporta esse agente"
         else
             ok 4 "$c com limite de memoria de $((mem / 1048576)) MB"
         fi
