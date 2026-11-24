@@ -562,6 +562,21 @@ criar_agente ad3 --nome X
 afirma "sem valor persistido, a linha info lista quem foi estimado" grep -q 'limites dos outros agentes: .*ad2.*entraram na soma por estimativa' "$TMP/saida.txt"
 rm -f "$STUB_ESTADO/cgroup-ausente"
 
+echo "container parado: consulta com sucesso e 0 = sem teto (RAM inteira); consulta que falha = estimativa"
+nova_raiz; maquina 16 4
+DGCLAW_CONTAINER_MEMORIA=2g criar_agente pri --nome X
+criar_agente ad1 --nome X
+touch "$STUB_ESTADO/cgroup-ausente" "$STUB_ESTADO/memoria-zero"
+criar_agente ad2 --nome X
+afirma "0 com sucesso: o aviso diz que os outros estao sem limite" grep -q 'dgclaw-pri.*estao sem limite de memoria e contam como sem folga\|pri ad1.*estao sem limite de memoria e contam como sem folga\|estao sem limite de memoria e contam como sem folga' "$TMP/saida.txt"
+igual "e o adicional fica com o piso de 1024m" "1024m" "$(limite_criado ad2 | cut -d' ' -f1)"
+nega "e ninguem foi estimado" grep -q 'entraram na soma por estimativa' "$TMP/saida.txt"
+rm -f "$STUB_ESTADO/memoria-zero"
+criar_agente ad3 --nome X
+afirma "consulta que falha: segue na estimativa" grep -q 'entraram na soma por estimativa' "$TMP/saida.txt"
+nega "e nao diz que esta sem limite" grep -q 'estao sem limite de memoria' "$TMP/saida.txt"
+rm -f "$STUB_ESTADO/cgroup-ausente"
+
 echo "dois criar em sequencia: o container que ainda nao esta no agentes.json conta como existente"
 nova_raiz; maquina 8 2
 criar_agente pa --nome X
@@ -585,11 +600,11 @@ echo "trava dos limites: pega do calculo ate o create, solta depois, e com ela o
 nova_raiz; maquina 8 2
 rm -f "$STUB_ESTADO/fd6-aberto" "$STUB_ESTADO/fd7-aberto"
 criar_agente ta --nome X
-afirma "o criar termina normalmente" test -f "$ETC/.limites.lock"
-afirma "a trava foi solta no fim (da para pegar sem esperar)" flock -n -x "$ETC/.limites.lock" true
+afirma "o criar termina normalmente" test -f "$ETC/travas/limites.lock"
+afirma "a trava foi solta no fim (da para pegar sem esperar)" flock -n -x "$ETC/travas/limites.lock" true
 nega "nenhuma chamada ao podman herdou o descritor 7 (o conmon seguraria a trava)" test -e "$STUB_ESTADO/fd7-aberto"
 nega "nem o descritor 6" test -e "$STUB_ESTADO/fd6-aberto"
-( flock -x "$ETC/.limites.lock" sleep 6 ) &
+( flock -x "$ETC/travas/limites.lock" sleep 6 ) &
 sleep 1
 : >"$STUB_LOG"
 DGCLAW_TRAVA_LIMITES_ESPERA=1 criar_agente tb --nome X
@@ -608,7 +623,7 @@ wait
 : >"$STUB_LOG"
 dgclaw agente recriar ta --forcar >"$TMP/rec.txt" 2>&1
 igual "liberada a trava, o recriar termina com 0" "0" "$?"
-afirma "e a trava fica solta no fim" flock -n -x "$ETC/.limites.lock" true
+afirma "e a trava fica solta no fim" flock -n -x "$ETC/travas/limites.lock" true
 nega "o recriar tambem nao deixou o descritor 7 nem o 6 para o podman" test -e "$STUB_ESTADO/fd7-aberto" -o -e "$STUB_ESTADO/fd6-aberto"
 
 echo "trava por agente: reparar e recriar do mesmo agente nao rodam juntos"
@@ -691,5 +706,53 @@ touch "$STUB_ESTADO/update-sem-efeito"
 igual "update sem efeito: so aviso, codigo 0" "0" "$?"
 nega "e nao fala em reducao" grep -q 'abaixo do que era antes' "$TMP/rep.txt"
 rm -f "$STUB_ESTADO/update-sem-efeito" "$STUB_ESTADO/update-feito"
+
+echo "permissao das travas: pasta 700 e arquivos 600, inclusive quando ja existiam abertos"
+modo() { stat -c %a "$1"; }
+nova_raiz; maquina 8 2
+criar_agente pm --nome X
+igual "depois de um criar: a pasta das travas e 700" "700" "$(modo "$ETC/travas")"
+igual "a trava dos limites e 600" "600" "$(modo "$ETC/travas/limites.lock")"
+dgclaw agente reparar pm >"$TMP/rep.txt" 2>&1
+igual "depois de um reparar: a trava do agente e 600" "600" "$(modo "$ETC/travas/pm.lock")"
+chmod 755 "$ETC/travas"; chmod 644 "$ETC/travas/limites.lock" "$ETC/travas/pm.lock"
+ino_l="$(stat -c %i "$ETC/travas/limites.lock")"; ino_p="$(stat -c %i "$ETC/travas/pm.lock")"
+dgclaw agente reparar pm >"$TMP/rep.txt" 2>&1
+igual "pasta aberta que ja existia volta para 700" "700" "$(modo "$ETC/travas")"
+igual "trava do agente aberta volta para 600" "600" "$(modo "$ETC/travas/pm.lock")"
+igual "e o arquivo e o mesmo (inode), nao foi recriado" "$ino_p" "$(stat -c %i "$ETC/travas/pm.lock")"
+echo imagem-nova-m >"$STUB_ESTADO/imagem-id"
+dgclaw agente recriar pm --forcar >"$TMP/rec.txt" 2>&1
+igual "o recriar termina com 0" "0" "$?"
+igual "trava dos limites aberta que ja existia volta para 600" "600" "$(modo "$ETC/travas/limites.lock")"
+igual "e o arquivo e o mesmo (inode)" "$ino_l" "$(stat -c %i "$ETC/travas/limites.lock")"
+rm -f "$ETC/travas/limites.lock"; chmod 755 "$ETC/travas"
+criar_agente pn --nome X
+igual "criar sem o arquivo e com a pasta aberta: arquivo novo 600" "600" "$(modo "$ETC/travas/limites.lock")"
+igual "e a pasta vira 700" "700" "$(modo "$ETC/travas")"
+
+echo "recriar: o inventario lento nao segura a trava dos limites; ela so e pega perto da troca"
+nova_raiz; maquina 8 2
+criar_agente pi --nome X
+echo imagem-nova-i >"$STUB_ESTADO/imagem-id"
+echo 4 >"$STUB_ESTADO/inventario-demora"
+rm -f "$STUB_ESTADO/inventario-em-curso"
+dgclaw agente recriar pi --forcar >"$TMP/rec.txt" 2>&1 &
+rec_pid=$!
+for _ in $(seq 1 50); do [ -e "$STUB_ESTADO/inventario-em-curso" ] && break; sleep 0.2; done
+afirma "o inventario esta rodando" test -e "$STUB_ESTADO/inventario-em-curso"
+afirma "e outro processo pega a trava dos limites na hora" flock -n -x "$ETC/travas/limites.lock" true
+wait "$rec_pid"
+igual "o recriar termina com 0" "0" "$?"
+rm -f "$STUB_ESTADO/inventario-demora"
+echo "recriar: inventario que passa do prazo falha com mensagem em portugues, sem mexer no container"
+echo imagem-nova-j >"$STUB_ESTADO/imagem-id"
+echo 5 >"$STUB_ESTADO/inventario-demora"
+: >"$STUB_LOG"
+DGCLAW_PRAZO_INVENTARIO=1 dgclaw agente recriar pi >"$TMP/rec.txt" 2>&1
+nega "sem --forcar o recriar para" test "$?" -eq 0
+afirma "a mensagem diz que o dpkg-query nao respondeu no prazo" grep -q "dpkg-query' dentro do container dgclaw-pi nao respondeu em 1s" "$TMP/rec.txt"
+nega "e nada foi parado nem removido" grep -q '^podman stop\|^podman rm' "$STUB_LOG"
+rm -f "$STUB_ESTADO/inventario-demora"
 
 fim

@@ -298,6 +298,19 @@ trava_faixa_soltar() { exec 8>&-; }
 # O slug vira nome de arquivo: quem chama passa antes por exigir_slug (bin/dgclaw); aqui so se confere de novo.
 DG_TRAVA_AGENTE_COM=""
 
+# trava_arquivo_preparar <arquivo>: garante a pasta das travas (modo 700) e o arquivo da trava (modo 600), so do root. O flock
+# so precisa de leitura: com a pasta ou o arquivo abertos, um usuario local sem privilegio seguraria a trava e travaria o
+# criar, o recriar e o reparar. Pasta e arquivo que ja existiam com modo aberto sao corrigidos no lugar (chmod), sem apagar
+# nem recriar o arquivo, para nao trocar o inode de uma trava que outro processo ja segura.
+trava_arquivo_preparar() {
+    local arq="$1" dir
+    dir="$(dirname "$arq")"
+    { mkdir -p "$dir" && chmod 700 "$dir"; } || falha "nao consegui preparar a pasta das travas ($dir)." \
+        "confira se voce e root e se $DG_ETC aceita gravar."
+    if [ ! -e "$arq" ]; then ( umask 077; : >>"$arq" ) || falha "nao consegui criar o arquivo de trava $arq." "confira se voce e root e se $dir aceita gravar."; fi
+    chmod 600 "$arq" || falha "nao consegui ajustar o modo do arquivo de trava $arq." "confira se voce e root e se o arquivo existe."
+}
+
 # trava_agente_pegar <slug>: espera ate DGCLAW_TRAVA_AGENTE_ESPERA segundos (padrao 900).
 trava_agente_pegar() {
     local slug="$1" espera="${DGCLAW_TRAVA_AGENTE_ESPERA:-900}" arq
@@ -305,7 +318,7 @@ trava_agente_pegar() {
     [ "$DG_TRAVA_AGENTE_COM" = "$slug" ] && return 0
     [[ "$slug" =~ ^[a-z0-9][a-z0-9-]{1,30}$ ]] || falha "o nome curto '$slug' nao serve para a trava do agente." "isso e um erro do DG Claw; abra uma issue."
     arq="$DG_ETC/travas/$slug.lock"
-    mkdir -p "$DG_ETC/travas"
+    trava_arquivo_preparar "$arq"
     exec 6>"$arq" || falha "nao consegui abrir a trava do agente $slug em $arq." \
         "confira se voce e root e se a pasta $DG_ETC/travas existe e aceita gravar."
     flock -x -w "$espera" 6 || falha "outro 'dgclaw agente reparar' ou 'dgclaw agente recriar' do agente $slug esta segurando $arq ha mais de ${espera}s: os dois nao rodam ao mesmo tempo no mesmo agente." \

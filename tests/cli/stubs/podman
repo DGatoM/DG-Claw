@@ -137,7 +137,10 @@ case "${1:-}" in
         # responde 0 (nada persistido), a menos que estado/memoria-persistida exista.
         if [ "${*: -3:1}" = "-f" ] && [ "${*: -2:1}" = '{{.HostConfig.Memory}}' ]; then
             [ -f "$est/inspect-limites-falha" ] && exit 125
-            if [ -f "$est/cgroup-ausente" ] && [ ! -f "$est/memoria-persistida" ]; then echo 0; exit 0; fi
+            # Com cgroup-ausente e sem memoria-persistida a consulta FALHA (nada persistido legivel); com memoria-zero ela tem
+            # sucesso e devolve 0 (container criado sem limite).
+            if [ -f "$est/memoria-zero" ]; then echo 0; exit 0; fi
+            if [ -f "$est/cgroup-ausente" ] && [ ! -f "$est/memoria-persistida" ]; then exit 125; fi
             read -r m _ < "$est/lim-$nome" 2>/dev/null || m=0
             echo "${m:-0}"; exit 0
         fi
@@ -255,6 +258,8 @@ case "${1:-}" in
         # `exec <container> dpkg-query ...`: pacotes do container (estado/pacotes-container).
         if printf '%s ' "$@" | grep -q dpkg-query; then
             if [ -f "$est/pacotes-sem-dpkg" ]; then exit 1; fi
+            # inventario-demora = N: a consulta leva N segundos (o teste confere que a trava dos limites fica livre nesse tempo).
+            if [ -f "$est/inventario-demora" ]; then touch "$est/inventario-em-curso"; sleep "$(cat "$est/inventario-demora")"; rm -f "$est/inventario-em-curso"; fi
             cat "$est/pacotes-container" 2>/dev/null || printf 'base-files\nbash\n'
             exit 0
         fi

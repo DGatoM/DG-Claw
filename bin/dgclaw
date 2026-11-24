@@ -1601,6 +1601,10 @@ inventario_container() {
     INV_MOTIVO=""
     _inv_limpar() { rm -f "$difusao" "$difusao.err" "$difusao.arq" "$difusao.prod" "$difusao.img" "$difusao.dirs" "$difusao.dm" "$difusao.on" "$pacs_c" "$pacs_i" 2>/dev/null || true; [ -z "$dirtmp" ] || rmdir "$dirtmp" 2>/dev/null || true; }
     : >"$saida" || { INV_MOTIVO="nao consegui gravar o arquivo do inventario ($saida)."; return 1; }
+    # Toda consulta ao container tem prazo (DGCLAW_PRAZO_INVENTARIO, padrao 60 s): um podman que nao responde nao pode
+    # deixar o comando pendurado. Estourou o prazo, o inventario devolve 1 e o motivo diz qual consulta travou.
+    local prazo="${DGCLAW_PRAZO_INVENTARIO:-60}"
+    case "$prazo" in ''|*[!0-9]*|0) prazo=60 ;; esac
     # Os nomes de arquivo de dentro do container podem ser privados: todos os intermediarios ficam numa pasta so do
     # root (modo 700), nao soltos em /tmp com a mascara do processo.
     dirtmp="$(mktemp -d)" || { INV_MOTIVO="nao consegui criar uma pasta temporaria."; return 1; }
@@ -1609,11 +1613,16 @@ inventario_container() {
     # O formato de texto do podman nao escapa quebra de linha no nome do arquivo: um nome com "\nA /x" viraria
     # dois registros e esconderia um caminho real. O JSON guarda cada caminho como um valor indivisivel;
     # caracteres de controle e o proprio % viram %HH (reversivel, sem colisao entre nomes diferentes) ja aqui, antes de qualquer filtro; o "?" so aparece na exibicao.
-    podman diff --format json "$c" 2>"$difusao.err" | jq -r '
+    timeout "$prazo" podman diff --format json "$c" 2>"$difusao.err" | jq -r '
         def hx: "0123456789ABCDEF"[(. / 16 | floor):(. / 16 | floor) + 1] + "0123456789ABCDEF"[(. % 16):(. % 16) + 1];
         def esc: explode | map(if . < 32 or . == 127 or . == 37 then "%" + hx else ([.] | implode) end) | join("");
         ((.added // [])[] | "A " + esc), ((.changed // [])[] | "C " + esc), ((.deleted // [])[] | "D " + esc)' >"$difusao" 2>>"$difusao.err"
     rc_a=("${PIPESTATUS[@]}")
+    if [ "${rc_a[0]}" -eq 124 ]; then
+        INV_MOTIVO="o 'podman diff --format json $c' nao respondeu em ${prazo}s e foi interrompido."
+        _inv_limpar
+        return 1
+    fi
     if [ "${rc_a[0]}" -ne 0 ] || [ "${rc_a[1]}" -ne 0 ]; then
         INV_MOTIVO="o 'podman diff --format json $c' falhou ou nao deu para ler a resposta ($(head -n 1 "$difusao.err" 2>/dev/null | _inv_sanear))."
         _inv_limpar
@@ -1623,10 +1632,22 @@ inventario_container() {
     if [ "$estado_c" = running ]; then
         # shellcheck disable=SC2015
         pacs_c="$(mktemp)" && pacs_i="$(mktemp)" || { INV_MOTIVO="nao consegui criar um arquivo temporario."; _inv_limpar; return 1; }
-        podman exec "$c" dpkg-query -W -f '${Package}\n' 2>/dev/null | LC_ALL=C sort -u >"$pacs_c"
+        # shellcheck disable=SC2016 # o $ e interpretado dentro do container ou pelo dpkg-query
+        timeout "$prazo" podman exec "$c" dpkg-query -W -f '${Package}\n' 2>/dev/null | LC_ALL=C sort -u >"$pacs_c"
         rc_a=("${PIPESTATUS[@]}")
-        podman run --rm --entrypoint dpkg-query "$DGCLAW_IMAGEM" -W -f '${Package}\n' 2>/dev/null | LC_ALL=C sort -u >"$pacs_i"
+        if [ "${rc_a[0]}" -eq 124 ]; then
+            INV_MOTIVO="o 'dpkg-query' dentro do container $c nao respondeu em ${prazo}s e foi interrompido."
+            _inv_limpar
+            return 1
+        fi
+        # shellcheck disable=SC2016 # o $ e interpretado dentro do container ou pelo dpkg-query
+        timeout "$prazo" podman run --rm --entrypoint dpkg-query "$DGCLAW_IMAGEM" -W -f '${Package}\n' 2>/dev/null | LC_ALL=C sort -u >"$pacs_i"
         rc_b=("${PIPESTATUS[@]}")
+        if [ "${rc_b[0]}" -eq 124 ]; then
+            INV_MOTIVO="o 'dpkg-query' na imagem $DGCLAW_IMAGEM nao respondeu em ${prazo}s e foi interrompido."
+            _inv_limpar
+            return 1
+        fi
         if [ "${rc_a[0]}" -ne 0 ] || [ "${rc_a[1]}" -ne 0 ] || [ "${rc_b[0]}" -ne 0 ] || [ "${rc_b[1]}" -ne 0 ] \
             || ! [ -s "$pacs_c" ] || ! [ -s "$pacs_i" ]; then
             INV_MOTIVO="nao consegui listar os pacotes do container (dpkg-query) nem os da imagem para comparar."
@@ -1730,8 +1751,8 @@ inventario_container() {
         fi
         ref="$DG_CASAS/$slug/home/.dgclaw/unidades-padrao.sha256"
         mapfile -t arqs <"$difusao.prod"
-        atuais="$(podman exec "$c" sha256sum "${arqs[@]}" 2>/dev/null)" \
-            || { INV_MOTIVO="nao consegui conferir as rotinas padrao dentro do container (podman exec sha256sum)."; _inv_limpar; return 1; }
+        atuais="$(timeout "$prazo" podman exec "$c" sha256sum "${arqs[@]}" 2>/dev/null)" \
+            || { INV_MOTIVO="nao consegui conferir as rotinas padrao dentro do container (podman exec sha256sum; prazo de ${prazo}s por consulta)."; _inv_limpar; return 1; }
         while IFS= read -r linha; do
             [ -n "$linha" ] || continue
             if ! { [ -f "$ref" ] && grep -qxF -- "$linha" "$ref"; }; then
@@ -1745,10 +1766,12 @@ inventario_container() {
     if [ "$estado_c" = running ]; then
         local un=() n u ex st
         for n in $DG_UNIDADES_REPARAR; do un+=("dgclaw-$slug-$n.timer"); done
-        podman exec "$c" sh -c 'for u in "$@"; do e=0; [ -e "/etc/systemd/system/$u" ] && e=1; s="$(systemctl is-enabled "$u" 2>/dev/null)"; printf "%s %s %s\n" "$u" "$e" "${s:-VAZIO}"; done' sh "${un[@]}" >"$difusao.on" 2>/dev/null \
+        # shellcheck disable=SC2016 # o $ e interpretado dentro do container ou pelo dpkg-query
+        timeout "$prazo" podman exec "$c" sh -c 'for u in "$@"; do e=0; [ -e "/etc/systemd/system/$u" ] && e=1; s="$(systemctl is-enabled "$u" 2>/dev/null)"; printf "%s %s %s\n" "$u" "$e" "${s:-VAZIO}"; done' sh "${un[@]}" >"$difusao.on" 2>/dev/null \
             || { INV_MOTIVO="nao consegui consultar quais rotinas padrao estao ligadas (systemctl is-enabled)."; _inv_limpar; return 1; }
         # As rotinas do proprio agente (self-*) tambem: a devolucao delas faz `enable --now`.
-        podman exec "$c" sh -c 'for f in /etc/systemd/system/dgclaw-'"$slug"'-self-*.timer; do [ -e "$f" ] || continue; u="${f##*/}"; s="$(systemctl is-enabled "$u" 2>/dev/null)"; printf "%s 1 %s\n" "$u" "${s:-VAZIO}"; done' >>"$difusao.on" 2>/dev/null \
+        # shellcheck disable=SC2016 # o $ e interpretado dentro do container ou pelo dpkg-query
+        timeout "$prazo" podman exec "$c" sh -c 'for f in /etc/systemd/system/dgclaw-'"$slug"'-self-*.timer; do [ -e "$f" ] || continue; u="${f##*/}"; s="$(systemctl is-enabled "$u" 2>/dev/null)"; printf "%s 1 %s\n" "$u" "${s:-VAZIO}"; done' >>"$difusao.on" 2>/dev/null \
             || { INV_MOTIVO="nao consegui consultar quais rotinas do proprio agente estao ligadas (systemctl is-enabled)."; _inv_limpar; return 1; }
         local lidos=0
         while read -r u ex st; do
@@ -1776,8 +1799,8 @@ inventario_container() {
         fi
         mapfile -t arqs <"$difusao.img"
         # shellcheck disable=SC2015
-        atuais="$(podman exec "$c" sha256sum "${arqs[@]}" 2>/dev/null)" \
-            && ref="$(podman run --rm --entrypoint sha256sum "$DGCLAW_IMAGEM" "${arqs[@]}" 2>/dev/null)" \
+        atuais="$(timeout "$prazo" podman exec "$c" sha256sum "${arqs[@]}" 2>/dev/null)" \
+            && ref="$(timeout "$prazo" podman run --rm --entrypoint sha256sum "$DGCLAW_IMAGEM" "${arqs[@]}" 2>/dev/null)" \
             || { INV_MOTIVO="nao consegui comparar o runner e o painel com os da imagem (sha256sum)."; _inv_limpar; return 1; }
         while IFS= read -r linha; do
             [ -n "$linha" ] || continue
@@ -1797,8 +1820,8 @@ inventario_container() {
         # shellcheck disable=SC2016
         local lemeta='while IFS= read -r d; do stat -c "%a %u %g" -- "$d" 2>/dev/null || echo ERRO; done'
         # shellcheck disable=SC2015
-        podman exec -i "$c" sh -c "$lemeta" <"$difusao.dirs" >"$difusao.dm" 2>/dev/null \
-            && ref="$(podman run --rm -i --entrypoint sh "$DGCLAW_IMAGEM" -c "$lemeta" <"$difusao.dirs" 2>/dev/null)" \
+        timeout "$prazo" podman exec -i "$c" sh -c "$lemeta" <"$difusao.dirs" >"$difusao.dm" 2>/dev/null \
+            && ref="$(timeout "$prazo" podman run --rm -i --entrypoint sh "$DGCLAW_IMAGEM" -c "$lemeta" <"$difusao.dirs" 2>/dev/null)" \
             || { INV_MOTIVO="nao consegui comparar as permissoes dos diretorios alterados com os da imagem (stat)."; _inv_limpar; return 1; }
         local n=0 m_c m_i d
         while IFS= read -r d; do
@@ -1852,11 +1875,6 @@ agente_recriar() {
     podman() { command podman "$@" 6>&- 7>&- 8>&-; }
     timeout() { command timeout "$@" 6>&- 7>&- 8>&-; }
     carregar_env_dgclaw
-    # Trava dos limites: do calculo ate o `podman create` (soltada em criar_container), como no criar. Os retornos antes
-    # da troca a soltam aqui.
-    limites_trava_pegar
-    # Antes de parar ou remover qualquer coisa: uma sobrescrita invalida (DGCLAW_CONTAINER_MEMORIA=4GB) falha aqui, com o agente intacto.
-    limites_calcular "$slug"
     local c="dgclaw-$slug" obj aloc estado img_atual img_nova unidades inv
     obj="$(agentes_obter "$slug")"
     [ -n "$obj" ] || falha "o agente '$slug' nao esta no agentes.json." "veja os que existem com: dgclaw agente listar"
@@ -1883,7 +1901,6 @@ agente_recriar() {
         *)
             if [ "$forcar" = 0 ]; then
                 info "agente $slug: container $estado; deixei como esta (ligue com: dgclaw agente iniciar $slug e rode isto de novo, ou recrie mesmo assim com: dgclaw agente recriar $slug --forcar)."
-                limites_trava_soltar
                 return 0
             fi
             info "agente $slug: container $estado; com --forcar eu recrio mesmo assim." ;;
@@ -1899,7 +1916,6 @@ agente_recriar() {
             info "agente $slug: a imagem e a mesma, mas o DNS do servidor ($DNS_HOST_PRIVADOS) fica numa rede privada e o container ainda usa esse DNS; vou recriar para ele usar DNS publico."
         else
             ok "agente $slug: o container ja usa a imagem atual, nada a recriar"
-            limites_trava_soltar
             return 0
         fi
     fi
@@ -1973,6 +1989,12 @@ agente_recriar() {
         aviso "o container nao esta ligado, entao nao da para guardar as rotinas de dentro dele (dgclaw-$slug-self-*). A lista delas fica na casa (.dgclaw/self-crons.json) e o 'reparar' tenta recolocar."
         rm -f "$unidades"
     fi
+
+    # Trava dos limites: so aqui, depois do inventario e das outras conferencias lentas (comandos dentro do agente, sem a trava
+    # global na mao), e solta depois do `podman create` (em criar_container), como no criar. A sobrescrita invalida
+    # (DGCLAW_CONTAINER_MEMORIA=4GB) falha neste calculo, antes de parar ou remover qualquer coisa.
+    limites_trava_pegar
+    limites_calcular "$slug"
 
     passo "Trocando o container do agente $slug pelo da imagem atual"
     C_RECRIANDO="$slug"; C_RECRIOU=0

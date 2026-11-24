@@ -125,7 +125,7 @@ limites_principal() {
 # _limites_somar_outros <slug> <ram-mb> <reserva-mb> <principal>: soma o limite de memoria dos OUTROS containers de agente.
 # Preenche LIM_OUTROS_MB, LIM_OUTROS_ESTIMADOS (slugs cujo valor foi estimado) e LIM_OUTROS_SEMLIMITE (slugs lidos sem
 # limite, que contam como a RAM inteira: sem folga). Container parado conta pelo HostConfig.Memory guardado no podman
-# (se for maior que zero); sem isso, estimado. Usa limites_ler_atuais, entao mexe nas variaveis ATU_*.
+# (zero com consulta bem-sucedida = sem limite); consulta que falha, estimado. Usa limites_ler_atuais, entao mexe nas variaveis ATU_*.
 _limites_somar_outros() {
     local slug="$1" ram="$2" reserva="$3" principal="$4" s mb bytes
     LIM_OUTROS_MB=0; LIM_OUTROS_ESTIMADOS=""; LIM_OUTROS_SEMLIMITE=""
@@ -137,13 +137,21 @@ _limites_somar_outros() {
             else
                 mb="$ATU_MEM_MB"
             fi
-        elif [ "$ENSAIO" != 1 ] && bytes="$(podman inspect -f '{{.HostConfig.Memory}}' "dgclaw-$s" 2>/dev/null)" \
-            && case "$bytes" in ''|*[!0-9]*|0) false ;; *) true ;; esac; then
-            # Container parado: o cgroup nao existe, mas o podman guarda o limite com que ele foi criado.
-            mb=$((bytes / 1048576))
         else
-            LIM_OUTROS_ESTIMADOS="$LIM_OUTROS_ESTIMADOS $s"
-            if [ "$s" = "$principal" ]; then mb="$(_limites_alvo_principal_mb "$ram" "$reserva")"; else mb="$LIMITE_MEM_PISO_MB"; fi
+            # Container parado: o cgroup nao existe, mas o podman guarda o limite com que ele foi criado. Consulta que tem
+            # sucesso e devolve 0 quer dizer SEM TETO (conta como a RAM inteira); so consulta que falha ou vem vazia ou
+            # ilegivel cai na estimativa.
+            bytes=""
+            if [ "$ENSAIO" != 1 ]; then bytes="$(podman inspect -f '{{.HostConfig.Memory}}' "dgclaw-$s" 2>/dev/null)" || bytes=""; fi
+            case "$bytes" in ''|*[!0-9]*) bytes=estimar ;; *) bytes=$((10#$bytes)) ;; esac
+            if [ "$bytes" = estimar ]; then
+                LIM_OUTROS_ESTIMADOS="$LIM_OUTROS_ESTIMADOS $s"
+                if [ "$s" = "$principal" ]; then mb="$(_limites_alvo_principal_mb "$ram" "$reserva")"; else mb="$LIMITE_MEM_PISO_MB"; fi
+            elif [ "$bytes" -eq 0 ]; then
+                LIM_OUTROS_SEMLIMITE="$LIM_OUTROS_SEMLIMITE $s"; mb="$ram"
+            else
+                mb=$((bytes / 1048576))
+            fi
         fi
         LIM_OUTROS_MB=$((LIM_OUTROS_MB + mb))
     done < <(_limites_existentes)
@@ -157,13 +165,13 @@ _limites_somar_outros() {
 # container ja existe e o proximo calculo o enxerga (_limites_existentes). E o descritor 7 do processo; o podman roda com
 # ele fechado (7>&-), para o conmon, que vive ate o container parar, nao segurar a trava. Sair do processo solta a trava.
 # O reparar nao a usa: ele nao cria container.
-DG_TRAVA_LIMITES="$DG_ETC/.limites.lock"
+DG_TRAVA_LIMITES="$DG_ETC/travas/limites.lock"
 
 # limites_trava_pegar: espera ate DGCLAW_TRAVA_LIMITES_ESPERA segundos (padrao 900, como a trava da faixa de rede).
 limites_trava_pegar() {
     [ "$ENSAIO" = 1 ] && return 0
     local espera="${DGCLAW_TRAVA_LIMITES_ESPERA:-900}"
-    mkdir -p "$(dirname "$DG_TRAVA_LIMITES")"
+    trava_arquivo_preparar "$DG_TRAVA_LIMITES"
     exec 7>"$DG_TRAVA_LIMITES" || falha "nao consegui abrir a trava dos limites em $DG_TRAVA_LIMITES." \
         "confira se voce e root e se a pasta $(dirname "$DG_TRAVA_LIMITES") existe e aceita gravar."
     flock -x -w "$espera" 7 || falha "outra criacao ou recriacao de agente esta segurando a trava dos limites ($DG_TRAVA_LIMITES) ha mais de ${espera}s: duas ao mesmo tempo calculariam a memoria sem enxergar uma a outra." \
