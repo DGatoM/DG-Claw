@@ -10,6 +10,7 @@ import {
 const amb = prepararAmbiente("sessao-claude");
 const { Sessao, nonceConfere } = await import("./sessao.js");
 const { gravarProvedorJson } = await import("./provedores/escolha.js");
+const { HOOK_TIMEOUT_S } = await import("./sessao/configuracao.js");
 const { STOP_CONFIRM_MS } = await import("./sessao/constantes.js");
 
 const OAI = chaveFalsaOpenai();
@@ -136,7 +137,7 @@ async function novaComRedeCurta(prazoMs: number, opcoes: Record<string, unknown>
   /** Grava o transcript; `em` é o deslocamento em ms em relação a agora. */
   const transcript = (linhas: Array<[Record<string, unknown>, number]>) =>
     fs.writeFileSync(arquivo, linhas.map(([o, em]) => JSON.stringify({ ...o, timestamp: new Date(Date.now() + em).toISOString() })).join("\n") + "\n");
-  return { s, hooks, hook, transcript, id };
+  return { s, hooks, hook, transcript, id, arquivo };
 }
 const FIM_DO_TURNO = { type: "system", subtype: "turn_duration" };
 
@@ -165,6 +166,114 @@ test("Stop perdido: transcript terminando em tool_use (sleep longo) com o termin
   assert.equal(s.estado.status, "working");
 });
 
+const INTERROMPIDO = (texto: unknown) => ({ type: "user", message: { role: "user", content: texto } });
+test("Stop perdido: interrupção do usuário ('[Request interrupted by user]') no fim do transcript vira idle e solta a fila", async () => {
+  for (const texto of [[{ type: "text", text: "[Request interrupted by user for tool use]" }], "[Request interrupted by user]"]) {
+    const { s, hook, transcript } = await novaComRedeCurta(600);
+    hook("UserPromptSubmit");
+    s.escrever("\u001b");
+    transcript([[{ type: "assistant" }, 100], [INTERROMPIDO(texto), 200]]);
+    s.enfileirarQuandoOcioso("mensagem presa na fila");
+    await esperarAte(() => s.estado.status === "idle", 5_000, "o fim de turno por interrupção marcar idle");
+    assert.match(s.estado.statusReason ?? "", /^transcript:/);
+  }
+});
+test("Stop perdido: texto que só começa pelo prefixo de interrupção, ou interrupção antiga, não encerram o turno", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  transcript([[INTERROMPIDO([{ type: "text", text: "[Request interrupted by user] e mais coisa" }]), 200]]);
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+  transcript([[INTERROMPIDO("[Request interrupted by user]"), -60_000]]);
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+});
+test("Stop perdido: o marcador literal sem Esc, ou com Esc de outro processo, não encerra o turno", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  transcript([[INTERROMPIDO("[Request interrupted by user]"), 200]]);
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working", "sem nenhum Esc registrado");
+  s.ultimoEscReal = { em: Date.now(), proc: {} };
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working", "Esc de um processo anterior");
+});
+test("Stop perdido: dois Parar separados por 4 s, com o marcador do primeiro no transcript, vira idle e entrega a fila", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  const rel = { t: 1_000_000 };
+  s.agora = () => rel.t;
+  assert.equal(s.interromper().ok, true);
+  const primeiro = s.ultimoEscReal;
+  rel.t += 4_000;
+  assert.equal(s.interromper().ok, true);
+  assert.equal(s.ultimoEscReal, primeiro, "o segundo Esc não sobrescreve o pendente");
+  transcript([[INTERROMPIDO("[Request interrupted by user]"), 200]]);
+  const antes = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length;
+  s.enfileirarQuandoOcioso("mensagem presa na fila");
+  await esperarAte(() => s.estado.status === "idle", 5_000, "o fim de turno por interrupção marcar idle");
+  assert.equal(s.ultimoEscReal, null, "o turno terminou: o Esc pendente cai");
+  await esperarAte(() => lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length > antes, 12_000, "a fila soltar o texto no CLI");
+});
+test("Stop perdido: Esc de um turno já encerrado + marcador literal num turno novo não encerram o turno", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  s.escrever("\u001b");
+  assert.ok(s.ultimoEscReal);
+  s.mudar({ status: "idle", statusReason: "teste: turno acabou" });
+  assert.equal(s.ultimoEscReal, null);
+  hook("UserPromptSubmit");
+  transcript([[INTERROMPIDO("[Request interrupted by user]"), 200]]);
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+});
+test("Stop perdido: marcador que já era a última linha antes do Esc (horário anterior ao clique) não encerra o turno", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  transcript([[INTERROMPIDO("[Request interrupted by user]"), -1_000]]);
+  s.escrever("\u001b");
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+});
+test("Stop perdido: marcador com o mesmo horário do Esc vale, e entradas ai-title depois dele são puladas", async () => {
+  const { s, hook, arquivo } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  await dormir(20);
+  s.escrever("\u001b");
+  const em = s.ultimoEscReal!.em;
+  const linha = (o: Record<string, unknown>, ms: number) => JSON.stringify({ ...o, timestamp: new Date(ms).toISOString() });
+  fs.writeFileSync(arquivo, [linha(INTERROMPIDO("[Request interrupted by user]"), em), linha({ type: "ai-title", aiTitle: "titulo" }, em + 50), linha({ type: "file-history-snapshot" }, em + 60)].join("\n") + "\n");
+  await esperarAte(() => s.estado.status === "idle", 5_000, "o marcador no mesmo ms valer apesar dos tipos extras depois");
+});
+test("Stop perdido: queue-operation (ou qualquer registro não metadado) depois do marcador impede a prova", async () => {
+  const { s, hook, arquivo } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  await dormir(20);
+  s.escrever("\u001b");
+  const em = s.ultimoEscReal!.em;
+  const linha = (o: Record<string, unknown>, ms: number) => JSON.stringify({ ...o, timestamp: new Date(ms).toISOString() });
+  fs.writeFileSync(arquivo, [linha(INTERROMPIDO("[Request interrupted by user]"), em + 10), linha({ type: "queue-operation", operation: "enqueue" }, em + 20)].join("\n") + "\n");
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+});
+test("Stop perdido: user/assistant DEPOIS do marcador, mesmo com ai-title no meio, não encerram", async () => {
+  const { s, hook, arquivo } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  s.escrever("\u001b");
+  const em = s.ultimoEscReal!.em;
+  const linha = (o: Record<string, unknown>, ms: number) => JSON.stringify({ ...o, timestamp: new Date(ms).toISOString() });
+  fs.writeFileSync(arquivo, [linha(INTERROMPIDO("[Request interrupted by user]"), em + 10), linha({ type: "ai-title" }, em + 20), linha({ type: "assistant", message: { content: [] } }, em + 30)].join("\n") + "\n");
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+});
+test("Stop perdido: linhas 'null', número e lixo no fim do transcript não derrubam a leitura", async () => {
+  const { s, hook, transcript, arquivo } = await novaComRedeCurta(600);
+  hook("UserPromptSubmit");
+  s.escrever("\u001b");
+  transcript([[INTERROMPIDO("[Request interrupted by user]"), 200]]);
+  fs.appendFileSync(arquivo, "null\n7\n[1]\nisto não é json\n");
+  await esperarAte(() => s.estado.status === "idle", 5_000, "o fim de turno ser reconhecido apesar das linhas estranhas");
+});
 test("Stop perdido: turn_duration ANTERIOR ao último prompt não conta", async () => {
   const { s, hook, transcript } = await novaComRedeCurta(600);
   transcript([[FIM_DO_TURNO, -60_000]]);
@@ -183,10 +292,217 @@ test("Stop perdido: waiting_input mudo não muda, mesmo com o fim do turno no tr
   assert.equal(s.estado.status, "waiting_input");
 });
 
+const RECUSA_DO_COMPACT = {
+  type: "system",
+  subtype: "local_command",
+  content: "<local-command-stdout>Not enough messages to compact.</local-command-stdout>",
+  commandRun: { command: "compact", args: "" },
+};
+
+test("PreCompact: o CLI recusa o /compact (transcript com local_command e sem compact_boundary) e o agente volta a idle soltando a fila", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("PreCompact");
+  assert.equal(s.estado.statusReason, "hook:PreCompact");
+  transcript([[RECUSA_DO_COMPACT, 100]]);
+  const antes = lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length;
+  s.enfileirarQuandoOcioso("mensagem atrás do /compact recusado");
+  await esperarAte(() => s.estado.status === "idle", 5_000, "a recusa do compact virar idle");
+  assert.equal(s.estado.statusReason, "transcript:compact recusado pelo CLI");
+  await esperarAte(
+    () => lerLinhasJson(amb.logDosClis).filter((l) => l.modo === "prompt").length > antes,
+    12_000,
+    "a fila soltar o texto no CLI",
+  );
+  const log = lerTexto(amb.logDoRunner);
+  assert.ok(log.includes("compact recusado: poucas mensagens"), "o aviso traz o motivo fixo");
+  assert.equal(log.includes("Not enough messages to compact."), false, "o texto cru do transcript não vai para o log");
+});
+
+test("PreCompact: recusa ANTERIOR ao PreCompact não vale", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  transcript([[RECUSA_DO_COMPACT, -60_000]]);
+  hook("PreCompact");
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+  assert.equal(s.estado.statusReason, "hook:PreCompact");
+});
+
+test("PreCompact: compact normal termina pelo SessionStart source=compact, como sempre", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("PreCompact");
+  assert.equal(s.estado.status, "working");
+  hook("SessionStart", { source: "compact" });
+  await esperarAte(() => s.estado.status === "idle", 12_000, "o fim do compact virar idle");
+  assert.notEqual(s.estado.statusReason, "transcript:compact recusado pelo CLI");
+});
+
+test("PreCompact: com compact_boundary depois do local_command a regra da recusa não dispara", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("PreCompact");
+  transcript([[RECUSA_DO_COMPACT, 100], [{ type: "system", subtype: "compact_boundary" }, 200]]);
+  await dormir(2_000);
+  assert.equal(s.estado.status, "working");
+  assert.equal(s.estado.statusReason, "hook:PreCompact");
+});
+
+test("PreCompact: recusa com conteúdo vazio ou desconhecido não conta, e o texto desconhecido não aparece no log", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("PreCompact");
+  const marca = "CONTEUDO-DESCONHECIDO-DO-CLI";
+  transcript([[{ ...RECUSA_DO_COMPACT, content: "" }, 100]]);
+  await dormir(1_500);
+  assert.equal(s.estado.status, "working");
+  transcript([[{ ...RECUSA_DO_COMPACT, content: `<local-command-stdout>${"x".repeat(150)}${marca}</local-command-stdout>` }, 100]]);
+  await dormir(1_500);
+  assert.equal(s.estado.status, "working");
+  assert.equal(s.estado.statusReason, "hook:PreCompact");
+  assert.equal(lerTexto(amb.logDoRunner).includes(marca), false);
+});
+
+test("PreCompact: recusa com timestamp numérico ou objeto não lança e não conta", async () => {
+  const { s, hook, arquivo } = await novaComRedeCurta(600);
+  hook("PreCompact");
+  for (const ts of [Date.now() + 100, { a: 1 }]) {
+    fs.writeFileSync(arquivo, JSON.stringify({ ...RECUSA_DO_COMPACT, timestamp: ts }) + "\n");
+    await dormir(1_500);
+    assert.equal(s.estado.status, "working");
+    assert.equal(s.estado.statusReason, "hook:PreCompact");
+  }
+});
+
+test("PreCompact: recusa seguida de linha de fila ou anexo (metadado desconhecido) não conta", async () => {
+  for (const extra of [{ type: "queue-operation", operation: "enqueue" }, { type: "attachment", attachment: { type: "queued_command" } }]) {
+    const { s, hook, transcript } = await novaComRedeCurta(600);
+    hook("PreCompact");
+    transcript([[RECUSA_DO_COMPACT, 100], [extra, 200]]);
+    await dormir(1_500);
+    assert.equal(s.estado.status, "working");
+    assert.equal(s.estado.statusReason, "hook:PreCompact");
+  }
+});
+
+test("ultimoEventoEm anda num PreToolUse repetido da mesma ferramenta, sem mexer no updatedAt", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("PreToolUse", { toolName: "Bash", toolUseId: "tu-1" });
+  const evento1 = s.ultimoEventoEm;
+  const atualizado1 = s.estado.updatedAt;
+  await dormir(50);
+  hook("PreToolUse", { toolName: "Bash", toolUseId: "tu-2" });
+  assert.ok(s.ultimoEventoEm > evento1);
+  assert.equal(s.estado.updatedAt, atualizado1);
+});
+
+test("PreCompact: linha de usuário com local-command-stderr citando a recusa não conta e anula a recusa anterior", async () => {
+  const stderr = { type: "user", message: { role: "user", content: "<local-command-stderr>\u001b[31mError: Not enough messages to compact.\u001b[0m</local-command-stderr>" } };
+  {
+    const { s, hook, transcript } = await novaComRedeCurta(600);
+    hook("PreCompact");
+    transcript([[stderr, 100]]);
+    await dormir(1_500);
+    assert.equal(s.estado.status, "working");
+  }
+  {
+    const { s, hook, transcript } = await novaComRedeCurta(600);
+    hook("PreCompact");
+    transcript([[RECUSA_DO_COMPACT, 100], [stderr, 200]]);
+    await dormir(1_500);
+    assert.equal(s.estado.status, "working");
+  }
+});
+
+test("PreCompact: recusa seguida de ai-title ainda conta", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("PreCompact");
+  transcript([[RECUSA_DO_COMPACT, 100], [{ type: "ai-title", aiTitle: "x" }, 200]]);
+  await esperarAte(() => s.estado.status === "idle", 5_000, "a recusa com ai-title depois virar idle");
+});
+
+test("PreCompact: linha ilegível depois da recusa (ainda sendo escrita) anula a recusa", async () => {
+  const { s, hook, transcript, arquivo } = await novaComRedeCurta(600);
+  hook("PreCompact");
+  transcript([[RECUSA_DO_COMPACT, 100]]);
+  fs.appendFileSync(arquivo, '{"type":"assistant","message":{"content":[{"type":"te');
+  await dormir(1_500);
+  assert.equal(s.estado.status, "working");
+});
+
+test("fila: dois /compact seguidos com o agente ocupado ficam em 1; /compact + mensagem + /compact ficam em 2", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  s.enfileirarQuandoOcioso("/compact");
+  s.enfileirarQuandoOcioso(" /compact ");
+  assert.equal(s.filaQuandoIdle.length, 1);
+  s.filaQuandoIdle.length = 0;
+  s.enfileirarQuandoOcioso("/compact");
+  s.enfileirarQuandoOcioso("uma mensagem");
+  s.enfileirarQuandoOcioso("/compact");
+  assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["/compact", "uma mensagem"]);
+  s.filaQuandoIdle.length = 0;
+  s.enfileirarQuandoOcioso("/compact foque nas decisões");
+  s.enfileirarQuandoOcioso("/compact foque nas decisões");
+  s.enfileirarQuandoOcioso("/compact");
+  s.enfileirarQuandoOcioso("/compactar não é o comando");
+  assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["/compact foque nas decisões", "/compactar não é o comando"]);
+});
+
+test("fila: /compact não entra se já há um sendo digitado ou um compact em andamento, e devolve false", async () => {
+  const { s, hook } = await novaComRedeCurta(60_000);
+  hook("UserPromptSubmit");
+  s.itemEmVoo = { texto: "/compact", em: Date.now() };
+  assert.equal(s.enfileirarQuandoOcioso("/compact"), false);
+  assert.equal(s.filaQuandoIdle.length, 0);
+  s.itemEmVoo = null;
+  hook("PreCompact");
+  assert.equal(s.enfileirarQuandoOcioso("/compact"), false);
+  assert.equal(s.filaQuandoIdle.length, 0);
+  assert.equal(s.enfileirarQuandoOcioso("uma mensagem"), true);
+  assert.equal(s.filaQuandoIdle.length, 1);
+});
+
+test("PreCompact: recusa seguida de linha assistant (o agente seguiu trabalhando) não conta", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("PreCompact");
+  transcript([[RECUSA_DO_COMPACT, 100], [{ type: "assistant", message: { content: [] } }, 200]]);
+  await dormir(1_500);
+  assert.equal(s.estado.status, "working");
+  assert.equal(s.estado.statusReason, "hook:PreCompact");
+});
+
+test("PreCompact: compact bom seguido de ferramenta longa e terminal quieto não solta a fila nem vai para idle", async () => {
+  const { s, hook, transcript } = await novaComRedeCurta(600);
+  hook("PreCompact");
+  hook("SessionStart", { source: "compact" });
+  hook("PreToolUse", { toolName: "Bash", toolUseId: "tu-1" });
+  assert.equal(s.compactComecouEm, 0);
+  assert.notEqual(s.estado.statusReason, "hook:PreCompact");
+  transcript([[RECUSA_DO_COMPACT, 100]]);
+  s.enfileirarQuandoOcioso("mensagem que tem que esperar a ferramenta");
+  await dormir(9_000);
+  assert.equal(s.estado.status, "working");
+  assert.equal(s.filaQuandoIdle.length, 1);
+});
+
 test("AskUserQuestion: PreToolUse vira waiting_input/pergunta, a resposta (PostToolUse) volta a working e zera o motivo", async () => {
   const { s, hook } = await novaComRedeCurta(60_000);
   const settings = JSON.parse(fs.readFileSync(path.join(amb.estado, s.id, "runner-hooks", `${s.id}.settings.json`), "utf8"));
   assert.equal(settings.hooks.PostToolUse[0].matcher, "AskUserQuestion", "só a ferramenta de pergunta dispara o PostToolUse");
+  // Todo hook do runner tem teto: um node travado no arranque não pode segurar o turno pelo padrão longo do Claude.
+  // A mensagem de falha leva só o evento e o timeout (o comando tem o nonce da sessão).
+  assert.equal(HOOK_TIMEOUT_S, 10, "o teto dos hooks do runner é 10 s (2,5 s do cinto + folga para a partida do node)");
+  let conferidos = 0;
+  for (const [ev, grupos] of Object.entries(settings.hooks as Record<string, { hooks: { command: string; timeout?: number }[] }[]>)) {
+    for (const grupo of grupos) {
+      for (const h of grupo.hooks) {
+        if (h.command.includes("runner-hook.mjs")) {
+          assert.equal(h.timeout, HOOK_TIMEOUT_S, `hook ${ev} do runner com timeout ${String(h.timeout)}`);
+          conferidos++;
+        } else if (h.command.includes("trava-resposta.mjs")) {
+          assert.equal(h.timeout, 10, `trava-resposta com timeout ${String(h.timeout)}`);
+        }
+      }
+    }
+  }
+  assert.equal(conferidos, 8, "os oito eventos do runner têm teto");
   hook("UserPromptSubmit");
   hook("PreToolUse", { toolName: "AskUserQuestion" });
   assert.equal(s.estado.status, "waiting_input");

@@ -174,6 +174,7 @@ Erro sempre `{success:false, error, howToFix, code}`.
 | `POST /api/provedor/login/codigo` | `{codigo}`: só em `aguardando_codigo` (Claude) |
 | `DELETE /api/provedor/login` | cancela |
 | `POST /api/agents/<id>/reiniciar` | reinicia o CLI da sessão |
+| `POST /api/agents/<id>/interromper` | botão Parar: escreve um único Esc no PTY (o mesmo que apertar Esc no terminal). Corpo ignorado. Trava de 3 s por sessão (dois Esc colados abrem o menu de voltar): `429 MUITO_RAPIDO` com `espereS`. Sem PTY vivo: `409 NO_PTY` (a sessão não é acordada). Sucesso: `{enviado, enviadoEm, statusAntes, provedor}` |
 | `POST /api/sessoes` | cria uma sessão paralela em tempo de execução (ver abaixo) |
 | `DELETE /api/sessoes/<id>` | remove uma sessão criada por API |
 

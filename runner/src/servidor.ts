@@ -23,18 +23,30 @@ import { Conferidor } from "./provedores/conferido.js";
 import { LoginAssistido } from "./provedores/login.js";
 import { tratarRotasDeProvedor } from "./provedores/rotas.js";
 import { MOTIVO_SEM_MEDICAO, deStatusline, paraResposta } from "./uso.js";
-import { nonceConfere } from "./sessao/telas.js";
+import { ESC, nonceConfere } from "./sessao/telas.js";
 import { acharRolloutPorId, mensagensDoRollout } from "./provedores/codex-rollout.js";
 
 /** O estado de uma sessão como o painel e a API o veem. A paralela leva o campo
  *  extra `sessao`; a principal só o leva quando pedido (`?todas=1`), para a
  *  resposta de sempre continuar idêntica. */
+/** O que ainda espera na fila (lista vazia quando nada espera), sem o texto: quando entrou e o id da mensagem (atributo `msg` do envelope do painel,
+ *  se houver). O painel usa isto para manter o aviso "na fila" até o agente ler de verdade, mesmo depois de recarregar. */
+function naFila(s: Sessao): Array<{ em: number; msg: string | null }> {
+  return s.pendentesDaFila().slice(0, 50).map((it) => {
+    const m = /^<dgchat\b[^>]*?\bmsg="([^"]{1,80})"/.exec(it.texto.slice(0, 600));
+    return { em: it.em, msg: m ? m[1]! : null };
+  });
+}
+
 function visao(s: Sessao, comMeta: boolean): Record<string, unknown> {
+  const fila = naFila(s);
+  const extra = { naFila: fila, naFilaTotal: s.tamanhoDaFila() + (s.itemEmVoo ? 1 : 0), ultimoEventoEm: s.ultimoEventoEm };
   // `codexHome` é só leitura: o CODEX_HOME que o último spawn usou, para quem lê o rollout do disco.
-  if (!comMeta && s.papel === "principal") return { ...s.estado, codexHome: s.codexHome() };
+  if (!comMeta && s.papel === "principal") return { ...s.estado, codexHome: s.codexHome(), ...extra };
   return {
     ...s.estado,
     codexHome: s.codexHome(),
+    ...extra,
     sessao: {
       papel: s.papel,
       tipo: s.tipo,
@@ -279,6 +291,14 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           }
           const enviar = (corpo as { submit?: boolean }).submit !== false;
           const quandoOcioso = (corpo as { injectWhenIdle?: boolean }).injectWhenIdle === true;
+          // O painel viu o agente ocupado quando o dono escreveu; no caminho até aqui ele pode ter ficado ocioso, e a
+          // mensagem ainda assim foi escrita antes das falas dele que o dono não viu (ver avisoDeAtraso).
+          const esperouNoPainel = (corpo as { esperou?: boolean }).esperou === true;
+          // Um Esc sozinho só vale como tecla imediata (submit false, sem fila): antes de acordar paralela, enfileirar ou checar login.
+          if (texto === ESC && (enviar || quandoOcioso)) {
+            json(res, { success: false, error: "Um Esc sozinho só vale como tecla imediata.", howToFix: "mandar o Esc com submit:false e sem injectWhenIdle", code: "ESC_SO_IMEDIATO" }, 400);
+            return;
+          }
 
           // Qualquer entrada no meio da resposta de uma pergunta intercalaria com as teclas dela (e Enter de turno
           // escolheria opção). Vale para tecla crua, turno e fila de ocioso.
@@ -341,14 +361,26 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
               else json(res, { success: false, error: r.falha, howToFix: "ver o log do runner e tentar POST /api/agents/:id/resume", code: "NAO_ACORDOU" }, 500);
               return;
             }
-            sessao.enfileirarQuandoOcioso(texto);
+            sessao.enfileirarQuandoOcioso(texto, esperouNoPainel);
             json(res, { success: true, data: { enfileirado: true, acordando: true } }, 202);
             return;
           }
 
+          // Um Esc sozinho, venha de onde vier, respeita a trava de 3 s (dois Esc colados abrem o menu de voltar).
+          if (texto === ESC) {
+            const trava = sessao.travaDoEsc();
+            if (trava) {
+              json(res, { success: false, error: trava.erro, howToFix: trava.comoResolver, code: trava.code, espereS: trava.espereS }, trava.status);
+              return;
+            }
+          }
+
           if (quandoOcioso) {
-            sessao.enfileirarQuandoOcioso(texto);
-            json(res, { success: true, data: { enfileirado: true, aguardando: "idle" } }, 202);
+            // false = /compact repetido: já havia um na fila, sendo digitado ou em andamento. Esse /compact pendente
+            // atende o pedido (quem chamou queria a sessão compactada, e o recibo dele vem do mesmo compact_boundary),
+            // então a resposta é a mesma do enfileirado, só com `deduplicado` para quem quiser saber.
+            const novo = sessao.enfileirarQuandoOcioso(texto, esperouNoPainel);
+            json(res, { success: true, data: { enfileirado: true, aguardando: "idle", ...(novo ? {} : { deduplicado: true }) } }, 202);
             return;
           }
           if (!sessao.temPtyVivo()) {
@@ -394,10 +426,21 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           }
           const r = sessao.responderPermissao(decisao, idDaTela ?? null);
           if (!r.ok) {
-            json(res, { success: false, error: r.erro, howToFix: r.comoResolver, code: r.code }, r.status);
+            json(res, { success: false, error: r.erro, howToFix: r.comoResolver, code: r.code, ...(r.espereS !== undefined ? { espereS: r.espereS } : {}) }, r.status);
             return;
           }
           json(res, { success: true, data: { decisao } });
+          return;
+        }
+
+        if (acao === "/interromper" && metodo === "POST") {
+          // O corpo do pedido é ignorado de propósito: o que vai para o PTY é um Esc fixo, nunca algo do pedido.
+          const r = sessao.interromper();
+          if (!r.ok) {
+            json(res, { success: false, error: r.erro, howToFix: r.comoResolver, code: r.code, ...(r.espereS !== undefined ? { espereS: r.espereS } : {}) }, r.status);
+            return;
+          }
+          json(res, { success: true, data: { enviado: true, enviadoEm: r.enviadoEm, statusAntes: r.statusAntes, provedor: r.provedor } });
           return;
         }
 
@@ -418,7 +461,7 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           }
           const r = await sessao.responderPergunta(id, teclas as string[]);
           if (!r.ok) {
-            json(res, { success: false, error: r.erro, howToFix: r.comoResolver, code: r.code }, r.status);
+            json(res, { success: false, error: r.erro, howToFix: r.comoResolver, code: r.code, ...(r.espereS !== undefined ? { espereS: r.espereS } : {}) }, r.status);
             return;
           }
           json(res, { success: true, data: { teclas: r.teclas } });
@@ -536,7 +579,7 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             error: `O runner não tem a rota ${metodo} ${rota}.`,
             howToFix:
               "o runner implementa o que um agente entregue usa: GET /api/agents, GET /api/agents/:id, " +
-              "POST /input, POST /permissao, POST /pergunta, POST /resume, POST /revive, POST /reiniciar, POST /suspend (só paralelas), DELETE /remove, " +
+              "POST /input, POST /permissao, POST /interromper, POST /pergunta, POST /resume, POST /revive, POST /reiniciar, POST /suspend (só paralelas), DELETE /remove, " +
               "GET /conversation, GET /api/capacidade, GET /api/saude, POST /api/agent-hook, " +
               "GET/POST /api/provedor (+ /login), POST /api/sessoes e DELETE /api/sessoes/<id>. " +
               "O resto (cofre, worktree, board, handoff) é do Bunker e não existe aqui",

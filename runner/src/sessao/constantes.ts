@@ -51,3 +51,6 @@ export const SILENCIO_DA_MASCARA_MS = 50;
 export const QUIETO_DE_BOOT_MS = 1_500;
 /** Depois deste tempo sem rollout, o Codex provavelmente nem abriu a conversa. */
 export const ROLLOUT_AUSENTE_MS = 60_000;
+
+/** Mensagem que esperou na fila mais que isto chega ao agente com um aviso de atraso (ver avisoDeAtraso). */
+export const AVISO_DE_FILA_APOS_MS = 20_000;

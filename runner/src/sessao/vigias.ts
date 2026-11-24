@@ -5,7 +5,7 @@ import { mascarar } from "../mascara.js";
 import { type EventoInterno, acharRolloutPorId, erroDeLoginDoCodex, descobrirRollout, vigiarRollout } from "../provedores/codex-rollout.js";
 import { codexHomeDe } from "../provedores/codex.js";
 import type { CtxMotor } from "../provedores/motor.js";
-import { turnoEncerradoNoTranscript } from "../transcript.js";
+import { compactRecusadoNoTranscript, turnoEncerradoNoTranscript } from "../transcript.js";
 import { CONFERE_TRANSCRIPT_A_CADA_MS, ROLLOUT_AUSENTE_MS } from "./constantes.js";
 import { aplicarEvento, cancelarStopPendente } from "./eventos.js";
 import { talvezSoltarFila } from "./fila.js";
@@ -25,8 +25,12 @@ export function vigiarStopPerdido(s: Sessao, esteProc: pty.IPty): void {
       return;
     }
     if (s.estado.status !== "working" || s.ultimaSaidaEm === null) return;
-    if (s.estado.statusReason === "hook:PreCompact" || !s.estado.sessionId) return;
     const quietoHa = Date.now() - s.ultimaSaidaEm;
+    if (s.estado.statusReason === "hook:PreCompact") {
+      conferirCompactSemFim(s, quietoHa);
+      return;
+    }
+    if (!s.estado.sessionId) return;
     if (quietoHa < s.quietoParaOlharTranscriptMs) return;
     // O turno que morreu por login expirado não grava turn_duration nem dispara Stop: sem esta
     // checagem ele ficaria "working" para sempre.
@@ -35,6 +39,7 @@ export function vigiarStopPerdido(s: Sessao, esteProc: pty.IPty): void {
       s.estado.sessionId,
       s.turnoComecouEm,
       s.estado.config.envExtra?.CLAUDE_CONFIG_DIR,
+      s.ultimoEscReal && s.ultimoEscReal.proc === s.proc ? s.ultimoEscReal.em : null,
     );
     if (!prova.encerrado) {
       log.debug(s.a("estado"), `terminal mudo há ${Math.round(quietoHa / 1000)}s, mas o transcript diz que o turno segue: ${prova.motivo}`);
@@ -57,6 +62,29 @@ export function vigiarStopPerdido(s: Sessao, esteProc: pty.IPty): void {
     talvezSoltarFila(s);
   }, passo);
   s.vigiaDoStopPerdido.unref();
+}
+
+/** Claude: o agente está em "hook:PreCompact" e o terminal calou. O compact de verdade termina em SessionStart
+ *  source=compact; se isso não vem, só a recusa CONFIRMADA no transcript devolve o agente a idle e solta a fila.
+ *  Sem prova (nenhuma recusa no transcript) nada muda por tempo: o aviso de fila parada do watchdog cobre esse caso.
+ *  O Codex não tem PreCompact e nunca chega aqui. */
+function conferirCompactSemFim(s: Sessao, quietoHa: number): void {
+  const desde = s.compactComecouEm;
+  // Qualquer hook depois do PreCompact zera compactComecouEm (eventos.ts), e o PTY do PreCompact tem que ser o de agora:
+  // sem isso, uma ferramenta que começou logo depois de um compact bom seria tomada por compact sem fim.
+  if (desde <= 0 || s.compactando === null || s.compactando !== s.proc) return;
+  if (quietoHa < s.quietoParaOlharTranscriptMs || !s.estado.sessionId) return;
+  const r = compactRecusadoNoTranscript(s.estado.sessionId, desde, s.estado.config.envExtra?.CLAUDE_CONFIG_DIR);
+  if (!r.recusado) return;
+  log.aviso(
+    s.a("estado"),
+    `compact recusado: poucas mensagens. O hook PreCompact chegou, mas o transcript ` +
+      `tem a recusa e nada depois dela, então não virá SessionStart nem Stop. ` +
+      `Marquei como idle e vou soltar a fila; se repetir, o auto-compact está enfileirando /compact em excesso`,
+  );
+  cancelarStopPendente(s);
+  s.mudar({ status: "idle", hookLatched: true, currentTool: null, statusReason: "transcript:compact recusado pelo CLI" });
+  talvezSoltarFila(s);
 }
 
 export function pararVigiaDoStopPerdido(s: Sessao): void {

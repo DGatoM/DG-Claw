@@ -125,6 +125,10 @@ test('trilha-tela: agrupa só os comandos seguidos, rótulos e textos de fila e 
   assert.equal(TR.textoFila('resposta'), 'na fila: o agente ainda está respondendo a anterior');
   assert.equal(TR.textoFila('resposta', true), 'na fila: o agente está esperando a sua permissão');
   assert.equal(TR.textoFila(null), '');
+  // com a hora de entrada na fila, o balão diz há quanto tempo a mensagem espera (só a partir de 1 min)
+  assert.equal(TR.textoFila('resposta', false, 1000, 30 * 1000), 'na fila: o agente ainda está respondendo a anterior');
+  assert.equal(TR.textoFila('resposta', false, 0, 3 * 60 * 1000 + 5), 'na fila há 3 min: o agente ainda está respondendo a anterior');
+  assert.equal(TR.esperaFila(0, 2 * 3600 * 1000), 'há 2 h');
   assert.equal(TR.descricaoPedido({ ferramenta: 'Bash', titulo: 't', comando: 'rm x' }), 'Bash: rm x');
   assert.match(TR.descricaoPedido(null), /não informou/);
 });
@@ -217,6 +221,17 @@ test('permissao: runner antigo (sem a rota) => 501 dizendo isso; runner recusand
     const r = await pede(s, 'negar');
     assert.equal(r.status, 502);
     assert.match(r.json.erro, /o terminal sumiu reinicie o agente/);
+  } finally { await s.fechar(); }
+});
+
+test('permissao: trava de 3 s do Esc no runner (429 MUITO_RAPIDO) => 429 com espere_s, não 502', async () => {
+  const s = await cenario({ status: 'waiting_input', falhaPermissao: { status: 429, corpo: { success: false, error: 'Esc há pouco', howToFix: 'esperar', code: 'MUITO_RAPIDO', espereS: 1.7 } } });
+  try {
+    const r = await pede(s, 'negar');
+    assert.equal(r.status, 429);
+    assert.equal(r.json.codigo, 'MUITO_RAPIDO');
+    assert.equal(r.json.espere_s, 1.7);
+    assert.match(r.json.erro, /Espere 1\.7 s/);
   } finally { await s.fechar(); }
 });
 

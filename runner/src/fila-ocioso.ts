@@ -14,6 +14,9 @@ export interface ItemDaFila {
   texto: string;
   /** epoch ms de quando entrou na fila. */
   em: number;
+  /** true quando a mensagem entrou com o agente ocupado ou com outras na frente: ela vai ser lida depois de falas
+   *  dele que o dono ainda não viu. Falta (arquivo antigo) vale falso. */
+  esperou?: boolean;
 }
 
 /** Nome de arquivo seguro: só [A-Za-z0-9._-], o resto vira "_". */
@@ -45,9 +48,9 @@ export function carregarFila(caminho: string, area: string): ItemDaFila[] {
     const dado = JSON.parse(bruto) as { versao?: unknown; itens?: unknown };
     if (dado?.versao !== 1 || !Array.isArray(dado.itens)) throw new Error("formato inesperado (esperava versao 1 e uma lista de itens)");
     const itens: ItemDaFila[] = [];
-    for (const it of dado.itens as Array<{ texto?: unknown; em?: unknown }>) {
+    for (const it of dado.itens as Array<{ texto?: unknown; em?: unknown; esperou?: unknown }>) {
       if (typeof it?.texto !== "string") throw new Error("item sem texto em formato de string");
-      itens.push({ texto: it.texto, em: typeof it.em === "number" ? it.em : Date.now() });
+      itens.push({ texto: it.texto, em: typeof it.em === "number" ? it.em : Date.now(), ...(it.esperou === true ? { esperou: true } : {}) });
     }
     return itens;
   } catch (err) {
