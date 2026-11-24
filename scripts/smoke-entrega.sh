@@ -66,10 +66,12 @@ else
             falha 2 "o painel respondeu na porta $PORTA, mas o login esta trancado: falta o usuario, a senha ainda nao foi cadastrada ou o hash nao vale." "conclua o primeiro acesso (sudo dgclaw primeiro-acesso) ou corrija a credencial do painel com a equipe"
         elif ! printf '%s' "$saude" | jq -e '.login_trancado == false' >/dev/null 2>&1; then
             inconclusivo 2 "o painel respondeu na porta $PORTA, mas sem o campo login_trancado no formato esperado." "confira a versao instalada com: sudo dgclaw status"
+        elif ! PAINEL_AGENTES="$(printf '%s' "$saude" | jq -er '.agentes | numbers | select(. >= 0 and . == floor)' 2>/dev/null)"; then
+            # Quantos registros o painel aceitou (Admin incluido), para comparar com o agentes.json no passo 4.
+            PAINEL_AGENTES=""
+            inconclusivo 2 "o painel respondeu na porta $PORTA, mas sem a contagem de agentes no formato esperado." "confira a versao instalada com: sudo dgclaw status"
         else
             ok 2 "o painel do DG Claw respondeu na porta $PORTA (/api/saude)"
-            # Quantos registros o painel aceitou (Admin incluido), para comparar com o agentes.json no passo 4.
-            PAINEL_AGENTES="$(printf '%s' "$saude" | jq -r '.agentes | numbers' 2>/dev/null)"
         fi
     else
         falha 2 "o painel do DG Claw nao respondeu na porta $PORTA (/api/saude sem a resposta esperada; curl saiu com $curl_rc)." "veja o servico com: sudo systemctl status dgclaw-web"
@@ -89,52 +91,57 @@ printf '\n4. Agentes\n'
 AGENTES_JSON="$R/etc/dgclaw/agentes.json"
 if [ ! -s "$AGENTES_JSON" ]; then
     inconclusivo 4 "nao achei ou nao consegui ler $AGENTES_JSON." "rode o smoke no servidor do DG Claw, como root, e confira com: dgclaw agente listar"
-# Mesma regra do painel (web/lib/registro.js): sem "tipo", e agente (o slug "admin" e o Admin). Todo registro que
-# nao e o Admin e conferido, seja qual for o tipo, como no diagnostico. Cada linha sai como
-# "<igual|diverge> <slug>": diverge quando o campo "container" do registro nao e vazio nem dgclaw-<slug>.
-elif ! SLUGS="$(jq -r '.agentes[] | ((.tipo | strings | gsub("^\\s+|\\s+$"; "")) // "") as $tp | (if $tp != "" then $tp elif .slug == "admin" then "admin" else "agente" end) as $t | select($t != "admin") | (.slug | if type == "string" and test("\\A[a-z0-9][a-z0-9-]{0,31}\\z") then . else "-" end) as $s | ((.container // "") | tostring) as $c | (if $c == "" or $c == ("dgclaw-" + $s) then "igual" else "diverge" end) + " " + $s' "$AGENTES_JSON" 2>/dev/null)"; then
-    inconclusivo 4 "o registro de agentes nao pode ser lido." "confira com: dgclaw agente listar"
-elif TOTAL="$(jq -r '.agentes | length' "$AGENTES_JSON" 2>/dev/null)" && [ -n "${PAINEL_AGENTES:-}" ] && [ "$PAINEL_AGENTES" != "$TOTAL" ]; then
-    # O painel (web/lib/registro.js) descarta registro sem runner, sem agente_id, com slug invalido ou repetido.
-    falha 4 "o painel carregou $PAINEL_AGENTES dos $TOTAL registros do agentes.json: algum registro foi descartado e esse agente nao aparece no painel." "confira com a equipe: dgclaw agente listar"
-elif [ -z "$SLUGS" ]; then
-    aviso 4 "o registro nao tem nenhum agente." "crie o agente do cliente antes da entrega (dgclaw agente criar)"
 else
-    while read -r reg slug; do
-        if [ "${#slug}" -gt 32 ] || ! [[ "$slug" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
-            inconclusivo 4 "um agente do registro tem nome fora do formato e nao foi conferido." "confira com: dgclaw agente listar"
-            continue
-        fi
-        if [ "$reg" != igual ]; then
-            inconclusivo 4 "o registro aponta para o agente $slug um container diferente de dgclaw-$slug, entao o smoke nao confere esse agente." "confira o registro com a equipe: dgclaw agente listar"
-            continue
-        fi
-        c="dgclaw-$slug"
-        podman container exists "$c" >/dev/null 2>&1; rc=$?
-        if [ "$rc" -eq 1 ]; then
-            falha 4 "o container $c nao existe." "confira com a equipe: dgclaw agente listar"
-            continue
-        elif [ "$rc" -ne 0 ]; then
-            inconclusivo 4 "o podman nao respondeu sobre o container $c." "rode o smoke de novo; se repetir, confira: sudo systemctl status podman"
-            continue
-        fi
-        rodando="$(podman inspect -f '{{.State.Running}}' "$c" 2>/dev/null | head -n 1)"
-        case "$rodando" in
-            true) ok 4 "$c rodando" ;;
-            false) falha 4 "$c esta parado." "rode: dgclaw agente iniciar $slug"; continue ;;
-            *) inconclusivo 4 "nao consegui ler o estado de $c." "rode o smoke de novo"; continue ;;
-        esac
-        mem="$(podman inspect -f '{{.HostConfig.Memory}}' "$c" 2>/dev/null | head -n 1)"
-        if ! so_digitos "$mem" 15; then
-            inconclusivo 4 "nao consegui ler o limite de memoria de $c." "rode o smoke de novo"
-        elif [ "$mem" -eq 0 ]; then
-            falha 4 "$c esta sem limite de memoria." "registre e confira com a equipe"
-        elif [ "$mem" -lt 2147483648 ]; then
-            aviso 4 "$c tem $((mem / 1048576)) MB, abaixo de 2 GB." "confira com a equipe a configuracao de memoria (DGCLAW_CONTAINER_MEMORIA) e a folga da VPS antes de atribuir a causa"
-        else
-            ok 4 "$c com limite de memoria de $((mem / 1048576)) MB"
-        fi
-    done <<<"$SLUGS"
+    # O painel (web/lib/registro.js) descarta item que nao e objeto, sem runner, sem agente_id, com slug invalido ou
+    # repetido. A comparacao vem antes da leitura dos campos, e os agentes validos sao conferidos mesmo assim.
+    TOTAL="$(jq -r '.agentes | arrays | length' "$AGENTES_JSON" 2>/dev/null)"
+    if [ -n "$PAINEL_AGENTES" ] && [ -n "$TOTAL" ] && [ "$PAINEL_AGENTES" != "$TOTAL" ]; then
+        falha 4 "o painel carregou $PAINEL_AGENTES dos $TOTAL registros do agentes.json: algum registro foi descartado e esse agente nao aparece no painel." "confira com a equipe: dgclaw agente listar"
+    fi
+    # Mesma regra do painel (web/lib/registro.js): sem "tipo", e agente (o slug "admin" e o Admin). Todo registro que
+    # nao e o Admin e conferido, seja qual for o tipo, como no diagnostico. Cada linha sai como
+    # "<igual|diverge> <slug>": diverge quando o campo "container" do registro nao e vazio nem dgclaw-<slug>.
+    if ! SLUGS="$(jq -r '.agentes[] | objects | ((.tipo | strings | gsub("^\\s+|\\s+$"; "")) // "") as $tp | (if $tp != "" then $tp elif .slug == "admin" then "admin" else "agente" end) as $t | select($t != "admin") | (.slug | if type == "string" and test("\\A[a-z0-9][a-z0-9-]{0,31}\\z") then . else "-" end) as $s | ((.container // "") | tostring) as $c | (if $c == "" or $c == ("dgclaw-" + $s) then "igual" else "diverge" end) + " " + $s' "$AGENTES_JSON" 2>/dev/null)"; then
+        inconclusivo 4 "o registro de agentes nao pode ser lido." "confira com: dgclaw agente listar"
+    elif [ -z "$SLUGS" ]; then
+        aviso 4 "o registro nao tem nenhum agente." "crie o agente do cliente antes da entrega (dgclaw agente criar)"
+    else
+        while read -r reg slug; do
+            if [ "${#slug}" -gt 32 ] || ! [[ "$slug" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+                inconclusivo 4 "um agente do registro tem nome fora do formato e nao foi conferido." "confira com: dgclaw agente listar"
+                continue
+            fi
+            if [ "$reg" != igual ]; then
+                inconclusivo 4 "o registro aponta para o agente $slug um container diferente de dgclaw-$slug, entao o smoke nao confere esse agente." "confira o registro com a equipe: dgclaw agente listar"
+                continue
+            fi
+            c="dgclaw-$slug"
+            podman container exists "$c" >/dev/null 2>&1; rc=$?
+            if [ "$rc" -eq 1 ]; then
+                falha 4 "o container $c nao existe." "confira com a equipe: dgclaw agente listar"
+                continue
+            elif [ "$rc" -ne 0 ]; then
+                inconclusivo 4 "o podman nao respondeu sobre o container $c." "rode o smoke de novo; se repetir, confira: sudo systemctl status podman"
+                continue
+            fi
+            rodando="$(podman inspect -f '{{.State.Running}}' "$c" 2>/dev/null | head -n 1)"
+            case "$rodando" in
+                true) ok 4 "$c rodando" ;;
+                false) falha 4 "$c esta parado." "rode: dgclaw agente iniciar $slug"; continue ;;
+                *) inconclusivo 4 "nao consegui ler o estado de $c." "rode o smoke de novo"; continue ;;
+            esac
+            mem="$(podman inspect -f '{{.HostConfig.Memory}}' "$c" 2>/dev/null | head -n 1)"
+            if ! so_digitos "$mem" 15; then
+                inconclusivo 4 "nao consegui ler o limite de memoria de $c." "rode o smoke de novo"
+            elif [ "$mem" -eq 0 ]; then
+                falha 4 "$c esta sem limite de memoria." "registre e confira com a equipe"
+            elif [ "$mem" -lt 2147483648 ]; then
+                aviso 4 "$c tem $((mem / 1048576)) MB, abaixo de 2 GB." "confira com a equipe a configuracao de memoria (DGCLAW_CONTAINER_MEMORIA) e a folga da VPS antes de atribuir a causa"
+            else
+                ok 4 "$c com limite de memoria de $((mem / 1048576)) MB"
+            fi
+        done <<<"$SLUGS"
+    fi
 fi
 
 cat <<'FIM'

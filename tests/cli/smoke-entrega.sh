@@ -206,6 +206,20 @@ printf '{"ok":true,"agentes":1,"registro_ok":true,"login_trancado":false}' >"$ST
 smoke
 igual "registro descartado: sai com 1" "1" "$?"
 afirma "registro descartado: FALHA" grep -q 'FALHA  \[4\] o painel carregou 1 dos 2 registros do agentes.json' "$TMP/s.txt"
-nega "registro descartado: nao imprime OK do agente" grep -q 'OK     \[4\] dgclaw-ana rodando' "$TMP/s.txt"
+afirma "registro descartado: confere os containers mesmo assim" grep -q 'OK     \[4\] dgclaw-ana rodando' "$TMP/s.txt"
+
+echo "smoke-entrega: item que nao e objeto no registro e saude sem a contagem de agentes"
+limpar_estado
+echo '{"versao":1,"agentes":[{"slug":"ana","tipo":"agente"},7]}' >"$ETC/agentes.json"
+printf '{"ok":true,"agentes":1,"registro_ok":true,"login_trancado":false}' >"$STUB_ESTADO/saude"
+smoke
+igual "item 7 no registro: sai com 1" "1" "$?"
+afirma "item 7 no registro: FALHA do descarte" grep -q 'FALHA  \[4\] o painel carregou 1 dos 2 registros do agentes.json' "$TMP/s.txt"
+afirma "item 7 no registro: confere o agente valido" grep -q 'OK     \[4\] dgclaw-ana rodando' "$TMP/s.txt"
+limpar_estado
+printf '{"ok":true,"registro_ok":true,"login_trancado":false}' >"$STUB_ESTADO/saude"
+smoke
+afirma "saude sem contagem: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[2\] o painel respondeu na porta 8300, mas sem a contagem de agentes' "$TMP/s.txt"
+nega "saude sem contagem: nao imprime OK do painel" grep -q 'OK     \[2\]' "$TMP/s.txt"
 
 fim
