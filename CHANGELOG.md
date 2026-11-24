@@ -97,8 +97,9 @@ o vídeo não é público.
    anti-robô. Para ligar: abra a Tela do agente (menu do agente, grupo Conexões, "Navegador") e entre em youtube.com com uma conta
    Google criada só para aquele agente, nunca a sua conta pessoal, porque o agente baixa com a sessão dessa conta. Depois peça ao
    Admin: "liga a conta dedicada do YouTube do agente <nome>" (ou rode `dgclaw agente youtube <nome> conta-dedicada sim`). Para
-   desligar, o mesmo pedido com "desliga", ou `dgclaw agente youtube <nome> conta-dedicada nao`. Enquanto estiver ligado, não
-   entre com a sua conta pessoal na Tela desse agente, porque o download usa a sessão que estiver lá. Desligar vale para os
+   desligar, o mesmo pedido com "desliga", ou `dgclaw agente youtube <nome> conta-dedicada nao`. Enquanto estiver ligado, a conta
+   dedicada fica no perfil principal da Tela, e nenhuma outra conta Google (nem a sua pessoal) entra em perfil nenhum da Tela
+   desse agente, porque o download usa a sessão do perfil principal. Desligar vale para os
    próximos downloads: um que já começou vai até o fim, e o perfil da Tela continua na casa do agente. Se a Tela de um agente que vai ser
    entregue a outra pessoa já tem a sua conta pessoal, peça ajuda ao Admin antes da entrega, porque o perfil do navegador guarda
    senhas e sessões de outros sites.

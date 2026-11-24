@@ -2288,7 +2288,14 @@ agente_youtube() {
         "rode: dgclaw agente reparar $slug"
     local ub; ub="$(stat -c '%u:%g' "$casa/config")"
     if [ "$valor" = sim ]; then
-        printf 'sim\n' | escrever_se_mudou "$marcador" 644 "$ub"
+        # Sem mkdir -p: se a casa sumiu no meio (agente removido), a gravacao falha em vez de recriar a pasta.
+        local tmp
+        tmp="$(mktemp "$casa/config/.youtube-conta-dedicada.XXXXXX")" \
+            || falha "nao consegui gravar o marcador em $casa/config." "confira com: dgclaw agente listar"
+        if ! { printf 'sim\n' >"$tmp" && chmod 644 "$tmp" && dono "$ub" "$tmp" && mv -f -T "$tmp" "$marcador"; }; then
+            rm -f -- "$tmp"
+            falha "nao consegui gravar o marcador $marcador." "confira se o agente $slug ainda existe com: dgclaw agente listar"
+        fi
         ok "conta dedicada do YouTube LIGADA para o agente $slug (vale na hora, sem reiniciar). O yt-dlp usa a sessao que estiver na Tela dele: nao entre la com a sua conta pessoal enquanto estiver ligada."
     else
         rm -f -- "$marcador"

@@ -26,6 +26,7 @@ const SAIDA_SEM_TMP = 70;                // o script não conseguiu criar a past
 const SAIDA_PODMAN_FALHOU = 125;         // o próprio podman não conseguiu executar o comando (ex.: container parado)
 const SAIDA_SEM_PERFIL = 66;             // código próprio do script: a pasta do Chrome da Tela não existe
 const SAIDA_SEM_CONTA = 68;              // código próprio do script: anti-robô, e o dono não ligou o uso de conta dedicada
+const MARCA_COOKIES = 'dgclaw-youtube: tentativa com cookies'; // linha que o script imprime no stdout antes da tentativa com cookies
 const MARCADOR_CONTA = '/run/dgclaw/config/youtube-conta-dedicada'; // arquivo que `dgclaw agente youtube <nome> conta-dedicada sim` cria (a pasta é montada só leitura)
 
 // Roda dentro do container, sem nenhum valor vindo de fora. A pasta é temporária e some ao final. O yt-dlp ignora
@@ -72,6 +73,8 @@ const SCRIPT = [
   'fi',
   'rm -rf "$d/v"',
   `mkdir "$d/v" || exit ${SAIDA_SEM_TMP}`,
+  // Marca na saída que a tentativa com cookies começou: só depois dela um pedido de login vira "login" (reconectar a Tela).
+  `echo "${MARCA_COOKIES}"`,
   // TMPDIR dentro de "$d": a cópia temporária do banco de cookies que o yt-dlp faz some junto no trap.
   `TMPDIR="$d" timeout ${PRAZO_DOWNLOAD_S} yt-dlp ${OPCOES_BASE.replace('--js-runtimes node', `--js-runtimes node --cookies-from-browser "chrome+basictext:${PASTA_COOKIES}" --match-filters "availability=public & age_limit=0"`)} '${VIDEO_TESTE}' || exit $?`,
   'if [ -z "$(find "$d/v" -type f -size +0c)" ]',
@@ -102,7 +105,8 @@ function classificarYoutube(r) {
   const saida = `${c.stderr}\n${c.stdout}`;
   // O código próprio do script vale antes do texto de login: o stderr da tentativa anônima pode trazer esse texto.
   if (c.codigo === SAIDA_SEM_CONTA && !c.erro) return { tipo: 'sem_conta' };
-  if (RX_LOGIN.test(saida)) return { tipo: 'login' };
+  // Pedido de login só manda reconectar a Tela quando a tentativa com cookies rodou; na tentativa anônima ele é só um erro.
+  if (c.stdout.includes(MARCA_COOKIES) && RX_LOGIN.test(saida)) return { tipo: 'login' };
   if (c.codigo === 0 && !c.erro) return { tipo: 'ok' };
   if (c.codigo === SAIDA_SEM_PERFIL) return { tipo: 'sem_perfil' };
   if (c.codigo === 127 || RX_AUSENTE.test(saida)) return { tipo: 'ausente' };
@@ -281,4 +285,4 @@ function tarefaYoutube(ctx, ag, container) {
   };
 }
 
-module.exports = { tarefaYoutube, testarYoutube, criarEstadoYoutube, classificarYoutube, cortarSaida, LIMITE_SAIDA, SCRIPT, VIDEO_TESTE };
+module.exports = { MARCA_COOKIES, tarefaYoutube, testarYoutube, criarEstadoYoutube, classificarYoutube, cortarSaida, LIMITE_SAIDA, SCRIPT, VIDEO_TESTE };

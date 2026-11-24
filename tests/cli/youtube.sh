@@ -62,6 +62,13 @@ igual "nao sim sai com 2" "2" "$?"
 afirma "e nao removeu o marcador" test -f "$M"
 dgclaw agente youtube ana conta-dedicada nao >/dev/null 2>&1
 
+echo "youtube: sem a pasta config, sim falha e nao recria a pasta"
+mv "$CFG" "$CFG.fora"
+dgclaw agente youtube ana conta-dedicada sim >/dev/null 2>&1
+nega "sim sem a pasta config falha" test "$?" = 0
+nega "nao recriou a pasta config" test -e "$CFG"
+mv "$CFG.fora" "$CFG"
+
 echo "youtube: nome ou assunto invalido"
 nega "nome inexistente recusado" dgclaw agente youtube fulano conta-dedicada sim
 nega "nome invalido recusado" dgclaw agente youtube A conta-dedicada sim

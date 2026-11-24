@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { classificarYoutube, tarefaYoutube, testarYoutube, SCRIPT, LIMITE_SAIDA } = require('../lib/diagnostico/youtube');
+const { classificarYoutube, tarefaYoutube, testarYoutube, SCRIPT, LIMITE_SAIDA, MARCA_COOKIES: MC } = require('../lib/diagnostico/youtube');
 
 const AGORA = Date.UTC(2026, 10, 18, 15, 0, 0);
 const MIN = 60000;
@@ -16,8 +16,8 @@ const H = 3600 * 1000;
 test('classificação: ok, pediu login, yt-dlp ausente, tempo e outro erro', () => {
   assert.equal(classificarYoutube({ codigo: 0, stdout: '', stderr: '' }).tipo, 'ok');
   const bot = 'ERROR: [youtube] jNQXAC9IJRQ: Sign in to confirm you\'re not a bot. Use --cookies-from-browser or --cookies for the authentication.';
-  assert.equal(classificarYoutube({ codigo: 1, stdout: '', stderr: bot }).tipo, 'login');
-  assert.equal(classificarYoutube({ codigo: 1, stdout: '', stderr: 'WARNING: The provided YouTube account cookies are no longer valid. They have likely been rotated in the browser' }).tipo, 'login');
+  assert.equal(classificarYoutube({ codigo: 1, stdout: MC, stderr: bot }).tipo, 'login');
+  assert.equal(classificarYoutube({ codigo: 1, stdout: MC, stderr: 'WARNING: The provided YouTube account cookies are no longer valid. They have likely been rotated in the browser' }).tipo, 'login');
   assert.equal(classificarYoutube({ codigo: 127, stdout: '', stderr: 'yt-dlp: command not found' }).tipo, 'ausente');
   assert.equal(classificarYoutube({ codigo: 1, stdout: '', stderr: 'sh: 1: yt-dlp: not found' }).tipo, 'ausente');
   assert.equal(classificarYoutube({ codigo: null, stdout: '', stderr: '', erro: 'timeout' }).tipo, 'tempo');
@@ -28,7 +28,7 @@ test('classificação: ok, pediu login, yt-dlp ausente, tempo e outro erro', () 
 
 test('classificação: código 0 com aviso de cookies inválidos vira login (a conta caiu mesmo com o vídeo baixado)', () => {
   const aviso = 'WARNING: [youtube] The provided YouTube account cookies are no longer valid. They have likely been rotated in the browser as a security measure.';
-  assert.equal(classificarYoutube({ codigo: 0, stdout: '', stderr: aviso }).tipo, 'login');
+  assert.equal(classificarYoutube({ codigo: 0, stdout: MC, stderr: aviso }).tipo, 'login');
   assert.equal(classificarYoutube({ codigo: 0, stdout: '', stderr: 'WARNING: tudo normal' }).tipo, 'ok');
 });
 
@@ -220,7 +220,7 @@ test('resultado gravado pelo teste aparece no diagnóstico, com podman exec e --
 });
 
 test('pediu login vira atenção com o passo a passo em português, sem falar de conta conectada', async () => {
-  const m = monta([{ codigo: 1, stdout: '', stderr: "ERROR: [youtube] x: Sign in to confirm you're not a bot", erro: null }]);
+  const m = monta([{ codigo: 1, stdout: MC, stderr: "ERROR: [youtube] x: Sign in to confirm you're not a bot", erro: null }]);
   await m.testa();
   const r = await m.ler();
   assert.equal(r.estado, 'atencao');
@@ -336,9 +336,9 @@ test('container ou nome fora do padrão: não executa nada e loga mensagem fixa'
 
 test('saída enorme é cortada antes da classificação', () => {
   const lixo = 'x'.repeat(LIMITE_SAIDA + 10);
-  assert.equal(classificarYoutube({ codigo: 1, stdout: '', stderr: `${lixo}\nSign in to confirm you're not a bot` }).tipo, 'outro', 'o sinal depois do limite não é lido');
+  assert.equal(classificarYoutube({ codigo: 1, stdout: MC, stderr: `${lixo}\nSign in to confirm you're not a bot` }).tipo, 'outro', 'o sinal depois do limite não é lido');
   assert.equal(classificarYoutube({ codigo: 1, stdout: `${lixo}\ncookies are no longer valid`, stderr: '' }).tipo, 'outro');
-  assert.equal(classificarYoutube({ codigo: 1, stdout: '', stderr: `Sign in to confirm you're not a bot\n${lixo}` }).tipo, 'login', 'o que está dentro do limite continua valendo');
+  assert.equal(classificarYoutube({ codigo: 1, stdout: MC, stderr: `Sign in to confirm you're not a bot\n${lixo}` }).tipo, 'login', 'o que está dentro do limite continua valendo');
 });
 
 test('o último resultado sobrevive a reinício do painel (arquivo) e container parado não mostra teste', async () => {
@@ -357,7 +357,7 @@ test('o último resultado sobrevive a reinício do painel (arquivo) e container 
 
 // Vigia periódico: só testa; não avisa ninguém no aparelho.
 const { criarDiagnostico } = require('../lib/diagnostico');
-const LOGIN = { codigo: 1, stdout: '', stderr: 'ERROR: Sign in to confirm you\'re not a bot', erro: null };
+const LOGIN = { codigo: 1, stdout: MC, stderr: 'ERROR: Sign in to confirm you\'re not a bot', erro: null };
 const BOM = { codigo: 0, stdout: '', stderr: '', erro: null };
 
 function montaVigia(respostas, agentes) {
@@ -456,6 +456,13 @@ test('vigia: primeira rodada 2 minutos depois de iniciar (aqui encurtada) e depo
   m_limpa(dir);
 });
 function m_limpa(dir) { fs.rmSync(dir, { recursive: true, force: true }); }
+
+test('pedido de login na tentativa ANÔNIMA (sem a marca da tentativa com cookies) não vira "login"', () => {
+  assert.equal(classificarYoutube({ codigo: 1, stdout: '', stderr: 'ERROR: [youtube] x: Please sign in' }).tipo, 'outro');
+  assert.equal(classificarYoutube({ codigo: 1, stdout: '', stderr: 'ERROR: Login required' }).tipo, 'outro');
+  assert.equal(classificarYoutube({ codigo: 1, stdout: MC, stderr: 'ERROR: Login required' }).tipo, 'login');
+  assert.match(SCRIPT, new RegExp(`echo "${MC}"`), 'o script imprime a marca antes da tentativa com cookies');
+});
 
 test('restrição de idade não é o desafio anti-robô: não vira "login"', () => {
   assert.notEqual(classificarYoutube({ codigo: 1, stdout: '', stderr: 'ERROR: Sign in to confirm your age' }).tipo, 'login');
