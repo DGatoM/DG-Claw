@@ -141,7 +141,7 @@ O comando já escreve a frase pronta. Repasse ao dono em linguagem simples:
   feche o card e NÃO reenvie o pedido por conta própria (reenviar poderia duplicá-lo). Confira com
   `dgclaw-card estado <id>` e `dgclaw-card ler <id>` depois de um tempo.
   O `abrir` espera 60 segundos por isso; `--espera-turno SEG` muda o prazo (0 desliga).
-- Código 10 (`fechar` recusado): o card nunca teve um turno, ainda tem texto na fila, ou não deu para ler o
+- Código 10 (`fechar` recusado): o runner ainda não observou um turno nesta conversa, ainda tem texto na fila, ou não deu para ler o
   estado dele, e fechar agora pode jogar o pedido fora. Só use `dgclaw-card fechar <id> --forcar`
   depois de avisar o dono.
 - Código 12 (o turno falhou): o card aceitou o pedido, mas o turno deu erro e o card está parado em erro.

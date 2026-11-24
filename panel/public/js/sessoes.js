@@ -43,7 +43,7 @@
     ['esperando_voce', 'Esperando você', true, 'O card parou pedindo permissão ou esperando uma resposta sua. Ele não anda enquanto ninguém decidir (a decisão é no DG Telegram).'],
     ['trabalhando', 'Trabalhando', true, 'O card está trabalhando agora: o Bunker diz que ele está ativo, ou a conversa dele mexeu há menos de 1 minuto.'],
     ['concluido', 'Concluídas', true, 'O terminal está aberto, o card parou e terminou o que tinha para fazer.'],
-    ['parado', 'Paradas', true, 'O terminal está aberto e o card parou sem ter terminado. Vale abrir e ler a conversa.'],
+    ['parado', 'Paradas', true, 'O terminal está aberto e o card parou sem ter terminado, ou está aguardando o primeiro turno. Vale abrir e ler a conversa.'],
     ['erro', 'Com erro', true, 'O Bunker marcou erro no card, ou o estado dele não é conhecido.'],
     ['fechado', 'Fechadas', false, 'Cards sem terminal aberto (foram parados ou terminaram). Dá para retomar. A lista mostra só as 60 mais recentes.'],
     ['arquivado', 'Arquivadas', false, 'Cards que você escondeu da lista. Dá para desarquivar quando quiser.'],
@@ -94,6 +94,12 @@
   const raiz = () => $('sessoes-root');
   const urlSegura = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u) ? u : '');
   const grupoDe = (it) => (it.arquivado ? 'arquivado' : (GRUPOS[it.grupo] ? it.grupo : 'parado'));
+  // O card que espera o primeiro turno fica no grupo 'parado' (os filtros dependem disso), mas o rótulo não diz "Parado":
+  // o runner ainda não observou o turno, e isso não prova que o card esteja parado.
+  const infoDe = (it) => {
+    const info = GRUPOS[grupoDe(it)];
+    return it.estado === 'esperando_primeiro_turno' ? { ...info, rotulo: 'Aguardando o primeiro turno' } : info;
+  };
   const precisaRetomar = (it) => !!it && (!it.tem_terminal || it.grupo === 'fechado');
 
   function tamanho(n) {
@@ -518,7 +524,7 @@
   }
 
   function itemDaLista(it) {
-    const info = GRUPOS[grupoDe(it)];
+    const info = infoDe(it);
     const meta = [it.pasta, quando(it.desde)].filter(Boolean).join(' · ');
     const topo = el('button', { type: 'button', class: 'sx-item-topo', style: `--cor:${info.cor}`, onclick: () => abreDetalhe(it.id, it) },
       el('span', { class: `sx-bol${info.pulsa ? ' pulsa' : ''}`, 'aria-hidden': 'true' }),
@@ -854,9 +860,9 @@
     const it = d.item;
     const r = d.ref;
     if (!it) { r.info.textContent = 'Carregando o card...'; return; }
-    const info = GRUPOS[grupoDe(it)];
+    const info = infoDe(it);
 
-    const sigInfo = JSON.stringify([it.nome_limpo, it.nome, grupoDe(it), it.motivo, it.pasta, it.cwd, it.desde, it.favorito, d.editandoNome, d.salvandoNome, recOn('favorito'), recOn('renomear')]);
+    const sigInfo = JSON.stringify([it.nome_limpo, it.nome, grupoDe(it), it.estado, it.motivo, it.pasta, it.cwd, it.desde, it.favorito, d.editandoNome, d.salvandoNome, recOn('favorito'), recOn('renomear')]);
     if (sigInfo !== d.sigInfo) {
       d.sigInfo = sigInfo;
       r.info.textContent = '';

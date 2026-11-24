@@ -365,6 +365,13 @@ subir sem-processo
 ok "card resumable com contador 0 sai com 11, nao 9" $([ $c = 11 ] && echo 0 || echo 1)
 grep -q "sem processo vivo (status resumable)" "$T/e"; ok "o 11 do card sem processo cita o status" $?
 
+# --- turno visto, mas terminal ja fechado (resumable): nao confirma, sai com 11 ------------------------------------
+subir turno-resumable
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
+ok "turno visto com card resumable sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+! grep -q "Card aberto" "$T/o"; ok "turno com card resumable nao imprime 'Card aberto'" $?
+grep -q "terminal do card ja esta fechado (status resumable)" "$T/e"; ok "o 11 do card fechado cita o status" $?
+
 # --- limpeza apos SEM_LOGIN: DELETE que falha informa o id ----------------------------------------------------
 subir sem-login-delete-falha
 "$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
