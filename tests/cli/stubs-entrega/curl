@@ -3,4 +3,6 @@
 est="${STUB_ESTADO:?}"
 echo "curl $*" >>"${STUB_LOG:?}"
 if [ -f "$est/http" ]; then cat "$est/http"; else printf '200'; fi
+# marca "curl-rc": o codigo de saida (ex.: 28 = prazo estourado depois do cabecalho 200)
+if [ -f "$est/curl-rc" ]; then exit "$(cat "$est/curl-rc")"; fi
 exit 0

@@ -97,9 +97,10 @@ para e volta. A memória se ajusta com `DGCLAW_CONTAINER_MEMORIA` (a partir da 1
 
 **Recriar o agente sem perder nada.** O `dgclaw agente recriar <agente>` recria o container na hora. Antes dele,
 confira num terminal seu o que existe só na camada gravável do container, decida com o dono antes de qualquer
-perda e rode sempre **sem** `--forcar`: sem a opção, se houver pacotes instalados à mão ou arquivos fora da casa,
-ele para e não recria. O que estiver em `/tmp`, `/var/tmp`, `/var/log` e `/var/cache` se perde sem aviso, então
-copie antes para a casa do agente o que o cliente quiser guardar. O `recriar` também pode terminar sem recriar
+perda e rode sempre **sem** `--forcar`: sem a opção, ele para diante das alterações que o inventário dele
+enxerga. O inventário não cobre tudo: `/tmp`, `/var/tmp`, `/var/log`, `/var/cache` e alguns arquivos de sistema
+(como o `/etc/hosts`) ficam de fora e se perdem sem aviso. Copie antes para a casa do agente o que o cliente
+quiser guardar e anote as personalizações de sistema que precisam ser refeitas no container novo. O `recriar` também pode terminar sem recriar
 nada, porque com a imagem atual ele responde que não havia o que recriar: depois dele, rode o smoke de novo e
 confira que o valor mudou. Se a correção pedir imagem nova, rode `dgclaw imagem construir --agora` e confira que
 terminou com sucesso antes de recriar.

@@ -129,4 +129,23 @@ echo '{"versao":1,"agentes":[]}' >"$ETC/agentes.json"
 smoke
 afirma "registro sem agente: AVISO" grep -q 'AVISO  \[4\] o registro nao tem nenhum agente' "$TMP/s.txt"
 
+echo "smoke-entrega: curl com erro depois do 200, registro sem tipo e container divergente"
+limpar_estado
+echo 28 >"$STUB_ESTADO/curl-rc"
+smoke
+igual "200 com curl saindo com 28: sai com 1" "1" "$?"
+afirma "200 com curl 28: FALHA do painel" grep -q 'FALHA  \[2\] o painel nao respondeu na porta 8300 (HTTP 000, curl saiu com 28)' "$TMP/s.txt"
+limpar_estado
+echo '{"versao":1,"agentes":[{"slug":"admin"},{"slug":"bia"},{"slug":"ana","tipo":"agente"}]}' >"$ETC/agentes.json"
+smoke
+afirma "registro sem tipo: confere o agente bia" grep -q 'OK     \[4\] dgclaw-bia rodando' "$TMP/s.txt"
+nega "registro sem tipo: o slug admin nao e agente" grep -q 'dgclaw-admin rodando' "$TMP/s.txt"
+afirma "registro misto: confere ana" grep -q 'OK     \[4\] dgclaw-ana rodando' "$TMP/s.txt"
+limpar_estado
+echo '{"versao":1,"agentes":[{"slug":"ana","tipo":"agente","container":"dgclaw-ana-novo"},{"slug":"bia","tipo":"agente","container":"dgclaw-bia"}]}' >"$ETC/agentes.json"
+smoke
+afirma "container divergente: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[4\] o registro aponta para o agente ana um container diferente de dgclaw-ana' "$TMP/s.txt"
+nega "container divergente: nao inspeciona dgclaw-ana" grep -q 'podman .*dgclaw-ana$' "$STUB_LOG"
+afirma "container igual ao padrao: confere bia" grep -q 'OK     \[4\] dgclaw-bia rodando' "$TMP/s.txt"
+
 fim
