@@ -37,11 +37,13 @@ test('o comando de dentro: só valores fixos, baixa pouco e apaga a pasta tempor
   assert.match(SCRIPT, /--ignore-config/);
   assert.match(SCRIPT, /--no-plugin-dirs/);
   assert.match(SCRIPT, /--js-runtimes node/);
-  assert.match(SCRIPT, /TMPDIR="\$d" timeout \d+ yt-dlp [^\n]*--cookies-from-browser/, 'a cópia temporária dos cookies fica dentro da pasta apagada pelo trap');
+  assert.ok(!SCRIPT.includes('--cookies-from-browser') && !SCRIPT.includes('--cookies'), 'o vigia nunca passa cookies ao yt-dlp');
+  assert.ok(!SCRIPT.includes('TMPDIR'));
   assert.ok(!SCRIPT.includes('--no-warnings'), 'sem --no-warnings: os avisos de cookie precisam aparecer');
-  assert.match(SCRIPT, /if \[ ! -d \/home\/agente\/\.tela-chrome\/Default \]/, 'sem a pasta do Chrome da Tela o script não usa cookies');
+  assert.match(SCRIPT, /if \[ ! -d \/home\/agente\/\.tela-chrome\/Default \]/, 'sem a pasta do Chrome da Tela o script não confere a sessão');
   assert.match(SCRIPT, /exit 66/);
-  assert.match(SCRIPT, /--cookies-from-browser "chrome\+basictext:\/home\/agente\/\.tela-chrome\/Default" --match-filters "availability=public & age_limit=0"/);
+  assert.match(SCRIPT, /exit 67/);
+  assert.match(SCRIPT, /exit 71/);
   assert.match(SCRIPT, /-f "worst\/worstvideo"/);
   assert.ok(!/-f worst /.test(SCRIPT));
   assert.match(SCRIPT, /--max-filesize 5M/);
@@ -49,17 +51,26 @@ test('o comando de dentro: só valores fixos, baixa pouco e apaga a pasta tempor
   assert.match(SCRIPT, /rm -rf "\$d"/);
 });
 
-test('o comando tenta SEM cookies primeiro e só usa os cookies depois de "sign in to confirm"', () => {
+test('o comando só baixa SEM cookies; a checagem da sessão é offline e só conta linhas', () => {
   const linhas = SCRIPT.split('\n');
   const ytdlp = linhas.map((l, i) => [l, i]).filter(([l]) => /timeout \d+ yt-dlp/.test(l));
-  assert.equal(ytdlp.length, 2, 'duas tentativas');
-  assert.ok(!ytdlp[0][0].includes('--cookies-from-browser'), 'a primeira é anônima');
-  assert.match(ytdlp[0][0], /2>"\$d\/err"/, 'o stderr da primeira fica em arquivo fora da pasta de download');
-  assert.ok(ytdlp[1][0].includes('--cookies-from-browser'), 'a segunda usa os cookies');
+  assert.equal(ytdlp.length, 1, 'uma única tentativa, anônima');
+  assert.ok(!SCRIPT.includes('--cookies-from-browser') && !SCRIPT.includes('--cookies'), 'o script não usa cookies');
+  assert.match(ytdlp[0][0], /2>"\$d\/err"/, 'o stderr da tentativa fica em arquivo fora da pasta de download');
   const iLogin = linhas.findIndex((l) => /head -c 8192 "\$d\/err" \| grep -qiE "sign in to confirm you\.re not a bot"/.test(l));
   const iPasta = linhas.findIndex((l) => /if \[ ! -d \/home\/agente\/\.tela-chrome\/Default \]/.test(l));
-  assert.ok(iLogin > ytdlp[0][1] && iLogin < iPasta && iPasta < ytdlp[1][1], 'ordem: anônima, checagem anti-robô, pasta, cookies');
-  assert.match(SCRIPT, /head -c 8192 "\$d\/err" >&2/, 'falha por outro motivo repassa o stderr cortado');
+  const iSql = linhas.findIndex((l) => /sqlite3 -readonly/.test(l));
+  assert.ok(iLogin > ytdlp[0][1] && iLogin < iPasta && iPasta < iSql, 'ordem: anônima, checagem anti-robô, pasta, consulta');
+  assert.match(SCRIPT, /command -v sqlite3/);
+  const sql = linhas[iSql];
+  assert.match(sql, /SELECT COUNT\(\*\) FROM cookies WHERE host_key = '\.youtube\.com'/);
+  assert.match(sql, /name IN \('__Secure-3PSID','SAPISID','LOGIN_INFO'\)/);
+  assert.match(sql, /expires_utc = 0 OR expires_utc > \$agora/);
+  assert.ok(!/value/i.test(sql), 'a consulta nunca menciona value nem encrypted_value');
+  assert.match(SCRIPT, /11644473600\) \* 1000000/, 'a validade usa a época do Chrome');
+  assert.match(SCRIPT, /\/Network\/Cookies/);
+  assert.match(SCRIPT, /cp "\$b" "\$d\/cookies\.db"/, 'a cópia do banco fica dentro da pasta apagada pelo trap');
+  assert.match(SCRIPT, /head -c 8192 "\$d\/err" >&2/, 'falha repassa o stderr cortado');
   assert.match(SCRIPT, /find "\$d\/v" -type f -size \+0c/, 'exige arquivo com mais de 0 bytes');
   assert.match(SCRIPT, /-P "\$d\/v"/);
 });
@@ -79,11 +90,11 @@ test('pasta do Chrome ausente com download anônimo ok dá ok (script de verdade
   r = exec('echo "ERROR: Sign in to confirm you\'re not a bot" >&2; exit 1');
   assert.equal(r.status, 66, 'pediu login e a pasta não existe');
   r = exec('echo "ERROR: Sign in to confirm your age" >&2; exit 1');
-  assert.equal(r.status, 1, 'restrição de idade não é o desafio anti-robô: não chega à tentativa com cookies');
+  assert.equal(r.status, 1, 'restrição de idade não é o desafio anti-robô: não chega à checagem da sessão');
   r = exec('echo "ERROR: HTTP Error 429" >&2; exit 3');
   assert.equal(r.status, 3, 'outro erro: devolve o código dela');
   assert.match(r.stderr, /429/);
-  // mensagem anti-robô DEPOIS dos 8 KiB não libera os cookies; antes do limite libera
+  // mensagem anti-robô DEPOIS dos 8 KiB não chega à checagem da sessão; antes do limite chega
   r = exec('head -c 9000 /dev/zero | tr "\\0" "a" >&2; echo >&2; echo "ERROR: Sign in to confirm you\'re not a bot" >&2; exit 3');
   assert.equal(r.status, 3, 'anti-robô depois do limite é ignorado: devolve o código dela');
   r = exec('echo "ERROR: Sign in to confirm you\'re not a bot" >&2; head -c 9000 /dev/zero | tr "\\0" "a" >&2; exit 3');
@@ -91,6 +102,43 @@ test('pasta do Chrome ausente com download anônimo ok dá ok (script de verdade
   r = exec('exit 0');
   assert.equal(r.status, 65, 'saiu 0 sem arquivo');
   fs.rmSync(bin, { recursive: true, force: true });
+});
+
+test('checagem offline da sessão com banco de cookies de verdade (script de verdade, yt-dlp falso)', (t) => {
+  const { spawnSync } = require('node:child_process');
+  if (spawnSync('sqlite3', ['-version']).status !== 0) return t.skip('sqlite3 não existe nesta máquina');
+  // O script usa o caminho fixo da Tela; aqui ele é trocado por uma pasta temporária, sem tocar em /home.
+  const raiz = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-tela-'));
+  const pasta = path.join(raiz, 'Default');
+  fs.mkdirSync(path.join(pasta, 'Network'), { recursive: true });
+  const script = SCRIPT.split('/home/agente/.tela-chrome/Default').join(pasta);
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-falso-'));
+  fs.writeFileSync(path.join(bin, 'yt-dlp'), '#!/bin/sh\necho "ERROR: Sign in to confirm you\'re not a bot" >&2\nexit 1\n', { mode: 0o755 });
+  const exec = () => spawnSync('sh', ['-c', script], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }, encoding: 'utf8' });
+  const banco = path.join(pasta, 'Network', 'Cookies');
+  const monta = (linhas) => {
+    fs.rmSync(banco, { force: true });
+    const sql = `CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, expires_utc INTEGER);\n${linhas.map((l) => `INSERT INTO cookies VALUES ${l};`).join('\n')}`;
+    const rs = spawnSync('sqlite3', [banco], { input: sql, encoding: 'utf8' });
+    assert.equal(rs.status, 0, rs.stderr);
+  };
+  const chrome = (seg) => (seg + 11644473600) * 1000000;
+  const agora = Math.floor(Date.now() / 1000);
+  try {
+    monta([]);
+    assert.equal(exec().status, 1, 'banco sem linhas: sem sessão');
+    monta([`('.youtube.com','SAPISID','x','',${chrome(agora - 3600)})`, `('.outro.com','SAPISID','x','',0)`, `('.youtube.com','PREF','x','',0)`]);
+    assert.equal(exec().status, 1, 'vencido, de outro site ou de outro nome: não conta');
+    monta([`('.youtube.com','LOGIN_INFO','x','',${chrome(agora + 86400)})`]);
+    assert.equal(exec().status, 67, 'sessão dentro da validade');
+    monta([`('.youtube.com','__Secure-3PSID','x','',0)`]);
+    assert.equal(exec().status, 67, 'cookie de sessão (expires 0) vale');
+    fs.rmSync(banco, { force: true });
+    assert.equal(exec().status, 1, 'sem banco de cookies: sem sessão');
+  } finally {
+    fs.rmSync(raiz, { recursive: true, force: true });
+    fs.rmSync(bin, { recursive: true, force: true });
+  }
 });
 
 test('ler(): sem identidade de um dos lados ou com instâncias diferentes devolve null', () => {
@@ -105,6 +153,43 @@ test('ler(): sem identidade de um dos lados ou com instâncias diferentes devolv
     assert.equal(est.ler('tina', 'i:aaa'), null, 'sem identidade gravada');
     assert.equal(est.ler('tina', falta), null, 'sem identidade dos dois lados');
   }
+  m.limpa();
+});
+
+test('código 67 vira sessao (decidido antes do texto de login) e o tipo sessao é ok com sinal na evidência', async () => {
+  assert.deepEqual(classificarYoutube({ codigo: 67, stdout: '', stderr: "Sign in to confirm you're not a bot" }), { tipo: 'sessao' });
+  assert.deepEqual(classificarYoutube({ codigo: 67, stdout: '', stderr: 'sessao do YouTube valida na Tela' }), { tipo: 'sessao' });
+  const m = monta([{ codigo: 67, stdout: '', stderr: 'sessao do YouTube valida na Tela', erro: null }]);
+  assert.equal(await m.testa(), 'sessao');
+  const r = await m.ler();
+  assert.equal(r.estado, 'ok');
+  assert.equal(r.evidencia.sinal, 'teste do YouTube: sessao');
+  assert.match(r.motivo, /nunca usa essa sessão/);
+  assert.ok(!m.logs.some(([n]) => n === 'aviso'), 'sessão válida não é problema');
+  m.limpa();
+});
+
+test('contagem zero (anti-robô, sem sessão) continua login: atenção', async () => {
+  // o script sai com 1 e repassa o stderr da tentativa anônima, com o texto de login
+  assert.equal(classificarYoutube({ codigo: 1, stdout: '', stderr: "ERROR: Sign in to confirm you're not a bot" }).tipo, 'login');
+  const m = monta([{ codigo: 1, stdout: '', stderr: "ERROR: Sign in to confirm you're not a bot", erro: null }]);
+  assert.equal(await m.testa(), 'login');
+  assert.equal((await m.ler()).estado, 'atencao');
+  m.limpa();
+});
+
+test('código 71 (sem sqlite3 ou consulta falhou) é infraestrutura: nao_medido e preserva o último resultado concluído', async () => {
+  const m = monta([
+    BOM,
+    { codigo: 71, stdout: '', stderr: "sqlite3: command not found\nSign in to confirm you're not a bot", erro: null },
+  ]);
+  await m.testa();
+  m.avanca(MIN);
+  assert.equal(await m.testa(), 'nao_medido');
+  const v = m.ctx.youtube.ler('tina', 'i:aaa');
+  assert.equal(v.tipo, 'nao_medido');
+  assert.deepEqual(v.ultimoConcluido, { em: AGORA, tipo: 'ok', codigo: null });
+  assert.ok(!JSON.stringify(m.logs).includes('command not found'), 'o texto do stderr não vai para o log');
   m.limpa();
 });
 

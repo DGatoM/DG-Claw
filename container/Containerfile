@@ -119,14 +119,17 @@ LABEL dgclaw.configuracao-administrada="1"
 # venv Python padrão. Existe para contornar o bloqueio PEP 668 do Ubuntu sem
 # --break-system-packages: o agente instala o que precisar com "pip install" normal.
 # playwright entra só como pacote; o navegador é do perfil COM_NAVEGADOR=1.
-# yt-dlp vem do pip porque é o jeito que recebe atualização (o do apt envelhece). O yt-dlp-ejs, com versão fixa como
-# os outros pacotes, resolve o desafio de JavaScript do YouTube (rodando no node da imagem); sem ele o download
+# yt-dlp vem do pip porque é o jeito que recebe atualização (o do apt envelhece). Ele e o yt-dlp-ejs vão num passo próprio,
+# com versão e hash fixos (--require-hashes, sem dependências, só wheel), porque o yt-dlp roda com a sessão do agente. O yt-dlp-ejs resolve o desafio de JavaScript do YouTube (rodando no node da imagem); sem ele o download
 # falha mesmo com cookies. O link em /usr/local/bin deixa o comando achável por serviço que não herda o
 # PATH da imagem (unidade systemd do runner).
 RUN python3 -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir \
       'Pillow==13.0.0' 'requests==2.34.2' 'numpy==2.5.4' 'pyyaml==6.0.3' \
-      'openpyxl==3.1.5' 'pymupdf==1.28.2' 'playwright==1.63.0' 'yt-dlp==2026.10.26' 'yt-dlp-ejs==0.8.0' \
+      'openpyxl==3.1.5' 'pymupdf==1.28.2' 'playwright==1.63.0' \
+    && /opt/venv/bin/pip install --no-cache-dir --require-hashes --no-deps --only-binary=:all: \
+      'yt-dlp==2026.10.26' --hash=sha256:a05c5b5d8562f7e8a62f5334348b406af4930d56d3a65f8021d14af0e22339ae \
+      'yt-dlp-ejs==0.8.0' --hash=sha256:79300e5fca7f937a1eeede11f0456862c1b41107ce1d726871e0207424f4bdb4 \
     && ln -s /opt/venv/bin/yt-dlp /usr/local/bin/yt-dlp
 # Configuração do sistema do yt-dlp (root:root 0644): só diz qual runtime de JavaScript usar. Cookies não entram
 # aqui; o agente os pede na própria chamada, e só para o YouTube.

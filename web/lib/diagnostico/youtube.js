@@ -2,8 +2,10 @@
 // Download do YouTube do agente. Faz um download REAL e pequeno dentro do container, como o usuário agente, e
 // guarda o último resultado com horário. Quem testa é o vigia (a cada 6 horas); a tela de diagnóstico só LÊ o último
 // resultado, nunca dispara download. O teste ignora qualquer configuração do yt-dlp e passa as opções na própria
-// chamada. Tenta primeiro SEM cookies; só se o YouTube pedir login usa os cookies da Tela (se a pasta do Chrome não
-// existe, o resultado é sem_perfil). Quando o download para de funcionar, é aqui que o
+// chamada. O teste é SEMPRE sem cookies: ele nunca usa a conta Google que estiver na Tela, que pode ser a pessoal do dono.
+// Se o YouTube pedir a checagem anti-robô, o script só confere OFFLINE (sem rede, sem ler valor de cookie) se a Tela tem
+// uma sessão do YouTube dentro da validade, e isso vira o tipo `sessao` (ok). Se a pasta do Chrome da Tela não existe, o
+// resultado é sem_perfil. Quando o download para de funcionar, é aqui que o
 // dono fica sabendo, em vez de o agente falhar calado no meio de um pedido. Nada do stderr do yt-dlp sai daqui: a
 // classificação devolve só um tipo de uma lista fechada (e o código de saída), e todo texto mostrado é fixo. Não depende do motor do agente (Claude ou Codex): roda no container.
 
@@ -14,21 +16,26 @@ const { instanciaDe } = require('../instancia');
 
 const { R, conserta } = U;
 const PRAZO_DOWNLOAD_S = 80;             // teto dentro do container (comando `timeout`)
-const PRAZO_EXEC_MS = (2 * PRAZO_DOWNLOAD_S + 20) * 1000; // teto de quem chama: duas tentativas (sem e com cookies) e uma margem
+const PRAZO_EXEC_MS = (PRAZO_DOWNLOAD_S + 40) * 1000; // teto de quem chama: o download e a checagem offline, com margem
 const VIDEO_TESTE = 'https://www.youtube.com/watch?v=jNQXAC9IJRQ'; // "Me at the zoo": 19 s, o primeiro vídeo do YouTube, estável
 const NOME_ARQUIVO = 'youtube-saude.json';
 const LIMITE_SAIDA = 8192;               // bytes lidos de stderr e de stdout, cortados antes de qualquer regex ou log
-const PASTA_COOKIES = '/home/agente/.tela-chrome/Default'; // só o perfil padrão da Tela: outro perfil aberto nela nunca entra no teste
+const PASTA_COOKIES = '/home/agente/.tela-chrome/Default'; // só o perfil padrão da Tela: outro perfil aberto nela nunca entra na checagem
 const VALIDADE_MS = 13 * 3600 * 1000;    // duas rodadas de 6 horas e uma margem: resultado mais velho que isso não é mais medida
 const SAIDA_SEM_TMP = 70;                // o script não conseguiu criar a pasta temporária: o yt-dlp nem começou
 const SAIDA_PODMAN_FALHOU = 125;         // o próprio podman não conseguiu executar o comando (ex.: container parado)
 const SAIDA_SEM_PERFIL = 66;             // código próprio do script: a pasta do Chrome da Tela não existe
+const SAIDA_SESSAO = 67;                 // código próprio do script: anti-robô sem login, e a Tela tem sessão do YouTube dentro da validade
+const SAIDA_SEM_CHECAGEM = 71;           // código próprio do script: sem sqlite3 ou a consulta ao banco de cookies falhou (infraestrutura)
 
 // Roda dentro do container, sem nenhum valor vindo de fora. A pasta é temporária e some ao final. O yt-dlp ignora
-// a configuração do usuário e dos plugins. A primeira tentativa é SEM cookies (o stderr dela fica em "$d/err", fora da
-// pasta de download, e só é repassado se a tentativa falhar por outro motivo). Só quando o YouTube pede login (checagem
-// anti-robô) é que tenta de novo com os cookies da pasta do Chrome da Tela; se ela não existe, sai com 66.
+// a configuração do usuário e dos plugins. A tentativa é SEM cookies (o stderr dela fica em "$d/err", fora da
+// pasta de download, e só é repassado se ela falhar por outro motivo). Quando o YouTube pede login (checagem
+// anti-robô), o script NÃO tenta de novo com cookies: só conta, offline, as linhas do banco de cookies da Tela que são de
+// sessão do YouTube e ainda valem (nunca seleciona a coluna value nem encrypted_value). Se a pasta da Tela não existe, sai com 66.
 const OPCOES_BASE = `--ignore-config --no-plugin-dirs --js-runtimes node --no-playlist --no-progress --socket-timeout 20 -f "worst/worstvideo" --max-filesize 5M -P "$d/v" -o '%(id)s.%(ext)s'`;
+// Só a CONTAGEM de linhas: nada de value nem encrypted_value. AGORA ($agora, definido no script) está na época do Chrome (microssegundos desde 1601).
+const SQL_SESSAO = "SELECT COUNT(*) FROM cookies WHERE host_key = '.youtube.com' AND name IN ('__Secure-3PSID','SAPISID','LOGIN_INFO') AND (expires_utc = 0 OR expires_utc > $agora)";
 const SCRIPT = [
   `d=$(mktemp -d /tmp/yt-saude.XXXXXX) || exit ${SAIDA_SEM_TMP}`,
   'trap \'rm -rf "$d"\' EXIT',
@@ -60,15 +67,32 @@ const SCRIPT = [
   '  echo "perfil da Tela ausente" >&2',
   `  exit ${SAIDA_SEM_PERFIL}`,
   'fi',
-  'rm -rf "$d/v"',
-  `mkdir "$d/v" || exit ${SAIDA_SEM_TMP}`,
-  // TMPDIR dentro de "$d": a cópia temporária do banco de cookies que o yt-dlp faz some junto no trap.
-  `TMPDIR="$d" timeout ${PRAZO_DOWNLOAD_S} yt-dlp ${OPCOES_BASE.replace('--js-runtimes node', `--js-runtimes node --cookies-from-browser "chrome+basictext:${PASTA_COOKIES}" --match-filters "availability=public & age_limit=0"`)} '${VIDEO_TESTE}' || exit $?`,
-  'if [ -z "$(find "$d/v" -type f -size +0c)" ]',
+  'if ! command -v sqlite3 >/dev/null 2>&1',
   'then',
-  '  echo "nenhum arquivo foi baixado" >&2',
-  '  exit 65',
+  '  echo "sqlite3: command not found" >&2',
+  `  exit ${SAIDA_SEM_CHECAGEM}`,
   'fi',
+  `b=${PASTA_COOKIES}/Network/Cookies`,
+  'if [ ! -f "$b" ]',
+  'then',
+  `  b=${PASTA_COOKIES}/Cookies`,
+  'fi',
+  'n=0',
+  'if [ -f "$b" ]',
+  'then',
+  `  cp "$b" "$d/cookies.db" || exit ${SAIDA_SEM_CHECAGEM}`,
+  '  agora=$(( ($(date +%s) + 11644473600) * 1000000 ))',
+  `  n=$(sqlite3 -readonly "$d/cookies.db" "${SQL_SESSAO}") || exit ${SAIDA_SEM_CHECAGEM}`,
+  `  [ "$n" -ge 0 ] 2>/dev/null || exit ${SAIDA_SEM_CHECAGEM}`,
+  'fi',
+  'if [ "$n" -gt 0 ]',
+  'then',
+  '  echo "sessao do YouTube valida na Tela" >&2',
+  `  exit ${SAIDA_SESSAO}`,
+  'fi',
+  // Sem sessão: repassa o stderr da tentativa anônima (que traz o texto de login) e sai com erro.
+  'head -c 8192 "$d/err" >&2',
+  'exit 1',
 ].join('\n');
 
 // Sinais de que o YouTube recusou o download por falta de login: o pedido de login, e o aviso de cookies inválidos (que o yt-dlp dá
@@ -84,12 +108,14 @@ function cortarSaida(r) {
 
 /**
  * Classifica o resultado do comando. `r` é { codigo, stdout, stderr, erro }.
- * Devolve { tipo: 'ok' | 'login' | 'sem_perfil' | 'ausente' | 'tempo' | 'outro', codigo? }. `codigo` (número) só existe em 'outro'.
+ * Devolve { tipo: 'ok' | 'sessao' | 'login' | 'sem_perfil' | 'ausente' | 'tempo' | 'outro', codigo? }. `codigo` (número) só existe em 'outro'.
  * Nunca devolve texto do stderr: o que sai daqui pode ir para log, arquivo e resposta da API.
  */
 function classificarYoutube(r) {
   const c = cortarSaida(r);
   const saida = `${c.stderr}\n${c.stdout}`;
+  // Os códigos próprios do script valem antes do texto de login: o stderr da tentativa anônima pode trazer esse texto.
+  if (c.codigo === SAIDA_SESSAO && !c.erro) return { tipo: 'sessao' };
   if (RX_LOGIN.test(saida)) return { tipo: 'login' };
   if (c.codigo === 0 && !c.erro) return { tipo: 'ok' };
   if (c.codigo === SAIDA_SEM_PERFIL) return { tipo: 'sem_perfil' };
@@ -100,6 +126,7 @@ function classificarYoutube(r) {
 
 const TEXTO_TIPO = {
   login: 'o YouTube pediu login',
+  sessao: 'o YouTube pediu a checagem anti-robô e a Tela tem uma sessão do YouTube válida (o teste automático não a usa)',
   sem_perfil: 'o YouTube pediu login e a Tela do agente ainda não foi aberta',
   ausente: 'o yt-dlp não existe no container',
   tempo: `o download passou de ${PRAZO_DOWNLOAD_S} s`,
@@ -196,13 +223,18 @@ function testarYoutube(ctx, ag) {
       registrarTentativa();
       return 'nao_medido';
     }
+    if (r.codigo === SAIDA_SEM_CHECAGEM) {
+      log('aviso', `Diagnóstico: o container ${ag.container} não conseguiu conferir a sessão do YouTube da Tela (código de saída 71: falta o sqlite3 ou a consulta ao banco de cookies falhou). A imagem do agente pode estar antiga.`);
+      registrarTentativa();
+      return 'nao_medido';
+    }
     const c = classificarYoutube(r);
     if (c.tipo === 'outro' && RX_CONTAINER.test(r.stderr)) {
       log('aviso', `Diagnóstico: o container ${ag.container} não aceitou o teste do YouTube (código de saída ${c.codigo === null ? 'desconhecido' : c.codigo}). Confira com dgclaw status.`);
       registrarTentativa();
       return 'nao_medido';
     }
-    if (c.tipo !== 'ok') log('aviso', `Diagnóstico: o teste do YouTube do agente ${slug} falhou: ${textoFalha(c.tipo, c.codigo)}.`);
+    if (c.tipo !== 'ok' && c.tipo !== 'sessao') log('aviso', `Diagnóstico: o teste do YouTube do agente ${slug} falhou: ${textoFalha(c.tipo, c.codigo)}.`);
     est.guardar(slug, { em: agora(), tipo: c.tipo, codigo: c.tipo === 'outro' ? c.codigo : null, instancia });
     return c.tipo;
   }
@@ -233,6 +265,7 @@ function tarefaYoutube(ctx, ag, container) {
       }
       const base = { ultimo_sinal: horario, evidencia: { horario, codigo_saida: null, sinal: `teste do YouTube: ${v.tipo}` } };
       if (v.tipo === 'ok') return R('ok', null, base);
+      if (v.tipo === 'sessao') return R('ok', 'Sem login o YouTube pede a checagem anti-robô, e a Tela do agente tem uma sessão do YouTube dentro da validade. O teste automático nunca usa essa sessão (só confere que ela existe, sem ler os cookies); é o agente que a usa quando precisa.', base);
       if (v.tipo === 'nao_medido') return R('nao_medido', `A última tentativa de testar o download do YouTube (${horario}) não chegou a rodar. O teste roda sozinho a cada 6 horas.`, base);
       if (v.tipo === 'sem_perfil') {
         return R('atencao', 'O YouTube pediu login ao baixar o vídeo de teste e a Tela deste agente ainda não foi aberta, então não há o navegador dela para usar.', Object.assign(base, {
