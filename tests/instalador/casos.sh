@@ -1622,3 +1622,46 @@ caso_apt_update_falhando_com_node_velho_aborta_e_explica() {
     afirma "a mensagem diz o que fazer" tem "$SAIDA" "rode ./install.sh de novo"
     nega "nao chegou a copiar o codigo" test -e "$RAIZ/opt/dgclaw/app/install.sh"
 }
+
+# --- trava do web.env (instalador, CLI e painel gravam o mesmo arquivo) ---------------------------
+
+caso_reinstalar_com_o_mesmo_usuario_nao_regrava_o_web_env() {
+    novo_cenario
+    afirma "primeira rodada com senha" instalacao_basica
+    local w="$RAIZ/etc/dgclaw/web.env" ino1
+    ino1="$(stat -c %i "$w")"
+    cp "$w" "$TMP/webenv1"
+    afirma "segunda rodada sem senha, mesmo usuario" instalar "" --usuario maria --provedor claude
+    igual "$(stat -c %i "$w")" "$ino1" || { echo "      FALHOU: o web.env foi regravado (inode mudou)"; FALHAS=$((FALHAS + 1)); }
+    afirma "web.env igual" cmp "$TMP/webenv1" "$w"
+    nega "a trava nao fica para tras" test -e "$RAIZ/etc/dgclaw/.web.env.trava"
+    limpar_cenario
+}
+
+caso_reinstalar_com_a_trava_do_web_env_ocupada_falha_sem_mexer_no_arquivo() {
+    novo_cenario
+    afirma "primeira rodada com senha" instalacao_basica
+    local w="$RAIZ/etc/dgclaw/web.env"
+    cp "$w" "$TMP/webenv1"
+    mkdir "$RAIZ/etc/dgclaw/.web.env.trava"
+    EXTRA_ENV=(DGCLAW_TRAVA_ESPERA_S=1)
+    nega "a reinstalacao com a trava fresca" instalar "" --usuario joao --provedor claude
+    afirma "explica o que travou" tem "$SAIDA" "outro processo esta gravando web.env"
+    afirma "diz o que fazer" tem "$SAIDA" "rmdir"
+    afirma "web.env nao mudou" cmp "$TMP/webenv1" "$w"
+    afirma "a trava de outro processo continua la" test -d "$RAIZ/etc/dgclaw/.web.env.trava"
+    limpar_cenario
+}
+
+caso_trava_do_web_env_abandonada_e_removida() {
+    novo_cenario
+    afirma "primeira rodada com senha" instalacao_basica
+    local w="$RAIZ/etc/dgclaw/web.env"
+    mkdir "$RAIZ/etc/dgclaw/.web.env.trava"
+    touch -d '2 minutes ago' "$RAIZ/etc/dgclaw/.web.env.trava"
+    EXTRA_ENV=(DGCLAW_TRAVA_ESPERA_S=1)
+    afirma "a reinstalacao segue" instalar "" --usuario joao --provedor claude
+    afirma "usuario novo gravado" tem "$w" "DGCLAW_PANEL_USER=joao"
+    nega "a trava abandonada saiu" test -e "$RAIZ/etc/dgclaw/.web.env.trava"
+    limpar_cenario
+}

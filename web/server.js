@@ -175,7 +175,7 @@ function criarServidor(opcoes) {
   // Conexões abertas (stream da conversa) de cada colaborador: ao revogar ou trocar a senha, fecham junto com a sessão.
   const streamsDoColaborador = new Map();
   const fechaStreamsDe = (id) => { for (const r of streamsDoColaborador.get(id) || []) r.destroy(); streamsDoColaborador.delete(id); proxy.fecharDoColaborador(id); };
-  const primeiroAcesso = criarPrimeiroAcesso({ config, auth, log, agora: opcoes.agora, revalidarProxy: () => proxy.revalidar() });
+  const primeiroAcesso = criarPrimeiroAcesso({ config, auth, log, agora: opcoes.agora, revalidarProxy: () => proxy.revalidar(), travaEsperaMs: opcoes.travaEsperaMs });
   const avatares = criarAvatar({ dataDir: config.dataDir, log });
   const marca = criarMarca({ dir: config.marcaDir, padraoJson: path.join(__dirname, 'marca-padrao.json'), padraoDir: path.join(__dirname, 'public', 'ds', 'marca-padrao'), log });
   const midia = criarMidia({ dataDir: config.dataDir, log, registro, publicDir: config.publicDir });
@@ -1561,8 +1561,9 @@ function criarServidor(opcoes) {
         if (RX_SLUG_ROTA.test(slugPainel)) marcaAutor(slugPainel, sessao, null);
       }
       const quemP = quemDoProxy(sessao, req);
-      // Dono com Face ID ligado: como o colaborador, o Web lê o corpo antes e só então abre a conexão com o painel (o painel age quando o corpo termina).
-      if (!sessao.via && !quemP.colaborador_id && cadeado.ligado(req, sessao)) quemP.lerCorpoAntes = true;
+      // Dono por cookie (com ou sem Face ID): como o colaborador, o Web lê o corpo antes, confere a sessão (req.dgRevalidar) e só então
+      // abre a conexão com o painel. Sem isso, uma escrita iniciada antes da troca de senha terminaria depois dela.
+      if (!sessao.via && !quemP.colaborador_id) quemP.lerCorpoAntes = true;
       // O dono também inicia/cancela o login da conta de IA pelo painel do agente, sem passar pelas rotas /login do Web:
       // aqui respeita a reserva do colaborador e invalida a autoria dele (web/lib/conta-colaborador.js).
       if (!ehColab(sessao) && !sessao.via && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(m) && /^\/api\/provedor(\/|$)/i.test(pp[2])) {

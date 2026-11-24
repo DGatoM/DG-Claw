@@ -172,15 +172,22 @@ test('troca de senha do dono: o link de primeiro acesso pendente deixa de valer'
 test('troca de senha do dono: se o link pendente não puder ser invalidado, a senha antiga continua valendo', async () => {
   const { t, webEnv } = await comWebEnv();
   try {
-    // Um diretório cheio no lugar do arquivo faz o rm falhar com erro que não é ENOENT.
+    // Suspender o link falha com um erro que não é ENOENT (renomear um diretório funcionaria, então o erro é simulado).
     const alvo = path.join(path.dirname(webEnv), 'primeiro-acesso.json');
-    fs.mkdirSync(alvo); fs.writeFileSync(path.join(alvo, 'x'), '1');
+    fs.writeFileSync(alvo, '{"versao":1}\n', { mode: 0o600 });
     const antes = fs.readFileSync(webEnv, 'utf8');
     assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
-    const r = await t.c.post('/api/v1/dono/senha', { json: { atual: t.senha, nova: NOVA, confirmacao: NOVA } });
+    const renameOrig = fs.renameSync;
+    fs.renameSync = function (de, ...resto) {
+      if (de === alvo) { const e = new Error('sem permissão'); e.code = 'EACCES'; throw e; }
+      return renameOrig.call(this, de, ...resto);
+    };
+    let r;
+    try { r = await t.c.post('/api/v1/dono/senha', { json: { atual: t.senha, nova: NOVA, confirmacao: NOVA } }); } finally { fs.renameSync = renameOrig; }
     assert.equal(r.status, 500, r.texto);
     assert.match(r.json.erro, /link de recuperação pendente/);
     assert.equal(fs.readFileSync(webEnv, 'utf8'), antes);
+    assert.ok(fs.existsSync(alvo));
     assert.equal((await login(cliente(t.porta), 'mariana', t.senha)).status, 200);
   } finally { await t.fechar(); }
 });
@@ -218,7 +225,8 @@ test('hash administrado fora do web.env: a comparação é a do carregamento', (
   assert.equal(hashAdministradoPorFora({ DGCLAW_PANEL_PASSWORD_HASH: 'a' }, { DGCLAW_PANEL_PASSWORD_HASH: 'a' }), false, 'igual: unidade carrega o web.env');
   assert.equal(hashAdministradoPorFora({ DGCLAW_PANEL_PASSWORD_HASH: 'a' }, {}), false, 'só no arquivo');
   assert.equal(hashAdministradoPorFora({ DGCLAW_PANEL_PASSWORD_HASH: 'a' }, { DGCLAW_PANEL_PASSWORD_HASH: '' }), false);
-  assert.equal(hashAdministradoPorFora({ DGCLAW_PANEL_PASSWORD_HASH: 'a' }, { DGCLAW_PANEL_PASSWORD_HASH: 'b' }), true, 'diferente: por fora');
+  assert.equal(hashAdministradoPorFora({ DGCLAW_PANEL_PASSWORD_HASH: 'a' }, { DGCLAW_PANEL_PASSWORD_HASH: 'b' }), false, 'o arquivo define a chave: ele governa');
+  assert.equal(hashAdministradoPorFora({ DGCLAW_PANEL_PASSWORD_HASH: '' }, { DGCLAW_PANEL_PASSWORD_HASH: 'b' }), false, 'definida vazia no arquivo também governa');
   assert.equal(hashAdministradoPorFora({}, { DGCLAW_PANEL_PASSWORD_HASH: 'b' }), true, 'só no processo');
   const dir = pastaTemp('cfg');
   const webEnv = path.join(dir, 'web.env');
@@ -229,7 +237,9 @@ test('hash administrado fora do web.env: a comparação é a do carregamento', (
     process.env.DGCLAW_PANEL_PASSWORD_HASH = 'igual';
     assert.equal(carregaConfig({}, () => {}).hashPorFora, false);
     process.env.DGCLAW_PANEL_PASSWORD_HASH = 'outro';
-    assert.equal(carregaConfig({}, () => {}).hashPorFora, true);
+    const c = carregaConfig({}, () => {});
+    assert.equal(c.hashPorFora, false);
+    assert.equal(c.env.DGCLAW_PANEL_PASSWORD_HASH, 'igual', 'o hash do arquivo vence o do ambiente');
   } finally {
     if (salvo.e === undefined) delete process.env.DGCLAW_WEB_ENV; else process.env.DGCLAW_WEB_ENV = salvo.e;
     if (salvo.h === undefined) delete process.env.DGCLAW_PANEL_PASSWORD_HASH; else process.env.DGCLAW_PANEL_PASSWORD_HASH = salvo.h;
@@ -387,4 +397,194 @@ test('troca de senha do dono: senha que só chega a 12 em forma decomposta é re
     assert.equal(r.status, 400);
     assert.match(r.json.erro, /a sua tem 11/);
   } finally { await t.fechar(); }
+});
+
+// ── o web.env governa o hash ───────────────────────────────────────────────
+test('o web.env governa o hash: vale o do arquivo mesmo com outro no ambiente, e depois da troca vale o novo', () => {
+  const { carregaConfig } = require('../lib/config');
+  const dir = pastaTemp('gov');
+  const webEnv = path.join(dir, 'web.env');
+  const salvo = { e: process.env.DGCLAW_WEB_ENV, h: process.env.DGCLAW_PANEL_PASSWORD_HASH };
+  try {
+    process.env.DGCLAW_WEB_ENV = webEnv;
+    process.env.DGCLAW_PANEL_PASSWORD_HASH = 'H0';
+    fs.writeFileSync(webEnv, "DGCLAW_PANEL_PASSWORD_HASH='H1'\n");
+    let c = carregaConfig({}, () => {});
+    assert.equal(c.env.DGCLAW_PANEL_PASSWORD_HASH, 'H1');
+    assert.equal(c.hashPorFora, false);
+    fs.writeFileSync(webEnv, "DGCLAW_PANEL_PASSWORD_HASH='H2'\n"); // troca pelo painel; o processo segue com H0
+    c = carregaConfig({}, () => {});
+    assert.equal(c.env.DGCLAW_PANEL_PASSWORD_HASH, 'H2', 'depois do reinício vale o hash novo do arquivo');
+    assert.equal(c.hashPorFora, false);
+    fs.writeFileSync(webEnv, 'OUTRA=1\n');
+    c = carregaConfig({}, () => {});
+    assert.equal(c.hashPorFora, true, 'o arquivo não define a chave e o ambiente define');
+    assert.equal(c.env.DGCLAW_PANEL_PASSWORD_HASH, 'H0');
+  } finally {
+    if (salvo.e === undefined) delete process.env.DGCLAW_WEB_ENV; else process.env.DGCLAW_WEB_ENV = salvo.e;
+    if (salvo.h === undefined) delete process.env.DGCLAW_PANEL_PASSWORD_HASH; else process.env.DGCLAW_PANEL_PASSWORD_HASH = salvo.h;
+  }
+});
+
+// ── trava do web.env ───────────────────────────────────────────────────────
+const trocar = (c, t) => c.post('/api/v1/dono/senha', { json: { atual: t.senha, nova: NOVA, confirmacao: NOVA } });
+
+test('troca de senha do dono: com a trava do web.env ocupada responde 409, não grava e não apaga o link', async () => {
+  const { t, webEnv } = await comWebEnv({ opcoesServidor: { travaEsperaMs: 200 } });
+  const dir = path.dirname(webEnv);
+  const trava = path.join(dir, '.web.env.trava');
+  const pa = path.join(dir, 'primeiro-acesso.json');
+  fs.writeFileSync(pa, '{"versao":1}\n', { mode: 0o600 });
+  try {
+    assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
+    const antes = fs.readFileSync(webEnv, 'utf8');
+    fs.mkdirSync(trava);
+    const r = await trocar(t.c, t);
+    assert.equal(r.status, 409, r.texto);
+    assert.match(r.json.erro, /outro processo está gravando o web\.env/i);
+    assert.match(r.json.erro, /senha antiga continua valendo/);
+    assert.equal(fs.readFileSync(webEnv, 'utf8'), antes);
+    assert.ok(fs.existsSync(pa));
+    assert.ok(fs.existsSync(trava), 'a trava de outro processo não é apagada');
+    assert.match(t.log.texto(), /outro processo está gravando o web\.env/);
+  } finally { await t.fechar(); }
+});
+
+test('troca de senha do dono: trava abandonada (mais de 30 s) é removida e a troca segue; a trava é solta no fim', async () => {
+  const { t, webEnv } = await comWebEnv();
+  const trava = path.join(path.dirname(webEnv), '.web.env.trava');
+  try {
+    assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
+    fs.mkdirSync(trava);
+    const velho = new Date(Date.now() - 2 * 60 * 1000);
+    fs.utimesSync(trava, velho, velho);
+    const r = await trocar(t.c, t);
+    assert.equal(r.status, 200, r.texto);
+    assert.ok(!fs.existsSync(trava), 'a trava foi solta');
+    assert.match(fs.readFileSync(webEnv, 'utf8'), /^DGCLAW_PANEL_PASSWORD_HASH='scrypt\$/m);
+  } finally { await t.fechar(); }
+});
+
+test('primeiro acesso: com a trava do web.env ocupada responde 409 e o link continua valendo', async () => {
+  const crypto = require('node:crypto');
+  const dir = pastaTemp('pa-trava');
+  const webEnv = path.join(dir, 'web.env');
+  fs.writeFileSync(webEnv, 'DGCLAW_PANEL_USER=Mariana\n', { mode: 0o600 });
+  const token = crypto.randomBytes(32).toString('base64url');
+  const pa = path.join(dir, 'primeiro-acesso.json');
+  const conteudo = JSON.stringify({ versao: 1, usuario: 'Mariana', token_sha256: crypto.createHash('sha256').update(token).digest('hex'), criado: Date.now(), expira: Date.now() + 600000, usado_em: null }) + '\n';
+  fs.writeFileSync(pa, conteudo, { mode: 0o600 });
+  const t = await subirWeb({ agentes: AG, semHash: true, env: { DGCLAW_PANEL_USER: 'Mariana', DGCLAW_WEB_ENV: webEnv }, opcoesServidor: { travaEsperaMs: 200 } });
+  try {
+    fs.mkdirSync(path.join(dir, '.web.env.trava'));
+    const r = await cliente(t.porta).post('/api/primeiro-acesso', { json: { token, senha: NOVA, confirmacao: NOVA } });
+    assert.equal(r.status, 409, r.texto);
+    assert.equal(fs.readFileSync(pa, 'utf8'), conteudo, 'o link não foi consumido');
+    assert.equal(fs.readFileSync(webEnv, 'utf8'), 'DGCLAW_PANEL_USER=Mariana\n');
+  } finally { await t.fechar(); }
+});
+
+// ── web.env preparado conferido com o leitor da inicialização ──────────────
+for (const [nome, conteudo] of [
+  ['usuário vazio logo antes do hash', "DGCLAW_PANEL_USER=\nDGCLAW_PANEL_PASSWORD_HASH='velho'\n"],
+  ['usuário válido seguido de uma definição vazia', "DGCLAW_PANEL_USER=Mariana\nDGCLAW_PANEL_PASSWORD_HASH='velho'\nDGCLAW_PANEL_USER=\n"],
+]) {
+  test(`troca de senha do dono: ${nome} responde 409, web.env intacto e link preservado`, async () => {
+    const dir = pastaTemp('sd6');
+    const webEnv = path.join(dir, 'web.env');
+    fs.writeFileSync(webEnv, conteudo, { mode: 0o600 });
+    const pa = path.join(dir, 'primeiro-acesso.json');
+    fs.writeFileSync(pa, '{"versao":1}\n', { mode: 0o600 });
+    const t = await subirWeb({ agentes: AG, env: { DGCLAW_PANEL_USER: 'Mariana', DGCLAW_WEB_ENV: webEnv } });
+    try {
+      assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
+      const r = await trocar(t.c, t);
+      assert.equal(r.status, 409, r.texto);
+      assert.match(r.json.erro, /DGCLAW_PANEL_USER/);
+      assert.equal(fs.readFileSync(webEnv, 'utf8'), conteudo);
+      assert.ok(fs.existsSync(pa), 'o link de recuperação continua lá');
+      assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.tmp') || n.endsWith('.suspenso')), []);
+    } finally { await t.fechar(); }
+  });
+}
+
+test('lerEnvTexto: a última definição de cada chave vence, como na inicialização', () => {
+  const { lerEnvTexto } = require('../lib/config');
+  assert.deepEqual(lerEnvTexto("A=1\n# c\nexport B='x y'\nA=\n"), { A: '', B: 'x y' });
+});
+
+// ── link de recuperação não se perde se a gravação falhar ──────────────────
+test('troca de senha do dono: rename do web.env que falha (EBUSY) responde 500 e o link de recuperação volta intacto', async () => {
+  const { t, webEnv } = await comWebEnv();
+  const dir = path.dirname(webEnv);
+  const pa = path.join(dir, 'primeiro-acesso.json');
+  fs.writeFileSync(pa, '{"versao":1,"x":"y"}\n', { mode: 0o600 });
+  const antes = fs.readFileSync(webEnv, 'utf8');
+  const renameOrig = fs.renameSync;
+  try {
+    assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
+    fs.renameSync = function (de, para, ...resto) {
+      if (para === webEnv) { const e = new Error('ocupado'); e.code = 'EBUSY'; throw e; }
+      return renameOrig.call(this, de, para, ...resto);
+    };
+    const r = await trocar(t.c, t);
+    fs.renameSync = renameOrig;
+    assert.equal(r.status, 500, r.texto);
+    assert.match(r.json.erro, /link de recuperação pendente continua valendo/);
+    assert.equal(fs.readFileSync(webEnv, 'utf8'), antes);
+    assert.equal(fs.readFileSync(pa, 'utf8'), '{"versao":1,"x":"y"}\n');
+    assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.suspenso') || n.endsWith('.tmp')), []);
+    assert.ok(!fs.existsSync(path.join(dir, '.web.env.trava')), 'a trava foi solta');
+    assert.equal((await login(cliente(t.porta), 'Mariana', t.senha)).status, 200, 'a senha antiga segue valendo');
+  } finally { fs.renameSync = renameOrig; await t.fechar(); }
+});
+
+test('troca de senha do dono: depois de gravar, o link suspenso é apagado (nenhum .suspenso sobra)', async () => {
+  const { t, webEnv } = await comWebEnv();
+  const dir = path.dirname(webEnv);
+  const pa = path.join(dir, 'primeiro-acesso.json');
+  fs.writeFileSync(pa, '{"versao":1}\n', { mode: 0o600 });
+  try {
+    assert.equal((await login(t.c, 'Mariana', t.senha)).status, 200);
+    assert.equal((await trocar(t.c, t)).status, 200);
+    assert.ok(!fs.existsSync(pa));
+    assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.suspenso') || n.endsWith('.tmp')), []);
+  } finally { await t.fechar(); }
+});
+
+// ── escrita do dono (sem Face ID) pelo proxy revalidada no fim do corpo ────
+test('dono sem Face ID: escrita pelo proxy com corpo lento e senha trocada antes do fim dá 401 e nada chega ao painel', async () => {
+  const http = require('node:http');
+  const visto = [];
+  const painel = http.createServer((req, res) => { visto.push(req.url); req.resume(); req.on('end', () => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); }); });
+  await new Promise((r) => painel.listen(0, '127.0.0.1', r));
+  const dir = pastaTemp('sd7');
+  const webEnv = path.join(dir, 'web.env');
+  fs.writeFileSync(webEnv, "DGCLAW_PANEL_USER=Mariana\nDGCLAW_PANEL_PASSWORD_HASH='velho'\n", { mode: 0o600 });
+  const segredo = path.join(dir, 'proxy.txt');
+  fs.writeFileSync(segredo, 'segredo-do-proxy-so-de-teste\n');
+  const ag = AG.concat([{ slug: 'ana', nome: 'Ana', runner: 'http://127.0.0.1:1', agente_id: 'a1', porta_painel: painel.address().port, proxy_segredo_arquivo: segredo }]);
+  const t = await subirWeb({ agentes: ag, env: { DGCLAW_PANEL_USER: 'Mariana', DGCLAW_WEB_ENV: webEnv } });
+  try {
+    const lenta = cliente(t.porta);
+    assert.equal((await login(lenta, 'Mariana', t.senha)).status, 200);
+    const outra = cliente(t.porta);
+    assert.equal((await login(outra, 'Mariana', t.senha)).status, 200);
+    const cookie = Object.entries(lenta.jar).map(([k, v]) => `${k}=${v}`).join('; ');
+    const resposta = await new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port: t.porta, path: '/p/ana/api/rotinas', method: 'POST', headers: { Origin: `http://127.0.0.1:${t.porta}`, 'Content-Type': 'application/json', Cookie: cookie } }, (res) => {
+        const partes = []; res.on('data', (x) => partes.push(x)); res.on('end', () => resolve({ status: res.statusCode, texto: Buffer.concat(partes).toString() }));
+      });
+      req.on('error', reject);
+      req.write('{"a":');
+      setTimeout(async () => {
+        try {
+          assert.equal((await trocar(outra, t)).status, 200);
+          req.end('1}');
+        } catch (e) { reject(e); }
+      }, 150);
+    });
+    assert.equal(resposta.status, 401, resposta.texto);
+    assert.deepEqual(visto, [], 'nada chegou ao painel');
+  } finally { await t.fechar(); await new Promise((r) => { painel.closeAllConnections(); painel.close(r); }); }
 });

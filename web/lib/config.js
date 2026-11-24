@@ -4,16 +4,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-/** Lê um arquivo KEY=VALOR. Devolve { vars, erro }. Nunca lança. */
-function lerEnvArquivo(caminho) {
-  let texto;
-  try {
-    texto = fs.readFileSync(caminho, 'utf8');
-  } catch (e) {
-    return { vars: {}, erro: `${e.code || e.name}: ${e.message}` };
-  }
+/** Interpreta o texto de um arquivo KEY=VALOR (a última definição de cada chave vence). Função pura: nunca lança. */
+function lerEnvTexto(texto) {
   const vars = {};
-  for (const bruta of texto.split(/\r?\n/)) {
+  for (const bruta of String(texto).split(/\r?\n/)) {
     const linha = bruta.trim();
     if (!linha || linha.startsWith('#')) continue;
     const m = linha.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
@@ -24,14 +18,25 @@ function lerEnvArquivo(caminho) {
     }
     vars[m[1]] = v;
   }
-  return { vars, erro: null };
+  return vars;
 }
 
-/** O hash do processo existe e difere do hash do arquivo? Então ele é administrado fora do web.env. */
+/** Lê um arquivo KEY=VALOR. Devolve { vars, erro }. Nunca lança. */
+function lerEnvArquivo(caminho) {
+  let texto;
+  try {
+    texto = fs.readFileSync(caminho, 'utf8');
+  } catch (e) {
+    return { vars: {}, erro: `${e.code || e.name}: ${e.message}` };
+  }
+  return { vars: lerEnvTexto(texto), erro: null };
+}
+
+/** O web.env governa o hash: só é "por fora" quando o arquivo NÃO define a chave (nem vazia) e o processo a define
+ *  com valor. Se o arquivo a define, o valor dele vence (ver carregaConfig), então uma troca pelo painel vale no reinício. */
 function hashAdministradoPorFora(varsArquivo, envProcesso) {
-  const doProcesso = String((envProcesso || {}).DGCLAW_PANEL_PASSWORD_HASH || '').trim();
-  if (!doProcesso) return false;
-  return doProcesso !== String((varsArquivo || {}).DGCLAW_PANEL_PASSWORD_HASH || '').trim();
+  if (Object.prototype.hasOwnProperty.call(varsArquivo || {}, 'DGCLAW_PANEL_PASSWORD_HASH')) return false;
+  return !!String((envProcesso || {}).DGCLAW_PANEL_PASSWORD_HASH || '').trim();
 }
 
 /**
@@ -52,14 +57,16 @@ function carregaConfig(opcoes, log) {
         'se o login ficar trancado, rode o instalador para gerar esse arquivo.');
     }
     env = Object.assign({}, r.vars, process.env);
+    // O web.env governa o hash da senha: se ele define a chave, vale o dele mesmo que o ambiente do processo traga outro.
+    if (Object.prototype.hasOwnProperty.call(r.vars, 'DGCLAW_PANEL_PASSWORD_HASH')) env.DGCLAW_PANEL_PASSWORD_HASH = r.vars.DGCLAW_PANEL_PASSWORD_HASH;
     hashPorFora = hashAdministradoPorFora(r.vars, process.env);
   }
   const num = (v, pad) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : pad; };
   return {
     env,
-    // true quando o hash da senha do painel vem do ambiente do processo e é diferente do que está no web.env
-    // (ex.: Environment= na unidade). Medido no carregamento: depois de uma troca pelo painel o processo ainda
-    // tem o hash antigo e o arquivo o novo, e isso não conta como "por fora".
+    // true quando o hash da senha do painel só existe no ambiente do processo (ex.: Environment= na unidade) e o
+    // web.env não o define. Se o web.env define, ele governa: depois de uma troca pelo painel o processo ainda
+    // tem o hash antigo, o arquivo o novo, e vale o do arquivo.
     hashPorFora,
     host: opcoes.host || env.DGCLAW_WEB_HOST || '127.0.0.1',
     porta: opcoes.porta != null ? opcoes.porta : num(env.DGCLAW_WEB_PORT, 8300),
@@ -86,4 +93,4 @@ function carregaConfig(opcoes, log) {
   };
 }
 
-module.exports = { lerEnvArquivo, carregaConfig, hashAdministradoPorFora };
+module.exports = { lerEnvTexto, lerEnvArquivo, carregaConfig, hashAdministradoPorFora };

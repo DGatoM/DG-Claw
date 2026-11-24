@@ -7,12 +7,13 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { lerEnvTexto } = require('./config');
 
 const JANELA_MS = 10 * 60 * 1000;
 const MAX_POSTS = 10;
 const RX_TOKEN = /^[A-Za-z0-9_-]{43}$/;
 const RX_LINHA_HASH = /^(\s*(?:export\s+)?)DGCLAW_PANEL_PASSWORD_HASH\s*=.*$/m;
-const RX_USUARIO_PAINEL = /^\s*(?:export\s+)?DGCLAW_PANEL_USER\s*=\s*['"]?[^'"\s#]/m; // o usuário do painel com valor
+const TRAVA_ABANDONADA_MS = 30 * 1000; // trava mais velha que isto é de quem morreu (a do bash segue a mesma regra)
 
 const sha256buf = (v) => crypto.createHash('sha256').update(v).digest();
 
@@ -35,7 +36,36 @@ function gravaAtomico(arquivo, texto) {
   }
 }
 
-function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy }) {
+/**
+ * Trava do web.env: uma pasta `.web.env.trava` ao lado dele, criada com mkdir (atômico), a mesma que o instalador e o
+ * `dgclaw senha` pegam em lib/comum.sh. Sem ela, uma regravação deles que leu o arquivo antes da troca desfaria o hash novo.
+ * Devolve a função que solta a trava, ou null se continuou ocupada depois de `esperaMs`. Outros erros (permissão...) sobem.
+ */
+async function pegarTrava(webEnv, { esperaMs = 3000, passoMs = 50 } = {}) {
+  const trava = path.join(path.dirname(webEnv), '.web.env.trava');
+  const limite = Date.now() + esperaMs;
+  for (;;) {
+    try {
+      fs.mkdirSync(trava);
+      return () => { try { fs.rmdirSync(trava); } catch (e) { if (e.code !== 'ENOENT') throw e; } };
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+    }
+    let mtime;
+    try { mtime = fs.statSync(trava).mtimeMs; } catch (e) {
+      if (e.code === 'ENOENT') continue; // foi solta agora há pouco: tenta de novo
+      throw e;
+    }
+    if (Date.now() - mtime > TRAVA_ABANDONADA_MS) {
+      try { fs.rmdirSync(trava); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+      continue;
+    }
+    if (Date.now() >= limite) return null;
+    await new Promise((resolve) => setTimeout(resolve, passoMs));
+  }
+}
+
+function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy, travaEsperaMs }) {
   const relogio = agora || (() => Date.now());
   const arquivo = caminhoArquivo(config);
   const webEnv = caminhoWebEnv(config);
@@ -93,6 +123,26 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy }) {
     return { motivo: tipo };
   }
 
+  const opcoesTrava = travaEsperaMs != null ? { esperaMs: travaEsperaMs } : {};
+  /** Pega a trava do web.env. Devolve { liberar } ou { resposta } (o erro já formatado, com log). */
+  async function travaDoWebEnv(contexto) {
+    let liberar;
+    try {
+      liberar = await pegarTrava(webEnv, opcoesTrava);
+    } catch (e) {
+      log('erro', `${contexto}: não consegui criar a trava do web.env ao lado de ${webEnv} (${e.code || e.message}). Nada foi gravado.`);
+      return { resposta: erro(500, `Não consegui preparar a gravação do web.env (${e.code || e.message}). Nada foi gravado e a senha antiga continua valendo; peça ao Admin para conferir a permissão da pasta de configuração.`) };
+    }
+    if (!liberar) {
+      log('aviso', `${contexto}: outro processo está gravando o web.env (a trava ao lado de ${webEnv} ficou ocupada). Nada foi gravado.`);
+      return { resposta: erro(409, 'Outro processo está gravando o web.env agora; nada foi gravado, a senha antiga continua valendo, tente de novo em alguns segundos.') };
+    }
+    const soltar = () => {
+      try { liberar(); } catch (e) { log('erro', `${contexto}: não consegui soltar a trava do web.env (${e.code || e.message}). Se ela travar o próximo pedido, apague a pasta .web.env.trava ao lado de ${webEnv}.`); }
+    };
+    return { liberar: soltar };
+  }
+
   const erro = (status, msg, extra) => ({ status, corpo: Object.assign({ ok: false, erro: msg }, extra || {}) });
   let trocandoDono = false;
 
@@ -137,52 +187,81 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy }) {
         return erro(500, 'Não consegui processar a senha agora. Tente de novo em instantes.');
       }
       // Depois dos awaits: a sessão que autorizou o pedido ainda tem de valer.
-      const agoraSessao = auth.sessaoDoPedido(req);
-      if (!agoraSessao || agoraSessao.papel !== 'dono' || agoraSessao.usuario !== sessao.usuario) return erro(401, 'A sua sessão deixou de valer enquanto você trocava a senha. Entre de novo.');
-      // O web.env pode ter mudado durante os awaits: confere de novo antes de consumir o link de recuperação.
-      const destinoAgora = destinoInvalido();
-      if (destinoAgora) {
-        log('erro', `Troca de senha do dono recusada: ${webEnv} ${destinoAgora.motivo} (mudou durante a troca).`);
-        return erro(409, `Não dá para trocar a senha por aqui: ${webEnv} ${destinoAgora.motivo}. Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env como arquivo comum (ou rode no servidor: sudo dgclaw senha).`);
-      }
-      // O arquivo novo fica pronto (e conferido) ANTES de consumir o link: falta de espaço ou um web.env sem o
-      // usuário do painel não podem custar o link de recuperação.
-      let texto;
+      const sessaoVale = () => {
+        const agoraSessao = auth.sessaoDoPedido(req);
+        return !!agoraSessao && agoraSessao.papel === 'dono' && agoraSessao.usuario === sessao.usuario;
+      };
+      const MSG_SESSAO = 'A sua sessão deixou de valer enquanto você trocava a senha. Entre de novo.';
+      if (!sessaoVale()) return erro(401, MSG_SESSAO);
+      const trava = await travaDoWebEnv('Troca de senha do dono');
+      if (trava.resposta) return trava.resposta;
       try {
-        texto = textoComHash(hash, true);
-      } catch (e) {
-        log('erro', `Troca de senha do dono: não consegui ler ${webEnv} (${e.code || e.message}). A senha antiga continua valendo.`);
-        return erro(409, `Não consegui ler o web.env (${e.code || e.message}). Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env (ou rode no servidor: sudo dgclaw senha).`);
-      }
-      if (!RX_USUARIO_PAINEL.test(texto)) {
-        log('erro', `Troca de senha do dono recusada: ${webEnv} não define DGCLAW_PANEL_USER; depois de reiniciar, o login ficaria trancado.`);
-        return erro(409, `O web.env não tem o usuário do painel (DGCLAW_PANEL_USER). Com a senha gravada nele, o próximo reinício trancaria o login, então nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env (ou rode no servidor: sudo dgclaw senha).`);
-      }
-      const tmp = `${webEnv}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
-      try {
-        fs.writeFileSync(tmp, texto, { mode: 0o600 });
-        fs.chmodSync(tmp, 0o600);
-      } catch (e) {
-        try { fs.unlinkSync(tmp); } catch (_) { /* não existia */ }
-        log('erro', `Troca de senha do dono: não consegui preparar o web.env novo (${e.code || e.message}). A senha antiga continua valendo.`);
-        return erro(500, `Não consegui gravar a senha no servidor (${e.code || e.message}). A senha antiga continua valendo e o link de recuperação pendente continua valendo; peça ao Admin para conferir o espaço e a permissão da pasta de configuração.`);
-      }
-      // Antes de publicar: o link de primeiro acesso pendente deixa de valer (como na troca pelo terminal).
-      // Se não der para apagar, a troca não acontece e a senha antiga continua valendo.
-      try {
-        fs.rmSync(arquivo, { force: true });
-      } catch (e) {
-        try { fs.unlinkSync(tmp); } catch (_) { /* já saiu */ }
-        log('erro', `Troca de senha do dono: não consegui invalidar o link de primeiro acesso pendente em ${arquivo} (${e.code || e.message}). A senha antiga continua valendo.`);
-        return erro(500, `Não consegui invalidar o link de recuperação pendente (${e.code || e.message}). A senha antiga continua valendo; peça ao Admin para conferir a permissão da pasta de configuração.`);
-      }
-      try {
-        fs.renameSync(tmp, webEnv);
-      } catch (e) {
-        try { fs.unlinkSync(tmp); } catch (_) { /* já saiu */ }
-        log('erro', `Troca de senha do dono: não consegui gravar a senha em ${webEnv} (${e.code || e.message}). A senha antiga continua valendo.`);
-        return erro(500, `Não consegui gravar a senha no servidor (${e.code || e.message}). A senha antiga continua valendo; peça ao Admin para conferir a permissão do arquivo de configuração.`);
-      }
+        // A espera pela trava também é um await: a sessão é conferida de novo antes de gravar.
+        if (!sessaoVale()) return erro(401, MSG_SESSAO);
+        // O web.env pode ter mudado durante os awaits: confere de novo antes de consumir o link de recuperação.
+        const destinoAgora = destinoInvalido();
+        if (destinoAgora) {
+          log('erro', `Troca de senha do dono recusada: ${webEnv} ${destinoAgora.motivo} (mudou durante a troca).`);
+          return erro(409, `Não dá para trocar a senha por aqui: ${webEnv} ${destinoAgora.motivo}. Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env como arquivo comum (ou rode no servidor: sudo dgclaw senha).`);
+        }
+        // O arquivo novo fica pronto (e conferido) ANTES de mexer no link: falta de espaço ou um web.env sem o
+        // usuário do painel não podem custar o link de recuperação.
+        let texto;
+        try {
+          texto = textoComHash(hash, true);
+        } catch (e) {
+          log('erro', `Troca de senha do dono: não consegui ler ${webEnv} (${e.code || e.message}). A senha antiga continua valendo.`);
+          return erro(409, `Não consegui ler o web.env (${e.code || e.message}). Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env (ou rode no servidor: sudo dgclaw senha).`);
+        }
+        // Confere com o mesmo leitor que o painel usa ao iniciar: o que ele vai ler no reinício é o que vale.
+        const efetivo = lerEnvTexto(texto);
+        if (!String(efetivo.DGCLAW_PANEL_USER || '').trim() || efetivo.DGCLAW_PANEL_PASSWORD_HASH !== hash) {
+          log('erro', `Troca de senha do dono recusada: ${webEnv} não ficaria com um DGCLAW_PANEL_USER válido e com o hash novo; depois de reiniciar, o login ficaria trancado.`);
+          return erro(409, `O web.env não tem o usuário do painel (DGCLAW_PANEL_USER) preenchido, ou tem outra definição que prevaleceria sobre o hash novo. Com a senha gravada nele, o próximo reinício trancaria o login, então nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env (ou rode no servidor: sudo dgclaw senha).`);
+        }
+        const sufixo = `${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
+        const tmp = `${webEnv}.${sufixo}.tmp`;
+        try {
+          fs.writeFileSync(tmp, texto, { mode: 0o600 });
+          fs.chmodSync(tmp, 0o600);
+        } catch (e) {
+          try { fs.unlinkSync(tmp); } catch (_) { /* não existia */ }
+          log('erro', `Troca de senha do dono: não consegui preparar o web.env novo (${e.code || e.message}). A senha antiga continua valendo.`);
+          return erro(500, `Não consegui gravar a senha no servidor (${e.code || e.message}). A senha antiga continua valendo e o link de recuperação pendente continua valendo; peça ao Admin para conferir o espaço e a permissão da pasta de configuração.`);
+        }
+        // O link de primeiro acesso pendente deixa de valer junto com a troca (como pelo terminal), mas só depois que o
+        // web.env novo entrar: ele é suspenso (renomeado) e só então apagado, para voltar se a gravação falhar.
+        const suspenso = `${arquivo}.${sufixo}.suspenso`;
+        let suspendeu = false;
+        try {
+          fs.renameSync(arquivo, suspenso);
+          suspendeu = true;
+        } catch (e) {
+          if (e.code !== 'ENOENT') {
+            try { fs.unlinkSync(tmp); } catch (_) { /* já saiu */ }
+            log('erro', `Troca de senha do dono: não consegui invalidar o link de primeiro acesso pendente em ${arquivo} (${e.code || e.message}). A senha antiga continua valendo.`);
+            return erro(500, `Não consegui invalidar o link de recuperação pendente (${e.code || e.message}). A senha antiga continua valendo; peça ao Admin para conferir a permissão da pasta de configuração.`);
+          }
+        }
+        try {
+          fs.renameSync(tmp, webEnv);
+        } catch (e) {
+          try { fs.unlinkSync(tmp); } catch (_) { /* já saiu */ }
+          let devolvido = !suspendeu;
+          if (suspendeu) {
+            try { fs.renameSync(suspenso, arquivo); devolvido = true; } catch (e2) {
+              log('erro', `Troca de senha do dono: não consegui devolver o link de primeiro acesso suspenso (${e2.code || e2.message}). Ele está em ${suspenso}; para restaurá-lo, renomeie esse arquivo de volta para ${arquivo}.`);
+            }
+          }
+          log('erro', `Troca de senha do dono: não consegui gravar a senha em ${webEnv} (${e.code || e.message}). A senha antiga continua valendo.`);
+          return erro(500, `Não consegui gravar a senha no servidor (${e.code || e.message}). A senha antiga continua valendo${devolvido ? ' e o link de recuperação pendente continua valendo' : ''}; peça ao Admin para conferir a permissão do arquivo de configuração.`);
+        }
+        if (suspendeu) {
+          try { fs.rmSync(suspenso, { force: true }); } catch (e) {
+            log('erro', `Troca de senha do dono: a senha foi gravada, mas não consegui apagar ${suspenso} (${e.code || e.message}). O link já não vale; pode apagar esse arquivo à mão.`);
+          }
+        }
+      } finally { trava.liberar(); }
       const r = auth.definirHash(hash);
       if (!r.ok) {
         log('erro', `Troca de senha do dono: o hash gerado não foi aceito (${r.erro}).`);
@@ -243,25 +322,31 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy }) {
         return erro(500, 'Não consegui processar a senha agora. Tente de novo em instantes.');
       }
 
-      // depois do await: confere de novo, em sequência síncrona, que ninguém usou o token no meio
-      let atual;
-      try { atual = lerArquivo(); } catch (e) { return erro(410, 'Este link já foi usado. Se não foi você, rode no servidor: sudo dgclaw senha'); }
-      if (atual.token_sha256 !== dado.token_sha256 || atual.usado_em != null) {
-        return erro(410, 'Este link já foi usado. Se não foi você, rode no servidor: sudo dgclaw senha');
-      }
-      const usuario = String(atual.usuario || auth.usuario || '').trim();
+      // A trava do web.env vem antes de marcar o link como usado: se ela estiver ocupada, o link continua valendo.
+      const trava = await travaDoWebEnv('Primeiro acesso');
+      if (trava.resposta) return trava.resposta;
+      let usuario;
       try {
-        gravaAtomico(arquivo, JSON.stringify(Object.assign({}, atual, { usado_em: relogio() })) + '\n');
-      } catch (e) {
-        log('erro', `Primeiro acesso: não consegui marcar o link como usado em ${arquivo} (${e.code || e.message}).`);
-        return erro(500, `Não consegui gravar o uso do link (${e.code || e.message}). No servidor, rode: sudo dgclaw primeiro-acesso`);
-      }
-      try {
-        gravaHashNoEnv(hash);
-      } catch (e) {
-        log('erro', `Primeiro acesso: não consegui gravar a senha em ${webEnv} (${e.code || e.message}). O link já foi marcado como usado.`);
-        return erro(500, `Não consegui gravar a senha no servidor (${e.code || e.message}). O link já foi usado: rode no servidor sudo dgclaw primeiro-acesso e tente de novo.`);
-      }
+        // depois do await: confere de novo, em sequência síncrona, que ninguém usou o token no meio
+        let atual;
+        try { atual = lerArquivo(); } catch (e) { return erro(410, 'Este link já foi usado. Se não foi você, rode no servidor: sudo dgclaw senha'); }
+        if (atual.token_sha256 !== dado.token_sha256 || atual.usado_em != null) {
+          return erro(410, 'Este link já foi usado. Se não foi você, rode no servidor: sudo dgclaw senha');
+        }
+        usuario = String(atual.usuario || auth.usuario || '').trim();
+        try {
+          gravaAtomico(arquivo, JSON.stringify(Object.assign({}, atual, { usado_em: relogio() })) + '\n');
+        } catch (e) {
+          log('erro', `Primeiro acesso: não consegui marcar o link como usado em ${arquivo} (${e.code || e.message}).`);
+          return erro(500, `Não consegui gravar o uso do link (${e.code || e.message}). No servidor, rode: sudo dgclaw primeiro-acesso`);
+        }
+        try {
+          gravaHashNoEnv(hash);
+        } catch (e) {
+          log('erro', `Primeiro acesso: não consegui gravar a senha em ${webEnv} (${e.code || e.message}). O link já foi marcado como usado.`);
+          return erro(500, `Não consegui gravar a senha no servidor (${e.code || e.message}). O link já foi usado: rode no servidor sudo dgclaw primeiro-acesso e tente de novo.`);
+        }
+      } finally { trava.liberar(); }
       const r = auth.definirHash(hash);
       if (!r.ok) {
         log('erro', `Primeiro acesso: o hash gerado não foi aceito (${r.erro}).`);
