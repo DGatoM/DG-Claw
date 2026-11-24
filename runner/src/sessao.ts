@@ -44,7 +44,7 @@ import {
 import { digitarEEnviar, vencerTelaDeConfianca } from "./sessao/digitacao.js";
 import { MedidorDeUso } from "./uso.js";
 import { type PayloadDeHook, receberHook } from "./sessao/eventos.js";
-import { type ResultadoDoEnfileirar, type SemRecibo, enfileirarQuandoOcioso, itensNaoEntregues, recuperarDoDisco, talvezSoltarFila } from "./sessao/fila.js";
+import { type ResultadoDoEnfileirar, type SemRecibo, enfileirarQuandoOcioso, itensNaoEntregues, recuperarDoDisco, suspenderPorRascunho, talvezSoltarFila } from "./sessao/fila.js";
 import { encerrarIncidenteDeLogin, entregarRecadoDeLogin, marcarLoginExpirado, retomarAposLoginExpirado } from "./sessao/login.js";
 import { ESC } from "./sessao/telas.js";
 
@@ -422,7 +422,12 @@ export class Sessao extends EventEmitter {
 
   /** Chamado por toda escrita que vem de fora do runner (tecla do terminal, entrada crua). */
   registrarEscritaDeFora(texto: string): void {
-    if (/[\r\n]/.test(texto)) this.enterManualPendente = { promptsAntes: this.promptsAceitos, em: Date.now() };
+    if (/[\r\n]/.test(texto)) {
+      this.enterManualPendente = { promptsAntes: this.promptsAceitos, em: Date.now() };
+    } else if (texto !== "" && this.digitacaoSuspensaEm === null) {
+      // Um rascunho do dono, sem Enter, já está na caixa: nada é digitado por cima até a caixa aparecer vazia.
+      suspenderPorRascunho(this);
+    }
   }
 
   /** Os valores do cofre que não podem aparecer na tela nem no histórico. */

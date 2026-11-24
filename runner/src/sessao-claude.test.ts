@@ -1943,7 +1943,7 @@ test("repetição do Enter: depois do primeiro Enter abre um diálogo de permiss
 
 test("estadoDaCaixa: mesmo texto, caixa vazia, diálogo e texto diferente", async () => {
   const { estadoDaCaixa, caixaVaziaNaTela } = await import("./sessao/telas.js");
-  const caixa = (t: string) => `\u001b[2J\u001b[H╭──────╮\r\n│ ❯ ${t}\r\n╰──────╯\r\n? for shortcuts\r\n`;
+  const caixa = (t: string) => `\u001b[2J\u001b[H╭──────────────────────────────────────────╮\r\n│ ❯ ${t}\r\n╰──────────────────────────────────────────╯\r\n? for shortcuts\r\n`;
   assert.equal(estadoDaCaixa(caixa("faça o relatório de vendas do mês passado por favor"), "faça o relatório de vendas do mês passado por favor"), "mesmo-texto");
   assert.equal(estadoDaCaixa(caixa("faça o relatório de vendas do mês passado por favor"), "faça o relatório de vendas do\nmês passado por favor"), "mesmo-texto", "quebra de linha não atrapalha");
   assert.equal(estadoDaCaixa(caixa(""), "qualquer pedido"), "vazia");
@@ -1955,7 +1955,7 @@ test("estadoDaCaixa: mesmo texto, caixa vazia, diálogo e texto diferente", asyn
   assert.equal(caixaVaziaNaTela(caixa("? posso apagar a pasta de vendas?")), false, "rascunho que começa com ? não é caixa vazia");
   assert.equal(estadoDaCaixa(caixa("? posso apagar a pasta de vendas?"), "qualquer pedido"), "indeterminada", "rascunho com ? é indeterminada");
   assert.equal(estadoDaCaixa(caixa("pedido-x") + "  Do you want to proceed?\r\n", "pedido-x"), "indeterminada", "algo depois do texto que não é o rodapé");
-  assert.equal(estadoDaCaixa("╭──╮\r\n│ ❯ pedido-antigo\r\n╰──╯\r\n ❯ outro menu\r\n", "pedido-antigo"), "indeterminada", "texto acima do último prompt não conta");
+  assert.equal(estadoDaCaixa("╭──────────────────────────────────────────╮\r\n│ ❯ pedido-antigo\r\n╰──────────────────────────────────────────╯\r\n ❯ outro menu\r\n", "pedido-antigo"), "indeterminada", "texto acima do último prompt não conta");
   assert.equal(caixaVaziaNaTela(caixa("rascunho")), false);
   assert.equal(caixaVaziaNaTela(comDialogo), false);
   // Revisão: o conteúdo inteiro precisa ser igual (não um sufixo) e o marcador só vale no início da linha.
@@ -1963,7 +1963,7 @@ test("estadoDaCaixa: mesmo texto, caixa vazia, diálogo e texto diferente", asyn
   assert.equal(estadoDaCaixa(caixa("plano de estudo ›"), "qualquer pedido"), "indeterminada");
   assert.equal(caixaVaziaNaTela(caixa("plano de estudo ›")), false, "› no fim do rascunho não é marcador");
   assert.equal(estadoDaCaixa(caixa("plano ❯ de estudo"), "plano ❯ de estudo"), "mesmo-texto", "❯ no meio é conteúdo");
-  const dois = "╭──╮\r\n│ ❯ primeira linha\r\n│ ❯ segunda linha\r\n╰──╯\r\n? for shortcuts\r\n";
+  const dois = "╭──────────────────────────────────────────╮\r\n│ ❯ primeira linha\r\n│ ❯ segunda linha\r\n╰──────────────────────────────────────────╯\r\n? for shortcuts\r\n";
   assert.equal(estadoDaCaixa(dois, "segunda linha"), "indeterminada", "limites ambíguos");
 });
 
@@ -2122,7 +2122,7 @@ test("o agente passa a esperar resposta enquanto o envio espera a vez: nada é c
   assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["pedido-na-permissao"]);
 });
 
-test("o 502 ENTREGA_INCERTA manda esperar e conferir antes de reenviar", () => {
+test("a entrega incerta (202 entregaIncerta) manda esperar e conferir antes de reenviar", () => {
   const fonte = fs.readFileSync(new URL("./servidor.ts", import.meta.url.replace("/dist/", "/src/")), "utf8");
   assert.match(fonte, /ainda pode concluir a entrega nos próximos ~2 minutos: espere, confira a conversa do agente e só reenvie se o pedido não aparecer/);
   assert.doesNotMatch(fonte, /se não aparece, reenviar\./);
@@ -2291,7 +2291,7 @@ test("tela atual: um rascunho escrito com movimento de cursor, sem limpar a tela
   const { s } = await nova();
   await s.subir("nova");
   await esperarAte(() => s.estado.status === "idle", 8_000);
-  await alimentarTela(s, "\u001b[2J\u001b[H╭──────╮\r\n│ ❯ \r\n╰──────╯\r\n? for shortcuts\r\n");
+  await alimentarTela(s, "\u001b[2J\u001b[H╭──────────────────────────────────────────╮\r\n│ ❯ \r\n╰──────────────────────────────────────────╯\r\n? for shortcuts\r\n");
   assert.equal(caixaVaziaNaTela(s.telaAtual()), true);
   await alimentarTela(s, "\u001b[2;5Hrascunho-do-dono"); // escreve dentro da caixa sem limpar nada
   assert.equal(caixaVaziaNaTela(s.telaAtual()), false, "a tela de agora tem o rascunho");
@@ -2322,7 +2322,7 @@ test("sem hooks: com texto ainda na caixa, o pedido comum é parado como caixa (
   s.spawnEm = 0;
   for (const [texto, barra] of [["pedido-sem-hooks-na-caixa", false], ["/clear", true]] as const) {
     s.digitacaoSuspensaEm = null;
-    await alimentarTela(s, `\u001b[2J\u001b[H╭──╮\r\n│ ❯ ${texto}\r\n╰──╯\r\n? for shortcuts\r\n`);
+    await alimentarTela(s, `\u001b[2J\u001b[H╭──────────────────────────────────────────╮\r\n│ ❯ ${texto}\r\n╰──────────────────────────────────────────╯\r\n? for shortcuts\r\n`);
     const { item, entrada } = novoItem(texto);
     s.semRecibo.push(entrada);
     s.itemEmVoo = item;
@@ -2332,7 +2332,7 @@ test("sem hooks: com texto ainda na caixa, o pedido comum é parado como caixa (
     s.semRecibo.length = 0;
   }
   // Caixa vazia: a regra de hoje. Barra sem recibo próprio = consumido; pedido comum = sem-hooks, sem suspender.
-  await alimentarTela(s, "\u001b[2J\u001b[H╭──╮\r\n│ ❯ \r\n╰──╯\r\n? for shortcuts\r\n");
+  await alimentarTela(s, "\u001b[2J\u001b[H╭──────────────────────────────────────────╮\r\n│ ❯ \r\n╰──────────────────────────────────────────╯\r\n? for shortcuts\r\n");
   s.digitacaoSuspensaEm = null;
   assert.equal(await enviarComRecibo(s, { texto: "/clear", comandoDeBarra: true, envio: null, proc: s.proc! }), true);
   const { item, entrada } = novoItem("comum-caixa-vazia");
@@ -2383,7 +2383,7 @@ test("recibo de outro turno: depois de uma escrita manual o recibo NÃO confirma
 test("recibo que chega depois de uma escrita de fora: enviarComRecibo não devolve true (entrega incerta) e suspende a digitação", async () => {
   const { s, restaurar } = await sessaoComEscritaAnotada();
   const { enviarComRecibo } = await import("./sessao/digitacao.js");
-  await alimentarTela(s, "\u001b[2J\u001b[H╭──╮\r\n│ ❯ texto-do-recibo-duvidoso\r\n╰──╯\r\n? for shortcuts\r\n");
+  await alimentarTela(s, "\u001b[2J\u001b[H╭──────────────────────────────────────────╮\r\n│ ❯ texto-do-recibo-duvidoso\r\n╰──────────────────────────────────────────╯\r\n? for shortcuts\r\n");
   setTimeout(() => {
     s.entradasManuais += 1; // alguém escreveu depois do nosso Enter
     s.promptsAceitos += 1; // e o recibo é da mensagem dele
@@ -2476,8 +2476,8 @@ test("fila: se o arquivo não pode ser gravado o pedido é recusado (nao-gravado
 
 // --- Rodada 2 da revisão ---
 
-const CAIXA_VAZIA = "\u001b[2J\u001b[H╭──╮\r\n│ ❯ \r\n╰──╯\r\n? for shortcuts\r\n";
-const caixaCom = (t: string) => `\u001b[2J\u001b[H╭──╮\r\n│ ❯ ${t}\r\n╰──╯\r\n? for shortcuts\r\n`;
+const CAIXA_VAZIA = "\u001b[2J\u001b[H╭──────────────────────────────────────────╮\r\n│ ❯ \r\n╰──────────────────────────────────────────╯\r\n? for shortcuts\r\n";
+const caixaCom = (t: string) => `\u001b[2J\u001b[H╭──────────────────────────────────────────╮\r\n│ ❯ ${t}\r\n╰──────────────────────────────────────────╯\r\n? for shortcuts\r\n`;
 
 test("primeiro Enter: com um diálogo aberto na tela de agora ele NÃO é apertado; sem diálogo sai", async () => {
   const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
@@ -2542,12 +2542,12 @@ test("tela sincronizada: se a saída do terminal muda durante a sincronização,
 test("lerCaixa: rascunho de vários parágrafos, com linha em branco e um parágrafo que começa com ❯ ou ›, não é caixa vazia nem texto reconhecido", async () => {
   const { estadoDaCaixa, caixaVaziaNaTela } = await import("./sessao/telas.js");
   for (const marca of ["❯", "›"]) {
-    const tela = `╭──╮\r\n│ ❯ primeiro parágrafo do rascunho\r\n\r\n${marca} segundo parágrafo\r\n╰──╯\r\n? for shortcuts\r\n`;
+    const tela = `╭──────────────────────────────────────────╮\r\n│ ❯ primeiro parágrafo do rascunho\r\n\r\n${marca} segundo parágrafo\r\n╰──────────────────────────────────────────╯\r\n? for shortcuts\r\n`;
     assert.equal(estadoDaCaixa(tela, "qualquer pedido"), "indeterminada", marca);
     assert.equal(caixaVaziaNaTela(tela), false, marca);
   }
   // Um rascunho de parágrafos sem marcador no segundo continua sendo lido inteiro.
-  assert.equal(estadoDaCaixa("╭──╮\r\n│ ❯ um\r\n\r\ndois\r\n╰──╯\r\n? for shortcuts\r\n", "um dois"), "mesmo-texto");
+  assert.equal(estadoDaCaixa("╭──────────────────────────────────────────╮\r\n│ ❯ um\r\n\r\ndois\r\n╰──────────────────────────────────────────╯\r\n? for shortcuts\r\n", "um dois"), "mesmo-texto");
 });
 
 test("Enter do dono pelo terminal segura a fila até o recibo dele (ou 15 s); a rota do terminal e o POST /input cru registram", async () => {
@@ -2556,6 +2556,8 @@ test("Enter do dono pelo terminal segura a fila até o recibo dele (ou 15 s); a 
   s.spawnEm = 0;
   s.registrarEscritaDeFora("só letras"); // sem Enter: não segura nada
   assert.equal(s.enterManualPendente, null);
+  assert.notEqual(s.digitacaoSuspensaEm, null, "texto sem Enter é um rascunho: suspende");
+  s.digitacaoSuspensaEm = null; // a caixa foi esvaziada (aqui só importa o portão do Enter do dono)
   s.registrarEscritaDeFora("minha mensagem\r");
   assert.notEqual(s.enterManualPendente, null);
   s.filaQuandoIdle.push({ texto: "pedido-atras-do-enter-do-dono", em: 1, id: "dddd0001" });
@@ -2576,7 +2578,7 @@ test("Enter do dono pelo terminal segura a fila até o recibo dele (ou 15 s); a 
   s2.filaQuandoIdle.push({ texto: "pedido-depois-do-prazo", em: 1, id: "dddd0002" });
   talvezSoltarFila(s2);
   assert.equal(s2.semRecibo.length, 1);
-  assert.equal(s2.enterManualPendente, null);
+  assert.notEqual(s2.enterManualPendente, null, "o prazo só deixa a fila soltar: o Enter do dono segue pendente até o recibo dele");
   cancelarReintentoDaFila(s);
   cancelarReintentoDaFila(s2);
   restaurar();
@@ -2598,6 +2600,7 @@ test("fila: 'sem-fsync-da-pasta' conta como enfileirado, mas NÃO libera a digit
     assert.deepEqual(s.filaQuandoIdle.map((i) => [i.texto, i.digitado]), [["pedido-sem-fsync-da-pasta", undefined]], "continua na frente da fila, sem a marca");
     assert.notEqual(s.reintentoDaFila, null);
     assert.ok(fs.existsSync(s.arquivoDaFila), "o arquivo tem o pedido");
+    assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.digitado]), [["pedido-sem-fsync-da-pasta", undefined]], "o arquivo foi regravado sem a marca digitado");
   } finally {
     fs.fsyncSync = original;
     cancelarReintentoDaFila(s);
@@ -2693,4 +2696,89 @@ test("retidos: no máximo 20; o mais antigo é descartado do arquivo com aviso (
   assert.equal(s2.retidos.length, 20);
   assert.equal(s2.retidos[0].id, "b5");
   assert.equal(filaEmDisco(s2).length, 20);
+});
+
+// --- Rodada 3 ---
+
+test("primeiro Enter: tela ambígua (caixa e um menu de permissão com outro ❯) NÃO deixa o Enter sair", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  const { estadoDaCaixa, caixaIdentificada } = await import("./sessao/telas.js");
+  const tela = caixaCom("pedido-na-tela-ambigua") + " Allow this action?\r\n ❯ 1. Allow once\r\n ❯ 2. Deny\r\n";
+  assert.equal(caixaIdentificada(tela), false);
+  assert.equal(caixaIdentificada(caixaCom("pedido-normal")), true);
+  void estadoDaCaixa;
+  await alimentarTela(s, tela);
+  assert.equal(await s.digitarEEnviar("pedido-na-tela-ambigua"), false);
+  assert.deepEqual(escritas, ["pedido-na-tela-ambigua"], "o Enter não saiu");
+  restaurar();
+});
+
+test("tela sem nada reconhecível também impede o primeiro Enter", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  await alimentarTela(s, "\u001b[2J\u001b[Hnada que pareça uma caixa de composição\r\n");
+  assert.equal(await s.digitarEEnviar("pedido-sem-caixa"), false);
+  assert.ok(!escritas.includes("\r"));
+  restaurar();
+});
+
+test("rascunho do dono sem Enter suspende a digitação: a fila não solta e o envio direto recebe ErroDeMotor enquanto a tela mostra o rascunho", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  const { talvezSoltarFila, cancelarReintentoDaFila } = await import("./sessao/fila.js");
+  const { ErroDeMotor } = await import("./provedores/motor.js");
+  s.spawnEm = 0;
+  s.ultimaSaidaEm = Date.now() - 5_000;
+  s.registrarEscritaDeFora("abc");
+  assert.notEqual(s.digitacaoSuspensaEm, null);
+  await alimentarTela(s, caixaCom("abc"));
+  s.filaQuandoIdle.push({ texto: "pedido-atras-do-rascunho", em: 1, id: "eeee0001" });
+  talvezSoltarFila(s);
+  assert.equal(s.semRecibo.length, 0, "a fila não digitou");
+  assert.deepEqual(escritas, []);
+  await assert.rejects(s.digitarEEnviar("direto-atras-do-rascunho"), (e: unknown) => e instanceof ErroDeMotor && e.statusReason === "runner:caixa-com-rascunho");
+  // Texto vazio e Enter não são rascunho.
+  const antes = s.digitacaoSuspensaEm;
+  s.registrarEscritaDeFora("");
+  assert.equal(s.digitacaoSuspensaEm, antes);
+  cancelarReintentoDaFila(s);
+  s.filaQuandoIdle.length = 0;
+  restaurar();
+});
+
+test("lerCaixa: só é borda a linha de moldura com 40 ou mais caracteres; '─ item' e linhas curtas são conteúdo do rascunho", async () => {
+  const { estadoDaCaixa, caixaVaziaNaTela } = await import("./sessao/telas.js");
+  const L = "─".repeat(42);
+  const tela = `╭${L}╮\r\n│ ❯ \r\n─ item da lista\r\n╰${L}╯\r\n? for shortcuts\r\n`;
+  assert.equal(caixaVaziaNaTela(tela), false);
+  assert.notEqual(estadoDaCaixa(tela, "qualquer"), "vazia");
+  const curta = `╭${L}╮\r\n│ ❯ \r\n── lista\r\n╰${L}╯\r\n? for shortcuts\r\n`;
+  assert.equal(caixaVaziaNaTela(curta), false, "uma linha curta que começa com traços é conteúdo");
+  assert.equal(caixaVaziaNaTela(caixaCom("")), true, "a borda inteira continua sendo borda");
+});
+
+test("Enter do dono pendente depois dos 15 s: o recibo que chega com o Enter de um item da fila já escrito retém o item como incerto (não apaga)", async () => {
+  const { confirmarRecibos } = await import("./sessao/fila.js");
+  logarClaude(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  s.enterManualPendente = { promptsAntes: s.promptsAceitos, em: Date.now() - 20_000 }; // prazo vencido, recibo ainda não chegou
+  const { item, entrada } = novoItem("pedido-depois-do-prazo-do-dono");
+  entrada.enterEscrito = true;
+  entrada.promptsAntes = s.promptsAceitos;
+  entrada.entradasNoEnter = s.entradasManuais;
+  s.semRecibo.push(entrada);
+  s.itemEmVoo = item;
+  s.promptsAceitos += 1; // o recibo: pode ser do Enter do dono
+  confirmarRecibos(s);
+  assert.equal(s.enterManualPendente, null, "esse recibo consumiu o Enter do dono");
+  assert.equal(s.semRecibo.length, 0);
+  assert.deepEqual(s.retidos.map((i) => [i.texto, i.incerto]), [[item.texto, true]]);
+  assert.deepEqual(filaEmDisco(s).map((i) => [i.texto, i.incerto]), [[item.texto, true]], "não foi apagado do disco");
+  assert.notEqual(s.digitacaoSuspensaEm, null);
+  // Sem item com Enter escrito, o recibo só limpa o Enter do dono.
+  s.enterManualPendente = { promptsAntes: s.promptsAceitos, em: Date.now() - 20_000 };
+  s.promptsAceitos += 1;
+  confirmarRecibos(s);
+  assert.equal(s.enterManualPendente, null);
+  assert.equal(s.retidos.length, 1);
 });

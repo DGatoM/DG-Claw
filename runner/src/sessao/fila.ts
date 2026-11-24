@@ -151,9 +151,9 @@ export function talvezSoltarFila(s: Sessao): void {
   // o pedido que a fila digitar agora. Espera o recibo dele (ou o prazo) antes de soltar.
   const manual = s.enterManualPendente;
   if (manual) {
-    if (s.promptsAceitos > manual.promptsAntes || Date.now() - manual.em >= ENTER_MANUAL_SEGURA_FILA_MS) {
+    if (s.promptsAceitos > manual.promptsAntes) {
       s.enterManualPendente = null;
-    } else {
+    } else if (Date.now() - manual.em < ENTER_MANUAL_SEGURA_FILA_MS) {
       agendarReintento(s);
       return;
     }
@@ -220,6 +220,8 @@ export function talvezSoltarFila(s: Sessao): void {
     delete item.digitado;
     s.itemEmVoo = null;
     s.filaQuandoIdle.unshift(item);
+    // Com "sem-fsync-da-pasta" o rename já publicou digitado:true no disco; regrava sem a marca para um reinício não reter o pedido.
+    espelharFila(s);
     if (!s.bloqueioDaFilaLogado) {
       s.bloqueioDaFilaLogado = true;
       log.erro(
@@ -470,9 +472,18 @@ export function pararComCaixaSuja(s: Sessao, envio: SemRecibo | null, motivo: st
 export function confirmarRecibos(s: Sessao): void {
   // Não limpa a suspensão por rascunho: um recibo não prova que a caixa ficou vazia (pode ser de outro turno, e o
   // texto continuar lá). Quem encerra a suspensão é talvezSoltarFila, ao ver a caixa vazia num idle.
-  // O recibo que o Enter do dono esperava chegou: a fila volta a poder soltar pedidos.
-  if (s.enterManualPendente && s.promptsAceitos > s.enterManualPendente.promptsAntes) s.enterManualPendente = null;
+  // O prazo de 15 s só deixa a fila soltar: o Enter do dono continua pendente até o recibo dele chegar. Se esse recibo chega
+  // com o Enter de um pedido da fila já escrito, não dá para saber de quem ele é.
+  const manual = s.enterManualPendente;
+  const reciboDoDono = manual !== null && s.promptsAceitos > manual.promptsAntes;
+  if (reciboDoDono) s.enterManualPendente = null;
   const e = s.semRecibo[0];
+  if (reciboDoDono && e && e.enterEscrito && s.promptsAceitos > e.promptsAntes) {
+    suspenderPorRascunho(s);
+    reter(s, e.item, "chegou um recibo, mas o recibo pode ser do Enter que o dono deu no terminal");
+    talvezSoltarFila(s);
+    return;
+  }
   if (!e) return;
   if (!e.enterEscrito) {
     log.info(s.a("entrada"), `chegou um recibo antes do Enter do pedido ${e.item.id ?? "?"}: é de outro turno e não confirma esse pedido`);

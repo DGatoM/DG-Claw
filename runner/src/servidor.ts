@@ -434,18 +434,23 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
               return;
             }
             if (!confirmado) {
-              // 502, e não 4xx: o texto PODE ter sido escrito no terminal (um 4xx diria "comprovadamente não entrou"
-              // e o chamador reenviaria, repetindo o pedido). Quem chama deve conferir a conversa antes de reenviar.
+              // 202 com entregaIncerta, e não erro: o texto PODE ter sido escrito no terminal. Um erro faria quem chama (scripts que
+              // repetem o POST quando ele falha, a CLI e o painel, que mandam reenviar) repetir o pedido e executá-lo duas vezes.
               json(
                 res,
                 {
-                  success: false,
-                  error: `Não sei se o agente ${sessao.slug} recebeu o texto: o terminal mudou ou o envio foi interrompido (por um diálogo, outro texto na caixa ou um reinício) depois de o texto poder ter sido digitado. A entrega é incerta.`,
-                  howToFix: "O runner ainda pode concluir a entrega nos próximos ~2 minutos: espere, confira a conversa do agente e só reenvie se o pedido não aparecer.",
-                  code: "ENTREGA_INCERTA",
-                  data: { enviado: false, submit: enviar, chars: texto.length },
+                  success: true,
+                  data: {
+                    enviado: false,
+                    entregaIncerta: true,
+                    submit: enviar,
+                    chars: texto.length,
+                    aviso:
+                      `Não sei se o agente ${sessao.slug} recebeu o texto: o terminal mudou ou o envio foi interrompido (por um diálogo, outro texto na caixa ou um reinício) depois de o texto poder ter sido digitado. A entrega é incerta. ` +
+                      "O runner ainda pode concluir a entrega nos próximos ~2 minutos: espere, confira a conversa do agente e só reenvie se o pedido não aparecer.",
+                  },
                 },
-                502,
+                202,
               );
               return;
             }

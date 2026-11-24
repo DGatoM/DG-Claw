@@ -3,7 +3,7 @@ import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
 import { MOTIVO_CAIXA_COM_RASCUNHO, MOTIVO_RECUSA_DE_ENTRADA, type SemRecibo, devolverNaoDigitado, levantarSuspensao, liberarBarra, pararComCaixaSuja, pendenteEm, reter, suspenderPorRascunho, talvezSoltarFila, terminalQuietoParaLerTela } from "./fila.js";
 import { INTERVALO_MS, PEDACO, RECIBO_ENTER_TENTATIVAS } from "./constantes.js";
-import { caixaVaziaNaTela, ehDialogoDeAutoMode, estadoDaCaixa, haDialogoNaTela, telaDeConfiancaDoCodex } from "./telas.js";
+import { caixaVaziaNaTela, ehDialogoDeAutoMode, estadoDaCaixa, caixaIdentificada, telaDeConfiancaDoCodex } from "./telas.js";
 
 /**
  * Digita e ENVIA. Espera a fila de colagem drenar antes do Enter, que é o
@@ -350,7 +350,7 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
       if (motivo) return parouComTextoNaCaixa(s, envio, motivo);
       // Um diálogo aberto (permissão, pergunta, aviso): o Enter o responderia. Aqui não se exige "mesmo texto": uma colagem
       // longa aparece resumida na caixa.
-      if (haDialogoNaTela(tela)) return parouComTextoNaCaixa(s, envio, "a tela mostra um diálogo aberto, e um Enter ali poderia respondê-lo");
+      if (!caixaIdentificada(tela)) return parouComTextoNaCaixa(s, envio, "a tela não mostra com clareza a caixa de composição (pode haver um diálogo, um menu ou outro marcador), e um Enter ali poderia respondê-lo");
       escreveuEnter = true;
     }
     const antes = s.promptsAceitos;
@@ -365,8 +365,13 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
       entradasEsperadas = s.entradasManuais;
       if (envio) envio.entradasNoEnter = entradasEsperadas;
     }
+    // Um Enter do dono pelo terminal ainda sem recibo: o recibo que chegar agora pode ser dele, e não deste envio.
+    const enterDoDonoPendente = escreveuEnter && s.enterManualPendente !== null;
     const recebeu = await esperarRecibo(s, antes, espera, comandoDeBarra ? compactAntes : undefined, soCompactVale);
     if (recebeu) {
+      if (enterDoDonoPendente) {
+        return parouComTextoNaCaixa(s, envio, "chegou um recibo, mas o dono tinha dado um Enter no terminal ainda sem recibo, então o recibo pode ser da mensagem dele");
+      }
       // Alguém escreveu no terminal depois do nosso Enter: o recibo pode ser de outra mensagem. Não é entrega provada.
       if (s.entradasManuais !== entradasEsperadas) {
         return parouComTextoNaCaixa(s, envio, "chegou um recibo, mas houve outra escrita no terminal depois do Enter deste pedido, então o recibo pode ser de outra mensagem");

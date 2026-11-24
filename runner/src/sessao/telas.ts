@@ -120,7 +120,17 @@ function haDialogoAberto(tela: string): boolean {
 }
 
 const RE_MARCADOR_NO_INICIO = /^[\s│┃|]*[❯›]/;
-const RE_LIMITE_DA_CAIXA = /^[\s│┃|]*[╭╰┌└─━]/;
+const RE_SO_MOLDURA = /^[\s│┃|╭╮╰╯┌┐└┘─━]*$/;
+const RE_TRACO_DE_MOLDURA = /[╭╮╰╯┌┐└┘─━]/g;
+const MOLDURA_MINIMA = 40;
+
+/** Uma linha só é a borda da caixa se tiver SÓ moldura e espaços e ao menos 40 caracteres de moldura (a borda real ocupa a
+ *  largura do terminal). Uma linha curta, ou que começa com ─ mas tem texto, é conteúdo do rascunho.
+ *  Risco que fica: um rascunho com uma linha inteira de 40 ou mais traços parece borda. Fica porque a leitura de tela é
+ *  heurística e o lado do erro escolhido é suspender a mais, nunca digitar por cima do texto de alguém. */
+function ehLimiteDaCaixa(linha: string): boolean {
+  return RE_SO_MOLDURA.test(linha) && (linha.match(RE_TRACO_DE_MOLDURA)?.length ?? 0) >= MOLDURA_MINIMA;
+}
 
 /** Lê a caixa de composição na tela renderizada. O marcador (❯ ou ›) só conta no INÍCIO da linha da caixa (depois da
  *  borda e de espaços): um ❯ ou › no meio ou no fim do texto é conteúdo. O conteúdo vai do que vem depois do marcador
@@ -140,12 +150,12 @@ function lerCaixa(tela: string): { conteudo: string; marcaDeDialogoDepois: boole
   // Só a borda da caixa encerra a busca: uma linha em branco pode estar no meio de um rascunho de vários parágrafos,
   // e um parágrafo que começa com ❯ ou › não pode passar por "o marcador da caixa".
   for (let i = l - 1; i >= 0; i--) {
-    if (RE_LIMITE_DA_CAIXA.test(linhas[i])) break;
+    if (ehLimiteDaCaixa(linhas[i])) break;
     if (RE_MARCADOR_NO_INICIO.test(linhas[i])) return "ambigua";
   }
   const partes = [linhas[l].replace(RE_MARCADOR_NO_INICIO, "")];
   for (let i = l + 1; i < linhas.length; i++) {
-    if (RE_LIMITE_DA_CAIXA.test(linhas[i])) break;
+    if (ehLimiteDaCaixa(linhas[i])) break;
     if (RE_RODAPE_DA_CAIXA_VAZIA.test(compacta(linhas[i]))) break;
     partes.push(linhas[i]);
   }
@@ -174,6 +184,14 @@ export function haDialogoNaTela(tela: string): boolean {
   if (haDialogoAberto(tela)) return true;
   const caixa = lerCaixa(tela);
   return typeof caixa === "object" && caixa !== null && caixa.marcaDeDialogoDepois;
+}
+
+/** A leitura da tela identifica UMA caixa de composição, sem diálogo aberto nem marca de diálogo abaixo dela. Só com isso
+ *  o primeiro Enter pode sair: com a tela ambígua (outro marcador, menu, nada reconhecível) ele poderia responder algo. */
+export function caixaIdentificada(tela: string): boolean {
+  if (haDialogoAberto(tela)) return false;
+  const caixa = lerCaixa(tela);
+  return typeof caixa === "object" && caixa !== null && !caixa.marcaDeDialogoDepois;
 }
 
 /** A tela mostra a caixa de composição sem nenhum texto (só o prompt e o rodapé)? */

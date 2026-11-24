@@ -638,7 +638,7 @@ test("POST /input direto com a digitação suspensa e rascunho na caixa => 409 C
   await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
   principal.digitacaoSuspensaEm = Date.now();
   principal.ultimaSaidaEm = Date.now() - 5_000;
-  await alimentarTela(principal, "\u001b[2J\u001b[H╭──╮\r\n│ ❯ rascunho-do-dono\r\n╰──╯\r\n? for shortcuts\r\n");
+  await alimentarTela(principal, "\u001b[2J\u001b[H╭──────────────────────────────────────────╮\r\n│ ❯ rascunho-do-dono\r\n╰──────────────────────────────────────────╯\r\n? for shortcuts\r\n");
   const r = await req("POST", `/api/agents/${ID}/input`, { text: "mensagem-direta" });
   assert.equal(r.status, 409, JSON.stringify(r.corpo));
   assert.equal(r.corpo.code, "CAIXA_COM_RASCUNHO");
@@ -648,4 +648,41 @@ test("POST /input direto com a digitação suspensa e rascunho na caixa => 409 C
   assert.notEqual(principal.enterManualPendente, null);
   principal.digitacaoSuspensaEm = null;
   principal.enterManualPendente = null;
+});
+
+test("POST /input direto com entrega incerta responde 202 success:true com entregaIncerta e aviso (nunca erro, para ninguém reenviar sozinho)", async () => {
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  const original = principal.digitarEEnviar.bind(principal);
+  (principal as unknown as { digitarEEnviar: () => Promise<boolean> }).digitarEEnviar = async () => false;
+  try {
+    const r = await req("POST", `/api/agents/${ID}/input`, { text: "mensagem-de-entrega-incerta" });
+    assert.equal(r.status, 202);
+    assert.equal(r.corpo.success, true);
+    assert.equal(r.corpo.data.enviado, false);
+    assert.equal(r.corpo.data.entregaIncerta, true);
+    assert.equal(r.corpo.data.chars, "mensagem-de-entrega-incerta".length);
+    assert.match(r.corpo.data.aviso, /Não sei se o agente .* recebeu o texto/);
+    assert.match(r.corpo.data.aviso, /confira a conversa do agente e só reenvie se o pedido não aparecer/);
+  } finally {
+    (principal as unknown as { digitarEEnviar: unknown }).digitarEEnviar = original;
+  }
+});
+
+test("tecla crua sem Enter pelo POST /input suspende a digitação; depois dela o envio direto recebe 409 CAIXA_COM_RASCUNHO enquanto a tela mostra o rascunho", async () => {
+  const { alimentarTela } = await import("./apoio-teste.js");
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  principal.digitacaoSuspensaEm = null;
+  principal.ultimaSaidaEm = Date.now() - 5_000;
+  const crua = await req("POST", `/api/agents/${ID}/input`, { text: "abc", submit: false });
+  assert.equal(crua.status, 200);
+  assert.notEqual(principal.digitacaoSuspensaEm, null);
+  await alimentarTela(principal, "\u001b[2J\u001b[H╭" + "─".repeat(42) + "╮\r\n│ ❯ abc\r\n╰" + "─".repeat(42) + "╯\r\n? for shortcuts\r\n");
+  const r = await req("POST", `/api/agents/${ID}/input`, { text: "mensagem-direta" });
+  assert.equal(r.status, 409, JSON.stringify(r.corpo));
+  assert.equal(r.corpo.code, "CAIXA_COM_RASCUNHO");
+  principal.digitacaoSuspensaEm = null;
 });
