@@ -48,7 +48,7 @@
 #   10 texto grande demais para um envio (413 TEXTO_GRANDE_DEMAIS): o texto nao foi enviado; reduza o texto
 #      (repetir o mesmo texto nao resolve) ou guarde-o num arquivo e peca ao card para le-lo
 #   11 ("mandar" e "abrir") a conexao caiu ou o tempo do curl esgotou DEPOIS de o texto sair: a entrega e INCERTA, o runner pode ainda estar colando ou ja ter
-#      enviado. NAO reenvie ja: espere e confira com 'dgclaw-card ler <id>'. No "abrir" o card fica aberto e o id sai no stdout.
+#      enviado. NAO reenvie ja: confira com 'dgclaw-card estado <id>' (se aparecer 'na fila', o pedido esta guardado e sera entregue quando o card ficar ocioso) e com 'dgclaw-card ler <id> --n 20'; so reenvie se o card estiver ocioso, sem nada na fila, e o pedido nao aparecer na conversa (na duvida, pergunte ao dono). No "abrir" o card fica aberto e o id sai no stdout.
 set -euo pipefail
 umask 077
 
@@ -142,7 +142,7 @@ falha_geral() {
   if [ "$HTTP" = "000" ] && [ "${CURL_RC:-0}" != 0 ] && [ "${ENVIANDO_TEXTO:-0}" = 1 ] && [ "${ENVIO_MANDAR:-0}" = 1 ]; then
     case "$CURL_RC" in
       5|6|7) ;;
-      *) CODIGO=11 die "a conexao com o runner caiu ou demorou depois de o texto ser enviado (curl $CURL_RC), e a entrega ao card e INCERTA: ele pode ainda estar colando o texto ou ja ter enviado. Nao reenvie ja. Espere um ou dois minutos e confira com: dgclaw-card ler ${ID_DO_ENVIO:-<id>}" ;;
+      *) CODIGO=11 die "a conexao com o runner caiu ou demorou depois de o texto ser enviado (curl $CURL_RC), e a entrega ao card e INCERTA: ele pode ainda estar colando o texto ou ja ter enviado. Nao reenvie ja. Confira com 'dgclaw-card estado ${ID_DO_ENVIO:-<id>}' (se aparecer 'na fila', o pedido esta guardado e sera entregue quando o card ficar ocioso) e com 'dgclaw-card ler ${ID_DO_ENVIO:-<id>} --n 20'. So reenvie se o card estiver ocioso, sem nada na fila, e o pedido nao aparecer na conversa; na duvida, pergunte ao dono." ;;
     esac
   fi
   if [ "$HTTP" = "000" ]; then
@@ -260,7 +260,7 @@ cmd_abrir() {
           echo "$id"
           local sem_monitor=""
           [ "$monitor" = 0 ] || sem_monitor=" O monitor NAO foi ligado: depois de conferir, ligue com: dgclaw-monitor add $id --entregue \"<criterio de entregue>\" [--cada MIN]."
-          CODIGO=11 die "o card $id foi criado, mas a conexao com o runner caiu ou demorou depois de o pedido ser enviado (curl $CURL_RC), e a entrega do pedido e INCERTA. Nao reenvie ja. Espere um ou dois minutos e confira com: dgclaw-card ler $id. Se o pedido nao aparecer, reenvie com: dgclaw-card mandar $id --arquivo <arquivo do pedido>.$sem_monitor" ;;
+          CODIGO=11 die "o card $id foi criado, mas a conexao com o runner caiu ou demorou depois de o pedido ser enviado (curl $CURL_RC), e a entrega do pedido e INCERTA. Nao reenvie ja. Confira com 'dgclaw-card estado $id' (se aparecer 'na fila', o pedido esta guardado e sera entregue quando o card ficar ocioso) e com 'dgclaw-card ler $id --n 20'. So reenvie se o card estiver ocioso, sem nada na fila, e o pedido nao aparecer na conversa; na duvida, pergunte ao dono. Para reenviar, use: dgclaw-card mandar $id --arquivo <arquivo do pedido>.$sem_monitor" ;;
       esac ;;
     *)
       # Guarda a resposta do /input: o DELETE logo abaixo sobrescreve HTTP e RESP.
@@ -278,8 +278,8 @@ cmd_abrir() {
   # 202 com entregaIncerta: o runner nao sabe se o pedido chegou. Texto FIXO (nada da resposta dele), sem monitor e sem reenviar.
   if [ "$(campo .data.entregaIncerta)" = "true" ]; then
     echo "ATENCAO: a entrega ao card $id e INCERTA, o texto pode ou nao ter chegado."
-    echo "Nao reenvie ja. Espere um ou dois minutos e confira com: dgclaw-card ler $id"
-    [ "$monitor" = 0 ] || CODIGO=8 die "o card $id esta aberto, mas a entrega do pedido e incerta, por isso o monitor NAO foi ligado. Depois de conferir com 'dgclaw-card ler $id', ligue com: dgclaw-monitor add $id --entregue \"<criterio de entregue>\" [--cada MIN]"
+    echo "Nao reenvie ja. Confira com 'dgclaw-card estado $id' (se aparecer 'na fila', o pedido esta guardado e sera entregue quando o card ficar ocioso) e com 'dgclaw-card ler $id --n 20'. So reenvie se o card estiver ocioso, sem nada na fila, e o pedido nao aparecer na conversa; na duvida, pergunte ao dono."
+    [ "$monitor" = 0 ] || CODIGO=8 die "o card $id esta aberto, mas a entrega do pedido e incerta, por isso o monitor NAO foi ligado. Depois de conferir com 'dgclaw-card estado $id' e 'dgclaw-card ler $id --n 20' que o pedido chegou, ligue com: dgclaw-monitor add $id --entregue \"<criterio de entregue>\" [--cada MIN]"
     return 0
   fi
   echo "Card aberto em $(nome_do_provedor "$provedor"). Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
@@ -319,7 +319,7 @@ cmd_mandar() {
   if [ "$(campo .data.entregaIncerta)" = "true" ]; then
     # Texto FIXO, escrito aqui: nada da resposta do runner (o "aviso" dele) e repassado, para a saida nao carregar instrucao alheia.
     echo "ATENCAO: a entrega ao card $id e INCERTA, o texto pode ou nao ter chegado."
-    echo "Nao reenvie ja. Espere um ou dois minutos e confira com: dgclaw-card ler $id"
+    echo "Nao reenvie ja. Confira com 'dgclaw-card estado $id' (se aparecer 'na fila', o pedido esta guardado e sera entregue quando o card ficar ocioso) e com 'dgclaw-card ler $id --n 20'. So reenvie se o card estiver ocioso, sem nada na fila, e o pedido nao aparecer na conversa; na duvida, pergunte ao dono."
     return 0
   fi
   echo "Texto enviado ao card $id. Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"

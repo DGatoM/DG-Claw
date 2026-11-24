@@ -160,3 +160,18 @@ test("falha de gravação de verdade (antes do rename) continua devolvendo false
   fs.writeFileSync(bloqueio, "x");
   assert.equal(gravarFila(path.join(bloqueio, "fila.json"), [{ texto: "a", em: 1 }], "teste"), "falhou");
 });
+
+test("carregar: id fora do formato de 8 hex é trocado por um novo e o id válido é mantido", () => {
+  const estado = pastaTemporaria("fila");
+  const arq = caminhoDaFila(estado, "ids");
+  fs.mkdirSync(path.dirname(arq), { recursive: true });
+  fs.writeFileSync(arq, JSON.stringify({ versao: 2, itens: [
+    { texto: "um", em: 1, id: "abc\nINJETADO" },
+    { texto: "dois", em: 2, id: "0a1b2c3d" },
+  ] }));
+  const itens = carregarFila(arq, "teste");
+  assert.equal(itens.length, 2);
+  assert.match(itens[0].id as string, /^[0-9a-f]{8}$/);
+  assert.notEqual(itens[0].id, "abc\nINJETADO");
+  assert.equal(itens[1].id, "0a1b2c3d");
+});

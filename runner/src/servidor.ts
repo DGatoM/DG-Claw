@@ -385,10 +385,20 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           // guardado depois que a capacidade deixou acordar; recusado, ele não fica
           // em fila nenhuma (quem enviou precisa saber, para reenviar depois).
           if (sessao.papel === "paralela" && !sessao.temPtyVivo() && (enviar || quandoOcioso)) {
+            // Se o cliente desconectar durante o despertar, o pedido não é guardado: ele vai reenviar, e a fila ficaria com duas cópias.
+            let desistiuNoDespertar = false;
+            res.on("close", () => {
+              if (!res.writableEnded) desistiuNoDespertar = true;
+            });
             const r = await gerente.acordar(sessao.id, "input recebido");
             if (!r.ok) {
               if ("recusa" in r) respostaDeRecusa(res, r.recusa);
               else json(res, { success: false, error: r.falha, howToFix: "ver o log do runner e tentar POST /api/agents/:id/resume", code: "NAO_ACORDOU" }, 500);
+              return;
+            }
+            // Sem await entre esta conferência e a gravação na fila.
+            if (desistiuNoDespertar) {
+              log.aviso(sessao.a("entrada"), `o cliente desistiu durante o despertar da sessão: o pedido de ${texto.length} caracteres não foi guardado na fila`);
               return;
             }
             if (sessao.enfileirarQuandoOcioso(texto, esperouNoPainel) === "nao-gravado") {

@@ -79,7 +79,7 @@ subir entrega-incerta
 "$BIN" mandar card-abc123 "texto qualquer" >"$T/o" 2>"$T/e"; c=$?
 ok "mandar com entrega incerta sai com 0 (nao e erro, nao provoca reenvio)" $([ $c = 0 ] && echo 0 || echo 1)
 ! grep -q "Texto enviado ao card" "$T/o"; ok "mandar com entrega incerta NAO diz 'Texto enviado'" $?
-grep -q "INCERTA" "$T/o" && grep -q "dgclaw-card ler card-abc123" "$T/o"; ok "mandar com entrega incerta imprime a orientacao fixa da CLI" $?
+grep -q "INCERTA" "$T/o" && grep -q "dgclaw-card estado card-abc123" "$T/o" && grep -q "dgclaw-card ler card-abc123 --n 20" "$T/o" && ! grep -q "um ou dois minutos" "$T/o"; ok "mandar com entrega incerta imprime a orientacao fixa da CLI (estado e ler --n 20)" $?
 ! grep -q "aviso do runner falso" "$T/o"; ok "mandar com entrega incerta NAO repassa o aviso do runner" $?
 [ "$(grep -c '/input' "$LOG")" = 1 ]; ok "mandar com entrega incerta faz um unico POST (nao reenvia)" $?
 
@@ -133,7 +133,7 @@ subir input-demora
 : > "$LOG"
 DGCLAW_CARD_TEMPO_BASE=1 "$BIN" mandar card-abc123 "texto que o runner recebe e nunca responde" >"$T/o" 2>"$T/e"; c=$?
 ok "mandar com tempo esgotado depois de enviar sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
-grep -q "INCERTA" "$T/e" && grep -q "Nao reenvie ja" "$T/e" && grep -q "dgclaw-card ler card-abc123" "$T/e"; ok "tempo esgotado: diz que a entrega e incerta, que nao reenvie e como conferir" $?
+grep -q "INCERTA" "$T/e" && grep -q "Nao reenvie ja" "$T/e" && grep -q "dgclaw-card estado card-abc123" "$T/e" && grep -q "dgclaw-card ler card-abc123 --n 20" "$T/e" && ! grep -q "um ou dois minutos" "$T/e"; ok "tempo esgotado: diz que a entrega e incerta, que nao reenvie e como conferir" $?
 ! grep -qi "tente de novo\|fora do ar\|reiniciando" "$T/e"; ok "tempo esgotado: NAO manda tentar de novo e nao diz runner fora do ar" $?
 [ "$(grep -c '/input' "$LOG")" = 1 ]; ok "tempo esgotado: um unico POST (o texto chegou ao runner)" $?
 sem_segredo "$T/o" "$T/e"; ok "tempo esgotado: o token nao vaza" $?
@@ -160,14 +160,14 @@ subir input-derruba
 "$BIN" abrir --provedor codex --titulo x --pedido oi --monitor --entregue "relatorio pronto" >"$T/o" 2>"$T/e"; c=$?
 ok "abrir com resposta vazia (curl 52) no /input sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
 [ "$(head -1 "$T/o")" = "card-abc123" ]; ok "abrir com curl 52: o id sai no stdout" $?
-grep -q "INCERTA" "$T/e" && grep -q "Nao reenvie ja" "$T/e" && grep -q "dgclaw-card ler card-abc123" "$T/e" && grep -q "dgclaw-card mandar card-abc123 --arquivo" "$T/e"; ok "abrir com curl 52: diz que a entrega e incerta, que nao reenvie e como conferir" $?
+grep -q "INCERTA" "$T/e" && grep -q "Nao reenvie ja" "$T/e" && grep -q "dgclaw-card estado card-abc123" "$T/e" && grep -q "dgclaw-card ler card-abc123 --n 20" "$T/e" && ! grep -q "Se o pedido nao aparecer, reenvie" "$T/e" && grep -q "dgclaw-card mandar card-abc123 --arquivo" "$T/e"; ok "abrir com curl 52: diz que a entrega e incerta, que nao reenvie e como conferir" $?
 ! grep -q "nao foi entregue" "$T/e"; ok "abrir com curl 52: nao diz que o pedido nao foi entregue" $?
 grep -q "monitor NAO foi ligado" "$T/e" && grep -q "dgclaw-monitor add card-abc123" "$T/e"; ok "abrir --monitor com curl 52: avisa que o monitor nao foi ligado e como ligar" $?
 ! grep -q '"metodo":"DELETE"' "$LOG"; ok "abrir com curl 52: o card NAO e fechado" $?
 subir entrega-incerta
 "$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
 ok "abrir com 202 incerto sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
-[ "$(head -1 "$T/o")" = "card-abc123" ] && grep -q "ATENCAO: a entrega ao card card-abc123 e INCERTA" "$T/o" && grep -q "Nao reenvie ja" "$T/o"; ok "abrir com 202 incerto: imprime o id e o ATENCAO fixo" $?
+[ "$(head -1 "$T/o")" = "card-abc123" ] && grep -q "ATENCAO: a entrega ao card card-abc123 e INCERTA" "$T/o" && grep -q "Nao reenvie ja" "$T/o" && grep -q "dgclaw-card estado card-abc123" "$T/o" && grep -q "dgclaw-card ler card-abc123 --n 20" "$T/o"; ok "abrir com 202 incerto: imprime o id e o ATENCAO fixo com estado e ler --n 20" $?
 ! grep -q "Card aberto em" "$T/o"; ok "abrir com 202 incerto: nao diz que o card abriu normalmente" $?
 subir entrega-incerta
 "$BIN" abrir --provedor codex --titulo x --pedido oi --monitor --entregue "relatorio pronto" >"$T/o" 2>"$T/e"; c=$?

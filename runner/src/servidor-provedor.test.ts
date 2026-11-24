@@ -908,3 +908,39 @@ test("revisão rodada 14, item D: no Codex, Enter manual numa caixa vazia e depo
     await esperarAte(() => principal.estado.status === "idle", 8_000, "idle de volta no Claude");
   }
 });
+
+test("POST /input: cliente que desiste durante o despertar da paralela dormindo não deixa o pedido na fila", async () => {
+  const c = await req("POST", "/api/sessoes", { id: "card-desiste", provedor: "codex", auth: "assinatura", modelo: "gpt-5.5" });
+  assert.equal(c.status, 201, JSON.stringify(c.corpo));
+  const sessao = gerente.porId("card-desiste")!;
+  const acordarOriginal = gerente.acordar.bind(gerente);
+  let chamado = false;
+  let liberar: () => void = () => {};
+  const trava = new Promise<void>((resolve) => { liberar = resolve; });
+  (gerente as any).acordar = async () => {
+    chamado = true;
+    await trava;
+    return { ok: true };
+  };
+  const aborto = new AbortController();
+  try {
+    const pedido = new Promise<void>((resolve) => {
+      const rq = http.request(
+        { host: "127.0.0.1", port: porta, method: "POST", path: "/api/agents/card-desiste/input", signal: aborto.signal, headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" } },
+        () => resolve(),
+      );
+      rq.on("error", () => resolve());
+      rq.end(JSON.stringify({ text: "pedido que o cliente abandona" }));
+    });
+    await esperarAte(() => chamado, 5_000, "o acordar ser chamado");
+    aborto.abort();
+    await pedido;
+    await new Promise((r) => setTimeout(r, 300)); // deixa o servidor perceber o fechamento antes de o despertar terminar
+    liberar();
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(sessao.tamanhoDaFila(), 0, "o pedido de quem desistiu não pode ficar na fila");
+  } finally {
+    liberar();
+    (gerente as any).acordar = acordarOriginal;
+  }
+});

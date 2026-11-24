@@ -7,6 +7,7 @@
 //
 // O conteúdo é mensagem de cliente: pasta 0700, arquivo 0600.
 import fs from "node:fs";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { log } from "./logger.js";
 
@@ -62,7 +63,14 @@ export function carregarFila(caminho: string, area: string): ItemDaFila[] {
       if (typeof it?.texto !== "string") throw new Error("item sem texto em formato de string");
       const item: ItemDaFila = { texto: it.texto, em: typeof it.em === "number" ? it.em : Date.now() };
       if (it.esperou === true) item.esperou = true;
-      if (typeof it.id === "string") item.id = it.id;
+      // Só vale o formato que o runner gera (8 hex). Qualquer outro valor é trocado por um id novo, e o valor inválido nunca vai para o log.
+      if (typeof it.id === "string") {
+        if (/^[0-9a-f]{8}$/.test(it.id)) item.id = it.id;
+        else {
+          item.id = randomUUID().slice(0, 8);
+          log.aviso(area, `um item da fila em ${caminho} tinha um id fora do formato e ganhou o id novo ${item.id}`);
+        }
+      }
       // A versão 1 não conhecia `digitado` nem `incerto` (veja abaixo o tratamento do primeiro item).
       if (versao === 2 && it.digitado === true) item.digitado = true;
       if (versao === 2 && it.incerto === true) item.incerto = true;
