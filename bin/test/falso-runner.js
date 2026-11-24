@@ -53,6 +53,8 @@ http.createServer((req, res) => {
       if (m[2] === "/input" && req.method === "POST") {
         // O runner recebeu o texto e segue colando: a resposta so sai muito depois do tempo do curl (tempo esgotado no cliente).
         if (MODO === "input-demora") return;
+        // Recebe o texto e derruba a conexao sem responder (curl 52, resposta vazia).
+        if (MODO === "input-derruba") return req.socket.destroy();
         if (MODO === "sem-login") return j(409, { success: false, code: "SEM_LOGIN", error: "O agente ainda nao entrou no Codex", howToFix: "login" });
         if (MODO === "input-falha") return j(500, { success: false, code: "ERRO_INTERNO", error: "estourou" });
         if (MODO === "envios-demais") return j(429, { success: false, code: "ENVIOS_DEMAIS", error: "Ha envios demais esperando (texto do runner falso).", howToFix: "esperar" });

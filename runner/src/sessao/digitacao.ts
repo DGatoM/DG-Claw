@@ -318,6 +318,9 @@ async function digitar(
     s.escrever(texto);
     esperadas = s.entradasManuais;
     await new Promise((r) => setTimeout(r, pausa));
+    if (s.proc !== proc) return terminalTrocado(s, envio);
+    // O cliente do envio direto desistiu durante a pausa: o Enter não é apertado, e o texto fica na caixa.
+    if (!envio && cancelado()) return parouComTextoNaCaixa(s, envio, MOTIVO_DESISTIU_ANTES_DO_ENTER);
     return enviarComRecibo(s, { texto, comandoDeBarra: ehComandoDeBarra, envio, proc, entradasAposTexto: esperadas });
   }
   let i = 0;
@@ -371,6 +374,10 @@ async function digitar(
 /** Por que a colagem longa de um envio direto parou depois de já ter escrito algo: quem pediu (a CLI, com timeout) desistiu. */
 const MOTIVO_DESISTIU_NA_COLAGEM =
   "quem pediu desistiu da chamada no meio da colagem (o cliente desconectou); o texto parcial ficou na caixa de entrada, sem Enter, e a digitação automática fica suspensa até a caixa ser esvaziada";
+
+/** Por que um envio direto curto parou depois de o texto ser escrito e antes do Enter: quem pediu desistiu durante a pausa. */
+const MOTIVO_DESISTIU_ANTES_DO_ENTER =
+  "quem pediu desistiu da chamada depois de o texto ser escrito e antes do Enter (o cliente desconectou); o texto ficou na caixa de entrada, sem Enter, e a digitação automática fica suspensa até a caixa ser esvaziada";
 
 /** O pedaço da colagem que começa em `i`: até PEDACO unidades UTF-16, sem nunca separar um par substituto (emoji). Cortar entre o
  *  high e o low surrogate faria cada metade virar U+FFFD ao ser escrita em UTF-8. */

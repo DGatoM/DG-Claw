@@ -137,6 +137,19 @@ grep -q "INCERTA" "$T/e" && grep -q "Nao reenvie ja" "$T/e" && grep -q "dgclaw-c
 ! grep -qi "tente de novo\|fora do ar\|reiniciando" "$T/e"; ok "tempo esgotado: NAO manda tentar de novo e nao diz runner fora do ar" $?
 [ "$(grep -c '/input' "$LOG")" = 1 ]; ok "tempo esgotado: um unico POST (o texto chegou ao runner)" $?
 sem_segredo "$T/o" "$T/e"; ok "tempo esgotado: o token nao vaza" $?
+# Outras falhas de transporte depois de enviar o texto (52 resposta vazia, 56 falha ao receber) tambem sao entrega INCERTA (11).
+subir input-derruba
+"$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
+"$BIN" mandar card-abc123 "texto que o runner recebe e derruba a conexao" >"$T/o" 2>"$T/e"; c=$?
+ok "mandar com resposta vazia (curl 52) depois de enviar sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+grep -q "INCERTA" "$T/e" && ! grep -qi "tente de novo" "$T/e"; ok "curl 52: diz que a entrega e incerta e nao manda tentar de novo" $?
+mkdir -p "$T/shim"
+for rc in 56 7; do
+  printf '#!/bin/sh\ncat >/dev/null\nexit %s\n' "$rc" > "$T/shim/curl"; chmod +x "$T/shim/curl"
+  PATH="$T/shim:$PATH" "$BIN" mandar card-abc123 "texto" >"$T/o" 2>"$T/e"; c=$?
+  if [ "$rc" = 56 ]; then ok "mandar com curl 56 sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+  else ok "mandar com curl 7 (nao conectou) continua saindo com 2" $([ $c = 2 ] && echo 0 || echo 1); fi
+done
 kill $SRV 2>/dev/null; wait $SRV 2>/dev/null; SRV=""
 "$BIN" mandar card-abc123 "texto com o runner fora do ar" >"$T/o" 2>"$T/e"; c=$?
 ok "mandar com conexao recusada continua saindo com 2" $([ $c = 2 ] && echo 0 || echo 1)

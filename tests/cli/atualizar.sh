@@ -338,6 +338,13 @@ DGCLAW_ESPERA_ADMIN=2 bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinic
 igual "ptyVivo sempre false: sai com 1" "1" "$rc"
 afirma "ptyVivo sempre false: o log diz que o terminal nao ficou pronto" grep -q 'terminal dele (agente.ptyVivo) nao ficou pronto em 2s' "$TMP/reinicio-semptyvivo.log"
 nega "ptyVivo sempre false: nao tenta o POST" grep -q 'X POST' "$STUB_LOG"
+# ptyVivo true so numa sessao paralela (sessoes[]) e false no agente: o terminal do Admin nao esta pronto, entao nao avisa.
+printf '%s' '{"ok":true,"agente":{"id":"admin","status":"spawning","ptyVivo":false},"sessoes":[{"id":"paralela","ptyVivo":true}]}' >"$STUB_ESTADO/admin-saude-resposta"
+: >"$STUB_LOG"
+DGCLAW_ESPERA_ADMIN=2 bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-ptyvivo-paralela.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "ptyVivo so numa sessao paralela: sai com 1" "1" "$rc"
+afirma "ptyVivo so numa sessao paralela: o log diz que o terminal nao ficou pronto" grep -q 'terminal dele (agente.ptyVivo) nao ficou pronto em 2s' "$TMP/reinicio-ptyvivo-paralela.log"
+nega "ptyVivo so numa sessao paralela: nao faz o POST de aviso" grep -q 'X POST' "$STUB_LOG"
 rm -f "$STUB_ESTADO/admin-saude-n" "$STUB_ESTADO/admin-saude-resposta"
 touch "$STUB_ESTADO/curl-falha"
 : >"$STUB_LOG"

@@ -2318,6 +2318,21 @@ test("envio direto longo: o cliente desiste durante a pausa depois do ÚLTIMO pe
   assert.notEqual(s.digitacaoSuspensaEm, null);
 });
 
+test("envio direto curto: o cliente desiste durante a pausa depois do texto => o Enter não é apertado e a sessão fica suspensa", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  let desistiu = false;
+  depoisDaEscrita(s, escritas, 1, () => {
+    desistiu = true; // o cliente HTTP desconectou depois de o texto curto ser escrito, durante a pausa
+  });
+  try {
+    assert.equal(await s.digitarEEnviar("curto-que-o-cliente-largou", false, null, () => desistiu), false);
+  } finally {
+    restaurar();
+  }
+  assert.deepEqual(escritas, ["curto-que-o-cliente-largou"], "só o texto, nenhum Enter");
+  assert.notEqual(s.digitacaoSuspensaEm, null, "suspensa por rascunho: o texto ficou na caixa");
+});
+
 test("caixa suja: colagem longa com o agente esperando uma resposta no meio para, e a parada é da caixa", async () => {
   const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
   const longo = "y".repeat(700);

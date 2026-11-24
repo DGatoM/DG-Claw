@@ -34,11 +34,13 @@ log "Admin reiniciado; esperando ele responder em $URL/api/saude com o terminal 
 # O runner abre a porta HTTP ANTES de subir o terminal: /api/saude ja responde 200, mas com agente.ptyVivo false, e nesse
 # intervalo o POST em /input receberia 409 NO_PTY. Por isso a espera so termina quando a saude responde E o terminal esta vivo,
 # dentro do mesmo prazo ESPERA (sem prazo novo).
+command -v jq >/dev/null 2>&1 || { log "falta o jq, entao nao montei o aviso. O resumo esta em $RESUMO."; exit 1; }
 voltou=0; respondeu=0
 for ((i = 0; i < ESPERA; i++)); do
     if saude="$(curl -fsS --max-time 3 "$URL/api/saude" 2>/dev/null)"; then
         respondeu=1
-        if printf '%s' "$saude" | grep -Eq '"ptyVivo"[[:space:]]*:[[:space:]]*true'; then voltou=1; break; fi
+        # So o terminal do proprio Admin conta: um ptyVivo true de sessoes[] (uma sessao paralela) nao prova que ele esta pronto.
+        if printf '%s' "$saude" | jq -e '.agente.ptyVivo == true' >/dev/null 2>&1; then voltou=1; break; fi
     fi
     sleep 1
 done
@@ -55,7 +57,6 @@ if [ ! -r "$TOKEN_ARQ" ]; then
     log "nao consegui ler o token do Admin em $TOKEN_ARQ, entao nao mandei o aviso. O resumo esta em $RESUMO."
     exit 1
 fi
-command -v jq >/dev/null 2>&1 || { log "falta o jq, entao nao montei o aviso. O resumo esta em $RESUMO."; exit 1; }
 
 texto="<plataforma recado=\"atualizacao-terminou\">A atualizacao do DG Claw terminou e voce acabou de reiniciar com o codigo novo. Este e um aviso da plataforma, nao uma mensagem escrita pelo dono. Leia o resumo em $RESUMO (o log completo esta em $LOG) e conte ao dono, pelo chat e em palavras simples, o resultado: a versao de antes e a nova, onde ficou o backup, como voltar atras, e quais agentes ficaram bem e quais ficaram com problema (e o que fazer com eles). Se algum agente ficou com problema, ofereca consertar agora.</plataforma>"
 corpo="$(jq -n --arg t "$texto" '{text: $t, submit: true}')"
