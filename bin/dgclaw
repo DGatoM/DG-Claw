@@ -2257,6 +2257,8 @@ chave_api() {
 # O marcador fica em $casa/config, que o container ve (somente leitura) em /run/dgclaw/config.
 agente_youtube() {
     local slug="${1:-}" tema="${2:-}" valor="${3:-}" obj casa marcador
+    [ "$#" -le 3 ] || falha_uso "argumentos demais para dgclaw agente youtube." \
+        "use: dgclaw agente youtube <slug> conta-dedicada sim|nao"
     ( exigir_slug "$slug" youtube ) || exit 2
     [ "$tema" = conta-dedicada ] || falha_uso "faltou dizer o que mudar no YouTube do agente $slug." \
         "use: dgclaw agente youtube $slug conta-dedicada sim|nao"
@@ -2287,10 +2289,10 @@ agente_youtube() {
     local ub; ub="$(stat -c '%u:%g' "$casa/config")"
     if [ "$valor" = sim ]; then
         printf 'sim\n' | escrever_se_mudou "$marcador" 644 "$ub"
-        ok "conta dedicada do YouTube LIGADA para o agente $slug (vale na hora, sem reiniciar). Confira que a conta Google da Tela dele e so dele."
+        ok "conta dedicada do YouTube LIGADA para o agente $slug (vale na hora, sem reiniciar). O yt-dlp usa a sessao que estiver na Tela dele: nao entre la com a sua conta pessoal enquanto estiver ligada."
     else
         rm -f -- "$marcador"
-        ok "conta dedicada do YouTube DESLIGADA para o agente $slug (vale na hora, sem reiniciar). O agente nao usa mais os cookies da Tela."
+        ok "conta dedicada do YouTube DESLIGADA para o agente $slug. Os proximos downloads nao usam os cookies da Tela; um download que ja comecou vai ate o fim, e o perfil da Tela continua na casa do agente."
     fi
 }
 

@@ -62,7 +62,8 @@ a quem pediu que o dono precisa ligar a conta dedicada. Com o marcador, ele usa 
 --no-plugin-dirs --js-runtimes node --cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome/Default" --no-playlist
 --match-filters "availability=public & age_limit=0 & !is_live"` (só para o YouTube, só para vídeo público, sem restrição de idade
 e que não seja transmissão ao vivo, nunca com `--cookies arquivo`) e, se continuar pedindo login, pede ao dono para entrar pela
-Tela. As duas chamadas rejeitam transmissão ao vivo, usam `--max-filesize 2G` (recusa o arquivo maior quando o tamanho é
+Tela. As duas chamadas dão ao arquivo o nome do ID do vídeo e só imprimem o caminho do arquivo final (`--print
+after_move:filepath`, sem título nem texto do autor do vídeo), rejeitam transmissão ao vivo, usam `--max-filesize 2G` (recusa o arquivo maior quando o tamanho é
 conhecido antes do download) e `timeout 1800` (30 minutos); na chamada com cookies o agente não repete título nem mensagem do
 `yt-dlp`, só avisa que o vídeo não é público.
 
@@ -96,7 +97,9 @@ o vídeo não é público.
    anti-robô. Para ligar: abra a Tela do agente (menu do agente, grupo Conexões, "Navegador") e entre em youtube.com com uma conta
    Google criada só para aquele agente, nunca a sua conta pessoal, porque o agente baixa com a sessão dessa conta. Depois peça ao
    Admin: "liga a conta dedicada do YouTube do agente <nome>" (ou rode `dgclaw agente youtube <nome> conta-dedicada sim`). Para
-   desligar, o mesmo pedido com "desliga", ou `dgclaw agente youtube <nome> conta-dedicada nao`. Se a Tela de um agente que vai ser
+   desligar, o mesmo pedido com "desliga", ou `dgclaw agente youtube <nome> conta-dedicada nao`. Enquanto estiver ligado, não
+   entre com a sua conta pessoal na Tela desse agente, porque o download usa a sessão que estiver lá. Desligar vale para os
+   próximos downloads: um que já começou vai até o fim, e o perfil da Tela continua na casa do agente. Se a Tela de um agente que vai ser
    entregue a outra pessoa já tem a sua conta pessoal, peça ajuda ao Admin antes da entrega, porque o perfil do navegador guarda
    senhas e sessões de outros sites.
 

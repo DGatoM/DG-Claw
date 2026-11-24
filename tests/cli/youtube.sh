@@ -52,6 +52,16 @@ igual "arquivo alheio continua depois do nao" "alheio" "$(cat "$CFG/arquivo-alhe
 dgclaw agente youtube ana conta-dedicada nao >/dev/null 2>&1
 igual "nao de novo (sem marcador) sai com 0" "0" "$?"
 
+echo "youtube: argumentos demais nao mudam nada"
+dgclaw agente youtube ana conta-dedicada sim nao >"$TMP/o.txt" 2>&1
+igual "sim nao sai com 2" "2" "$?"
+nega "e nao criou o marcador" test -e "$M"
+dgclaw agente youtube ana conta-dedicada sim >/dev/null 2>&1
+dgclaw agente youtube ana conta-dedicada nao sim >/dev/null 2>&1
+igual "nao sim sai com 2" "2" "$?"
+afirma "e nao removeu o marcador" test -f "$M"
+dgclaw agente youtube ana conta-dedicada nao >/dev/null 2>&1
+
 echo "youtube: nome ou assunto invalido"
 nega "nome inexistente recusado" dgclaw agente youtube fulano conta-dedicada sim
 nega "nome invalido recusado" dgclaw agente youtube A conta-dedicada sim
