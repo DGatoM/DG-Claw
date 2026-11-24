@@ -8,7 +8,7 @@ import type { CtxMotor } from "../provedores/motor.js";
 import { compactRecusadoNoTranscript, turnoEncerradoNoTranscript } from "../transcript.js";
 import { CONFERE_TRANSCRIPT_A_CADA_MS, ROLLOUT_AUSENTE_MS } from "./constantes.js";
 import { aplicarEvento, cancelarStopPendente } from "./eventos.js";
-import { confirmarRecibos, talvezSoltarFila } from "./fila.js";
+import { talvezSoltarFila } from "./fila.js";
 import { conferirLoginExpiradoNoTranscript, credencialGravadaEm, marcarLoginExpirado } from "./login.js";
 
 /** Claude: se o hook Stop se perder, o agente ficaria "working" para sempre e a fila de ocioso
@@ -114,9 +114,10 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
           arquivo = achado.arquivo;
           log.info(s.a("codex"), `id da sessão descoberto no rollout: ${achado.id}`);
           s.mudar({ sessionId: achado.id });
-          // O rollout nascer é o recibo do primeiro Enter (ele só existe depois do primeiro turno).
-          s.promptsAceitos += 1;
-          confirmarRecibos(s);
+          // A descoberta só localiza e vincula o arquivo. O recibo do primeiro Enter é o `task_started` que o vigia lê DEPOIS
+          // de vincular (o arquivo é lido desde o começo): dar baixa aqui, antes de ler qualquer evento, deixaria uma sessão
+          // vizinha (outro rollout sem dono, mesmo diretório e hora) confirmar o pedido errado, e o `task_started` contaria
+          // o mesmo turno uma segunda vez.
         }
       }
       if (!arquivo && !avisouAusencia && Date.now() - desde > ROLLOUT_AUSENTE_MS) {

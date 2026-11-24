@@ -245,6 +245,12 @@ cmd_mandar() {
   ler_texto "$texto" "$arquivo" "texto a mandar"
   QUEM="$(provedor_do "$id")"
   enviar_texto "$id"
+  # 202 com entregaIncerta: o runner nao sabe se o texto chegou. Nao e "enviado" e nao se reenvia sozinho (duplicaria o pedido).
+  if [ "$(campo .data.entregaIncerta)" = "true" ]; then
+    echo "ATENCAO: a entrega ao card $id e INCERTA, o texto pode ou nao ter chegado. $(campo .data.aviso)"
+    echo "Nao reenvie ja: confira com: dgclaw-card ler $id"
+    return 0
+  fi
   echo "Texto enviado ao card $id. Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
 }
 

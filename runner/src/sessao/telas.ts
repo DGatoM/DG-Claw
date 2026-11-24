@@ -133,10 +133,20 @@ function ehLimiteDaCaixa(linha: string): boolean {
 }
 
 /** Lê a caixa de composição na tela renderizada. O marcador (❯ ou ›) só conta no INÍCIO da linha da caixa (depois da
- *  borda e de espaços): um ❯ ou › no meio ou no fim do texto é conteúdo. O conteúdo vai do que vem depois do marcador
- *  até o limite de baixo da caixa ou o rodapé. Devolve null quando não há caixa reconhecível e "ambigua" quando os
- *  limites não se distinguem (outro marcador na mesma caixa). */
-function lerCaixa(tela: string): { conteudo: string; marcaDeDialogoDepois: boolean } | "ambigua" | null {
+ *  borda e de espaços): um ❯ ou › no meio ou no fim do texto é conteúdo.
+ *
+ *  A caixa só é reconhecida com evidência POSITIVA da estrutura, nunca pela ausência de sinais:
+ *   - com borda (Claude): uma linha de borda logo acima da linha do marcador e outra abaixo do conteúdo. O conteúdo é
+ *     TUDO o que está entre as duas bordas: dentro da área de edição uma linha com cara de rodapé ("Plan mode on") é
+ *     texto do dono, e o rodapé de verdade só vem depois da borda de baixo;
+ *   - sem borda (Codex): o rodapé do TUI (`? for shortcuts` etc.) ocupa o fim da tela depois do conteúdo. O rodapé é o
+ *     trecho final de linhas com cara de rodapé; uma linha assim no meio do rascunho, com texto depois dela, é conteúdo.
+ *  Um menu com uma opção marcada ("❯ Yes", a pergunta acima e "No" abaixo) não tem nada disso e NÃO é caixa.
+ *
+ *  Devolve null quando não há marcador, "ambigua" quando outro marcador divide a mesma caixa e "duvidosa" quando há
+ *  marcador mas a estrutura não se confirma (borda de baixo sem a de cima, ou o contrário, ou nenhum rodapé): quem lê
+ *  trata como estado indeterminado, que mantém a suspensão. */
+function lerCaixa(tela: string): { conteudo: string; marcaDeDialogoDepois: boolean } | "ambigua" | "duvidosa" | null {
   const linhas = semAnsi(desdeAUltimaLimpezaDeTela(tela)).split(/\r\n|\r|\n/);
   let l = -1;
   for (let i = linhas.length - 1; i >= 0; i--) {
@@ -153,14 +163,32 @@ function lerCaixa(tela: string): { conteudo: string; marcaDeDialogoDepois: boole
     if (ehLimiteDaCaixa(linhas[i])) break;
     if (RE_MARCADOR_NO_INICIO.test(linhas[i])) return "ambigua";
   }
-  const partes = [linhas[l].replace(RE_MARCADOR_NO_INICIO, "")];
-  for (let i = l + 1; i < linhas.length; i++) {
-    if (ehLimiteDaCaixa(linhas[i])) break;
-    if (RE_RODAPE_DA_CAIXA_VAZIA.test(compacta(linhas[i]))) break;
-    partes.push(linhas[i]);
+  // A primeira linha não vazia acima do marcador: se for a borda de cima, a caixa tem moldura.
+  let acima = l - 1;
+  while (acima >= 0 && linhas[acima].trim() === "") acima--;
+  const bordaAcima = acima >= 0 && ehLimiteDaCaixa(linhas[acima]);
+  let fim = -1; // índice da primeira linha que NÃO é conteúdo (a borda de baixo, ou o começo do rodapé)
+  if (bordaAcima) {
+    for (let i = l + 1; i < linhas.length; i++) {
+      if (ehLimiteDaCaixa(linhas[i])) {
+        fim = i;
+        break;
+      }
+    }
+  } else {
+    // Sem moldura: o rodapé é o trecho final da tela feito só de linhas com cara de rodapé (e linhas em branco).
+    let k = linhas.length;
+    while (k > l + 1 && (linhas[k - 1].trim() === "" || RE_RODAPE_DA_CAIXA_VAZIA.test(compacta(linhas[k - 1])))) k--;
+    let achouRodape = false;
+    for (let i = k; i < linhas.length; i++) if (linhas[i].trim() !== "") achouRodape = true;
+    // Uma borda de caixa depois do marcador, sem borda em cima, é estrutura pela metade: não se confirma.
+    const bordaDepois = linhas.slice(l + 1, k).some((x) => ehLimiteDaCaixa(x));
+    if (achouRodape && !bordaDepois) fim = k;
   }
+  if (fim < 0) return "duvidosa";
   // Qualquer marca de diálogo abaixo do marcador (mesmo depois do limite ou do rodapé) torna a tela duvidosa.
   const marcaDeDialogoDepois = RE_MARCA_DE_DIALOGO.test(compacta(linhas.slice(l + 1).join("\n")));
+  const partes = [linhas[l].replace(RE_MARCADOR_NO_INICIO, ""), ...linhas.slice(l + 1, fim)];
   return { conteudo: compacta(partes.join("\n").replace(/[│┃]\s*$/gm, "")), marcaDeDialogoDepois };
 }
 
@@ -171,7 +199,7 @@ function lerCaixa(tela: string): { conteudo: string; marcaDeDialogoDepois: boole
 export function estadoDaCaixa(tela: string, texto: string): EstadoDaCaixa {
   if (haDialogoAberto(tela)) return "indeterminada";
   const caixa = lerCaixa(tela);
-  if (caixa === null || caixa === "ambigua") return "indeterminada";
+  if (caixa === null || caixa === "ambigua" || caixa === "duvidosa") return "indeterminada";
   if (caixa.marcaDeDialogoDepois || RE_MARCA_DE_DIALOGO.test(caixa.conteudo)) return "indeterminada";
   if (caixa.conteudo === "") return "vazia";
   return caixa.conteudo === compacta(texto) ? "mesmo-texto" : "indeterminada";

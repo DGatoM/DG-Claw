@@ -878,8 +878,8 @@ export class Sessao extends EventEmitter {
   }
 
   /** Digita e envia, com recibo do Enter (ver sessao/digitacao.ts). */
-  digitarEEnviar(texto: string, daFila = false, envio: SemRecibo | null = null): Promise<boolean> {
-    return digitarEEnviar(this, texto, daFila, envio);
+  digitarEEnviar(texto: string, daFila = false, envio: SemRecibo | null = null, cancelado: () => boolean = () => false): Promise<boolean> {
+    return digitarEEnviar(this, texto, daFila, envio, cancelado);
   }
 
   /** Responde à tela de confiança de pasta do Codex (ver sessao/digitacao.ts). */

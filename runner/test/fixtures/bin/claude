@@ -125,7 +125,9 @@ if (process.env.FAKE_DIALOGO_CONFIANCA) {
 
 process.stdout.write("fake claude pronto\r\n");
 // FAKE_PROMPT_PRONTO=1: desenha o rodapé do prompt pronto, como o Claude de verdade quando termina de subir.
-if (process.env.FAKE_PROMPT_PRONTO) process.stdout.write("\u276f \r\n? for shortcuts\r\n");
+// Sem ele, a caixa de composição sai com o rodapé do modo bypass ("⏵⏵ bypass permissions on"), que não é o texto que o runner usa para
+// declarar o agente idle: o runner só escreve o texto com a caixa identificada na tela, e o CLI de verdade a mostra desde que sobe.
+process.stdout.write(process.env.FAKE_PROMPT_PRONTO ? "\u276f \r\n? for shortcuts\r\n" : "\u276f \r\n  \u23f5\u23f5 bypass permissions on (shift+tab to cycle)\r\n");
 if (process.env.FAKE_IMPRIMIR) {
   // O texto sai em dois pedaços, com um intervalo no meio, como um segredo partido na saída do PTY.
   const t = process.env.FAKE_IMPRIMIR;
@@ -193,7 +195,7 @@ process.stdin.on("data", (d) => {
         setTimeout(() => disparar("Stop", {}), Number(process.env.FAKE_TURN_MS || 150));
       }, Number(process.env.FAKE_ACEITA_APOS_MS || 0));
     } else {
-      linha += ch;
+      if (ch >= " ") linha += ch; // teclas de controle (Esc) não viram texto na caixa, como no TUI de verdade
     }
   }
   if (!dialogoAbertoAposEnter) desenharCaixa();

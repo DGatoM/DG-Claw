@@ -25,7 +25,7 @@ import { tratarRotasDeProvedor } from "./provedores/rotas.js";
 import { MOTIVO_SEM_MEDICAO, deStatusline, paraResposta } from "./uso.js";
 import { ESC, nonceConfere } from "./sessao/telas.js";
 import { ErroDeMotor } from "./provedores/motor.js";
-import { MOTIVO_CAIXA_COM_RASCUNHO, MOTIVO_RECUSA_DE_ENTRADA } from "./sessao/fila.js";
+import { MOTIVO_CAIXA_COM_RASCUNHO, MOTIVO_NAO_ENTROU, MOTIVO_RECUSA_DE_ENTRADA } from "./sessao/fila.js";
 import { acharRolloutPorId, mensagensDoRollout } from "./provedores/codex-rollout.js";
 
 /** O estado de uma sessão como o painel e a API o veem. A paralela leva o campo
@@ -424,17 +424,23 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           }
           if (enviar) {
             let confirmado: boolean;
+            // O cliente desistiu (timeout da CLI, conexão fechada) antes de a resposta sair: um envio que ainda espera a vez e não
+            // escreveu nada é cancelado, para o reenvio do cliente não deixar duas cópias aptas a rodar.
+            let desistiu = false;
+            res.on("close", () => {
+              if (!res.writableEnded) desistiu = true;
+            });
             try {
-              confirmado = await sessao.digitarEEnviar(texto);
+              confirmado = await sessao.digitarEEnviar(texto, false, null, () => desistiu);
             } catch (err) {
               // O agente deixou de poder conversar (ou uma tela bloqueia a caixa) depois de o pedido ser aceito: nada foi
               // digitado, e a resposta diz o motivo e o que fazer em vez de um erro interno sem orientação.
               if (!(err instanceof ErroDeMotor)) throw err;
-              json(res, { success: false, error: err.message, howToFix: `${err.comoResolver}. Nada foi digitado: depois disso a mensagem pode ser reenviada.`, code: err.statusReason === MOTIVO_RECUSA_DE_ENTRADA ? "ENTRADA_RECUSADA" : err.statusReason === MOTIVO_CAIXA_COM_RASCUNHO ? "CAIXA_COM_RASCUNHO" : "TELA_BLOQUEADA" }, 409);
+              json(res, { success: false, error: err.message, howToFix: `${err.comoResolver}. Nada foi digitado: depois disso a mensagem pode ser reenviada.`, code: err.statusReason === MOTIVO_RECUSA_DE_ENTRADA ? "ENTRADA_RECUSADA" : err.statusReason === MOTIVO_CAIXA_COM_RASCUNHO ? "CAIXA_COM_RASCUNHO" : err.statusReason === MOTIVO_NAO_ENTROU ? "NAO_ENTROU" : "TELA_BLOQUEADA" }, 409);
               return;
             }
             if (!confirmado) {
-              // 202 com entregaIncerta, e não erro: o texto PODE ter sido escrito no terminal. Um erro faria quem chama (scripts que
+              // 202 com entregaIncerta, e não erro: o texto PODE ter sido escrito no terminal (quando nada foi escrito a rota já respondeu 409 acima). Um erro faria quem chama (scripts que
               // repetem o POST quando ele falha, a CLI e o painel, que mandam reenviar) repetir o pedido e executá-lo duas vezes.
               json(
                 res,

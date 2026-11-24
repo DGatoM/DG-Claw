@@ -143,6 +143,8 @@ function lerStdin() {
   process.stdout.write("fake codex pronto\r\n");
   let linha = "";
   const desenharCaixa = () => process.stdout.write("\u001b[2J\u001b[H\u203a " + linha + "\r\n? for shortcuts\r\n");
+  // O Codex de verdade desenha a caixa de composição e o rodapé assim que sobe (o runner só escreve com ela identificada).
+  desenharCaixa();
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
   process.stdin.on("data", (d) => {
     for (const ch of d.toString()) {
@@ -154,7 +156,7 @@ function lerStdin() {
         registrar({ modo: "prompt", texto });
         turno(texto);
       } else {
-        linha += ch;
+        if (ch >= " ") linha += ch; // teclas de controle (Esc) não viram texto na caixa, como no TUI de verdade
       }
     }
     desenharCaixa();

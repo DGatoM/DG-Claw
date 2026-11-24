@@ -1,8 +1,8 @@
 import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
-import { MOTIVO_CAIXA_COM_RASCUNHO, MOTIVO_RECUSA_DE_ENTRADA, type SemRecibo, devolverNaoDigitado, levantarSuspensao, liberarBarra, pararComCaixaSuja, pendenteEm, reter, suspenderPorRascunho, talvezSoltarFila, terminalQuietoParaLerTela } from "./fila.js";
-import { INTERVALO_MS, PEDACO, RECIBO_ENTER_TENTATIVAS } from "./constantes.js";
+import { MOTIVO_CAIXA_COM_RASCUNHO, MOTIVO_NAO_ENTROU, MOTIVO_RECUSA_DE_ENTRADA, type SemRecibo, devolverNaoDigitado, levantarSuspensao, liberarBarra, pararComCaixaSuja, pendenteEm, reter, suspenderPorRascunho, talvezSoltarFila, terminalQuietoParaLerTela } from "./fila.js";
+import { INTERVALO_MS, PEDACO, RECIBO_ENTER_TENTATIVAS, SILENCIO_DA_MASCARA_MS } from "./constantes.js";
 import { caixaVaziaNaTela, ehDialogoDeAutoMode, estadoDaCaixa, caixaIdentificada, telaDeConfiancaDoCodex } from "./telas.js";
 
 /**
@@ -15,12 +15,21 @@ import { caixaVaziaNaTela, ehDialogoDeAutoMode, estadoDaCaixa, caixaIdentificada
  * `envio` é o item da fila que este texto representa (null numa chamada direta, como o POST /input): é ele, e
  * não um campo global da sessão, que a rotina do Enter marca. Os envios de texto de um mesmo terminal são
  * serializados: um texto só começa a ser colado depois que o anterior terminou o Enter dele.
+ *
+ * `cancelado` diz que quem pediu (o cliente HTTP do envio direto) desistiu: um envio que ainda espera a vez na cadeia
+ * e ainda não escreveu nada é cancelado sem escrever, para um reenvio do cliente não deixar duas cópias aptas a rodar.
  */
-export function digitarEEnviar(s: Sessao, texto: string, daFila = false, envio: SemRecibo | null = null): Promise<boolean> {
+export function digitarEEnviar(
+  s: Sessao,
+  texto: string,
+  daFila = false,
+  envio: SemRecibo | null = null,
+  cancelado: () => boolean = () => false,
+): Promise<boolean> {
   // O terminal é capturado AGORA, quando o envio é aceito, e não depois da espera na cadeia: se a sessão reiniciar
   // (ou trocar de provedor) enquanto este envio espera a vez, nada é escrito no terminal novo.
   const procAceito = s.proc;
-  const minha = s.cadeiaDeEnvio.then(() => digitar(s, texto, daFila, envio, procAceito));
+  const minha = s.cadeiaDeEnvio.then(() => digitar(s, texto, daFila, envio, procAceito, cancelado));
   s.cadeiaDeEnvio = minha.then(
     () => undefined,
     () => undefined,
@@ -38,7 +47,37 @@ function terminalTrocado(s: Sessao, envio: SemRecibo | null): false {
   return false;
 }
 
-async function digitar(s: Sessao, texto: string, daFila: boolean, envio: SemRecibo | null, procAceito: Sessao["proc"]): Promise<boolean> {
+/** A tela sincronizada com o emulador. A máscara de segredos segura o fim da saída do CLI até o silêncio
+ *  (SILENCIO_DA_MASCARA_MS) e o CLI pode ter acabado de desenhar: logo depois de uma saída a tela pode estar incompleta. Se a
+ *  caixa não aparece identificada, até 2 releituras, depois dessa folga, evitam recusar à toa (um diálogo de verdade continua
+ *  sendo recusado, só 2 folgas depois). */
+async function lerTelaDaCaixa(s: Sessao, proc: Sessao["proc"]): Promise<string> {
+  let tela = await s.telaAtualSincronizada();
+  for (let k = 0; k < 2 && s.proc === proc && !caixaIdentificada(tela); k++) {
+    await new Promise((r) => setTimeout(r, SILENCIO_DA_MASCARA_MS + 30));
+    tela = await s.telaAtualSincronizada();
+  }
+  return tela;
+}
+
+/** Nada do texto foi escrito e o envio não pôde começar. Pela fila o item volta intacto para a frente dela (devolve false).
+ *  Numa chamada direta lança ErroDeMotor, que a rota responde com 409 ("não entrou, pode reenviar"): o 202 de entrega
+ *  incerta é só para quando algo foi escrito. */
+function naoEntrou(s: Sessao, envio: SemRecibo | null, motivo: string, comoResolver: string): false {
+  if (envio) return naoEscreveu(s, envio, motivo);
+  log.aviso(s.a("entrada"), `não escrevi nada no terminal: ${motivo}`);
+  throw new ErroDeMotor(`Não digitei o texto: ${motivo}.`, MOTIVO_NAO_ENTROU, comoResolver);
+}
+const REENVIAR = "esperar o agente voltar a ficar livre (sem diálogo aberto) e reenviar a mensagem";
+
+async function digitar(
+  s: Sessao,
+  texto: string,
+  daFila: boolean,
+  envio: SemRecibo | null,
+  procAceito: Sessao["proc"],
+  cancelado: () => boolean,
+): Promise<boolean> {
   // O terminal de quando o envio foi aceito: toda escrita abaixo confere que ele continua sendo o da sessão.
   const proc = procAceito;
   if (!proc) throw new Error("não há terminal vivo para digitar");
@@ -47,6 +86,10 @@ async function digitar(s: Sessao, texto: string, daFila: boolean, envio: SemReci
     log.aviso(s.a("entrada"), "o pedido deixou de estar pendente enquanto esperava a vez de ser digitado; não escrevi nada no terminal");
     return false;
   }
+  // O cliente HTTP do envio direto desistiu enquanto o pedido esperava a vez: nada é escrito.
+  if (!envio && cancelado()) {
+    return naoEntrou(s, null, "quem pediu desistiu da chamada antes de o texto começar a ser digitado", "reenviar a mensagem se ainda for necessária");
+  }
   if (s.proc !== proc) {
     // Nada foi escrito: o item da fila volta para a frente da fila (se ainda for dele) em vez de ficar incerto.
     log.aviso(
@@ -54,6 +97,7 @@ async function digitar(s: Sessao, texto: string, daFila: boolean, envio: SemReci
       "o terminal mudou (reinício ou troca de provedor) entre aceitar o envio e começar a digitar; não escrevi nada no terminal novo",
     );
     if (envio && !devolverNaoDigitado(s, envio)) envio.parada = { tipo: "terminal", motivo: "o terminal foi trocado antes de começar a digitar" };
+    if (!envio) return naoEntrou(s, null, "o terminal mudou (reinício ou troca de provedor) antes de o texto começar a ser digitado", REENVIAR);
     return false;
   }
   // Esperou a vez na cadeia: o agente pode ter deixado de poder conversar (login, chave, restrição) enquanto isso.
@@ -76,16 +120,20 @@ async function digitar(s: Sessao, texto: string, daFila: boolean, envio: SemReci
   if (s.estado.status === "waiting_input") {
     log.aviso(s.a("entrada"), "o agente passou a esperar uma resposta (permissão ou pergunta) enquanto o pedido esperava a vez; não escrevi nada no terminal");
     if (envio && !devolverNaoDigitado(s, envio)) envio.parada = { tipo: "caixa", motivo: "o agente está esperando uma resposta e nada foi digitado" };
+    if (!envio) return naoEntrou(s, null, "o agente está esperando uma resposta (permissão ou pergunta)", REENVIAR);
     return false;
   }
-  // Chamada direta com a digitação suspensa (rascunho do dono, diálogo): só segue se a tela de AGORA, já sincronizada e com
-  // o terminal quieto, mostrar a caixa vazia. Senão nada é escrito, e quem chamou recebe o motivo.
-  if (!envio && s.digitacaoSuspensaEm !== null) {
+  // Digitação suspensa (rascunho do dono, diálogo): vale para a chamada direta e também para o item da fila que esperava a
+  // vez na cadeia (o dono pode ter começado a escrever nesse meio tempo). Só segue se a tela de AGORA, já sincronizada e com
+  // o terminal quieto, mostrar a caixa vazia. Senão nada é escrito: o item da fila volta intacto para a frente da fila e
+  // quem chamou direto recebe o motivo.
+  if (s.digitacaoSuspensaEm !== null) {
     const tela = await s.telaAtualSincronizada();
-    if (s.proc !== proc) return terminalTrocado(s, null);
+    if (s.proc !== proc) return envio ? naoEscreveu(s, envio, "o terminal foi trocado antes de começar a digitar") : naoEntrou(s, null, "o terminal foi trocado antes de começar a digitar", REENVIAR);
     if (terminalQuietoParaLerTela(s) && caixaVaziaNaTela(tela)) {
       levantarSuspensao(s);
     } else {
+      if (envio) return naoEscreveu(s, envio, "a digitação está suspensa e a caixa do terminal ainda tem texto, um diálogo ou acabou de escrever");
       const motivo =
         "A digitação automática deste terminal está suspensa e a caixa de entrada do agente ainda tem texto (ou um diálogo aberto, ou o terminal acabou de escrever). " +
         "Não digitei nada para não misturar com ele.";
@@ -96,48 +144,71 @@ async function digitar(s: Sessao, texto: string, daFila: boolean, envio: SemReci
   }
   s.marcarAtividade();
   if (s.motor.provedor === "codex") await s.vencerTelaDeConfianca(daFila, proc, envio);
-  if (s.proc !== proc) return terminalTrocado(s, envio);
+  if (s.proc !== proc) return envio ? terminalTrocado(s, envio) : naoEntrou(s, null, "o terminal foi trocado antes de o texto começar a ser digitado", REENVIAR);
   if (s.motor.provedor === "claude") recusarSeEstiverNoAvisoDoAutoMode(s, daFila);
   const pausa = s.motor.pausaAntesDoEnterMs;
   const ehComandoDeBarra = texto.trim().startsWith("/");
   // Quantas escritas o PTY deve ter contado se só ESTE envio escreveu: guardado depois de cada escrita dele.
   let esperadas = s.entradasManuais;
+  // Antes de CADA escrita do texto (o primeiro byte e cada pedaço da colagem longa): a tela de AGORA, sincronizada com o
+  // emulador, precisa mostrar a caixa de composição. Com um diálogo de permissão aberto (e o hook waiting_input ainda a
+  // caminho) um caractere do texto poderia acionar o atalho de uma opção. null = pode escrever; senão, o motivo.
+  const caixaLivre = async (primeira: boolean): Promise<string | null> => {
+    const tela = await lerTelaDaCaixa(s, proc);
+    if (s.proc !== proc) return "o terminal foi trocado antes de o texto ser escrito";
+    if (!caixaIdentificada(tela)) {
+      return primeira
+        ? "a tela não mostra com clareza a caixa de composição (pode haver um diálogo, um menu ou outro marcador)"
+        : "a tela mudou no meio da colagem e já não mostra com clareza a caixa de composição";
+    }
+    return null;
+  };
   if (texto.length <= 256) {
-    const antes = motivoDeCaixaMudada(s, esperadas);
-    if (antes) return naoEscreveu(s, envio, antes);
+    const antes = motivoDeCaixaMudada(s, esperadas) ?? (await caixaLivre(true)) ?? motivoDeCaixaMudada(s, esperadas) ?? (!envio && cancelado() ? "quem pediu desistiu da chamada" : null);
+    if (antes) return naoEntrou(s, envio, antes, REENVIAR);
+    if (s.proc !== proc) return naoEntrou(s, envio, "o terminal foi trocado antes de o texto ser escrito", REENVIAR);
     if (envio) envio.escreveuAlgo = true;
     s.escrever(texto);
     esperadas = s.entradasManuais;
     await new Promise((r) => setTimeout(r, pausa));
     return enviarComRecibo(s, { texto, comandoDeBarra: ehComandoDeBarra, envio, proc, entradasAposTexto: esperadas });
   }
-  const resultado = await new Promise<{ ok: true } | { ok: false; motivo?: string; escreveu: boolean }>((resolve) => {
-    let i = 0;
-    const passo = () => {
-      if (s.proc !== proc) return resolve({ ok: false, escreveu: i > 0 });
-      // Antes de CADA pedaço: o agente passou a esperar uma resposta, ou alguém escreveu no terminal no meio da colagem?
-      const motivo = motivoDeCaixaMudada(s, esperadas);
-      if (motivo) return resolve({ ok: false, motivo, escreveu: i > 0 });
-      if (envio) envio.escreveuAlgo = true;
-      s.escrever(texto.slice(i, i + PEDACO));
-      esperadas = s.entradasManuais;
-      i += PEDACO;
-      if (i >= texto.length) {
-        // Uma folga depois do último pedaço: o TUI ainda está processando o
-        // burst quando o write retorna.
-        setTimeout(() => resolve({ ok: true }), Math.max(120, pausa));
-        return;
-      }
-      setTimeout(passo, INTERVALO_MS);
-    };
-    passo();
-  });
-  if (!resultado.ok && resultado.motivo !== undefined) {
-    return resultado.escreveu
-      ? parouComTextoNaCaixa(s, envio, resultado.motivo)
-      : naoEscreveu(s, envio, resultado.motivo);
+  let i = 0;
+  let parou: { motivo?: string; escreveu: boolean } | null = null;
+  while (i < texto.length) {
+    if (s.proc !== proc) {
+      parou = { escreveu: i > 0 };
+      break;
+    }
+    // Antes de CADA pedaço: o agente passou a esperar uma resposta, alguém escreveu no terminal no meio da colagem, ou a tela
+    // já não mostra a caixa de composição?
+    const motivo = motivoDeCaixaMudada(s, esperadas) ?? (await caixaLivre(i === 0)) ?? motivoDeCaixaMudada(s, esperadas) ?? (i === 0 && !envio && cancelado() ? "quem pediu desistiu da chamada" : null);
+    if (motivo) {
+      parou = { motivo, escreveu: i > 0 };
+      break;
+    }
+    if (s.proc !== proc) {
+      parou = { escreveu: i > 0 };
+      break;
+    }
+    if (envio) envio.escreveuAlgo = true;
+    s.escrever(texto.slice(i, i + PEDACO));
+    esperadas = s.entradasManuais;
+    i += PEDACO;
+    if (i >= texto.length) {
+      // Uma folga depois do último pedaço: o TUI ainda está processando o burst quando o write retorna.
+      await new Promise((r) => setTimeout(r, Math.max(120, pausa)));
+    } else {
+      await new Promise((r) => setTimeout(r, INTERVALO_MS));
+    }
   }
-  if (!resultado.ok || s.proc !== proc) return terminalTrocado(s, envio);
+  if (parou) {
+    if (parou.motivo !== undefined) {
+      return parou.escreveu ? parouComTextoNaCaixa(s, envio, parou.motivo) : naoEntrou(s, envio, parou.motivo, REENVIAR);
+    }
+    return parou.escreveu ? terminalTrocado(s, envio) : naoEntrou(s, envio, "o terminal foi trocado antes de o texto ser escrito", REENVIAR);
+  }
+  if (s.proc !== proc) return terminalTrocado(s, envio);
   return enviarComRecibo(s, { texto, comandoDeBarra: ehComandoDeBarra, envio, proc, entradasAposTexto: esperadas });
 }
 
@@ -348,6 +419,14 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
       if (tela === null) return parouComTextoNaCaixa(s, envio, "a tela do terminal não parou de mudar antes do primeiro Enter, e não dá para saber o que há na caixa");
       const motivo = motivoDeCaixaMudada(s, entradasEsperadas);
       if (motivo) return parouComTextoNaCaixa(s, envio, motivo);
+      if (!caixaIdentificada(tela)) {
+        const seq = s.seq;
+        tela = await lerTelaDaCaixa(s, proc);
+        if (s.proc !== proc) return terminalTrocado(s, envio);
+        if (s.seq !== seq && !caixaIdentificada(tela)) return parouComTextoNaCaixa(s, envio, "a tela do terminal não parou de mudar antes do primeiro Enter, e não dá para saber o que há na caixa");
+        const motivo2 = motivoDeCaixaMudada(s, entradasEsperadas);
+        if (motivo2) return parouComTextoNaCaixa(s, envio, motivo2);
+      }
       // Um diálogo aberto (permissão, pergunta, aviso): o Enter o responderia. Aqui não se exige "mesmo texto": uma colagem
       // longa aparece resumida na caixa.
       if (!caixaIdentificada(tela)) return parouComTextoNaCaixa(s, envio, "a tela não mostra com clareza a caixa de composição (pode haver um diálogo, um menu ou outro marcador), e um Enter ali poderia respondê-lo");
@@ -460,8 +539,13 @@ export function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: num
   // está lá já não é o texto que esta vigia tenta enviar, e um Enter dela poderia mandar um rascunho.
   let entradasEsperadas = entradasDoEnvio;
 
+  // Fim desta vigia (se ela ainda é a vigente): enquanto `vigiaDoRecibo` não for nulo a fila não solta nada (ver
+  // talvezSoltarFila), então quem a encerra reavalia a fila.
   const acabar = () => {
+    if (s.vigiaGeracao !== minhaGeracao) return;
     if (s.vigiaDoEnvio === envio) s.vigiaDoEnvio = null;
+    s.vigiaDoRecibo = null;
+    talvezSoltarFila(s);
   };
   const reterEste = (motivo: string, suspender: boolean) => {
     if (!envio?.aguardando) return;
@@ -471,11 +555,12 @@ export function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: num
   };
 
   const passo = async (i: number): Promise<void> => {
-    s.vigiaDoRecibo = null;
     if (s.proc !== proc) return acabar();
     // A tela vem sincronizada com o emulador. Durante a espera a vigia pode ter sido substituída ou cancelada.
+    // `vigiaDoRecibo` fica preenchido durante todo o passo: é o que segura a fila enquanto a vigia está ativa.
     const d = await decidirEnter(s, texto, entradasEsperadas);
-    if (s.vigiaGeracao !== minhaGeracao || s.proc !== proc) return;
+    if (s.vigiaGeracao !== minhaGeracao) return;
+    if (s.proc !== proc) return acabar();
     if (aceito()) {
       // Houve escrita de fora depois do nosso último Enter: o recibo (ou o PreCompact) pode ser de outra coisa.
       if (envio && pendenteEm(s, envio) && s.entradasManuais !== entradasEsperadas) {

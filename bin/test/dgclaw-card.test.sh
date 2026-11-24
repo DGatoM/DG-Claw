@@ -72,6 +72,16 @@ printf 'mais um detalhe' > "$T/extra.txt"
 ok "mandar --arquivo funciona" $([ $c = 0 ] && echo 0 || echo 1)
 tail -1 "$LOG" | grep -q 'mais um detalhe'; ok "mandar entrega o texto do arquivo" $?
 
+# --- entrega incerta (202 com entregaIncerta): a CLI avisa, nao diz "enviado" e nao reenvia ------------
+subir entrega-incerta
+"$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
+: > "$LOG"
+"$BIN" mandar card-abc123 "texto qualquer" >"$T/o" 2>"$T/e"; c=$?
+ok "mandar com entrega incerta sai com 0 (nao e erro, nao provoca reenvio)" $([ $c = 0 ] && echo 0 || echo 1)
+! grep -q "Texto enviado ao card" "$T/o"; ok "mandar com entrega incerta NAO diz 'Texto enviado'" $?
+grep -q "INCERTA" "$T/o" && grep -q "aviso do runner falso" "$T/o"; ok "mandar com entrega incerta imprime o aviso do runner" $?
+[ "$(grep -c '/input' "$LOG")" = 1 ]; ok "mandar com entrega incerta faz um unico POST (nao reenvia)" $?
+
 # --- esperar estourando o tempo -------------------------------------------------------------------
 subir nunca-termina
 "$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1

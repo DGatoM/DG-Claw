@@ -41,6 +41,9 @@ export interface SemRecibo {
 export const MOTIVO_RECUSA_DE_ENTRADA = "runner:recusa-de-entrada";
 /** Chamada direta com a digitação suspensa e a caixa do terminal ainda com texto: nada foi digitado. */
 export const MOTIVO_CAIXA_COM_RASCUNHO = "runner:caixa-com-rascunho";
+/** Chamada direta que NÃO escreveu nada (tela sem a caixa de composição, agente esperando resposta, terminal trocado antes
+ *  da primeira escrita, cliente que desistiu): a rota responde 409 e a mensagem pode ser reenviada sem risco de duplicar. */
+export const MOTIVO_NAO_ENTROU = "runner:nao-entrou";
 const MOTIVOS_DE_TELA_BLOQUEADA = ["runner:dialogo-auto-mode", "runner:tela-de-confianca", MOTIVO_RECUSA_DE_ENTRADA];
 
 /** O que aconteceu com o texto: entrou na fila (e no arquivo), era um /compact repetido, ou NÃO foi gravado no arquivo
@@ -159,7 +162,9 @@ export function talvezSoltarFila(s: Sessao): void {
     }
   }
   // Um envio automático sem recibo por vez: enquanto houver um digitado sem confirmação, a fila espera.
-  if (s.semRecibo.length || s.barraPendente) return;
+  // Também com a vigia de recibo ativa, mesmo a de um envio direto (que não ocupa semRecibo): um recibo atrasado dele seria
+  // tomado como o do pedido seguinte e apagaria do disco um pedido que o CLI talvez nunca tenha aceitado.
+  if (s.semRecibo.length || s.barraPendente || s.vigiaDoRecibo !== null) return;
   // Pode haver texto (um rascunho do dono, o pedido que ficou na caixa) ou um diálogo no terminal: nada é digitado
   // por cima. A suspensão só acaba quando, num idle, a tela mostra a caixa de composição vazia. Um recibo (hook)
   // sozinho não basta: ele pode ser de outro turno e a caixa continuar com texto.
@@ -500,6 +505,14 @@ export function confirmarRecibos(s: Sessao): void {
   }
   s.semRecibo = s.semRecibo.slice(1);
   if (s.itemEmVoo === e.item) s.itemEmVoo = null;
+  // A vigia deste pedido não tem mais o que vigiar: encerra, para a fila (que não solta nada com uma vigia ativa) não esperar o
+  // próximo passo dela à toa.
+  if (s.vigiaDoEnvio === e) {
+    if (s.vigiaDoRecibo) clearTimeout(s.vigiaDoRecibo);
+    s.vigiaDoRecibo = null;
+    s.vigiaDoEnvio = null;
+    s.vigiaGeracao += 1;
+  }
   if (e.aguardando) {
     log.info(s.a("entrada"), `o recibo do texto digitado (${e.item.texto.length} caracteres) chegou atrasado: o pedido está entregue e não será repetido`);
   }

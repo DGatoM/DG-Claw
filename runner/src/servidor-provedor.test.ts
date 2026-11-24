@@ -686,3 +686,60 @@ test("tecla crua sem Enter pelo POST /input suspende a digitação; depois dela 
   assert.equal(r.corpo.code, "CAIXA_COM_RASCUNHO");
   principal.digitacaoSuspensaEm = null;
 });
+
+test("rodada 4, item 7: POST /input direto que NÃO escreveu nada (diálogo na tela) responde 409 NAO_ENTROU, nunca 202 entregaIncerta; com algo escrito e sem recibo continua 202", async () => {
+  const { alimentarTela } = await import("./apoio-teste.js");
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  principal.digitacaoSuspensaEm = null;
+  const escritas: string[] = [];
+  const original = principal.escrever.bind(principal);
+  (principal as unknown as { escrever: (t: string) => void }).escrever = (t: string) => {
+    escritas.push(t);
+  };
+  try {
+    await alimentarTela(principal, "\u001b[2J\u001b[H╭" + "─".repeat(42) + "╮\r\n│ ❯ \r\n╰" + "─".repeat(42) + "╯\r\n Do you want to proceed?\r\n   1. Yes\r\n   2. No\r\n Esc to cancel\r\n");
+    const r = await req("POST", `/api/agents/${ID}/input`, { text: "mensagem-com-dialogo" });
+    assert.equal(r.status, 409, JSON.stringify(r.corpo));
+    assert.equal(r.corpo.code, "NAO_ENTROU");
+    assert.match(r.corpo.howToFix, /pode ser reenviada/);
+    assert.deepEqual(escritas, [], "nenhum byte escrito");
+  } finally {
+    (principal as unknown as { escrever: unknown }).escrever = original;
+  }
+});
+
+test("rodada 4, item 8: o cliente HTTP que desiste do POST /input enquanto o envio espera a vez NÃO deixa o texto ser escrito depois", async () => {
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  principal.digitacaoSuspensaEm = null;
+  const escritas: string[] = [];
+  const original = principal.escrever.bind(principal);
+  (principal as unknown as { escrever: (t: string) => void }).escrever = (t: string) => {
+    escritas.push(t);
+  };
+  let soltar: () => void = () => {};
+  principal.cadeiaDeEnvio = new Promise<void>((r) => (soltar = r));
+  try {
+    const ctl = new AbortController();
+    const chamada = fetch(`http://127.0.0.1:${porta}/api/agents/${ID}/input`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "mensagem-que-o-cliente-largou" }),
+      signal: ctl.signal,
+    }).catch(() => null);
+    await dormir(300);
+    ctl.abort();
+    await chamada;
+    await dormir(300); // o servidor percebe o fechamento da conexão
+    soltar();
+    await dormir(500);
+    assert.deepEqual(escritas, [], "o texto não foi escrito depois da desistência");
+  } finally {
+    soltar();
+    (principal as unknown as { escrever: unknown }).escrever = original;
+    principal.cadeiaDeEnvio = Promise.resolve();
+  }
+});

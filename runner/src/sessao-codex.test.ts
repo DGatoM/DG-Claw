@@ -550,3 +550,54 @@ test("Codex: pasta de sessões que não abre (erro de leitura, não ENOENT) mant
   assert.equal(inspecionarRolloutPorId(fantasma, casa).estado, "inconclusivo");
   assert.equal(inspecionarRolloutPorId(fantasma, path.join(casa, "outra")).estado, "nao-existe", "ENOENT é ausência comprovada");
 });
+
+/** Grava à mão um rollout do Codex desta sessão (a descoberta o acha por cwd e hora) e devolve o caminho. */
+function gravarRolloutDeTeste(cwd: string, id: string, comTaskStarted: boolean): string {
+  const dia = new Date();
+  const dir = path.join(amb.codexHome, "sessions", String(dia.getFullYear()), String(dia.getMonth() + 1).padStart(2, "0"), String(dia.getDate()).padStart(2, "0"));
+  fs.mkdirSync(dir, { recursive: true });
+  const arquivo = path.join(dir, `rollout-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}-${id}.jsonl`);
+  const linha = (type: string, payload: unknown) => JSON.stringify({ timestamp: new Date().toISOString(), type, payload }) + "\n";
+  fs.writeFileSync(arquivo, linha("session_meta", { id, session_id: id, cwd }) + (comTaskStarted ? linha("event_msg", { type: "task_started" }) : ""));
+  return arquivo;
+}
+const pedidoPendenteComEnter = (s: InstanceType<typeof Sessao>, texto: string) => {
+  const item = { texto, em: 1, id: "cccc" + texto.length, digitado: true };
+  const entrada = { item, promptsAntes: s.promptsAceitos, aguardando: true, enterEscrito: true, interrompido: false, entradasNoEnter: s.entradasManuais };
+  s.semRecibo.push(entrada as never);
+  return entrada;
+};
+
+test("rodada 4, item 5: a descoberta do rollout só vincula o arquivo (não dá baixa nem soma recibo); o task_started lido depois confirma o pedido, uma vez só", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
+  const entrada = pedidoPendenteComEnter(s, "pedido-do-primeiro-enter");
+  const id = "5b6c7d8e-1111-4222-8333-944455566677";
+  const arquivo = gravarRolloutDeTeste(s.estado.config.cwd as string, id, false);
+  await esperarAte(() => s.estado.sessionId === id, 6_000, "o vigia descobrir o rollout");
+  await dormir(1_500);
+  assert.equal(s.promptsAceitos, 0, "descobrir o arquivo não é recibo");
+  assert.deepEqual(s.semRecibo, [entrada], "o pedido continua pendente");
+  // O task_started do turno chega: é ele o recibo.
+  fs.appendFileSync(arquivo, JSON.stringify({ timestamp: new Date().toISOString(), type: "event_msg", payload: { type: "task_started" } }) + "\n");
+  await esperarAte(() => s.promptsAceitos === 1, 6_000, "o task_started virar recibo");
+  assert.equal(s.semRecibo.length, 0, "agora o pedido está confirmado");
+  await dormir(1_500);
+  assert.equal(s.promptsAceitos, 1, "contado uma vez só");
+});
+
+test("rodada 4, item 5: o primeiro task_started que já está no arquivo quando ele é descoberto é lido depois de vincular (recibo uma vez, sem contar em dobro)", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
+  pedidoPendenteComEnter(s, "pedido-com-task-started-ja-no-arquivo");
+  const id = "6c7d8e9f-2222-4333-8444-a55566677788";
+  gravarRolloutDeTeste(s.estado.config.cwd as string, id, true);
+  await esperarAte(() => s.estado.sessionId === id && s.promptsAceitos >= 1, 6_000, "o recibo vir do arquivo");
+  await dormir(1_500);
+  assert.equal(s.promptsAceitos, 1, "nem pulou o começo do arquivo, nem contou em dobro");
+  assert.equal(s.semRecibo.length, 0);
+});
