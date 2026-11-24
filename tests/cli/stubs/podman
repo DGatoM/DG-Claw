@@ -114,6 +114,14 @@ case "${1:-}" in
             fi
             echo "/machine.slice/libpod-$nome.scope"; exit 0
         fi
+        # `inspect -f {{.HostConfig.Memory}}`: so os bytes da memoria persistida em lim-<nome> (container parado). Com cgroup-ausente
+        # responde 0 (nada persistido), a menos que estado/memoria-persistida exista.
+        if [ "${*: -3:1}" = "-f" ] && [ "${*: -2:1}" = '{{.HostConfig.Memory}}' ]; then
+            [ -f "$est/inspect-limites-falha" ] && exit 125
+            if [ -f "$est/cgroup-ausente" ] && [ ! -f "$est/memoria-persistida" ]; then echo 0; exit 0; fi
+            read -r m _ < "$est/lim-$nome" 2>/dev/null || m=0
+            echo "${m:-0}"; exit 0
+        fi
         if printf '%s ' "$@" | grep -q 'HostConfig.Memory'; then
             [ -f "$est/inspect-limites-falha" ] && exit 125
             # Arquivo com 4 campos (sem swap): o swap padrao e 2x a memoria, como o podman faz na criacao.

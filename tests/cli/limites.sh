@@ -480,4 +480,31 @@ echo "2147483648 100000 100000 1024 4294967296" >"$STUB_ESTADO/lim-dgclaw-a4"
 afirma "reparar: export e espaco inicial valem" grep -q '^podman update --memory-swap=6442450944 --memory=4096m --cpus=1.5 --pids-limit=4096 dgclaw-a4' "$STUB_LOG"
 printf 'DGCLAW_DOMINIO=teste.exemplo.org\n' >"$ETC/dgclaw.env"
 
+echo "principal com adicionais antigos: o aviso de excesso sai e o principal nao e reduzido"
+nova_raiz; maquina 8 2
+criar_agente pri --nome X; criar_agente ad1 --nome X; criar_agente ad2 --nome X; criar_agente ad3 --nome X
+for a in pri ad1 ad2 ad3; do echo "2147483648 100000 100000 1024" >"$STUB_ESTADO/lim-dgclaw-$a"; done
+: >"$STUB_LOG"; dgclaw agente reparar pri >"$TMP/rep.txt" 2>&1
+afirma "o aviso diz que o principal recebeu o maximo e os numeros" grep -q 'principal pri recebeu o maximo, 6656 MB.*outros agentes ja somam 6144 MB.*passa em 6144 MB' "$TMP/rep.txt"
+afirma "o aviso diz que tetos nao sao reservas e as saidas" grep -q 'limites, nao reservas.*DGCLAW_CONTAINER_MEMORIA.*recriar.*VPS com mais memoria' "$TMP/rep.txt"
+afirma "o principal subiu para o maximo, sem ser reduzido" grep -q '^podman update --memory-swap=[0-9]* --memory=6656m' "$STUB_LOG"
+echo "criar o primeiro agente nao avisa de excesso"
+nova_raiz; maquina 8 2
+criar_agente solo --nome X
+nega "sem outros agentes: sem aviso" grep -q 'aviso' "$TMP/saida.txt"
+
+echo "container parado entra pelo limite persistido; sem isso, entra estimado e a linha info diz quais"
+nova_raiz; maquina 16 4
+DGCLAW_CONTAINER_MEMORIA=2g criar_agente pri --nome X
+criar_agente ad1 --nome X
+echo "10737418240 100000 100000 4096" >"$STUB_ESTADO/lim-dgclaw-ad1"
+touch "$STUB_ESTADO/cgroup-ausente" "$STUB_ESTADO/memoria-persistida"
+criar_agente ad2 --nome X
+igual "ad1 parado com 10 GB persistidos: folga de 16384 - 2457 - 12288 = 1639m" "1639m" "$(limite_criado ad2 | cut -d' ' -f1)"
+nega "nada foi estimado" grep -q 'estimado\|estimativa' "$TMP/saida.txt"
+rm -f "$STUB_ESTADO/memoria-persistida"
+criar_agente ad3 --nome X
+afirma "sem valor persistido, a linha info lista quem foi estimado" grep -q 'limites dos outros agentes: .*ad2.*entraram na soma por estimativa' "$TMP/saida.txt"
+rm -f "$STUB_ESTADO/cgroup-ausente"
+
 fim

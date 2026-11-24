@@ -107,9 +107,10 @@ limites_principal() {
 
 # _limites_somar_outros <slug> <ram-mb> <reserva-mb> <principal>: soma o limite de memoria dos OUTROS containers de agente.
 # Preenche LIM_OUTROS_MB, LIM_OUTROS_ESTIMADOS (slugs cujo valor foi estimado) e LIM_OUTROS_SEMLIMITE (slugs lidos sem
-# limite, que contam como a RAM inteira: sem folga). Usa limites_ler_atuais, entao mexe nas variaveis ATU_*.
+# limite, que contam como a RAM inteira: sem folga). Container parado conta pelo HostConfig.Memory guardado no podman
+# (se for maior que zero); sem isso, estimado. Usa limites_ler_atuais, entao mexe nas variaveis ATU_*.
 _limites_somar_outros() {
-    local slug="$1" ram="$2" reserva="$3" principal="$4" s mb
+    local slug="$1" ram="$2" reserva="$3" principal="$4" s mb bytes
     LIM_OUTROS_MB=0; LIM_OUTROS_ESTIMADOS=""; LIM_OUTROS_SEMLIMITE=""
     while IFS= read -r s; do
         if [ -z "$s" ] || [ "$s" = "$slug" ]; then continue; fi
@@ -119,6 +120,10 @@ _limites_somar_outros() {
             else
                 mb="$ATU_MEM_MB"
             fi
+        elif [ "$ENSAIO" != 1 ] && bytes="$(podman inspect -f '{{.HostConfig.Memory}}' "dgclaw-$s" 2>/dev/null)" \
+            && case "$bytes" in ''|*[!0-9]*|0) false ;; *) true ;; esac; then
+            # Container parado: o cgroup nao existe, mas o podman guarda o limite com que ele foi criado.
+            mb=$((bytes / 1048576))
         else
             LIM_OUTROS_ESTIMADOS="$LIM_OUTROS_ESTIMADOS $s"
             if [ "$s" = "$principal" ]; then mb="$(_limites_alvo_principal_mb "$ram" "$reserva")"; else mb="$LIMITE_MEM_PISO_MB"; fi
@@ -148,6 +153,12 @@ limites_calcular() {
     if [ "$slug" = "$principal" ]; then
         LIM_PAPEL=principal
         mb="$(_limites_alvo_principal_mb "$ram" "$reserva")"
+        # O principal nunca e reduzido, mas a soma dos tetos pode passar da maquina (adicionais antigos): so para avisar.
+        if [ "$ram" -gt 0 ]; then
+            _limites_somar_outros "$slug" "$ram" "$reserva" "$principal"
+            LIM_EXCESSO_MB=$((LIM_OUTROS_MB + mb - (ram - reserva)))
+            [ "$LIM_EXCESSO_MB" -gt 0 ] || LIM_EXCESSO_MB=0
+        fi
     else
         LIM_PAPEL=adicional
         mb="$LIMITE_MEM_PISO_MB"
@@ -183,8 +194,7 @@ limites_calcular() {
         LIM_SOBRESCRITA=1
         LIM_FOLGA_MB=""
         if [ "$ram" -gt 0 ]; then
-            # O adicional ja somou os outros acima; o principal so precisa disso para saber se a sobrescrita estoura.
-            if [ "$LIM_PAPEL" = principal ]; then _limites_somar_outros "$slug" "$ram" "$reserva" "$principal"; fi
+            # Os outros ja foram somados acima, para o principal e para o adicional.
             LIM_EXCESSO_MB=$((LIM_OUTROS_MB + LIM_MEM_MB - (ram - reserva)))
             [ "$LIM_EXCESSO_MB" -gt 0 ] || LIM_EXCESSO_MB=0
         fi
@@ -226,10 +236,16 @@ limites_relatar() {
     if [ -n "$LIM_OUTROS_SEMLIMITE" ]; then
         nota="$nota Os containers $LIM_OUTROS_SEMLIMITE estao sem limite de memoria e contam como sem folga."
     fi
+    [ -n "$LIM_OUTROS_ESTIMADOS" ] && info "limites dos outros agentes: $LIM_OUTROS_ESTIMADOS entraram na soma por estimativa (container parado ou ilegivel), pelo valor que o calculo daria."
     if [ "$LIM_SOBRESCRITA" = 1 ]; then
         if [ "$LIM_EXCESSO_MB" -gt 0 ]; then
             aviso "com DGCLAW_CONTAINER_MEMORIA=$LIM_MEM_ARG para o agente $slug, a soma dos limites passa em $LIM_EXCESSO_MB MB do que a maquina tem depois da reserva ($LIM_RAM_MB MB de RAM, $LIM_RESERVA_MB MB reservados, outros agentes somam $LIM_OUTROS_MB MB). O DG Claw aplicou o valor mesmo assim, e o servidor pode ficar sem memoria sob carga. Para mudar, ajuste a linha DGCLAW_CONTAINER_MEMORIA em $DG_ETC/dgclaw.env ou use uma VPS com mais memoria.$nota"
         fi
+        return 0
+    fi
+    if [ "$LIM_PAPEL" = principal ]; then
+        [ "$LIM_EXCESSO_MB" -gt 0 ] || return 0
+        aviso "o agente principal $slug recebeu o maximo, $LIM_MEM_MB MB (RAM de $LIM_RAM_MB MB menos a reserva de $LIM_RESERVA_MB MB), e os outros agentes ja somam $LIM_OUTROS_MB MB: a soma dos tetos passa em $LIM_EXCESSO_MB MB do que a maquina tem depois da reserva. Os tetos sao limites, nao reservas: so pesa se todos os agentes usarem muita memoria ao mesmo tempo. Para aliviar, baixe o limite de um agente adicional (DGCLAW_CONTAINER_MEMORIA em $DG_ETC/dgclaw.env e dgclaw agente recriar <agente> --forcar) ou use uma VPS com mais memoria. O principal nao foi reduzido.$nota"
         return 0
     fi
     [ "$LIM_PAPEL" = adicional ] && [ -n "$LIM_FOLGA_MB" ] || return 0
