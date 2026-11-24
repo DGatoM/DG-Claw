@@ -391,7 +391,7 @@ Conferir a mao (detalhes em docs/ENTREGA-CLIENTE.md):
       Repita nos dois motores (Claude e Codex).
   5.  Cruzar os nomes do cofre (listados acima) com as chaves que as skills do cliente citam, e trocar a
       chave provisoria da equipe pela do cliente.
-  6.  YouTube e yt-dlp, num terminal seu (nunca no chat do Admin): yt-dlp em /usr/local/bin, diretiva
+  6.  YouTube e yt-dlp, num terminal seu (nunca no chat do Admin): o yt-dlp que o runner usa, diretiva
       --js-runtimes node ativa no /etc/yt-dlp.conf do container, perfil da Tela existente e login do YouTube
       pela Tela (VNC) com uma conta dedicada ao agente, mais o diagnostico agente.<agente>.youtube (a partir da
       1.1.1) ou o download curto do guia. O smoke nao executa nada disso.

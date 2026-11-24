@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Os bash -c recebem os caminhos como argumento ($1), de proposito entre aspas simples.
+# shellcheck disable=SC2016
 # scripts/smoke-entrega.sh: um caso todo OK e casos com FALHA, com podman, journalctl, nproc, curl e
 # dgclaw de mentira (tests/cli/stubs-entrega) e uma raiz falsa (DGCLAW_RAIZ). Nada toca o sistema.
 set -uo pipefail
@@ -54,10 +56,10 @@ nega "nao mostra o valor da chave do web.env" grep -q 'gsk_segredo' "$TMP/s.txt"
 afirma "item 5 conta as chaves ativas do cofre" grep -q 'OK     \[5\] o cofre tem 2 chave(s) ativa(s)\.' "$TMP/s.txt"
 afirma "item 5 lista um nome por linha (GEMINI)" grep -qx ' *GEMINI_API_KEY' "$TMP/s.txt"
 afirma "item 5 lista um nome por linha (GROQ)" grep -qx ' *GROQ_API_KEY' "$TMP/s.txt"
-afirma "o uso aponta o caminho absoluto da instalacao" bash -c "bash '$SMOKE' --ajuda | grep -qxF 'uso: sudo bash /opt/dgclaw/app/scripts/smoke-entrega.sh <agente>'"
+afirma "o uso aponta o caminho absoluto da instalacao" bash -c 'bash "$1" --ajuda | grep -qxF "uso: sudo bash /opt/dgclaw/app/scripts/smoke-entrega.sh <agente>"' _ "$SMOKE"
 nega "nao afirma que toda chave citada esta no cofre" grep -q 'toda chave citada' "$TMP/s.txt"
 nega "nao varre as skills no container" grep -q 'FIM-DA-VARREDURA' "$STUB_LOG"
-afirma "item 8 OK so no servidor" bash -c "grep -c 'OK     \[8\]' '$TMP/s.txt' | grep -qx 1"
+afirma "item 8 OK so no servidor" bash -c 'grep -c "OK     \[8\]" "$1" | grep -qx 1' _ "$TMP/s.txt"
 nega "nao imprime PENDENTE" grep -q 'PENDENTE' "$TMP/s.txt"
 nega "nao imprime FALHA" grep -q 'FALHA' "$TMP/s.txt"
 afirma "lista o que fica a mao" grep -q 'Conferir a mao' "$TMP/s.txt"
@@ -87,7 +89,7 @@ igual "sai com 1" "1" "$?"
 afirma "FALHA no pids.max" grep -q 'FALHA  \[3\] pids.max do container e 1024' "$TMP/s.txt"
 afirma "FALHA no OOM" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias' "$TMP/s.txt"
 afirma "FALHA sem chave de microfone no web.env" grep -q 'FALHA  \[5\] o web.env nao tem ELEVENLABS_API_KEY, GROQ_API_KEY nem OPENAI_API_KEY' "$TMP/s.txt"
-afirma "as dicas de recriar nao mandam --forcar" bash -c "! grep -q -- 'recriar ana --forcar' '$TMP/s.txt'"
+afirma "as dicas de recriar nao mandam --forcar" bash -c '! grep -q -- "recriar ana --forcar" "$1"' _ "$TMP/s.txt"
 afirma "a dica de recriar manda conferir a camada gravavel fora do chat do Admin" grep -q 'num terminal seu (nunca no chat do Admin' "$TMP/s.txt"
 nega "a dica de recriar nao manda abrir podman diff" grep -q 'podman diff' "$TMP/s.txt"
 afirma "a dica de recriar avisa que pode recriar na hora" grep -q 'pode recriar o container na hora' "$TMP/s.txt"
@@ -434,7 +436,7 @@ echo exited >"$STUB_ESTADO/estado"
 smoke ana
 igual "container parado: sai com 1" "1" "$?"
 afirma "diz como ligar" grep -q 'dgclaw agente iniciar ana' "$TMP/s.txt"
-nega "container parado nao manda reparar (no bloco do item 3)" bash -c "sed -n '/^3\. /,/^8\. /p' '$TMP/s.txt' | grep -q reparar"
+nega "container parado nao manda reparar (no bloco do item 3)" bash -c 'sed -n "/^3\. /,/^8\. /p" "$1" | grep -q reparar' _ "$TMP/s.txt"
 
 echo "smoke-entrega: podman container exists (inexistente, sem resposta, estado vazio)"
 limpar_estado
@@ -443,15 +445,15 @@ smoke ana
 igual "container inexistente: sai com 1" "1" "$?"
 afirma "container inexistente: FALHA" grep -q 'FALHA  \[3\] o container dgclaw-ana nao existe' "$TMP/s.txt"
 afirma "container inexistente: manda conferir com agente listar" grep -q 'confira com dgclaw agente listar se o agente foi criado; um agente sem container precisa ser recriado pela equipe' "$TMP/s.txt"
-nega "container inexistente nao manda reparar (no bloco do item 3)" bash -c "sed -n '/^3\. /,/^8\. /p' '$TMP/s.txt' | grep -q reparar"
+nega "container inexistente nao manda reparar (no bloco do item 3)" bash -c 'sed -n "/^3\. /,/^8\. /p" "$1" | grep -q reparar' _ "$TMP/s.txt"
 nega "container inexistente nao le o resto como se existisse" grep -q 'OK     \[3\] pids.max' "$TMP/s.txt"
 limpar_estado
 echo 125 >"$STUB_ESTADO/existe"
 smoke ana
 igual "podman sem responder: sem FALHA, sai com 0" "0" "$?"
 afirma "podman sem responder: INCONCLUSIVO com o codigo" grep -q 'INCONCLUSIVO \[3\] nao consegui consultar o podman (codigo 125)' "$TMP/s.txt"
-nega "podman sem responder nao manda reparar (no bloco do item 3)" bash -c "sed -n '/^3\. /,/^8\. /p' '$TMP/s.txt' | grep -q reparar"
-nega "podman sem responder nao manda iniciar (no bloco do item 3)" bash -c "sed -n '/^3\. /,/^8\. /p' '$TMP/s.txt' | grep -q iniciar"
+nega "podman sem responder nao manda reparar (no bloco do item 3)" bash -c 'sed -n "/^3\. /,/^8\. /p" "$1" | grep -q reparar' _ "$TMP/s.txt"
+nega "podman sem responder nao manda iniciar (no bloco do item 3)" bash -c 'sed -n "/^3\. /,/^8\. /p" "$1" | grep -q iniciar' _ "$TMP/s.txt"
 nega "podman sem responder nao vira FALHA de container" grep -q 'FALHA  \[3\] o container' "$TMP/s.txt"
 limpar_estado
 : >"$STUB_ESTADO/estado"
