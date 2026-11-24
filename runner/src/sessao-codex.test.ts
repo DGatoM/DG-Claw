@@ -937,3 +937,37 @@ test("revisão rodada 12, item D: o Codex sai entre o `1` e o Enter da tela de c
   assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["pedido-que-nao-chegou-a-ser-digitado"], "voltou para a fila");
   assert.equal(s.filaQuandoIdle[0].digitado, undefined, "sem a marca de digitado");
 });
+
+test("Enter manual sem turno: a marca velha não retém o pedido da fila; o texto do turno é quem confirma", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
+  // O dono deu Enter numa caixa vazia: nenhum turno abriu e a marca ficou. Depois a fila digitou o pedido.
+  s.enterManualPendente = { promptsAntes: s.promptsAceitos, em: Date.now() - 20_000, proc: s.proc };
+  const entrada = pedidoPendenteComEnter(s, "pedido-depois-do-enter-vazio");
+  const { aplicarEvento } = await import("./sessao/eventos.js");
+  aplicarEvento(s, { event: "UserPromptSubmit" }); // task_started: o texto do turno ainda não chegou
+  assert.deepEqual(s.semRecibo, [entrada], "a decisão espera o texto do turno");
+  assert.equal(s.retidos.length, 0, "não foi retido como incerto");
+  aplicarEvento(s, { event: "TextoDoUsuario", texto: "pedido-depois-do-enter-vazio" });
+  assert.equal(s.semRecibo.length, 0, "o texto do turno confirmou o pedido");
+  assert.equal(s.retidos.length, 0, "e ele não está nos retidos");
+  assert.equal(s.enterManualPendente, null, "a marca caiu");
+});
+
+test("Enter manual que abre um turno com outro texto enquanto o pedido espera: o pedido continua sendo retido como incerto", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
+  s.enterManualPendente = { promptsAntes: s.promptsAceitos, em: Date.now(), proc: s.proc };
+  pedidoPendenteComEnter(s, "pedido-da-fila-que-espera");
+  const { aplicarEvento } = await import("./sessao/eventos.js");
+  aplicarEvento(s, { event: "UserPromptSubmit" });
+  assert.equal(s.retidos.length, 0, "ainda sem texto: espera");
+  aplicarEvento(s, { event: "TextoDoUsuario", texto: "mensagem que o dono escreveu no terminal" });
+  assert.equal(s.semRecibo.length, 0);
+  assert.deepEqual(s.retidos.map((i) => i.texto), ["pedido-da-fila-que-espera"], "retido: o recibo pode ser do Enter do dono");
+  assert.equal(s.enterManualPendente, null);
+});

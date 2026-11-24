@@ -79,14 +79,23 @@ for tentativa in 1 2 3; do
             log "ATENCAO: a entrega do aviso ao Admin e INCERTA (o runner respondeu 202 com entregaIncerta: o texto pode ter sido digitado e nao se sabe se o Admin o recebeu). Nao repeti o pedido, para nao avisar duas vezes. Confira a conversa do Admin; se o aviso nao apareceu, peca a ele que leia o resumo em $RESUMO."
             exit 3
         fi
-        case "$status" in
-            200)
-                log "o Admin recebeu o aviso do resultado (tentativa $tentativa) e vai contar ao dono. Resumo: $RESUMO"
-                exit 0 ;;
-            202)
-                log "o aviso do resultado ficou na fila do Admin (tentativa $tentativa) e ele vai contar ao dono quando ficar livre. Resumo: $RESUMO"
-                exit 0 ;;
-        esac
+        # 200 so conta com JSON valido, success true e data.enviado true (o que o runner devolve quando o agente recebeu o texto); 202
+        # so conta como fila com JSON valido, success true e data.enfileirado true. Qualquer outra combinacao de 200 ou 202 (corpo
+        # vazio, JSON invalido, sem a confirmacao) nao prova nada: a entrega e incerta e nao se repete.
+        if [ "$status" = 200 ] || [ "$status" = 202 ]; then
+            campo=enviado
+            [ "$status" = 202 ] && campo=enfileirado
+            if [ "$(printf '%s' "$dados" | jq -r --arg c "$campo" 'if .success == true and .data[$c] == true then "sim" else "nao" end' 2>/dev/null)" = sim ]; then
+                if [ "$status" = 200 ]; then
+                    log "o Admin recebeu o aviso do resultado (tentativa $tentativa) e vai contar ao dono. Resumo: $RESUMO"
+                else
+                    log "o aviso do resultado ficou na fila do Admin (tentativa $tentativa) e ele vai contar ao dono quando ficar livre. Resumo: $RESUMO"
+                fi
+                exit 0
+            fi
+            log "ATENCAO: o runner respondeu HTTP $status sem a confirmacao esperada (o corpo veio vazio, invalido ou sem data.$campo), entao a entrega do aviso ao Admin e INCERTA. Nao repeti o pedido, para nao avisar duas vezes. Confira a conversa do Admin; se o aviso nao apareceu, peca a ele que leia o resumo em $RESUMO."
+            exit 3
+        fi
         codigo="$(printf '%s' "$dados" | jq -r '.code // empty | tostring | .[0:40]' 2>/dev/null)"
         # O code vem do corpo da resposta e vai para o log: so entra se for um dos que o runner devolve em POST /input
         # (runner/src/servidor.ts); qualquer outro valor (inclusive com quebra de linha ou texto forjado) vira CODIGO_DESCONHECIDO.

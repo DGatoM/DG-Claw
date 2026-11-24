@@ -253,6 +253,20 @@ printf '%s' '{"success":true,"data":{"enfileirado":true}}' >"$STUB_ESTADO/admin-
 bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-fila.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
 igual "202 enfileirado: sai com 0" "0" "$rc"
 afirma "202 enfileirado: o log diz que ficou na fila" grep -q 'ficou na fila do Admin' "$TMP/reinicio-fila.log"
+# 202 com corpo vazio: nao prova que ficou na fila. Entrega incerta, um unico POST, sai com 3.
+printf '' >"$STUB_ESTADO/admin-input-resposta"; printf 202 >"$STUB_ESTADO/admin-input-status"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-202-vazio.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "202 com corpo vazio: sai com 3 (entrega incerta)" "3" "$rc"
+igual "202 com corpo vazio: um unico POST, sem repetir" "1" "$(grep -c 'X POST' "$STUB_LOG")"
+nega "202 com corpo vazio: o log nao diz que ficou na fila" grep -q 'ficou na fila do Admin' "$TMP/reinicio-202-vazio.log"
+# 200 com JSON sem a confirmacao (data.enviado): tambem e entrega incerta, sem repetir.
+printf '%s' '{"success":true,"data":{"chars":12}}' >"$STUB_ESTADO/admin-input-resposta"; printf 200 >"$STUB_ESTADO/admin-input-status"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-200-sem-confirmacao.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "200 sem data.enviado: sai com 3 (entrega incerta)" "3" "$rc"
+igual "200 sem data.enviado: um unico POST, sem repetir" "1" "$(grep -c 'X POST' "$STUB_LOG")"
+nega "200 sem data.enviado: o log nao diz que o Admin recebeu" grep -q 'o Admin recebeu o aviso' "$TMP/reinicio-200-sem-confirmacao.log"
 # Falha do curl DEPOIS do envio (28 = tempo esgotado): entrega incerta, nao repete e sai com 3.
 printf 28 >"$STUB_ESTADO/curl-codigo-input"
 : >"$STUB_LOG"

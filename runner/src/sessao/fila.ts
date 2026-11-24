@@ -351,7 +351,14 @@ export function espelharFilaDetalhado(s: Sessao): ResultadoDaGravacao {
   somar(s.itemEmVoo);
   for (const it of s.filaQuandoIdle) somar(it);
   for (const it of s.retidos) somar(it);
-  return gravarFila(s.arquivoDaFila, lista, s.a("fila"));
+  // Nada mudou desde a última gravação que deu certo: não regrava (cada gravação faz fsync do arquivo e da pasta). Só pula
+  // com gravação anterior bem-sucedida e conteúdo idêntico; qualquer resultado que não seja "gravado" esquece a marca, porque
+  // o disco pode ter ficado com um conteúdo diferente do que esta sessão guarda (o rename pode ter publicado antes do fsync da pasta).
+  const representacao = JSON.stringify(lista);
+  if (s.ultimaFilaGravada === representacao) return "gravado";
+  const resultado = gravarFila(s.arquivoDaFila, lista, s.a("fila"));
+  s.ultimaFilaGravada = resultado === "gravado" ? representacao : null;
+  return resultado;
 }
 
 function retirarSemRecibo(s: Sessao, entrada: SemRecibo): void {
@@ -505,9 +512,20 @@ export function confirmarRecibos(s: Sessao): void {
   // O prazo de 15 s só deixa a fila soltar: o Enter do dono continua pendente até o recibo dele chegar. Se esse recibo chega
   // com o Enter de um pedido da fila já escrito, não dá para saber de quem ele é.
   const manual = s.enterManualPendente;
-  const reciboDoDono = manual !== null && s.promptsAceitos > manual.promptsAntes;
-  if (reciboDoDono) s.enterManualPendente = null;
+  const marcaCumprida = manual !== null && s.promptsAceitos > manual.promptsAntes;
+  let reciboDoDono = marcaCumprida;
   const e = s.semRecibo[0];
+  // Codex: o `task_started` chega antes do texto do turno, e a marca do Enter do dono (que pode ter ficado de um Enter numa caixa
+  // vazia, sem turno nenhum) não decide sozinha. Se o texto do turno é o do pedido, o turno é do pedido e a marca cai; se o turno
+  // ainda não trouxe texto, a decisão espera o texto; se trouxe outro texto, vale a regra de sempre (reter, abaixo).
+  if (reciboDoDono && s.motor.reciboPorRollout && e && e.enterEscrito && s.promptsAceitos > e.promptsAntes) {
+    if (reciboDoTexto(s, e.promptsAntes, e.textoEnviado ?? e.item.texto)) {
+      reciboDoDono = false;
+    } else if (!s.turnosDoCodex.some((t) => t.n > e.promptsAntes && t.textos.length > 0)) {
+      return;
+    }
+  }
+  if (marcaCumprida) s.enterManualPendente = null;
   if (reciboDoDono && e && e.enterEscrito && s.promptsAceitos > e.promptsAntes) {
     suspenderPorRascunho(s);
     reter(s, e.item, "chegou um recibo, mas o recibo pode ser do Enter que o dono deu no terminal");

@@ -230,6 +230,9 @@ export class Sessao extends EventEmitter {
   /** Nova tentativa da fila depois de uma tela que bloqueia a caixa (timer único) e se o bloqueio já foi logado. */
   reintentoDaFila: NodeJS.Timeout | null = null;
   bloqueioDaFilaLogado = false;
+  /** A última representação da fila gravada com sucesso no disco (a mesma string que a gravação usa), ou null se não há
+   *  gravação confiável. Serve para não regravar, com fsync, uma fila que não mudou. */
+  ultimaFilaGravada: string | null = null;
   readonly reintentoTelaBloqueadaMs: number;
   /** Vigia do Enter sem recibo (ver vigiarReciboAtrasado): um timer por vez e os intervalos dela. */
   vigiaDoRecibo: NodeJS.Timeout | null = null;

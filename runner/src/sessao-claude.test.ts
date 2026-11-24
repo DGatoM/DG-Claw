@@ -3228,6 +3228,44 @@ test("rodada 5, item 8: tela irreconhecível com o agente idle não vira laço d
   assert.deepEqual(s.filaQuandoIdle.map((i) => i.texto), ["pedido-com-tela-irreconhecivel"]);
 });
 
+test("tela irreconhecível com o agente idle: a fila inalterada não é regravada a cada tentativa; um pedido novo volta a gravar", async () => {
+  logarClaude(amb);
+  const { s } = await nova({}, { ...PASSOS_CURTOS, reintentoTelaBloqueadaMs: 300 });
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  const { cancelarReintentoDaFila } = await import("./sessao/fila.js");
+  await alimentarTela(s, "\u001b[2J\u001b[Hnada que pareça uma caixa de composição aqui\r\n");
+  let tentativas = 0;
+  const original = s.digitarEEnviar.bind(s);
+  (s as unknown as { digitarEEnviar: typeof original }).digitarEEnviar = (...a: Parameters<typeof original>) => {
+    tentativas += 1;
+    return original(...a);
+  };
+  // Cada gravação termina num rename para o arquivo da fila: é o que se conta.
+  let gravacoes = 0;
+  const renameOriginal = fs.renameSync;
+  fs.renameSync = ((de: fs.PathLike, para: fs.PathLike) => {
+    if (String(para) === s.arquivoDaFila) gravacoes += 1;
+    return renameOriginal(de, para);
+  }) as typeof fs.renameSync;
+  try {
+    s.enfileirarQuandoOcioso("pedido-com-tela-irreconhecivel-2");
+    await esperarAte(() => tentativas >= 1, 12_000, "a primeira tentativa da fila");
+    await dormir(200);
+    gravacoes = 0;
+    const antes = tentativas;
+    await dormir(1_500);
+    assert.ok(tentativas - antes >= 2, `a fila tentou de novo (${tentativas - antes} tentativas)`);
+    assert.equal(gravacoes, 0, "nada mudou: o arquivo da fila não foi regravado");
+    s.enfileirarQuandoOcioso("segundo-pedido-novo");
+    assert.ok(gravacoes >= 1, "um pedido novo grava de novo");
+  } finally {
+    fs.renameSync = renameOriginal;
+    cancelarReintentoDaFila(s);
+  }
+  assert.ok(filaEmDisco(s).some((i) => i.texto === "segundo-pedido-novo"), "o pedido novo está no arquivo");
+});
+
 test("rodada 5, item 9: o recado de login só é limpo depois de enfileirado; com a fila sem poder gravar ele fica e a entrega é tentada de novo", async () => {
   logarClaude(amb);
   const { s } = await nova({}, { ...PASSOS_CURTOS, reintentoTelaBloqueadaMs: 300 });
