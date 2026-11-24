@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# curl de mentira: imprime so o codigo HTTP (marca "http" no estado escolhe outro; padrao 200).
+# curl de mentira: imprime o corpo do /api/saude (marca "saude" no estado troca o corpo; padrao, o do DG Claw).
 est="${STUB_ESTADO:?}"
 echo "curl $*" >>"${STUB_LOG:?}"
-if [ -f "$est/http" ]; then cat "$est/http"; else printf '200'; fi
-# marca "curl-rc": o codigo de saida (ex.: 28 = prazo estourado depois do cabecalho 200)
+if [ -f "$est/saude" ]; then cat "$est/saude"; else printf '{"ok":true,"agentes":1,"registro_ok":true,"login_trancado":false}'; fi
+# marca "curl-rc": o codigo de saida (ex.: 7 = sem conexao, 28 = prazo estourado)
 if [ -f "$est/curl-rc" ]; then exit "$(cat "$est/curl-rc")"; fi
 exit 0

@@ -20,7 +20,7 @@ O script é curto de propósito e só faz leituras simples do servidor, sem inte
 gravar. Ele confere:
 
 - a versão instalada do DG Claw;
-- se o painel responde (só o código HTTP);
+- se o painel do DG Claw responde (a rota `/api/saude`, na porta da instalação);
 - se os serviços `dgclaw-web` e `dgclaw-admin` do host estão ativos;
 - para cada agente do registro, se o container `dgclaw-<agente>` existe, se está rodando e se tem limite de
   memória (abaixo de 2 GB é `AVISO`, sem limite é `FALHA`).

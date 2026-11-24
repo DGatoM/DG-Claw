@@ -31,7 +31,7 @@ limpar_estado
 smoke
 igual "sai com 0" "0" "$?"
 afirma "versao OK" grep -q 'OK     \[1\] DG Claw 1.2.3' "$TMP/s.txt"
-afirma "painel OK na porta padrao" grep -q 'OK     \[2\] o painel respondeu na porta 8300' "$TMP/s.txt"
+afirma "painel OK na porta padrao" grep -q 'OK     \[2\] o painel do DG Claw respondeu na porta 8300' "$TMP/s.txt"
 afirma "curl na porta padrao" grep -q 'curl .*http://127.0.0.1:8300/' "$STUB_LOG"
 afirma "servico web OK" grep -q 'OK     \[3\] dgclaw-web ativo' "$TMP/s.txt"
 afirma "servico admin OK" grep -q 'OK     \[3\] dgclaw-admin ativo' "$TMP/s.txt"
@@ -58,18 +58,18 @@ afirma "sem VERSION: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[1\]' "$TMP/s.txt"
 
 echo "smoke-entrega: painel"
 limpar_estado
-printf '000' >"$STUB_ESTADO/http"
+echo 7 >"$STUB_ESTADO/curl-rc"; : >"$STUB_ESTADO/saude"
 smoke
-igual "painel 000: sai com 1" "1" "$?"
-afirma "painel 000: FALHA" grep -q 'FALHA  \[2\] o painel nao respondeu' "$TMP/s.txt"
+igual "painel sem conexao: sai com 1" "1" "$?"
+afirma "painel sem conexao: FALHA" grep -q 'FALHA  \[2\] o painel do DG Claw nao respondeu' "$TMP/s.txt"
 limpar_estado
 printf 'DGCLAW_PORTA_PAINEL=9123\n' >"$ETC/dgclaw.env"
 smoke
-afirma "a porta do dgclaw.env vai no curl" grep -q 'curl .*http://127.0.0.1:9123/' "$STUB_LOG"
+afirma "a porta do dgclaw.env vai no curl" grep -q 'curl .*http://127.0.0.1:9123/api/saude' "$STUB_LOG"
 limpar_estado
-printf '302' >"$STUB_ESTADO/http"
+printf '<html>302 Found</html>' >"$STUB_ESTADO/saude"
 smoke
-afirma "redirecionamento conta como OK" grep -q 'OK     \[2\]' "$TMP/s.txt"
+afirma "outro servico na porta: FALHA" grep -q 'FALHA  \[2\] o painel do DG Claw nao respondeu' "$TMP/s.txt"
 
 echo "smoke-entrega: servico inativo"
 limpar_estado
@@ -134,7 +134,7 @@ limpar_estado
 echo 28 >"$STUB_ESTADO/curl-rc"
 smoke
 igual "200 com curl saindo com 28: sai com 1" "1" "$?"
-afirma "200 com curl 28: FALHA do painel" grep -q 'FALHA  \[2\] o painel nao respondeu na porta 8300 (HTTP 000, curl saiu com 28)' "$TMP/s.txt"
+afirma "200 com curl 28: FALHA do painel" grep -q 'FALHA  \[2\] o painel do DG Claw nao respondeu na porta 8300 (/api/saude sem a resposta esperada; curl saiu com 28)' "$TMP/s.txt"
 limpar_estado
 echo '{"versao":1,"agentes":[{"slug":"admin"},{"slug":"bia"},{"slug":"ana","tipo":"agente"}]}' >"$ETC/agentes.json"
 smoke
@@ -163,5 +163,11 @@ limpar_estado
 echo '{"versao":1,"agentes":[{"slug":"bia","tipo":"agente"},{"slug":"ana","tipo":"trabalho"}]}' >"$ETC/agentes.json"
 smoke
 afirma "tipo desconhecido: tambem confere o agente" grep -q 'OK     \[4\] dgclaw-ana rodando' "$TMP/s.txt"
+
+limpar_estado
+echo '{"versao":1,"agentes":[{"slug":"ana ","tipo":"agente"}]}' >"$ETC/agentes.json"
+smoke
+afirma "slug com espaco: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[4\] um agente do registro tem nome fora do formato' "$TMP/s.txt"
+nega "slug com espaco: nao inspeciona dgclaw-ana" grep -q 'podman' "$STUB_LOG"
 
 fim
