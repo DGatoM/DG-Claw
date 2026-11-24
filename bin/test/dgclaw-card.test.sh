@@ -155,6 +155,32 @@ kill $SRV 2>/dev/null; wait $SRV 2>/dev/null; SRV=""
 ok "mandar com conexao recusada continua saindo com 2" $([ $c = 2 ] && echo 0 || echo 1)
 grep -q "o runner deste agente nao respondeu" "$T/e"; ok "conexao recusada continua com a mensagem de runner fora do ar" $?
 
+# --- abrir: o primeiro pedido tambem tem entrega INCERTA (nao fecha o card, nao duplica a tarefa) --------------------------
+subir input-derruba
+"$BIN" abrir --provedor codex --titulo x --pedido oi --monitor --entregue "relatorio pronto" >"$T/o" 2>"$T/e"; c=$?
+ok "abrir com resposta vazia (curl 52) no /input sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+[ "$(head -1 "$T/o")" = "card-abc123" ]; ok "abrir com curl 52: o id sai no stdout" $?
+grep -q "INCERTA" "$T/e" && grep -q "Nao reenvie ja" "$T/e" && grep -q "dgclaw-card ler card-abc123" "$T/e" && grep -q "dgclaw-card mandar card-abc123 --arquivo" "$T/e"; ok "abrir com curl 52: diz que a entrega e incerta, que nao reenvie e como conferir" $?
+! grep -q "nao foi entregue" "$T/e"; ok "abrir com curl 52: nao diz que o pedido nao foi entregue" $?
+grep -q "monitor NAO foi ligado" "$T/e" && grep -q "dgclaw-monitor add card-abc123" "$T/e"; ok "abrir --monitor com curl 52: avisa que o monitor nao foi ligado e como ligar" $?
+! grep -q '"metodo":"DELETE"' "$LOG"; ok "abrir com curl 52: o card NAO e fechado" $?
+subir entrega-incerta
+"$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
+ok "abrir com 202 incerto sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
+[ "$(head -1 "$T/o")" = "card-abc123" ] && grep -q "ATENCAO: a entrega ao card card-abc123 e INCERTA" "$T/o" && grep -q "Nao reenvie ja" "$T/o"; ok "abrir com 202 incerto: imprime o id e o ATENCAO fixo" $?
+! grep -q "Card aberto em" "$T/o"; ok "abrir com 202 incerto: nao diz que o card abriu normalmente" $?
+subir entrega-incerta
+"$BIN" abrir --provedor codex --titulo x --pedido oi --monitor --entregue "relatorio pronto" >"$T/o" 2>"$T/e"; c=$?
+ok "abrir --monitor com 202 incerto sai com 8" $([ $c = 8 ] && echo 0 || echo 1)
+grep -q "ATENCAO" "$T/o" && grep -q "monitor NAO foi ligado" "$T/e" && grep -q "dgclaw-monitor add card-abc123" "$T/e"; ok "abrir --monitor com 202 incerto: nao liga o monitor e diz como ligar depois de conferir" $?
+subir entrega-incerta-forjada
+"$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
+! grep -q "IGNORE" "$T/o" "$T/e"; ok "abrir com 202 incerto: nada da resposta do runner e repassado" $?
+subir normal
+kill $SRV 2>/dev/null; wait $SRV 2>/dev/null; SRV=""
+"$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
+ok "abrir com conexao recusada continua saindo com 2" $([ $c = 2 ] && echo 0 || echo 1)
+
 # --- sem login ------------------------------------------------------------------------------------
 subir sem-login
 "$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?

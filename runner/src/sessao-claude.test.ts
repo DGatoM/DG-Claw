@@ -2283,6 +2283,27 @@ test("caixa suja: colagem longa para no pedaço seguinte se alguém escreveu no 
   assert.match(entrada.parada!.motivo, /outra escrita no terminal no meio do envio/);
 });
 
+test("envio direto curto: o cliente desiste durante a espera da tela dentro de enviarComRecibo => o Enter não é apertado e a sessão fica suspensa", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  let desistiu = false;
+  const leituraOriginal = s.telaAtualSincronizada.bind(s);
+  // A checagem de digitar (depois da pausa) já passou: o cliente só desconecta enquanto enviarComRecibo sincroniza a tela.
+  (s as unknown as { telaAtualSincronizada: () => Promise<string> }).telaAtualSincronizada = async () => {
+    const tela = await leituraOriginal();
+    if (escritas.length >= 1) desistiu = true;
+    return tela;
+  };
+  try {
+    assert.equal(await s.digitarEEnviar("curto-que-o-cliente-largou-na-tela", false, null, () => desistiu), false);
+  } finally {
+    (s as unknown as { telaAtualSincronizada: unknown }).telaAtualSincronizada = leituraOriginal;
+    restaurar();
+  }
+  assert.equal(desistiu, true, "a espera da tela rodou");
+  assert.deepEqual(escritas, ["curto-que-o-cliente-largou-na-tela"], "só o texto, nenhum Enter");
+  assert.notEqual(s.digitacaoSuspensaEm, null, "suspensa por rascunho: o texto ficou na caixa");
+});
+
 test("envio direto longo: o cliente desiste depois do primeiro pedaço => nenhum pedaço a mais, nenhum Enter, sessão suspensa por rascunho", async () => {
   const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
   const longo = "d".repeat(700);

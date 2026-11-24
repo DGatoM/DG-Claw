@@ -43,12 +43,12 @@
 #      mensagem diz o id do card que ficou aberto; sem login, o card recem criado e fechado sozinho.
 #      Se o card abriu mas o "dgclaw-monitor add" falhou, a saida e 8: o card esta aberto e SEM monitor,
 #      e a mensagem traz o comando para ligar o monitor a mao.
-#   8  (so no "abrir --monitor") o card abriu e o pedido foi entregue, mas o monitor nao ligou
+#   8  (so no "abrir --monitor") o card abriu, mas o monitor nao ligou (ou a entrega do pedido e incerta e por isso nao se ligou)
 #   9  envios demais esperando para o card (429 ENVIOS_DEMAIS): o texto nao foi enviado; espere e tente de novo
 #   10 texto grande demais para um envio (413 TEXTO_GRANDE_DEMAIS): o texto nao foi enviado; reduza o texto
 #      (repetir o mesmo texto nao resolve) ou guarde-o num arquivo e peca ao card para le-lo
-#   11 ("mandar") o tempo do curl esgotou DEPOIS de o texto sair: a entrega e INCERTA, o runner pode ainda estar colando ou ja ter
-#      enviado. NAO reenvie ja: espere e confira com 'dgclaw-card ler <id>'
+#   11 ("mandar" e "abrir") a conexao caiu ou o tempo do curl esgotou DEPOIS de o texto sair: a entrega e INCERTA, o runner pode ainda estar colando ou ja ter
+#      enviado. NAO reenvie ja: espere e confira com 'dgclaw-card ler <id>'. No "abrir" o card fica aberto e o id sai no stdout.
 set -euo pipefail
 umask 077
 
@@ -241,9 +241,27 @@ cmd_abrir() {
 
   # O /input pode falhar depois do card existir. Sem login, o card nao serve para nada: fecha para nao ocupar vaga.
   # Se a chamada falhar, HTTP fica 000 e o case abaixo cai no ramo de erro, que avisa e sai.
-  chamar POST "/api/agents/$id/input" "$(printf '%s' "$TEXTO" | jq -Rsc '{text: ., submit: true}')" || true
+  # O pedido do abrir leva o mesmo tempo do mandar: cresce com o tamanho do texto (colagem em pedacos).
+  local corpo_input
+  corpo_input="$(printf '%s' "$TEXTO" | jq -Rsc '{text: ., submit: true}')"
+  MAX_TEMPO="$(max_time_do_texto "$(printf '%s' "$corpo_input" | wc -c)")"
+  chamar POST "/api/agents/$id/input" "$corpo_input" || true
+  MAX_TEMPO="$TEMPO_BASE"
   case "$HTTP" in
     2??) ;;
+    000)
+      # Falha de transporte. Com curl 5, 6 ou 7 nada foi transmitido: segue como antes (avisa e sai com 2). Qualquer outro codigo
+      # (28, 52, 55, 56, 18...) pode ter acontecido DEPOIS de o pedido chegar: o card fica aberto e a entrega e incerta, para
+      # nao duplicar a tarefa com um reenvio.
+      case "${CURL_RC:-0}" in
+        5|6|7) erro "o card $id foi criado, mas o pedido nao foi entregue. Reenvie com: dgclaw-card mandar $id --arquivo <arquivo do pedido>, ou feche com: dgclaw-card fechar $id."
+               falha_geral ;;
+        *)
+          echo "$id"
+          local sem_monitor=""
+          [ "$monitor" = 0 ] || sem_monitor=" O monitor NAO foi ligado: depois de conferir, ligue com: dgclaw-monitor add $id --entregue \"<criterio de entregue>\" [--cada MIN]."
+          CODIGO=11 die "o card $id foi criado, mas a conexao com o runner caiu ou demorou depois de o pedido ser enviado (curl $CURL_RC), e a entrega do pedido e INCERTA. Nao reenvie ja. Espere um ou dois minutos e confira com: dgclaw-card ler $id. Se o pedido nao aparecer, reenvie com: dgclaw-card mandar $id --arquivo <arquivo do pedido>.$sem_monitor" ;;
+      esac ;;
     *)
       # Guarda a resposta do /input: o DELETE logo abaixo sobrescreve HTTP e RESP.
       local http_input="$HTTP" resp_input="$RESP" code
@@ -257,6 +275,13 @@ cmd_abrir() {
       falha_geral ;;
   esac
   echo "$id"
+  # 202 com entregaIncerta: o runner nao sabe se o pedido chegou. Texto FIXO (nada da resposta dele), sem monitor e sem reenviar.
+  if [ "$(campo .data.entregaIncerta)" = "true" ]; then
+    echo "ATENCAO: a entrega ao card $id e INCERTA, o texto pode ou nao ter chegado."
+    echo "Nao reenvie ja. Espere um ou dois minutos e confira com: dgclaw-card ler $id"
+    [ "$monitor" = 0 ] || CODIGO=8 die "o card $id esta aberto, mas a entrega do pedido e incerta, por isso o monitor NAO foi ligado. Depois de conferir com 'dgclaw-card ler $id', ligue com: dgclaw-monitor add $id --entregue \"<criterio de entregue>\" [--cada MIN]"
+    return 0
+  fi
   echo "Card aberto em $(nome_do_provedor "$provedor"). Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
   [ "$monitor" = 0 ] || ligar_monitor "$id" "$entregue" "$cada"
 }

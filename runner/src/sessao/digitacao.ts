@@ -321,7 +321,7 @@ async function digitar(
     if (s.proc !== proc) return terminalTrocado(s, envio);
     // O cliente do envio direto desistiu durante a pausa: o Enter não é apertado, e o texto fica na caixa.
     if (!envio && cancelado()) return parouComTextoNaCaixa(s, envio, MOTIVO_DESISTIU_ANTES_DO_ENTER);
-    return enviarComRecibo(s, { texto, comandoDeBarra: ehComandoDeBarra, envio, proc, entradasAposTexto: esperadas });
+    return enviarComRecibo(s, { texto, comandoDeBarra: ehComandoDeBarra, envio, proc, entradasAposTexto: esperadas, cancelado });
   }
   let i = 0;
   let parou: { motivo?: string; escreveu: boolean } | null = null;
@@ -368,7 +368,7 @@ async function digitar(
   if (s.proc !== proc) return terminalTrocado(s, envio);
   // O cliente do envio direto desistiu enquanto os últimos pedaços eram colados: o Enter não é apertado, e o texto fica na caixa.
   if (!envio && cancelado()) return parouComTextoNaCaixa(s, envio, MOTIVO_DESISTIU_NA_COLAGEM);
-  return enviarComRecibo(s, { texto, comandoDeBarra: ehComandoDeBarra, envio, proc, entradasAposTexto: esperadas });
+  return enviarComRecibo(s, { texto, comandoDeBarra: ehComandoDeBarra, envio, proc, entradasAposTexto: esperadas, cancelado });
 }
 
 /** Por que a colagem longa de um envio direto parou depois de já ter escrito algo: quem pediu (a CLI, com timeout) desistiu. */
@@ -496,6 +496,9 @@ export interface ContextoDoEnvio {
   /** O dono tinha um Enter no terminal ainda sem recibo quando o Enter deste envio foi escrito. Vale para o envio inteiro (todas as
    *  tentativas e a vigia): o recibo do contador pode ser da mensagem dele, então nada o confirma. */
   enterDoDonoAmbiguo?: boolean;
+  /** Só no envio direto (envio === null): diz que quem pediu desistiu da chamada. É conferido imediatamente antes de escrever o
+   *  PRIMEIRO Enter, já depois da espera pela tela. Depois que esse Enter saiu, não muda mais nada. Falta = nunca desiste. */
+  cancelado?: () => boolean;
 }
 
 /** Só /compact tem recibo próprio (o PreCompact). Os outros comandos de barra não têm. */
@@ -575,6 +578,7 @@ async function decidirEnter(s: Sessao, texto: string, entradasEsperadas: number)
  *  `parada` do item, para reter o pedido em vez de dá-lo como entregue.  */
 export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<boolean> {
   const { texto, comandoDeBarra, envio, proc } = ctx;
+  const cancelado = ctx.cancelado ?? (() => false);
   const espera = s.motor.reciboMs;
   // Quantas escritas o PTY deve ter contado se só estes Enters escreveram (ver vigiarReciboAtrasado).
   let entradasEsperadas = ctx.entradasAposTexto ?? s.entradasManuais;
@@ -637,6 +641,8 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
       // Um diálogo aberto (permissão, pergunta, aviso): o Enter o responderia. Aqui não se exige "mesmo texto": uma colagem
       // longa aparece resumida na caixa.
       if (!caixaIdentificada(tela)) return parouComTextoNaCaixa(s, envio, "a tela não mostra com clareza a caixa de composição (pode haver um diálogo, um menu ou outro marcador), e um Enter ali poderia respondê-lo");
+      // Última conferência da desistência de quem pediu: depois de todos os awaits acima e sem nenhum entre ela e a escrita do Enter.
+      if (!envio && cancelado()) return parouComTextoNaCaixa(s, envio, MOTIVO_DESISTIU_ANTES_DO_ENTER);
       escreveuEnter = true;
     }
     if (escreveuEnter) {
