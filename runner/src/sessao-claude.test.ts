@@ -1654,12 +1654,15 @@ test("falha ao gravar a fila: nada é digitado, o pedido volta para a frente, o 
 });
 
 test("comando de barra: é gravado como digitado ANTES de ser digitado; interrompido pelo terminal, fica retido; terminando, sai do disco", async () => {
+  const { marcarDigitadoAntesDeEscrever } = await import("./sessao/fila.js");
   logarClaude(amb);
   const { s } = await nova();
   await s.subir("nova");
   await esperarAte(() => s.estado.status === "idle", 8_000);
   let visto: Array<Record<string, unknown>> | null = null;
   (s as unknown as { digitarEEnviar: (t: string, f: boolean, e: { escreveuAlgo?: boolean }) => Promise<boolean> }).digitarEEnviar = (_t, _f, envio) => {
+    // A marca é gravada por digitar(), imediatamente antes da primeira escrita: o mock faz esse passo e já vê o disco.
+    assert.equal(marcarDigitadoAntesDeEscrever(s, envio as never), true);
     visto = filaEmDisco(s);
     envio.escreveuAlgo = true; // já escreveu parte do comando
     return new Promise<boolean>(() => {}); // a digitação não termina: o terminal vai cair no meio
@@ -2658,6 +2661,8 @@ test("fila: 'sem-fsync-da-pasta' conta como enfileirado, mas NÃO libera a digit
   }) as typeof fs.fsyncSync;
   try {
     assert.equal(s.enfileirarQuandoOcioso("pedido-sem-fsync-da-pasta"), "enfileirado");
+    // A marca é gravada dentro da operação serializada (assíncrona): espera o item voltar à frente da fila e o reintento ser agendado.
+    await esperarAte(() => s.filaQuandoIdle.length === 1 && s.reintentoDaFila !== null && s.semRecibo.length === 0, 8_000, "o item voltar para a frente da fila");
     assert.deepEqual(escritas, [], "nada foi digitado");
     assert.deepEqual(s.filaQuandoIdle.map((i) => [i.texto, i.digitado]), [["pedido-sem-fsync-da-pasta", undefined]], "continua na frente da fila, sem a marca");
     assert.notEqual(s.reintentoDaFila, null);
@@ -3658,4 +3663,89 @@ test("revisão: no Claude a rota de hook continua aceitando o PreCompact (a rest
   const r = s.receberHook({ agentId: s.id, event: "PreCompact", nonce: s.nonce as string });
   assert.equal(r.ok, true);
   assert.equal(s.compactsIniciados, antes + 1);
+});
+
+test("correção A: item da fila que espera a vez na cadeia NÃO está marcado digitado no disco; a marca é gravada antes do primeiro byte", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  let soltar: () => void = () => {};
+  s.cadeiaDeEnvio = new Promise<void>((r) => (soltar = r)); // um envio direto longo segurando o terminal
+  let discoNoPrimeiroByte: Array<Record<string, unknown>> | null = null;
+  const base = s.escrever.bind(s);
+  (s as unknown as { escrever: (t: string) => void }).escrever = (t: string) => {
+    if (discoNoPrimeiroByte === null) discoNoPrimeiroByte = filaEmDisco(s);
+    base(t);
+  };
+  assert.equal(s.enfileirarQuandoOcioso("pedido-da-fila-esperando-a-vez"), "enfileirado");
+  await esperarAte(() => s.soltandoFila, 5_000, "o item sair da fila e esperar a vez na cadeia");
+  await dormir(300);
+  assert.deepEqual(escritas, [], "nada foi escrito enquanto o terminal está ocupado");
+  const esperando = filaEmDisco(s).find((i) => i.texto === "pedido-da-fila-esperando-a-vez");
+  assert.ok(esperando, "o pedido continua guardado no disco");
+  assert.equal(esperando.digitado, undefined, "ainda não está marcado como digitado: uma queda agora não o reteria como incerto");
+  assert.equal(s.semRecibo[0]!.item.digitado, undefined);
+  soltar();
+  await esperarAte(() => escritas.length > 0, 5_000, "o primeiro byte");
+  restaurar();
+  const noPrimeiroByte = discoNoPrimeiroByte as Array<Record<string, unknown>> | null;
+  assert.equal(noPrimeiroByte?.find((i) => i.texto === "pedido-da-fila-esperando-a-vez")?.digitado, true, "a marca já estava no disco quando o primeiro byte saiu");
+});
+
+test("correção B: item da fila vê o agente deixar de estar idle durante a leitura da tela: nada é escrito e ele volta intacto à fila", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  const item = { texto: "pedido-que-perdeu-o-idle", em: 1, id: "bbbb0001" };
+  const entrada: import("./sessao/fila.js").SemRecibo = { item, promptsAntes: 0, aguardando: false, enterEscrito: false, interrompido: false };
+  s.semRecibo.push(entrada);
+  s.itemEmVoo = item;
+  const antes = s.estado.status;
+  const lerOriginal = s.telaAtualSincronizada.bind(s);
+  (s as unknown as { telaAtualSincronizada: () => Promise<string> }).telaAtualSincronizada = async () => {
+    const tela = await lerOriginal();
+    (s.estado as { status: string }).status = "working"; // outro turno começou durante a leitura assíncrona
+    return tela;
+  };
+  try {
+    assert.equal(await s.digitarEEnviar(item.texto, true, entrada), false);
+  } finally {
+    (s as unknown as { telaAtualSincronizada: unknown }).telaAtualSincronizada = lerOriginal;
+    (s.estado as { status: string }).status = antes;
+    restaurar();
+  }
+  assert.deepEqual(escritas, [], "nenhum byte foi escrito");
+  assert.equal(s.semRecibo.length, 0);
+  assert.deepEqual(s.filaQuandoIdle.map((i) => [i.texto, i.digitado]), [[item.texto, undefined]], "voltou intacto, sem a marca");
+  assert.equal(filaEmDisco(s).find((i) => i.texto === item.texto)?.digitado, undefined);
+});
+
+test("correção C: a colagem longa nunca corta um par substituto (emoji) entre dois pedaços", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  const texto = "a".repeat(127) + "😀" + "b".repeat(132);
+  assert.equal(texto.length, 261);
+  assert.equal(texto.charCodeAt(127) >= 0xd800 && texto.charCodeAt(127) <= 0xdbff, true, "o emoji atravessa o primeiro corte de 128");
+  try {
+    await s.digitarEEnviar(texto);
+  } finally {
+    restaurar();
+  }
+  const pedacos: string[] = [];
+  let juntado = "";
+  for (const e of escritas) {
+    if (juntado.length >= texto.length) break;
+    pedacos.push(e);
+    juntado += e;
+  }
+  assert.equal(juntado, texto);
+  assert.ok(pedacos.length >= 2, "foi colado em mais de um pedaço");
+  for (const p of pedacos) assert.equal(Buffer.from(p, "utf8").toString("utf8"), p, "cada pedaço sobrevive a UTF-8 sem virar U+FFFD");
+  assert.ok(Buffer.concat(pedacos.map((p) => Buffer.from(p, "utf8"))).equals(Buffer.from(texto, "utf8")), "o que chega ao PTY, juntado, é igual ao original byte a byte");
+});
+
+test("correção F: no Codex um título com '? for shortcuts' na linha de status não vira um segundo rodapé: caixa vazia aceita", async () => {
+  const { caixaVaziaNaTela, caixaIdentificada } = await import("./sessao/telas.js");
+  for (const titulo of ["Anotar dúvidas", "Explicar ? for shortcuts"]) {
+    const tela = `› \r\n\r\n  GPT-6.2-Astra high · /tmp/casa · ${titulo}\r\n  ? for shortcuts                                100% context left\r\n`;
+    assert.equal(caixaVaziaNaTela(tela), true, titulo);
+    assert.equal(caixaIdentificada(tela), true, titulo);
+  }
+  // Sem a dica real embaixo, só a linha de status com o título: continua sendo a linha de status, não um rodapé.
+  assert.equal(caixaVaziaNaTela("› \r\n\r\n  GPT-6.2-Astra high · /tmp/casa · Explicar ? for shortcuts\r\n"), true);
 });

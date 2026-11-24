@@ -1,7 +1,7 @@
 import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
-import { MOTIVO_CAIXA_COM_RASCUNHO, MOTIVO_ENVIO_PENDENTE, MOTIVO_NAO_ENTROU, MOTIVO_RECUSA_DE_ENTRADA, type SemRecibo, caixaVaziaComProva, devolverNaoDigitado, levantarSuspensao, liberarBarra, outroEnvioSemRecibo, pararComCaixaSuja, pendenteEm, reciboDoTexto, reter, suspenderPorRascunho, talvezSoltarFila, telaServeDeProva, terminalQuietoParaLerTela } from "./fila.js";
+import { MOTIVO_CAIXA_COM_RASCUNHO, MOTIVO_ENVIO_PENDENTE, MOTIVO_NAO_ENTROU, MOTIVO_RECUSA_DE_ENTRADA, type SemRecibo, caixaVaziaComProva, devolverNaoDigitado, levantarSuspensao, liberarBarra, marcarDigitadoAntesDeEscrever, outroEnvioSemRecibo, pararComCaixaSuja, pendenteEm, reciboDoTexto, reter, suspenderPorRascunho, talvezSoltarFila, telaServeDeProva, terminalQuietoParaLerTela } from "./fila.js";
 import { INTERVALO_MS, MAX_BYTES_DIRETOS_ESPERANDO, MAX_ENVIOS_DIRETOS_ESPERANDO, PEDACO, RECIBO_ENTER_TENTATIVAS, SILENCIO_DA_MASCARA_MS } from "./constantes.js";
 import { caixaVaziaNaTela, ehDialogoDeAutoMode, estadoDaCaixa, caixaIdentificada, telaDeConfiancaDoCodex } from "./telas.js";
 
@@ -284,11 +284,22 @@ async function digitar(
     }
     return null;
   };
+  // Imediatamente antes do primeiro byte do pedido da fila (nada mais é lido de forma assíncrona daqui até a escrita): o agente
+  // ainda precisa estar ocioso (um turno pode ter começado durante a leitura da tela) e a marca `digitado` vai para o disco.
+  // null = pode escrever. O envio direto não passa por isto. Depois do primeiro byte nada é interrompido por aqui.
+  const antesDoPrimeiroByte = (): string | null => {
+    if (!envio) return null;
+    if (s.estado.status !== "idle") return `o agente deixou de estar ocioso (${s.estado.status}) durante a leitura da tela; o pedido volta para a fila`;
+    if (!marcarDigitadoAntesDeEscrever(s, envio)) return "não consegui gravar a marca de digitado no arquivo da fila";
+    return null;
+  };
   const recusarAntes = (motivo: string): false => (porRascunho ? caixaComTexto(s, envio, motivo) : naoEntrou(s, envio, motivo, REENVIAR));
   if (texto.length <= 256) {
     const antes = motivoDeCaixaMudada(s, esperadas) ?? (await caixaLivre(true)) ?? motivoDeCaixaMudada(s, esperadas) ?? (!envio && cancelado() ? "quem pediu desistiu da chamada" : null);
     if (antes) return recusarAntes(antes);
     if (s.proc !== proc) return naoEntrou(s, envio, "o terminal foi trocado antes de o texto ser escrito", REENVIAR);
+    const recusaDoItem = antesDoPrimeiroByte();
+    if (recusaDoItem) return naoEscreveu(s, envio, recusaDoItem);
     if (envio) envio.escreveuAlgo = true;
     s.escrever(texto);
     esperadas = s.entradasManuais;
@@ -313,10 +324,17 @@ async function digitar(
       parou = { escreveu: i > 0 };
       break;
     }
+    if (i === 0) {
+      const recusaDoItem = antesDoPrimeiroByte();
+      if (recusaDoItem) {
+        parou = { motivo: recusaDoItem, escreveu: false };
+        break;
+      }
+    }
     if (envio) envio.escreveuAlgo = true;
-    s.escrever(texto.slice(i, i + PEDACO));
+    s.escrever(pedacoEm(texto, i));
     esperadas = s.entradasManuais;
-    i += PEDACO;
+    i += pedacoEm(texto, i).length;
     if (i >= texto.length) {
       // Uma folga depois do último pedaço: o TUI ainda está processando o burst quando o write retorna.
       await new Promise((r) => setTimeout(r, Math.max(120, pausa)));
@@ -332,6 +350,17 @@ async function digitar(
   }
   if (s.proc !== proc) return terminalTrocado(s, envio);
   return enviarComRecibo(s, { texto, comandoDeBarra: ehComandoDeBarra, envio, proc, entradasAposTexto: esperadas });
+}
+
+/** O pedaço da colagem que começa em `i`: até PEDACO unidades UTF-16, sem nunca separar um par substituto (emoji). Cortar entre o
+ *  high e o low surrogate faria cada metade virar U+FFFD ao ser escrita em UTF-8. */
+function pedacoEm(texto: string, i: number): string {
+  let fim = Math.min(i + PEDACO, texto.length);
+  if (fim < texto.length && fim - i > 1) {
+    const ultimo = texto.charCodeAt(fim - 1);
+    if (ultimo >= 0xd800 && ultimo <= 0xdbff) fim -= 1;
+  }
+  return texto.slice(i, fim);
 }
 
 /** Por que não se pode escrever mais nada AGORA neste envio: o agente passou a esperar uma resposta (permissão,

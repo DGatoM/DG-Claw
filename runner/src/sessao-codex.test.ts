@@ -803,3 +803,75 @@ test("revisão: o texto repetido no turno não se duplica e passar de 1 MiB desc
   assert.ok(s.textosSoltosDoCodex.reduce((b, x) => b + Buffer.byteLength(x), 0) <= TETO_BYTES_TEXTOS_DO_CODEX);
   assert.equal(s.textosSoltosDoCodex[s.textosSoltosDoCodex.length - 1].endsWith("solto-3"), true);
 });
+
+/** Grava de uma vez só (por rename) um rollout grande, com o task_started e o texto do usuário no COMEÇO e mais de 1,5 MiB depois. */
+function gravarRolloutGrandeDeUmaVez(cwd: string, id: string, textoDoUsuario: string, emDoComeco: Date, metaEm = new Date()): string {
+  const dia = new Date();
+  const dir = path.join(amb.codexHome, "sessions", String(dia.getFullYear()), String(dia.getMonth() + 1).padStart(2, "0"), String(dia.getDate()).padStart(2, "0"));
+  fs.mkdirSync(dir, { recursive: true });
+  const arquivo = path.join(dir, `rollout-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}-${id}.jsonl`);
+  const linha = (type: string, payload: unknown, em = new Date()) => JSON.stringify({ timestamp: em.toISOString(), type, payload }) + "\n";
+  const enchimento = linha("event_msg", { type: "agent_message", message: "x".repeat(1_000) }).repeat(1_600);
+  const conteudo = linha("session_meta", { id, session_id: id, cwd }, metaEm) + linha("event_msg", { type: "task_started" }, emDoComeco) + linha("event_msg", { type: "user_message", message: textoDoUsuario, images: [] }, emDoComeco) + enchimento;
+  assert.ok(conteudo.length > 1.5 * 1024 * 1024);
+  const temporario = path.join(amb.codexHome, `grande-${id}.tmp`);
+  fs.writeFileSync(temporario, conteudo);
+  fs.renameSync(temporario, arquivo);
+  return arquivo;
+}
+
+test("correção D: sessão NOVA com o id chegando primeiro (Stop do notify) lê o rollout grande desde o início e confirma o pedido", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
+  assert.equal(s.modoDoUltimoSpawn, "nova");
+  const entrada = pedidoPendenteComEnter(s, "pedido-no-comeco-do-rollout-novo");
+  const id = "8e9fa0b1-4444-4555-8666-c77788899900";
+  s.mudar({ sessionId: id }); // o id chega pelo Stop do notify ANTES de qualquer varredura achar o rollout
+  gravarRolloutGrandeDeUmaVez(s.estado.config.cwd as string, id, "pedido-no-comeco-do-rollout-novo", new Date());
+  await esperarAte(() => s.promptsAceitos >= 1, 10_000, "o task_started do começo do arquivo ser lido");
+  await esperarAte(() => s.semRecibo.length === 0, 6_000, "o texto do usuário do começo confirmar o pedido");
+  assert.equal(s.semRecibo.includes(entrada as never), false);
+});
+
+test("correção D: RETOMADA de conversa existente continua lendo o rollout grande só pela cauda (o começo não é lido)", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000);
+  await s.digitarEEnviar("conversa-que-sera-retomada");
+  await esperarAte(() => s.estado.sessionId !== null && s.estado.status === "idle", 10_000);
+  const uuid = s.estado.sessionId!;
+  matarOTerminal(s);
+  await esperarAte(() => s.estado.status === "resumable", 8_000);
+  // Um task_started com data do futuro (passa do filtro de "depois do spawn") no COMEÇO de um rollout com mais de 1,5 MiB.
+  const atual = acharRolloutPorId(uuid, amb.codexHome)!;
+  const antigo = fs.readFileSync(atual, "utf8");
+  const linha = (type: string, payload: unknown, em: Date) => JSON.stringify({ timestamp: em.toISOString(), type, payload }) + "\n";
+  const futuro = new Date(Date.now() + 600_000);
+  const primeiraQuebra = antigo.indexOf("\n") + 1;
+  const enchimento = linha("event_msg", { type: "agent_message", message: "x".repeat(1_000) }, new Date(0)).repeat(1_600);
+  fs.writeFileSync(atual, antigo.slice(0, primeiraQuebra) + linha("event_msg", { type: "task_started" }, futuro) + antigo.slice(primeiraQuebra) + enchimento);
+  const antes = s.promptsAceitos;
+  await s.subir("retomar");
+  assert.equal(s.modoDoUltimoSpawn, "retomar");
+  await esperarAte(() => s.estado.status === "idle", 8_000);
+  await dormir(2_000);
+  assert.equal(s.promptsAceitos, antes, "o task_started do começo ficou fora da leitura pela cauda");
+});
+
+test("correção D: sessão NOVA cujo Stop traz o id de uma conversa ANTIGA (/resume no TUI) lê esse rollout só pela cauda", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
+  const entrada = pedidoPendenteComEnter(s, "pedido-que-so-a-conversa-antiga-tem");
+  const id = "9f0ab1c2-5555-4666-8777-d88899900011";
+  s.mudar({ sessionId: id });
+  // A conversa começou uma hora antes do spawn: não é o rollout novo deste spawn, então o começo dela não é relido.
+  gravarRolloutGrandeDeUmaVez(s.estado.config.cwd as string, id, "pedido-que-so-a-conversa-antiga-tem", new Date(), new Date(Date.now() - 3_600_000));
+  await dormir(3_000);
+  assert.equal(s.promptsAceitos, 0, "o task_started do começo da conversa antiga ficou fora da leitura");
+  assert.equal(s.semRecibo.includes(entrada as never), true);
+});

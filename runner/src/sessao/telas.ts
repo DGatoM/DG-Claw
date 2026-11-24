@@ -151,6 +151,9 @@ const RE_HISTORICO_DO_CODEX = /^\s*(?:[•◦]\s|Worked for\b)/;
  *  "⚠ 1 warning · f2 to view" depois) ou um dos rodapés estritos dos dois motores. */
 function ehLinhaDeRodapeDoCodex(linha: string): boolean {
   if (linha.trim() === "") return true;
+  // A linha de status (modelo, pasta e o TÍTULO da sessão, texto livre: "Explicar ? for shortcuts") é reconhecida pelo formato
+  // da linha inteira ANTES de se procurar a dica por substring: o título não a transforma em um segundo rodapé.
+  if (ehLinhaDeStatusDoCodex(linha)) return false;
   const c = compacta(linha);
   // Com rascunho, o Codex real apaga os atalhos e deixa só o aviso da direita ("⚠ 2 warnings · f2 to view").
   return c.includes("?forshortcuts") || RE_RODAPE_DA_CAIXA_VAZIA.test(c) || /^⚠\d+warnings?·f2toview$/i.test(c);

@@ -267,6 +267,28 @@ bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-recusada.log" "$ETC
 igual "conexao recusada: sai com 1 depois das tentativas" "1" "$rc"
 igual "conexao recusada: repete o POST (3 tentativas)" "3" "$(grep -c 'X POST' "$STUB_LOG")"
 rm -f "$STUB_ESTADO/curl-codigo-input"
+# 409 NAO_ENTROU: o runner garante que nada foi escrito, entao repete as 3 tentativas e sai com 1.
+printf '%s' '{"success":false,"error":"nao entrou","code":"NAO_ENTROU"}' >"$STUB_ESTADO/admin-input-resposta"; printf 409 >"$STUB_ESTADO/admin-input-status"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-409.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "409 NAO_ENTROU: sai com 1 depois das tentativas" "1" "$rc"
+igual "409 NAO_ENTROU: repete o POST (3 tentativas)" "3" "$(grep -c 'X POST' "$STUB_LOG")"
+afirma "409 NAO_ENTROU: o log diz o status e o code" grep -q 'HTTP 409, code NAO_ENTROU' "$TMP/reinicio-409.log"
+# 504 de gateway: pode ter vindo depois de o pedido ser encaminhado. Entrega incerta, um unico POST, sai com 3.
+printf '%s' '{"error":"gateway timeout, segredo-no-corpo"}' >"$STUB_ESTADO/admin-input-resposta"; printf 504 >"$STUB_ESTADO/admin-input-status"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-504.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "504: sai com 3 (entrega incerta)" "3" "$rc"
+igual "504: um unico POST, sem repetir" "1" "$(grep -c 'X POST' "$STUB_LOG")"
+afirma "504: o log diz que e INCERTA e o status" grep -q 'HTTP 504.*INCERTA' "$TMP/reinicio-504.log"
+nega "504: o log nao copia o corpo da resposta" grep -q 'segredo-no-corpo' "$TMP/reinicio-504.log"
+# 401: recusa antes do envio, repetir nao resolve. Um unico POST e sai com 1.
+printf '%s' '{"success":false,"error":"sem autorizacao","code":"NAO_AUTORIZADO"}' >"$STUB_ESTADO/admin-input-resposta"; printf 401 >"$STUB_ESTADO/admin-input-status"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-401.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "401: sai com 1" "1" "$rc"
+igual "401: um unico POST, sem repetir" "1" "$(grep -c 'X POST' "$STUB_LOG")"
+afirma "401: o log diz o status e o code" grep -q 'HTTP 401, code NAO_AUTORIZADO' "$TMP/reinicio-401.log"
 rm -f "$STUB_ESTADO/admin-input-resposta" "$STUB_ESTADO/admin-input-status"
 touch "$STUB_ESTADO/curl-falha"
 : >"$STUB_LOG"

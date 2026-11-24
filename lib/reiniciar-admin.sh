@@ -57,35 +57,61 @@ printf 'header = "Authorization: Bearer %s"\n' "$(cat "$TOKEN_ARQ")" >"$cfg"
 # O runner responde 200 quando o agente recebeu o texto, 202 com data.entregaIncerta quando o texto PODE ter sido digitado e ele
 # nao sabe se o agente o recebeu (um 202 sem entregaIncerta e o recado na fila). Repetir o pedido na incerteza executaria o aviso duas
 # vezes, entao a entrega incerta NAO e repetida: fica registrada para o dono conferir, com o resumo preservado.
+# O curl roda SEM -f: com ele, qualquer HTTP >= 400 virava o codigo 22 e era repetido, inclusive um 504 de gateway, que pode vir
+# DEPOIS de o pedido ter sido encaminhado ao runner. Aqui o status e o `code` do JSON de erro decidem:
+#   - repete so quando status e code garantem que nada foi escrito no terminal: 409 NAO_ENTROU, ENVIO_PENDENTE, CAIXA_COM_RASCUNHO,
+#     TELA_BLOQUEADA ou ENTRADA_RECUSADA; 429 ENVIOS_DEMAIS; 507 FILA_NAO_GRAVADA;
+#   - qualquer outro 4xx (401, 403, 400...) e recusa antes do envio, que repetir nao conserta: falha com exit 1, sem repetir;
+#   - qualquer 5xx (fora o 507 acima) ou status inesperado: a entrega e incerta (exit 3), sem repetir.
+# Do curl: 6 (host nao resolvido) e 7 (conexao recusada) repetem; qualquer outro codigo pode ter acontecido DEPOIS do envio.
+# O log diz o status e o code, nunca o corpo inteiro da resposta.
 for tentativa in 1 2 3; do
-    if resposta="$(printf '%s' "$corpo" | curl -sS -f --max-time 20 --config "$cfg" -X POST \
+    resposta="$(printf '%s' "$corpo" | curl -sS --max-time 20 --config "$cfg" -X POST \
             -H 'Content-Type: application/json' --data-binary @- -w '\n%{http_code}' \
-            "$URL/api/agents/admin/input")"; then
+            "$URL/api/agents/admin/input")"
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
         status="${resposta##*$'\n'}"
         dados="${resposta%$'\n'*}"
         if [ "$status" = 202 ] && [ "$(printf '%s' "$dados" | jq -r '.data.entregaIncerta // false' 2>/dev/null)" = true ]; then
             log "ATENCAO: a entrega do aviso ao Admin e INCERTA (o runner respondeu 202 com entregaIncerta: o texto pode ter sido digitado e nao se sabe se o Admin o recebeu). Nao repeti o pedido, para nao avisar duas vezes. Confira a conversa do Admin; se o aviso nao apareceu, peca a ele que leia o resumo em $RESUMO."
             exit 3
         fi
-        if [ "$status" = 202 ]; then
-            log "o aviso do resultado ficou na fila do Admin (tentativa $tentativa) e ele vai contar ao dono quando ficar livre. Resumo: $RESUMO"
+        case "$status" in
+            200)
+                log "o Admin recebeu o aviso do resultado (tentativa $tentativa) e vai contar ao dono. Resumo: $RESUMO"
+                exit 0 ;;
+            202)
+                log "o aviso do resultado ficou na fila do Admin (tentativa $tentativa) e ele vai contar ao dono quando ficar livre. Resumo: $RESUMO"
+                exit 0 ;;
+        esac
+        codigo="$(printf '%s' "$dados" | jq -r '.code // empty | tostring | .[0:40]' 2>/dev/null)"
+        repetir=0
+        case "$status:$codigo" in
+            409:NAO_ENTROU|409:ENVIO_PENDENTE|409:CAIXA_COM_RASCUNHO|409:TELA_BLOQUEADA|409:ENTRADA_RECUSADA|429:ENVIOS_DEMAIS|507:FILA_NAO_GRAVADA)
+                repetir=1 ;;
+        esac
+        if [ "$repetir" = 1 ]; then
+            log "o runner recusou o aviso sem escrever nada (HTTP $status, code $codigo, tentativa $tentativa de 3)."
         else
-            log "o Admin recebeu o aviso do resultado (tentativa $tentativa) e vai contar ao dono. Resumo: $RESUMO"
+            case "$status" in
+                4[0-9][0-9])
+                    log "o runner recusou o aviso ao Admin antes de enviar (HTTP $status, code ${codigo:-sem code}). Nao repeti o pedido: repetir nao resolve. O resumo da atualizacao esta em $RESUMO: peca ao Admin que o leia."
+                    exit 1 ;;
+                *)
+                    log "ATENCAO: o POST em $URL/api/agents/admin/input respondeu HTTP ${status:-vazio} (code ${codigo:-sem code}) depois de poder ter sido enviado, entao a entrega do aviso ao Admin e INCERTA. Nao repeti o pedido, para nao avisar duas vezes. Confira a conversa do Admin; se o aviso nao apareceu, peca a ele que leia o resumo em $RESUMO."
+                    exit 3 ;;
+            esac
         fi
-        exit 0
     else
-        rc=$?
-        # Repetir so e seguro quando o pedido nao chegou a sair ou o runner o recusou: 6 (host nao resolvido), 7 (conexao recusada)
-        # e 22 (HTTP >= 400 com -f: o runner respondeu e nao entregou). Qualquer outro codigo (28 tempo esgotado, 52 resposta vazia,
-        # 56 conexao cortada...) pode ter acontecido DEPOIS do envio: repetir avisaria o Admin duas vezes.
         case "$rc" in
-            6|7|22) ;;
+            6|7) ;;
             *)
                 log "ATENCAO: o POST em $URL/api/agents/admin/input terminou com o codigo $rc do curl, depois de poder ter sido enviado, entao a entrega do aviso ao Admin e INCERTA. Nao repeti o pedido, para nao avisar duas vezes. Confira a conversa do Admin; se o aviso nao apareceu, peca a ele que leia o resumo em $RESUMO."
                 exit 3 ;;
         esac
+        log "o POST em $URL/api/agents/admin/input falhou (codigo $rc do curl, tentativa $tentativa de 3)."
     fi
-    log "o POST em $URL/api/agents/admin/input falhou (codigo $rc do curl, tentativa $tentativa de 3)."
     sleep 5
 done
 log "nao consegui avisar o Admin. O resumo da atualizacao esta em $RESUMO: peca a ele que o leia."

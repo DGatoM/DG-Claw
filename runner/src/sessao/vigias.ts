@@ -2,7 +2,7 @@ import pty from "node-pty";
 import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
 import { mascarar } from "../mascara.js";
-import { type EventoInterno, acharRolloutPorId, erroDeLoginDoCodex, descobrirRollout, vigiarRollout } from "../provedores/codex-rollout.js";
+import { type EventoInterno, acharRolloutPorId, erroDeLoginDoCodex, descobrirRollout, lerMetaDoRollout, vigiarRollout } from "../provedores/codex-rollout.js";
 import { codexHomeDe } from "../provedores/codex.js";
 import type { CtxMotor } from "../provedores/motor.js";
 import { compactRecusadoNoTranscript, turnoEncerradoNoTranscript } from "../transcript.js";
@@ -100,12 +100,17 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
   const desde = s.spawnEm;
   let arquivo: string | null = null;
   let avisouAusencia = false;
-  // Arquivo que ESTE spawn acabou de descobrir (rollout novo): é lido desde o início. O de uma retomada (id já conhecido) é antigo
-  // e continua saltando para o último MiB.
+  // Sessão NOVA (o spawn não é uma retomada): o rollout é recém-criado por este spawn e é lido desde o início, quer o id chegue
+  // pela varredura, quer pelo Stop do notify antes dela (o id vindo primeiro não faz do rollout novo uma conversa antiga). O de
+  // uma retomada de conversa existente é antigo e continua saltando para o último MiB.
+  const sessaoNova = s.modoDoUltimoSpawn === "nova";
+  // Arquivo que ESTE spawn acabou de descobrir (rollout novo) também é lido desde o início.
   let descobertoAgora: string | null = null;
   return vigiarRollout({
     desdeMs: desde,
-    lerDesdeOInicio: (a) => a === descobertoAgora,
+    // Na sessão nova, só o rollout que nasceu depois deste spawn (o mesmo critério de descobrirRollout): um `/resume` digitado no TUI
+    // antes da primeira varredura traria pelo Stop o id de uma conversa antiga, que não pode ser relida desde o início.
+    lerDesdeOInicio: (a) => a === descobertoAgora || (sessaoNova && nasceuDepoisDoSpawn(a, desde)),
     resolverArquivo: () => {
       if (s.proc !== esteProc) return null;
       if (arquivo) return arquivo;
@@ -154,4 +159,10 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
       s.uso.registrar("codex", u.leitura, "rollout", u.em);
     },
   });
+}
+
+/** O rollout começou depois do spawn (com a mesma folga de 2 s de descobrirRollout)? Sem a data no cabeçalho, não. */
+function nasceuDepoisDoSpawn(arquivo: string, desdeMs: number): boolean {
+  const criadoEm = lerMetaDoRollout(arquivo)?.criadoEm ?? null;
+  return criadoEm !== null && criadoEm >= desdeMs - 2_000;
 }

@@ -37,6 +37,9 @@ export interface SemRecibo {
   /** O texto exato que o runner escreveu no terminal para este item (o do item mais o aviso de atraso, quando há). O recibo do
    *  Codex é conferido contra ele, nunca contra o texto cru do item. */
   textoEnviado?: string;
+  /** true quando não deu para gravar a marca `digitado` no disco imediatamente antes da primeira escrita: nada foi escrito
+   *  e o item voltou intacto para a frente da fila. */
+  gravacaoFalhou?: boolean;
 }
 
 /** `runner:recusa-de-entrada`: o agente deixou de poder conversar (login, chave, restrição) enquanto o pedido esperava a vez;
@@ -207,11 +210,11 @@ export function talvezSoltarFila(s: Sessao): void {
     talvezSoltarFila(s);
     return;
   }
-  // O pedido vai para o disco como `digitado` ANTES da primeira escrita no terminal. Se a gravação falhar, não
-  // digita nada: sem o registro, um reinício no meio da digitação perderia o rastro do que foi feito.
+  // A marca `digitado` NÃO é gravada aqui: o item ainda pode esperar a vez na cadeia (um envio direto longo pode ocupar o
+  // terminal antes), e uma queda nesse intervalo reteria como incerto um pedido que nem saiu. Quem grava é digitar(), dentro
+  // da operação serializada, depois de conferir a caixa e imediatamente antes da primeira escrita (ver marcarDigitadoAntesDeEscrever).
   s.filaQuandoIdle.shift();
   s.itemEmVoo = item;
-  item.digitado = true;
   const texto = item.texto + avisoDeAtraso(item);
   // Comando de barra (/compact, /clear...) não tem recibo confiável (não dispara UserPromptSubmit), então não
   // fica em semRecibo. Mas também é gravado como digitado antes de ser digitado, e sai do disco quando termina:
@@ -228,25 +231,6 @@ export function talvezSoltarFila(s: Sessao): void {
   };
   if (ehBarra) s.barraPendente = entrada;
   else s.semRecibo.push(entrada);
-  if (espelharFilaDetalhado(s) !== "gravado") {
-    retirarSemRecibo(s, entrada);
-    delete item.digitado;
-    s.itemEmVoo = null;
-    s.filaQuandoIdle.unshift(item);
-    // Com "sem-fsync-da-pasta" o rename já publicou digitado:true no disco; regrava sem a marca para um reinício não reter o pedido.
-    espelharFila(s);
-    if (!s.bloqueioDaFilaLogado) {
-      s.bloqueioDaFilaLogado = true;
-      log.erro(
-        s.a("entrada"),
-        `não digitei o pedido ${item.id ?? "?"} (${item.texto.length} caracteres) porque não consegui gravar o arquivo da fila ${s.arquivoDaFila}; ` +
-          `ele continua na frente da fila e a fila tenta de novo sozinha`,
-        "conferir espaço em disco e permissões da pasta de estado do runner (disco cheio é a causa mais comum)",
-      );
-    }
-    agendarReintento(s);
-    return;
-  }
   s.soltandoFila = true;
   if (!s.bloqueioDaFilaLogado) log.info(
     s.a("entrada"),
@@ -254,7 +238,8 @@ export function talvezSoltarFila(s: Sessao): void {
   );
   s.digitarEEnviar(texto, true, entrada)
     .then((recebido) => {
-      s.bloqueioDaFilaLogado = false;
+      // Quando a gravação da marca falhou, o aviso já saiu e a fila só repete a tentativa: não zera a trava do log.
+      if (!entrada.gravacaoFalhou) s.bloqueioDaFilaLogado = false;
       if (!pendenteEm(s, entrada)) {
         // O pedido voltou intacto para a frente da fila (nada foi digitado: tela irreconhecível, caixa com texto, outro pedido
         // sem recibo...). Repetir já, com o agente ocioso e a tela igual, regravaria o arquivo da fila (com fsync) várias vezes
@@ -377,6 +362,30 @@ function retirarSemRecibo(s: Sessao, entrada: SemRecibo): void {
 
 export function pendenteEm(s: Sessao, entrada: SemRecibo): boolean {
   return s.semRecibo.includes(entrada) || s.barraPendente === entrada;
+}
+
+/** Grava a marca `digitado` do item no disco, imediatamente antes da primeira escrita do pedido (dentro da operação
+ *  serializada, com a caixa já conferida). Se a gravação falhar, desfaz a marca e devolve false: nada pode ser escrito, porque
+ *  sem o registro um reinício no meio da digitação perderia o rastro do que foi feito. */
+export function marcarDigitadoAntesDeEscrever(s: Sessao, entrada: SemRecibo): boolean {
+  const item = entrada.item;
+  if (item.digitado) return true;
+  item.digitado = true;
+  if (espelharFilaDetalhado(s) === "gravado") return true;
+  entrada.gravacaoFalhou = true;
+  delete item.digitado;
+  // Com "sem-fsync-da-pasta" o rename já publicou digitado:true no disco; regrava sem a marca para um reinício não reter o pedido.
+  espelharFila(s);
+  if (!s.bloqueioDaFilaLogado) {
+    s.bloqueioDaFilaLogado = true;
+    log.erro(
+      s.a("entrada"),
+      `não digitei o pedido ${item.id ?? "?"} (${item.texto.length} caracteres) porque não consegui gravar o arquivo da fila ${s.arquivoDaFila}; ` +
+        `ele continua na frente da fila e a fila tenta de novo sozinha`,
+      "conferir espaço em disco e permissões da pasta de estado do runner (disco cheio é a causa mais comum)",
+    );
+  }
+  return false;
 }
 
 /** Nada foi escrito no terminal para este envio (o terminal mudou antes da primeira escrita): o item volta para a
