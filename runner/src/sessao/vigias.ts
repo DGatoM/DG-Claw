@@ -100,8 +100,12 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
   const desde = s.spawnEm;
   let arquivo: string | null = null;
   let avisouAusencia = false;
+  // Arquivo que ESTE spawn acabou de descobrir (rollout novo): é lido desde o início. O de uma retomada (id já conhecido) é antigo
+  // e continua saltando para o último MiB.
+  let descobertoAgora: string | null = null;
   return vigiarRollout({
     desdeMs: desde,
+    lerDesdeOInicio: (a) => a === descobertoAgora,
     resolverArquivo: () => {
       if (s.proc !== esteProc) return null;
       if (arquivo) return arquivo;
@@ -112,6 +116,7 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
         const achado = descobrirRollout(ctx.cwd, desde, home, s.idsEmUso());
         if (achado) {
           arquivo = achado.arquivo;
+          descobertoAgora = achado.arquivo;
           log.info(s.a("codex"), `id da sessão descoberto no rollout: ${achado.id}`);
           s.mudar({ sessionId: achado.id });
           // A descoberta só localiza e vincula o arquivo. O recibo do primeiro Enter é o `task_started` que o vigia lê DEPOIS

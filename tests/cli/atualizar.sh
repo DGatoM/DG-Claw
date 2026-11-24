@@ -237,6 +237,23 @@ afirma "o aviso cita o resumo e pede que conte ao dono" bash -c "grep -q 'resumo
 afirma "o token vai no arquivo de configuracao do curl" grep -q "Authorization: Bearer $(cat "$ETC/runner/admin.token")" "$STUB_LOG.curl-config"
 nega "o token nunca aparece na linha de comando (STUB_LOG)" grep -q "$(cat "$ETC/runner/admin.token")" "$STUB_LOG"
 nega "o token nunca aparece no log do roteiro" grep -q "$(cat "$ETC/runner/admin.token")" "$TMP/reinicio.log"
+afirma "200: o log diz que o Admin recebeu o aviso" grep -q 'o Admin recebeu o aviso do resultado' "$TMP/reinicio.log"
+# Entrega incerta (202 com entregaIncerta): registra a necessidade de conferir, NAO repete o pedido e preserva o resumo.
+printf '%s' '{"success":true,"data":{"enviado":false,"entregaIncerta":true,"aviso":"nao sei"}}' >"$STUB_ESTADO/admin-input-resposta"; printf 202 >"$STUB_ESTADO/admin-input-status"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-incerto.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "entrega incerta: sai com 3 (precisa de conferencia)" "3" "$rc"
+afirma "entrega incerta: o log diz que e INCERTA e manda conferir" grep -q 'INCERTA.*Confira a conversa do Admin' "$TMP/reinicio-incerto.log"
+nega "entrega incerta: o log nao diz que o Admin recebeu" grep -q 'o Admin recebeu o aviso' "$TMP/reinicio-incerto.log"
+igual "entrega incerta: um unico POST, sem repetir" "1" "$(grep -c 'X POST' "$STUB_LOG")"
+afirma "entrega incerta: o resumo continua no lugar" test -s "$RESUMO"
+# 202 sem entregaIncerta: recado na fila do Admin, conta como recebido.
+printf '%s' '{"success":true,"data":{"enfileirado":true}}' >"$STUB_ESTADO/admin-input-resposta"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-fila.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "202 enfileirado: sai com 0" "0" "$rc"
+afirma "202 enfileirado: o log diz que ficou na fila" grep -q 'ficou na fila do Admin' "$TMP/reinicio-fila.log"
+rm -f "$STUB_ESTADO/admin-input-resposta" "$STUB_ESTADO/admin-input-status"
 touch "$STUB_ESTADO/curl-falha"
 : >"$STUB_LOG"
 DGCLAW_ESPERA_ADMIN=2 bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio2.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?

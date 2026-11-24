@@ -260,11 +260,18 @@ export interface OpcoesDoVigia {
   aoUso?: (u: { leitura: Leitura; em: number }) => void;
   /** Chamado quando um turno termina com erro (depois do `Stop` do mesmo registro). Só os de depois do spawn. */
   aoErroDeTurno?: (e: ErroDeTurnoDoCodex) => void;
+  /** Chamado quando o vigia vincula um arquivo pela primeira vez. true = rollout recém-criado pelo spawn desta sessão: lê desde o
+   *  início, em blocos, para não perder o `task_started` e o texto do usuário do primeiro turno. Sem isto (ou false), o arquivo é
+   *  de uma conversa antiga retomada e a leitura salta para o último MiB. */
+  lerDesdeOInicio?: (arquivo: string) => boolean;
   intervaloMs?: number;
 }
 
+/** Tamanho de cada leitura do rollout: a memória fica limitada mesmo quando o arquivo já nasce grande. */
+export const BLOCO_DO_ROLLOUT_BYTES = 256 * 1024;
+
 /**
- * Lê o rollout aos poucos (leitura incremental, no máximo 1 MB por pulso) e entrega os
+ * Lê o rollout aos poucos (leitura incremental em blocos de 256 KiB, até alcançar o fim que o arquivo tinha no pulso) e entrega os
  * eventos NA ORDEM em que foram gravados. Devolve a função que para o vigia.
  * Diferente do Bunker, não colapsa os eventos de um pulso em um só: o recibo do
  * Enter conta cada `task_started`.
@@ -286,12 +293,14 @@ export function vigiarRollout(op: OpcoesDoVigia): () => void {
       const st = await fd.stat();
       if (proximo !== arquivo || st.size < deslocamento) {
         arquivo = proximo;
-        deslocamento = Math.max(0, st.size - 1024 * 1024);
+        deslocamento = op.lerDesdeOInicio?.(proximo) ? 0 : Math.max(0, st.size - 1024 * 1024);
         resto = "";
       }
-      if (st.size === deslocamento) return;
-      const buf = Buffer.alloc(Math.min(st.size - deslocamento, 1024 * 1024));
+      const fim = st.size;
+      while (deslocamento < fim && !parado) {
+      const buf = Buffer.alloc(Math.min(fim - deslocamento, BLOCO_DO_ROLLOUT_BYTES));
       const { bytesRead } = await fd.read(buf, 0, buf.length, deslocamento);
+      if (bytesRead === 0) break;
       deslocamento += bytesRead;
       const linhas = (resto + buf.subarray(0, bytesRead).toString("utf8")).split("\n");
       resto = linhas.pop() ?? "";
@@ -320,6 +329,7 @@ export function vigiarRollout(op: OpcoesDoVigia): () => void {
             log.aviso("uso", `ignorei uma medição de uso do rollout que não consegui ler: ${err instanceof Error ? err.message : err}; os eventos da sessão seguem`);
           }
         }
+      }
       }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {

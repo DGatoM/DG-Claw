@@ -10,6 +10,14 @@ for ((i = 0; i < ${#args[@]}; i++)); do
     esac
 done
 [ -f "${STUB_ESTADO:?}/curl-falha" ] && exit 22
+# POST no /input do Admin (lib/reiniciar-admin.sh): responde corpo + status como o curl real com -w '\n%{http_code}'. O corpo vem de
+# admin-input-resposta e o status de admin-input-status (padrao: o runner confirmando, 200).
+case "$*" in *agents/admin/input*)
+    case "$*" in *%{http_code}*)
+        printf '%s\n%s' "$(cat "$STUB_ESTADO/admin-input-resposta" 2>/dev/null || echo '{"success":true,"data":{"enviado":true}}')" "$(cat "$STUB_ESTADO/admin-input-status" 2>/dev/null || echo 200)" ;;
+    esac
+    exit 0 ;;
+esac
 # `dgclaw colaborador`: fala com o Web pelo socket Unix. A resposta vem de colab-resposta[.N] e colab-status[.N] (N = a
 # chamada de numero N no teste; sem arquivo numerado vale o geral). curl-sem-socket imita o Web fora do ar.
 case "$*" in *--unix-socket*)

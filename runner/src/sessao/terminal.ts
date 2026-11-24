@@ -2,7 +2,7 @@ import xtermHeadless from "@xterm/headless";
 import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
 import { MascaraDeFluxo } from "../mascara.js";
-import { BUFFER_MAX, EMULADOR_PENDENTE_PAUSA, EMULADOR_PENDENTE_RETOMA, EMULADOR_REDESENHO_BYTES, QUIETO_DE_BOOT_MS, SILENCIO_DA_MASCARA_MS } from "./constantes.js";
+import { BUFFER_MAX, EMULADOR_PENDENTE_PAUSA, EMULADOR_PENDENTE_RETOMA, QUIETO_DE_BOOT_MS, SILENCIO_DA_MASCARA_MS } from "./constantes.js";
 import { cancelarQuietoDeBoot } from "./eventos.js";
 import { ehDialogoDeBypass, ehDialogoDeConfiancaDoClaude, pastaDoDialogoDeConfianca, semAnsi } from "./telas.js";
 
@@ -115,7 +115,8 @@ export function descarregarMascara(s: Sessao, mascara: MascaraDeFluxo): void {
 }
 
 const { Terminal } = xtermHeadless;
-const LIMPEZA_DE_TELA = /\u001b\[[23]J|\u001bc/;
+/** Limpeza de tela INTEGRAL: ESC[2J ou ESC c (RIS). O ESC[3J limpa só o histórico de rolagem e não conta. */
+const LIMPEZA_DE_TELA_INTEGRAL = /\u001b\[2J|\u001bc/;
 
 /** A escrita no emulador nunca derruba o runner. O @xterm/headless lança, de forma síncrona, quando a fila interna dele passa de
  *  50 milhões de unidades pendentes (o limite de 200 KiB do buffer não limita essa fila). Se lançar, o que ele guardava está
@@ -138,8 +139,8 @@ function escreverNoEmulador(s: Sessao, texto: string): void {
   const nc = s.emuladorNaoConfiavel;
   if (nc) {
     nc.bytesNovos += texto.length;
-    if (LIMPEZA_DE_TELA.test(texto) || nc.bytesNovos >= EMULADOR_REDESENHO_BYTES) {
-      log.info(s.a("pty"), `o emulador de tela voltou a valer como prova (${LIMPEZA_DE_TELA.test(texto) ? "limpeza de tela recebida" : `${nc.bytesNovos} bytes de saída nova`} depois da recriação)`);
+    if (LIMPEZA_DE_TELA_INTEGRAL.test(texto)) {
+      log.info(s.a("pty"), `o emulador de tela voltou a valer como prova (limpeza de tela integral recebida depois da recriação, ${nc.bytesNovos} bytes de saída nova antes dela)`);
       s.emuladorNaoConfiavel = null;
     }
   }
@@ -159,7 +160,7 @@ function perdeuOEmulador(s: Sessao, antigo: NonNullable<Sessao["emulador"]>, err
   log.erro(
     s.a("pty"),
     `a escrita no emulador de tela falhou (${err instanceof Error ? err.message : String(err)}); recriei o emulador vazio e suspendi a digitação automática desta sessão`,
-    `nada a fazer: ela volta sozinha depois de um redesenho completo da tela (limpeza de tela ou ${EMULADOR_REDESENHO_BYTES} bytes de saída nova). Os outros agentes não são afetados`,
+    "a digitação desta sessão volta sozinha quando o CLI redesenhar a tela inteira (limpeza integral, ESC[2J ou ESC c); se não voltar sozinha, reiniciar o agente pelo painel resolve. Os outros agentes não são afetados",
   );
   try {
     antigo.dispose();

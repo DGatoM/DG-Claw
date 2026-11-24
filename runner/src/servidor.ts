@@ -25,6 +25,7 @@ import { tratarRotasDeProvedor } from "./provedores/rotas.js";
 import { MOTIVO_SEM_MEDICAO, deStatusline, paraResposta } from "./uso.js";
 import { ESC, nonceConfere } from "./sessao/telas.js";
 import { ErroDeMotor } from "./provedores/motor.js";
+import { ErroEnviosDemais } from "./sessao/digitacao.js";
 import { MOTIVO_CAIXA_COM_RASCUNHO, MOTIVO_ENVIO_PENDENTE, MOTIVO_NAO_ENTROU, MOTIVO_RECUSA_DE_ENTRADA } from "./sessao/fila.js";
 import { acharRolloutPorId, mensagensDoRollout } from "./provedores/codex-rollout.js";
 
@@ -427,12 +428,20 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             // O cliente desistiu (timeout da CLI, conexão fechada) antes de a resposta sair: um envio que ainda espera a vez e não
             // escreveu nada é cancelado, para o reenvio do cliente não deixar duas cópias aptas a rodar.
             let desistiu = false;
+            const aborto = new AbortController();
             res.on("close", () => {
-              if (!res.writableEnded) desistiu = true;
+              if (!res.writableEnded) {
+                desistiu = true;
+                aborto.abort(); // tira o pedido da espera na hora, liberando o texto e a contagem
+              }
             });
             try {
-              confirmado = await sessao.digitarEEnviar(texto, false, null, () => desistiu);
+              confirmado = await sessao.digitarEEnviar(texto, false, null, () => desistiu, aborto.signal);
             } catch (err) {
+              if (err instanceof ErroEnviosDemais) {
+                erroHttp(res, 429, "ENVIOS_DEMAIS", err.message, err.howToFix);
+                return;
+              }
               // O agente deixou de poder conversar (ou uma tela bloqueia a caixa) depois de o pedido ser aceito: nada foi
               // digitado, e a resposta diz o motivo e o que fazer em vez de um erro interno sem orientação.
               if (!(err instanceof ErroDeMotor)) throw err;

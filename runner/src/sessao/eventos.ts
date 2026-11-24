@@ -31,6 +31,10 @@ export interface PayloadDeHook extends PayloadDeEvento {
 const EVENTOS_CONHECIDOS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "PreCompact", "Stop", "StopBloqueado", "StopFailure"];
 const ORIGENS_CONHECIDAS = ["startup", "resume", "clear", "compact"];
 
+/** Eventos que SÓ o leitor do rollout do Codex produz (chamam aplicarEvento direto). A rota de hook HTTP os recusa:
+ *  quem tem o nonce (que aparece nos argumentos do processo) não pode forjar o recibo de um envio. */
+const EVENTOS_SO_DO_ROLLOUT = ["TextoDoUsuario", "Compactado"];
+
 /** Recebe o POST do handler de hook (o do Claude ou o `notify` do Codex). Nonce errado é
  *  descartado: é hook de um PTY já morto, ou de um processo que não é este. O evento SÓ
  *  muda o status: nunca injeta texto, nunca dispara comando e nunca devolve conteúdo. */
@@ -38,6 +42,10 @@ export function receberHook(s: Sessao, payload: PayloadDeHook): { ok: boolean; m
   if (!payload.agentId || !payload.event) return { ok: false, motivo: "faltou agentId ou event" };
   if (payload.agentId !== s.descritor.id) return { ok: false, motivo: "agentId de outro agente" };
   if (!nonceConfere(s.nonce, payload.nonce)) return { ok: false, motivo: "nonce de um spawn antigo" };
+  if (EVENTOS_SO_DO_ROLLOUT.includes(payload.event)) {
+    log.aviso(s.a("hook"), `o evento ${payload.event} chegou pela rota de hook e foi recusado: ele só vale vindo do rollout do Codex lido pelo runner`);
+    return { ok: false, motivo: `o evento ${payload.event} só é aceito do rollout lido pelo runner, não pela rota de hook` };
+  }
   return aplicarEvento(s, payload);
 }
 

@@ -73,11 +73,15 @@ export const REDESENHO_DEPOIS_DA_TECLA_MS = 2_000;
 /** Codex: quantos turnos do rollout ficam guardados para conferir recibos. */
 export const TURNOS_DO_CODEX_GUARDADOS = 50;
 
-/** Emulador de tela: quando a escrita nele lança (a fila interna do @xterm/headless passa de 50 milhões de unidades), ele é
- *  recriado vazio e a tela daquela sessão NÃO serve de prova (a digitação automática fica suspensa) até um redesenho completo:
- *  uma limpeza de tela (ESC[2J, ESC[3J ou ESC c) recebida depois da recriação, ou este tanto de saída nova (o CLI redesenha a
- *  tela inteira em bem menos que isso). */
-export const EMULADOR_REDESENHO_BYTES = 64 * 1024;
+// Emulador de tela: quando a escrita nele lança (a fila interna do @xterm/headless passa de 50 milhões de unidades), ele é
+// recriado vazio e a tela daquela sessão NÃO serve de prova (a digitação automática fica suspensa) até uma limpeza de tela
+// INTEGRAL (ESC[2J ou ESC c, o RIS). Nem o ESC[3J (que no xterm limpa só o histórico de rolagem) nem uma quantidade de saída
+// nova bastam: uma atualização parcial pode redesenhar o marcador e o rodapé sem redesenhar um rascunho que continua no CLI.
+
+/** Envios diretos (POST /input com submit) que podem esperar a vez, por sessão, e a soma dos bytes deles. Acima disso a rota
+ *  responde 429 ENVIOS_DEMAIS sem escrever nada: cada pedido em espera segura texto e contexto HTTP em memória. */
+export const MAX_ENVIOS_DIRETOS_ESPERANDO = 8;
+export const MAX_BYTES_DIRETOS_ESPERANDO = 1024 * 1024;
 /** Controle de fluxo PTY -> emulador: acima de PENDENTE_PAUSA o PTY é pausado, e só volta a ler abaixo de PENDENTE_RETOMA. */
 export const EMULADOR_PENDENTE_PAUSA = 4 * 1024 * 1024;
 export const EMULADOR_PENDENTE_RETOMA = 1024 * 1024;

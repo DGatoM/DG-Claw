@@ -24,10 +24,24 @@ export function desdeAUltimaLimpezaDeTela(tela: string): string {
 /** O diálogo de aviso do modo Bypass Permissions do Claude Code (16/10/2026).
  *  O TUI desenha com movimento de cursor e pode "comer" espaços, então a conferência ignora
  *  todo espaço em branco e maiúsculas. Os dois pedaços juntos (o aviso e as opções) evitam
- *  um falso positivo quando alguém só cita o modo numa conversa. */
+ *  um falso positivo quando alguém só cita o modo numa conversa.
+ *
+ *  Região do diálogo ativo: ele só conta se for a ÚLTIMA coisa desenhada, o mesmo critério dos outros diálogos. O buffer é o
+ *  fluxo bruto do PTY e o histórico continua nele: uma resposta do agente que explica o aviso e cita as duas opções ("No, exit",
+ *  "Yes, I accept") fica ACIMA do editor, e o editor livre (marcador ❯ ou a dica "? for shortcuts") vem depois. Por isso, depois
+ *  da última opção (o que vier mais tarde entre "No, exit" e "Yes, I accept") sobra no máximo uma linha de rodapé do diálogo
+ *  (120 caracteres sem espaços) e não pode haver o marcador de um editor nem a dica de atalhos. */
 export function ehDialogoDeBypass(tela: string): boolean {
-  const t = semAnsi(tela).replace(/\s+/g, "").toLowerCase();
-  return t.includes("bypasspermissionsmode") && t.includes("no,exit") && t.includes("yes,iaccept");
+  const t = semAnsi(desdeAUltimaLimpezaDeTela(tela)).replace(/\s+/g, "").toLowerCase();
+  const aviso = t.lastIndexOf("bypasspermissionsmode");
+  if (aviso < 0) return false;
+  const exit = t.indexOf("no,exit", aviso);
+  const aceita = t.indexOf("yes,iaccept", aviso);
+  if (exit < 0 || aceita < 0) return false;
+  const fimDasOpcoes = Math.max(exit + "no,exit".length, aceita + "yes,iaccept".length);
+  const depois = t.slice(fimDasOpcoes);
+  if (depois.includes("❯") || depois.includes("?forshortcuts")) return false;
+  return depois.length <= 120;
 }
 
 /** A pergunta de primeira vez do auto mode do Claude Code 2.1.x ("Make auto mode your default

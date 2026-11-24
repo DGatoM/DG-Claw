@@ -54,11 +54,25 @@ cfg="$(mktemp)"; chmod 600 "$cfg"
 trap 'rm -f "$cfg"' EXIT
 printf 'header = "Authorization: Bearer %s"\n' "$(cat "$TOKEN_ARQ")" >"$cfg"
 
+# O runner responde 200 quando o agente recebeu o texto, 202 com data.entregaIncerta quando o texto PODE ter sido digitado e ele
+# nao sabe se o agente o recebeu (um 202 sem entregaIncerta e o recado na fila). Repetir o pedido na incerteza executaria o aviso duas
+# vezes, entao a entrega incerta NAO e repetida: fica registrada para o dono conferir, com o resumo preservado.
 for tentativa in 1 2 3; do
-    if printf '%s' "$corpo" | curl -sS -f --max-time 20 --config "$cfg" -X POST \
-            -H 'Content-Type: application/json' --data-binary @- \
-            "$URL/api/agents/admin/input" >/dev/null; then
-        log "o Admin recebeu o aviso do resultado (tentativa $tentativa) e vai contar ao dono. Resumo: $RESUMO"
+    resposta="$(printf '%s' "$corpo" | curl -sS -f --max-time 20 --config "$cfg" -X POST \
+            -H 'Content-Type: application/json' --data-binary @- -w '\n%{http_code}' \
+            "$URL/api/agents/admin/input")"
+    if [ $? -eq 0 ]; then
+        status="${resposta##*$'\n'}"
+        dados="${resposta%$'\n'*}"
+        if [ "$status" = 202 ] && [ "$(printf '%s' "$dados" | jq -r '.data.entregaIncerta // false' 2>/dev/null)" = true ]; then
+            log "ATENCAO: a entrega do aviso ao Admin e INCERTA (o runner respondeu 202 com entregaIncerta: o texto pode ter sido digitado e nao se sabe se o Admin o recebeu). Nao repeti o pedido, para nao avisar duas vezes. Confira a conversa do Admin; se o aviso nao apareceu, peca a ele que leia o resumo em $RESUMO."
+            exit 3
+        fi
+        if [ "$status" = 202 ]; then
+            log "o aviso do resultado ficou na fila do Admin (tentativa $tentativa) e ele vai contar ao dono quando ficar livre. Resumo: $RESUMO"
+        else
+            log "o Admin recebeu o aviso do resultado (tentativa $tentativa) e vai contar ao dono. Resumo: $RESUMO"
+        fi
         exit 0
     fi
     log "o POST em $URL/api/agents/admin/input falhou (tentativa $tentativa de 3)."

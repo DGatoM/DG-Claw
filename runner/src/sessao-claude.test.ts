@@ -3477,13 +3477,148 @@ test("rodada 8, item 5: a escrita no emulador que lança não derruba o runner; 
   await alimentarTela(s, CAIXA_VAZIA);
   assert.equal(s.emuladorNaoConfiavel, null);
   assert.notEqual(s.telaAtual(), "");
-  // Sem limpeza de tela: só depois de tanta saída nova.
+  // Rodada 9, item 3: nem muita saída nova nem ESC[3J (só limpa o histórico de rolagem) restabelecem; só limpeza INTEGRAL.
   (s.emulador as unknown as { write: () => void }).write = () => {
     throw new Error("de novo");
   };
   s.guardarEEmitir("x");
   assert.notEqual(s.emuladorNaoConfiavel, null);
-  s.guardarEEmitir("y".repeat(70 * 1024));
-  assert.equal(s.emuladorNaoConfiavel, null, "N KB de saída nova também restabelece");
+  s.guardarEEmitir("y".repeat(200 * 1024));
+  assert.notEqual(s.emuladorNaoConfiavel, null, "muita saída nova NÃO restabelece");
+  s.guardarEEmitir("\u001b[3J" + CAIXA_VAZIA.replace(/\u001b\[2J|\u001bc/g, ""));
+  assert.notEqual(s.emuladorNaoConfiavel, null, "ESC[3J não restabelece");
+  await assert.rejects(s.digitarEEnviar("pedido-ainda-suspenso"), (e: unknown) => e instanceof ErroDeMotor);
+  assert.deepEqual(escritas, []);
+  s.guardarEEmitir("\u001bc");
+  assert.equal(s.emuladorNaoConfiavel, null, "ESC c (RIS) restabelece");
   restaurar();
+});
+
+test("rodada 9, item 4: o contador de compactações só é recibo do /compact; /model com uma compactação automática no meio NÃO confirma", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  try {
+    // O comando continua escrito na caixa depois do Enter (o CLI não o consumiu): só um recibo próprio o liberaria.
+    const anota = s.escrever;
+    const comTextoNaCaixa = (comando: string) =>
+      ((s as unknown as { escrever: (t: string) => void }).escrever = (t: string) => {
+        anota(t);
+        if (t === comando) s.guardarEEmitir("\u001b[2J\u001b[H" + caixaCom(comando).replace("\u001b[2J\u001b[H", ""));
+      });
+    await alimentarTela(s, CAIXA_VAZIA);
+    s.ultimaSaidaEm = Date.now() - 5_000;
+    comTextoNaCaixa("/model");
+    setTimeout(() => (s.compactsIniciados += 1), 250); // compactação automática enquanto /model espera o recibo
+    const r = await s.digitarEEnviar("/model").catch(() => "recusado");
+    assert.notEqual(r, true, "o contador de compactações não prova que /model foi consumido");
+    assert.ok(escritas.includes("/model"));
+  } finally {
+    restaurar();
+  }
+});
+
+test("rodada 9, item 4 (controle): o mesmo contador É o recibo do /compact, com argumentos depois do espaço também", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  try {
+    const anota = s.escrever;
+    (s as unknown as { escrever: (t: string) => void }).escrever = (t: string) => {
+      anota(t);
+      if (t === "/compact foco no codigo") s.guardarEEmitir(caixaCom(t));
+    };
+    await alimentarTela(s, CAIXA_VAZIA);
+    s.ultimaSaidaEm = Date.now() - 5_000;
+    setTimeout(() => (s.compactsIniciados += 1), 250);
+    assert.equal(await s.digitarEEnviar("/compact foco no codigo"), true);
+    assert.ok(escritas.includes("/compact foco no codigo"));
+  } finally {
+    restaurar();
+  }
+});
+
+test("rodada 9, item 4: a vigia em segundo plano também só aceita o contador de compactações para o /compact", async () => {
+  const { s, restaurar } = await sessaoComEscritaAnotada();
+  const { vigiarReciboAtrasado } = await import("./sessao/digitacao.js");
+  try {
+    for (const [comando, libera] of [["/model", false], ["/compact", true]] as const) {
+      s.digitacaoSuspensaEm = null;
+      s.retidos.length = 0;
+      s.ultimaSaidaEm = Date.now() - 5_000;
+      await alimentarTela(s, caixaCom(comando)); // o comando continua na caixa: o CLI não o consumiu
+      const { entrada } = novoItem(comando);
+      entrada.barra = true;
+      entrada.enterEscrito = true;
+      entrada.aguardando = true;
+      s.barraPendente = entrada;
+      vigiarReciboAtrasado(s, { texto: comando, comandoDeBarra: true, envio: entrada, proc: s.proc! }, 4, s.entradasManuais);
+      s.compactsIniciados += 1; // PreCompact do Claude / compactação automática
+      await esperarAte(() => s.barraPendente === null, 5_000, "a vigia terminar");
+      if (libera) assert.equal(s.retidos.length, 0, "o /compact é liberado pelo contador");
+      else assert.deepEqual(s.retidos.map((i) => [i.texto, i.incerto]), [["/model", true]], "/model não é liberado: fica retido como incerto");
+    }
+  } finally {
+    restaurar();
+  }
+});
+
+test("rodada 9, item 5: pedidos diretos esperando a vez são limitados por quantidade e por bytes; o cancelado que não começou sai da espera na hora", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  const { MAX_BYTES_DIRETOS_ESPERANDO, MAX_ENVIOS_DIRETOS_ESPERANDO } = await import("./sessao/constantes.js");
+  const { ErroEnviosDemais } = await import("./sessao/digitacao.js");
+  const { ErroDeMotor } = await import("./provedores/motor.js");
+  let soltar: () => void = () => {};
+  s.cadeiaDeEnvio = new Promise<void>((r) => (soltar = r)); // um envio longo ocupa o terminal
+  const controles = Array.from({ length: MAX_ENVIOS_DIRETOS_ESPERANDO }, () => new AbortController());
+  const pendentes = controles.map((c, i) => s.digitarEEnviar(`espera-${i}`, false, null, () => c.signal.aborted, c.signal).catch((e: unknown) => e));
+  try {
+    assert.equal(s.diretosEsperando.pedidos, MAX_ENVIOS_DIRETOS_ESPERANDO);
+    // Um a mais: recusado, sem escrever e sem mexer na contagem.
+    await assert.rejects(s.digitarEEnviar("um-a-mais"), (e: unknown) => e instanceof ErroEnviosDemais && /envios demais/.test(e.message) && e.howToFix.length > 0);
+    assert.equal(s.diretosEsperando.pedidos, MAX_ENVIOS_DIRETOS_ESPERANDO);
+    // Cancelar um que ainda não começou: sai da espera na hora, libera a contagem e os bytes, e responde "não entrou".
+    const bytesAntes = s.diretosEsperando.bytes;
+    controles[0].abort();
+    const r0 = await pendentes[0];
+    assert.ok(r0 instanceof ErroDeMotor, "o cancelado é respondido na hora, sem esperar a vez");
+    assert.equal(s.diretosEsperando.pedidos, MAX_ENVIOS_DIRETOS_ESPERANDO - 1);
+    assert.equal(s.diretosEsperando.bytes, bytesAntes - Buffer.byteLength("espera-0"));
+    // Agora cabe de novo um pedido (e ele fica esperando).
+    const novo = new AbortController();
+    const p = s.digitarEEnviar("coube-de-novo", false, null, () => novo.signal.aborted, novo.signal).catch((e: unknown) => e);
+    assert.equal(s.diretosEsperando.pedidos, MAX_ENVIOS_DIRETOS_ESPERANDO);
+    novo.abort();
+    await p;
+    // Limite por bytes: um texto que estoura a soma é recusado mesmo com poucos pedidos esperando.
+    const grande = "g".repeat(MAX_BYTES_DIRETOS_ESPERANDO);
+    await assert.rejects(s.digitarEEnviar(grande), (e: unknown) => e instanceof ErroEnviosDemais);
+    assert.deepEqual(escritas, [], "nada foi escrito");
+  } finally {
+    for (const c of controles) c.abort();
+    soltar();
+    await Promise.all(pendentes);
+    restaurar();
+  }
+  assert.equal(s.diretosEsperando.pedidos, 0, "a contagem volta a zero");
+  assert.equal(s.diretosEsperando.bytes, 0);
+});
+
+test("rodada 9, item 7: resposta do agente que cita o aviso do Bypass e as duas opções, acima de um editor livre, não é diálogo e o envio sai; o diálogo real continua detectado", async () => {
+  const { ehDialogoDeBypass } = await import("./sessao.js");
+  const citacao = "⏺ O aviso do modo Bypass Permissions mode aparece assim:\r\n  ❯ 1. No, exit\r\n    2. Yes, I accept\r\nSe quiser pular, ponha a chave no settings.\r\n";
+  const editor = "╭──────────────────────────────────────────╮\r\n│ ❯ \r\n╰──────────────────────────────────────────╯\r\n  ? for shortcuts\r\n";
+  assert.equal(ehDialogoDeBypass(citacao + editor), false, "a citação fica no histórico, acima do editor");
+  // O diálogo real: o aviso, as duas opções e só o rodapé dele depois.
+  const real = " WARNING: Claude Code running in Bypass Permissions mode\r\n In Bypass Permissions mode, Claude Code will not ask for your approval.\r\n\r\n ❯ 1. No, exit\r\n   2. Yes, I accept\r\n\r\n Enter to confirm · Esc to cancel\r\n";
+  assert.equal(ehDialogoDeBypass(real), true);
+  assert.equal(ehDialogoDeBypass(citacao + real), true, "um diálogo real depois de uma citação continua valendo");
+  assert.equal(ehDialogoDeBypass(real + editor), false, "diálogo já respondido, com o editor redesenhado depois");
+  // O envio sai com a citação acima de um editor livre.
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  try {
+    await alimentarTela(s, "\u001b[2J\u001b[H" + citacao + editor);
+    s.ultimaSaidaEm = Date.now() - 5_000;
+    setTimeout(() => (s.promptsAceitos += 1), 250);
+    assert.equal(await s.digitarEEnviar("pedido-com-citacao-do-aviso"), true);
+    assert.deepEqual(escritas, ["pedido-com-citacao-do-aviso", "\r"]);
+  } finally {
+    restaurar();
+  }
 });

@@ -716,3 +716,45 @@ test("rodada 8, item 7: o registro de compactação do rollout do Codex é o rec
   assert.equal(s.barraPendente, null);
   assert.equal(s.compactsIniciados >= 1, true);
 });
+
+test("rodada 9, item 1: TextoDoUsuario e Compactado pela rota de hook (com nonce válido) são recusados e não confirmam nada", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
+  const entrada = pedidoPendenteComEnter(s, "pedido-que-ninguem-recebeu");
+  const { aplicarEvento } = await import("./sessao/eventos.js");
+  aplicarEvento(s, { event: "UserPromptSubmit" }); // um turno aberto (por outro caminho), ainda sem o texto
+  const compactsAntes = s.compactsIniciados;
+  const base = { agentId: s.descritor.id, nonce: s.nonce as string };
+  const r1 = s.receberHook({ ...base, event: "TextoDoUsuario", texto: "pedido-que-ninguem-recebeu" });
+  assert.equal(r1.ok, false);
+  assert.match(r1.motivo ?? "", /TextoDoUsuario.*rollout/);
+  const r2 = s.receberHook({ ...base, event: "Compactado" });
+  assert.equal(r2.ok, false);
+  assert.match(r2.motivo ?? "", /Compactado.*rollout/);
+  assert.deepEqual(s.semRecibo, [entrada], "o pedido continua pendente");
+  assert.equal(s.compactsIniciados, compactsAntes, "nenhuma compactação contada");
+  // O caminho interno (o leitor do rollout) segue valendo.
+  aplicarEvento(s, { event: "TextoDoUsuario", texto: "pedido-que-ninguem-recebeu" });
+  assert.equal(s.semRecibo.length, 0, "pelo caminho interno confirma");
+});
+
+test("rodada 9, item 6: rollout recém-descoberto com mais de 1 MiB de saída antes da descoberta é lido desde o início: o pedido é confirmado", async () => {
+  logarCodex(amb);
+  const { s } = await nova();
+  await s.subir("nova");
+  await esperarAte(() => s.estado.status === "idle", 6_000, "a tela quieta virar idle");
+  const entrada = pedidoPendenteComEnter(s, "pedido-no-comeco-do-rollout-grande");
+  const id = "7d8e9fa0-3333-4444-8555-b66677788899";
+  const arquivo = gravarRolloutDeTeste(s.estado.config.cwd as string, id, true, "pedido-no-comeco-do-rollout-grande");
+  const registro = (payload: unknown) => JSON.stringify({ timestamp: new Date().toISOString(), type: "event_msg", payload }) + "\n";
+  // Mais de 1,5 MiB de saída do primeiro turno gravada antes de o vigia olhar o arquivo.
+  const enchimento = registro({ type: "agent_message", message: "x".repeat(1_000) }).repeat(1_600);
+  assert.ok(enchimento.length > 1.5 * 1024 * 1024);
+  fs.appendFileSync(arquivo, enchimento);
+  await esperarAte(() => s.estado.sessionId === id && s.promptsAceitos >= 1, 10_000, "o task_started do começo do arquivo ser lido");
+  await esperarAte(() => s.semRecibo.length === 0, 6_000, "o texto do usuário do começo confirmar o pedido");
+  assert.equal(s.promptsAceitos, 1);
+  assert.equal(s.semRecibo.includes(entrada as never), false);
+});

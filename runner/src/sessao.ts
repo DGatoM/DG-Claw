@@ -112,7 +112,7 @@ export class Sessao extends EventEmitter {
    *  o que está NA TELA agora: o buffer é o fluxo bruto, e um redesenho parcial com movimento de cursor não se lê nele. */
   emulador: TerminalXterm | null = null;
   /** Não nulo quando a escrita no emulador lançou e ele foi recriado vazio: a tela dele não é prova de nada até um redesenho
-   *  completo (ver EMULADOR_REDESENHO_BYTES). `telaAtual()` devolve vazio nesse período, e vazio nunca é "caixa vazia". */
+   *  completo (só uma limpeza de tela integral, ESC[2J ou ESC c, restabelece). `telaAtual()` devolve vazio nesse período, e vazio nunca é "caixa vazia". */
   emuladorNaoConfiavel: { desde: number; bytesNovos: number } | null = null;
   /** Bytes escritos no emulador que ele ainda não confirmou (controle de fluxo do PTY). */
   emuladorPendente = 0;
@@ -208,6 +208,8 @@ export class Sessao extends EventEmitter {
   /** Fim do último texto colado: os envios de texto de um mesmo terminal são serializados nesta cadeia
    *  (ver digitarEEnviar), para a fila e o POST /input não se intercalarem. */
   cadeiaDeEnvio: Promise<void> = Promise.resolve();
+  /** Envios diretos esperando a vez na cadeia (pedidos e bytes somados): limitados por sessão (ver digitarEEnviar). */
+  diretosEsperando = { pedidos: 0, bytes: 0 };
   /** true depois que o log disse que a suspensão da digitação continua (uma vez por suspensão). */
   suspensaoLogada = false;
   /** Quando o dono escreveu no terminal e um pedido ficou retido por isso: a digitação automática fica suspensa até
@@ -944,8 +946,8 @@ export class Sessao extends EventEmitter {
   }
 
   /** Digita e envia, com recibo do Enter (ver sessao/digitacao.ts). */
-  digitarEEnviar(texto: string, daFila = false, envio: SemRecibo | null = null, cancelado: () => boolean = () => false): Promise<boolean> {
-    return digitarEEnviar(this, texto, daFila, envio, cancelado);
+  digitarEEnviar(texto: string, daFila = false, envio: SemRecibo | null = null, cancelado: () => boolean = () => false, sinal?: AbortSignal): Promise<boolean> {
+    return digitarEEnviar(this, texto, daFila, envio, cancelado, sinal);
   }
 
   /** Responde à tela de confiança de pasta do Codex (ver sessao/digitacao.ts). */

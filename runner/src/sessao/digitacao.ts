@@ -2,7 +2,7 @@ import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
 import { MOTIVO_CAIXA_COM_RASCUNHO, MOTIVO_ENVIO_PENDENTE, MOTIVO_NAO_ENTROU, MOTIVO_RECUSA_DE_ENTRADA, type SemRecibo, caixaVaziaComProva, devolverNaoDigitado, levantarSuspensao, liberarBarra, outroEnvioSemRecibo, pararComCaixaSuja, pendenteEm, reciboDoTexto, reter, suspenderPorRascunho, talvezSoltarFila, telaServeDeProva, terminalQuietoParaLerTela } from "./fila.js";
-import { INTERVALO_MS, PEDACO, RECIBO_ENTER_TENTATIVAS, SILENCIO_DA_MASCARA_MS } from "./constantes.js";
+import { INTERVALO_MS, MAX_BYTES_DIRETOS_ESPERANDO, MAX_ENVIOS_DIRETOS_ESPERANDO, PEDACO, RECIBO_ENTER_TENTATIVAS, SILENCIO_DA_MASCARA_MS } from "./constantes.js";
 import { caixaVaziaNaTela, ehDialogoDeAutoMode, estadoDaCaixa, caixaIdentificada, telaDeConfiancaDoCodex } from "./telas.js";
 
 /**
@@ -25,16 +25,82 @@ export function digitarEEnviar(
   daFila = false,
   envio: SemRecibo | null = null,
   cancelado: () => boolean = () => false,
+  sinal?: AbortSignal,
 ): Promise<boolean> {
+  // Limite dos pedidos diretos que esperam a vez (a fila tem o próprio limite e o próprio arquivo): sem ele, vários POST
+  // concorrentes seguram texto e contexto HTTP em memória enquanto um texto longo ocupa o PTY.
+  const bytes = Buffer.byteLength(texto);
+  const direto = !daFila && envio === null;
+  if (direto) {
+    const e = s.diretosEsperando;
+    if (e.pedidos >= MAX_ENVIOS_DIRETOS_ESPERANDO || e.bytes + bytes > MAX_BYTES_DIRETOS_ESPERANDO) {
+      log.aviso(
+        s.a("entrada"),
+        `recusei um envio direto de ${bytes} bytes: já há ${e.pedidos} esperando a vez (${e.bytes} bytes); os limites são ${MAX_ENVIOS_DIRETOS_ESPERANDO} pedidos e ${MAX_BYTES_DIRETOS_ESPERANDO} bytes. Nada foi escrito`,
+      );
+      return Promise.reject(new ErroEnviosDemais(e.pedidos, e.bytes));
+    }
+    e.pedidos += 1;
+    e.bytes += bytes;
+  }
+  let contado = direto;
+  const largar = () => {
+    if (!contado) return;
+    contado = false;
+    s.diretosEsperando.pedidos -= 1;
+    s.diretosEsperando.bytes -= bytes;
+  };
   // O terminal é capturado AGORA, quando o envio é aceito, e não depois da espera na cadeia: se a sessão reiniciar
   // (ou trocar de provedor) enquanto este envio espera a vez, nada é escrito no terminal novo.
   const procAceito = s.proc;
-  const minha = s.cadeiaDeEnvio.then(() => digitar(s, texto, daFila, envio, procAceito, cancelado));
-  s.cadeiaDeEnvio = minha.then(
-    () => undefined,
-    () => undefined,
-  );
-  return minha;
+  // O texto fica num suporte que a desistência esvazia: o elo da cadeia continua existindo (a ordem dos envios não muda),
+  // mas deixa de segurar o texto.
+  const suporte: { texto: string | null; comecou: boolean } = { texto, comecou: false };
+  let resolver!: (v: boolean) => void;
+  let rejeitar!: (e: unknown) => void;
+  const resposta = new Promise<boolean>((ok, erro) => {
+    resolver = ok;
+    rejeitar = erro;
+  });
+  const elo = s.cadeiaDeEnvio.then(async () => {
+    const t = suporte.texto;
+    if (t === null) return; // desistiu antes da vez: já foi respondido e a contagem já foi liberada
+    suporte.comecou = true;
+    largar();
+    suporte.texto = null;
+    try {
+      resolver(await digitar(s, t, daFila, envio, procAceito, cancelado));
+    } catch (err) {
+      rejeitar(err);
+    }
+  });
+  s.cadeiaDeEnvio = elo;
+  if (sinal && direto) {
+    const desistir = () => {
+      if (suporte.comecou || suporte.texto === null) return;
+      suporte.texto = null;
+      largar();
+      log.aviso(s.a("entrada"), "quem pediu desistiu da chamada antes da vez: tirei o pedido da espera sem escrever nada");
+      rejeitar(new ErroDeMotor("Não digitei o texto: quem pediu desistiu da chamada antes de o texto começar a ser digitado.", MOTIVO_NAO_ENTROU, "reenviar a mensagem se ainda for necessária"));
+    };
+    if (sinal.aborted) desistir();
+    else sinal.addEventListener("abort", desistir, { once: true });
+  }
+  return resposta;
+}
+
+/** Envios diretos demais esperando a vez de um mesmo agente (a rota responde 429 ENVIOS_DEMAIS). Nada foi escrito. */
+export class ErroEnviosDemais extends Error {
+  constructor(
+    readonly pedidos: number,
+    readonly bytes: number,
+  ) {
+    super(
+      `Há envios demais esperando a vez neste agente (${pedidos} pedidos, ${bytes} bytes; o limite é ${MAX_ENVIOS_DIRETOS_ESPERANDO} pedidos ou ${MAX_BYTES_DIRETOS_ESPERANDO} bytes). Não escrevi nada.`,
+    );
+    this.name = "ErroEnviosDemais";
+  }
+  readonly howToFix = "esperar os envios anteriores terminarem (o agente digita um por vez) e reenviar a mensagem";
 }
 
 /** O terminal deste envio saiu ou foi trocado: nada mais é escrito no terminal novo e o pedido fica retido. */
@@ -412,7 +478,9 @@ function decidirComTela(s: Sessao, tela: string, texto: string, entradasEsperada
 function enterRepetidoAindaCabe(s: Sessao, proc: Sessao["proc"], envio: SemRecibo | null, antes: number, compactAntes: number, comandoDeBarra: boolean, soCompactVale: boolean, texto: string): boolean {
   if (s.proc !== proc) return false;
   if (!soCompactVale && reciboDoTexto(s, antes, texto)) return false;
-  if (comandoDeBarra && s.compactsIniciados > compactAntes) return false;
+  // O contador de compactações só é recibo do /compact: outro comando de barra (/model) não o aceita, senão uma compactação
+  // automática no meio daria o comando por consumido sem ele ter sido.
+  if (ehCompact(texto) && s.compactsIniciados > compactAntes) return false;
   if (s.estado.status !== "idle") return false;
   if (envio && !pendenteEm(s, envio)) return false;
   return true;
@@ -528,7 +596,7 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
     // Um Enter do dono pelo terminal ainda sem recibo: o recibo que chegar agora pode ser dele, e não deste envio.
     if (escreveuEnter && s.enterManualPendente !== null) enterDoDonoAmbiguo = true;
     const ref = referencia ?? { prompts: s.promptsAceitos, compacts: s.compactsIniciados };
-    const recebeu = await esperarRecibo(s, ref.prompts, espera, comandoDeBarra ? ref.compacts : undefined, soCompactVale, texto);
+    const recebeu = await esperarRecibo(s, ref.prompts, espera, compact ? ref.compacts : undefined, soCompactVale, texto);
     if (recebeu) {
       if (enterDoDonoAmbiguo) {
         return parouComTextoNaCaixa(s, envio, "chegou um recibo, mas o dono tinha dado um Enter no terminal ainda sem recibo, então o recibo pode ser da mensagem dele");
@@ -615,7 +683,7 @@ export function vigiarReciboAtrasado(s: Sessao, ctx: ContextoDoEnvio, total: num
   const inicio = Date.now();
   const passos = s.reciboVigiaPassosMs;
   const soCompactVale = compact && s.motor.provedor === "claude";
-  const aceito = () => (!soCompactVale && reciboDoTexto(s, antes, texto)) || (comandoDeBarra && s.compactsIniciados > compactAntes);
+  const aceito = () => (!soCompactVale && reciboDoTexto(s, antes, texto)) || (compact && s.compactsIniciados > compactAntes);
   // Toda escrita no PTY passa por s.escrever() e soma em entradasManuais. Se o número mudou sem ser pela
   // própria vigia, alguém mexeu na caixa (o dono pelo terminal, ou um texto novo sendo digitado): o que
   // está lá já não é o texto que esta vigia tenta enviar, e um Enter dela poderia mandar um rascunho.

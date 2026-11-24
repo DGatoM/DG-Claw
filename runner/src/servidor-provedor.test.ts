@@ -773,3 +773,39 @@ test("rodada 5, item 1: dois POST /input diretos; o primeiro fica sem recibo e c
     (principal as unknown as { escrever: unknown }).escrever = original;
   }
 });
+
+test("rodada 9, item 1: TextoDoUsuario e Compactado pelo POST /api/agent-hook (nonce válido) são recusados com o motivo e não mudam nada", async () => {
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  const antes = principal.compactsIniciados;
+  for (const event of ["TextoDoUsuario", "Compactado"]) {
+    const r = await req("POST", "/api/agent-hook", { agentId: ID, event, nonce: principal.nonce, texto: "qualquer" });
+    assert.equal(r.corpo.success, false, event);
+    assert.match(r.corpo.reason, new RegExp(`${event}.*rollout`));
+  }
+  assert.equal(principal.compactsIniciados, antes, "nenhuma compactação contada");
+});
+
+test("rodada 9, item 5: envio direto com pedidos ou bytes demais esperando a vez => 429 ENVIOS_DEMAIS, motivo e howToFix, e nada é escrito", async () => {
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  const { MAX_BYTES_DIRETOS_ESPERANDO, MAX_ENVIOS_DIRETOS_ESPERANDO } = await import("./sessao/constantes.js");
+  const original = principal.diretosEsperando;
+  const entradas = principal.entradasManuais;
+  try {
+    for (const cheio of [{ pedidos: MAX_ENVIOS_DIRETOS_ESPERANDO, bytes: 10 }, { pedidos: 1, bytes: MAX_BYTES_DIRETOS_ESPERANDO }]) {
+      principal.diretosEsperando = { ...cheio };
+      const r = await req("POST", `/api/agents/${ID}/input`, { text: "mensagem-que-nao-cabe" });
+      assert.equal(r.status, 429, JSON.stringify(r.corpo));
+      assert.equal(r.corpo.code, "ENVIOS_DEMAIS");
+      assert.match(r.corpo.error, /envios demais/);
+      assert.match(r.corpo.howToFix, /reenviar/);
+      assert.equal(principal.entradasManuais, entradas, "nada foi escrito");
+      assert.deepEqual(principal.diretosEsperando, cheio, "a contagem não mudou com a recusa");
+    }
+  } finally {
+    principal.diretosEsperando = original;
+  }
+});
