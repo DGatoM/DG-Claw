@@ -77,7 +77,7 @@ subir nunca-termina
 "$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
 DGCLAW_CARD_INTERVALO=0.3 "$BIN" esperar card-abc123 --max 1 >"$T/o" 2>"$T/e"; c=$?
 ok "esperar estourando o tempo sai com 7" $([ $c = 7 ] && echo 0 || echo 1)
-grep -q "segue trabalhando" "$T/e"; ok "esperar diz que a sessao segue trabalhando" $?
+grep -q "nao terminou o turno nesse prazo" "$T/e" && ! grep -q "segue trabalhando" "$T/e"; ok "esperar estourado diz so que o prazo passou, sem afirmar que trabalha" $?
 
 # --- o pedido nao vira turno (202 enfileirado, mas o CLI nunca aceita) -----------------------------
 subir sem-turno
@@ -264,6 +264,21 @@ for modo in input-sem-capacidade input-nao-acordou; do
   grep -q "o pedido nao foi entregue (" "$T/e" && grep -q "pode tentar de novo quando" "$T/e" && ! grep -q "entrega incerta" "$T/e"; ok "$modo diz 'nao foi entregue' e nao 'entrega incerta'" $?
   [ "$(head -1 "$T/o")" = "card-abc123" ]; ok "$modo: o id sai na primeira linha" $?
 done
+
+# --- --monitor com recusa anterior a fila: a mensagem traz o comando do monitor ------------------------------
+subir input-sem-capacidade
+"$BIN" abrir --provedor claude --titulo x --pedido oi --monitor --entregue "relatorio pronto" --cada 5 >"$T/o" 2>"$T/e"; c=$?
+ok "503 SEM_CAPACIDADE com --monitor sai com 6" $([ $c = 6 ] && echo 0 || echo 1)
+grep -q "dgclaw-monitor add card-abc123 --entregue" "$T/e" && grep -q -- "--cada 5" "$T/e"; ok "a recusa com --monitor diz o comando dgclaw-monitor add com criterio e intervalo" $?
+subir input-recusado
+"$BIN" abrir --provedor claude --titulo x --pedido oi --monitor --entregue "feito" >"$T/o" 2>"$T/e"
+grep -q "dgclaw-monitor add card-abc123" "$T/e" && ! grep -q -- "--cada" "$T/e"; ok "recusa 4xx com --monitor sem --cada diz o comando sem --cada" $?
+
+# --- turno aceito e card esperando decisao do dono -----------------------------------------------------------------
+subir aguardando-decisao
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 3 >"$T/o" 2>"$T/e"; c=$?
+ok "card em waiting_input depois do turno sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
+grep -q "esperando uma decisao do dono" "$T/o" && grep -q "aba Sessoes" "$T/o" && ! grep -q "dgclaw-card esperar" "$T/o"; ok "waiting_input diz que espera decisao, aponta a aba Sessoes e nao recomenda esperar" $?
 
 # --- working sozinho nao confirma: so o contador ---------------------------------------------------------------
 subir working-sem-turno

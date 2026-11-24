@@ -114,7 +114,7 @@ aba Sessões do painel. Os comandos `dgclaw-card` e `dgclaw-monitor` já falam c
 (porta 4300, token em `/etc/dgclaw/runner/admin.token`): você não passa nem lê o token.
 
 ```bash
-saida="$(dgclaw-card abrir --provedor claude --titulo "Atualização do servidor" --pedido-arquivo /tmp/pedido.md --monitor --entregue "atualização feita e dgclaw status sem falhas")"; cod=$?
+cod=0; saida="$(dgclaw-card abrir --provedor claude --titulo "Atualização do servidor" --pedido-arquivo /tmp/pedido.md --monitor --entregue "atualização feita e dgclaw status sem falhas")" || cod=$?
 id="$(printf '%s\n' "$saida" | head -1)"
 if [ "$cod" != 0 ]; then
   # Só consulte e avise. Não use mandar, esperar nem fechar neste ramo, e não repita o pedido.

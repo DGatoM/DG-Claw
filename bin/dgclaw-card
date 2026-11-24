@@ -44,7 +44,7 @@
 #   4  limite de cards abertos atingido (429)
 #   5  o provedor deste agente ainda nao esta conectado (sem login ou sem chave)
 #   6  outro erro devolvido pelo runner (a mensagem dele e mostrada)
-#   7  "esperar" estourou o tempo: a sessao segue trabalhando
+#   7  "esperar" estourou o tempo sem o card terminar o turno (nao diz se ele trabalha ou esta parado)
 #      Se o "abrir" criar o card e falhar ao entregar o pedido, a saida e a do erro (2, 3, 4 ou 6) e a
 #      mensagem diz o id do card que ficou aberto; sem login, o card recem criado e fechado sozinho.
 #      So se diz "nao foi entregue" quando o runner recusou o pedido (resposta 4xx). Se a resposta se perdeu
@@ -267,14 +267,14 @@ cmd_abrir() {
       case "$http_input:$code" in
         503:SEM_CAPACIDADE|500:NAO_ACORDOU)
           # Recusa do runner por falta de capacidade ou por nao conseguir acordar a sessao: veio antes da fila.
-          erro "o card $id foi criado, mas o pedido nao foi entregue ($(campo .error)); pode tentar de novo quando houver capacidade, com: dgclaw-card mandar $id --arquivo <arquivo do pedido>, ou feche com: dgclaw-card fechar $id --forcar."
+          erro "o card $id foi criado, mas o pedido nao foi entregue ($(campo .error)); pode tentar de novo quando houver capacidade, com: dgclaw-card mandar $id --arquivo <arquivo do pedido>, ou feche com: dgclaw-card fechar $id --forcar.$(dica_monitor "$id" "$entregue" "$cada")"
           HTTP="$http_input"; RESP="$resp_input"
           falha_geral ;;
       esac
       case "$http_input" in
         4??)
           # Recusa do runner (4xx): so aqui se prova que o texto nao entrou na fila.
-          erro "o card $id foi criado, mas o pedido nao foi entregue (o runner o recusou antes de enfileirar). Reenvie com: dgclaw-card mandar $id --arquivo <arquivo do pedido>, ou feche com: dgclaw-card fechar $id --forcar."
+          erro "o card $id foi criado, mas o pedido nao foi entregue (o runner o recusou antes de enfileirar). Reenvie com: dgclaw-card mandar $id --arquivo <arquivo do pedido>, ou feche com: dgclaw-card fechar $id --forcar.$(dica_monitor "$id" "$entregue" "$cada")"
           HTTP="$http_input"; RESP="$resp_input"
           falha_geral ;;
         *)
@@ -302,10 +302,22 @@ cmd_abrir() {
   if [ "$espera" = 0 ]; then
     echo "Card criado em $(nome_do_provedor "$provedor") e pedido entregue a fila. Com --espera-turno 0 o aceite do pedido NAO foi verificado: nao diga ao dono que o card esta trabalhando antes de conferir com 'dgclaw-card estado $id'."
   else
+    ESPERANDO_DECISAO=0
     esperar_primeiro_turno "$id" "$espera"
-    echo "Card aberto em $(nome_do_provedor "$provedor"). Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
+    if [ "$ESPERANDO_DECISAO" = 1 ]; then
+      echo "Card aberto em $(nome_do_provedor "$provedor"): ele aceitou o pedido e esta esperando uma decisao do dono (uma pergunta ou uma permissao). O dono responde na aba Sessoes do painel. Para ver o que ele pediu: dgclaw-card ler $id"
+    else
+      echo "Card aberto em $(nome_do_provedor "$provedor"). Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
+    fi
   fi
   [ -z "$MON_OUT" ] || echo "$MON_OUT"
+}
+
+# Comando para religar o monitor a mao (card criado, pedido a reenviar). O criterio vai escapado com printf %q.
+dica_monitor() { # $1 id ; $2 entregue ; $3 cada
+  [ "$monitor" != 0 ] || return 0
+  local q; q="$(printf '%q' "$2")"
+  printf ' Como o abrir foi pedido com --monitor, depois de reenviar ligue o monitor com o mesmo criterio e intervalo: dgclaw-monitor add %s --entregue %s%s (o criterio vai escapado para o shell; confira se ele ficou igual ao que voce pediu).' "$1" "$q" "${3:+ --cada $3}"
 }
 
 # Espera o pedido virar turno: turnosAceitosSessao > 0 (turnos da conversa ATUAL) ou status working. Sem turno no
@@ -370,6 +382,7 @@ esperar_primeiro_turno() { # $1 id ; $2 segundos
             stopped|resumable)
               sem_confirmacao "$1" "o runner viu o turno do pedido, mas o terminal do card ja esta fechado (status $status); confira com 'dgclaw-card ler $1' antes de dizer qualquer coisa ao dono" ;;
           esac
+          [ "$status" != waiting_input ] || ESPERANDO_DECISAO=1
           return 0
         fi
       fi
@@ -500,7 +513,7 @@ cmd_esperar() {
       *) seguidas=0 ;;
     esac
     if [ $((SECONDS - inicio)) -ge "$max" ]; then
-      CODIGO=7 die "passaram $max segundos e o card $id ainda nao terminou: ele segue trabalhando. Espere mais com 'dgclaw-card esperar $id --max <segundos>', ou leia o que ja existe com 'dgclaw-card ler $id'."
+      CODIGO=7 die "passaram $max segundos e o card $id nao terminou o turno nesse prazo. Espere mais com 'dgclaw-card esperar $id --max <segundos>', ou leia o que ja existe com 'dgclaw-card ler $id'."
     fi
     sleep "$passo"
   done
@@ -533,7 +546,7 @@ explicar_conversa_vazia() { # $1 id
     if [ "$fila" != 0 ] && { [ "$status" = stopped ] || [ "$status" = resumable ]; }; then
       echo "O card $id ainda nao tem mensagens: ha um pedido guardado na fila ($fila), mas a sessao esta sem terminal aberto. Retomar no painel (aba Sessoes) processa o pedido, sem reenviar o texto."
     elif [ "$fila" != 0 ]; then
-      echo "O card $id ainda nao tem mensagens: ha texto na fila ($fila) e o runner ainda nao observou o primeiro turno (isso nao prova que esteja parado). Espere com: dgclaw-card esperar $id"
+      echo "O card $id ainda nao tem mensagens: ha texto na fila ($fila) e o runner ainda nao observou o primeiro turno (isso nao prova que esteja parado). Confira 'dgclaw-card estado $id' e leia de novo com 'dgclaw-card ler $id' mais tarde, sem reenviar por conta propria."
     elif [ "$total" = 0 ] && { [ "$status" = stopped ] || { [ "$status" = resumable ] && [ "$turnos" = 0 ]; }; }; then
       echo "O card $id ainda nao tem mensagens: nao ha terminal aberto e nao ha texto pendente na fila, entao nada vai comecar sozinho. Confira com o agente ou com o resultado esperado antes de reenviar. Para continuar, use Retomar no painel (aba Sessoes) ou 'dgclaw-card mandar $id \"...\"'."
     elif [ "$status" = resumable ]; then

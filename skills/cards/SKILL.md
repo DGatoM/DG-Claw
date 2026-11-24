@@ -41,7 +41,7 @@ Pedido longo vai por arquivo ou pipe, sem se preocupar com aspas:
 ## Passo 4: abra, espere, leia
 
 ```bash
-saida="$(dgclaw-card abrir --provedor codex --titulo "Revisão do contrato" --pedido-arquivo /tmp/pedido.md)"; cod=$?
+cod=0; saida="$(dgclaw-card abrir --provedor codex --titulo "Revisão do contrato" --pedido-arquivo /tmp/pedido.md)" || cod=$?
 id="$(printf '%s\n' "$saida" | head -1)"
 if [ "$cod" != 0 ]; then
   # Não siga para o esperar nem avise o dono de que o card trabalha. Confira o estado e nunca repita o pedido.
@@ -73,8 +73,8 @@ Se o card vai levar mais que alguns minutos (construir, migrar, levantar, revisa
 ligue o modo monitor no mesmo comando que abre o card, com `--monitor` e o critério de entregue:
 
 ```bash
-saida="$(dgclaw-card abrir --provedor codex --titulo "Relatório de vendas" --pedido-arquivo /tmp/pedido.md \
-  --monitor --entregue "o arquivo /home/agente/relatorio.md existe e tem as três seções")"; cod=$?
+cod=0; saida="$(dgclaw-card abrir --provedor codex --titulo "Relatório de vendas" --pedido-arquivo /tmp/pedido.md \
+  --monitor --entregue "o arquivo /home/agente/relatorio.md existe e tem as três seções")" || cod=$?
 id="$(printf '%s\n' "$saida" | head -1)"
 if [ "$cod" != 0 ]; then
   # Só consulte e avise: nada de mandar, esperar ou fechar neste ramo, e não repita o pedido.

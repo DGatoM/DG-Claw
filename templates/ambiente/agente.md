@@ -105,7 +105,7 @@ tarefa curta direto, e mande a longa para um card do mesmo jeito.
    Sair com 11 quer dizer que não deu para confirmar se o card aceitou o pedido. Sair com 12 quer dizer
    que o card aceitou o pedido, mas o turno falhou e ele está em erro (veja com `dgclaw-card ler <id>`).
    Capture a saída e o código ANTES de pegar o id, senão o `head` esconde o código de saída:
-   `saida="$(dgclaw-card abrir ... )"; cod=$?; id="$(printf '%s\n' "$saida" | head -1)"`. O id sai uma vez,
+   `cod=0; saida="$(dgclaw-card abrir ... )" || cod=$?; id="$(printf '%s\n' "$saida" | head -1)"`. O id sai uma vez,
    na primeira linha, assim que o card é criado, mesmo com saída 8, 9, 11 ou 12. Só anuncie o acompanhamento
    com `cod` igual a 0; com `cod` diferente de 0, confira com `dgclaw-card estado "$id"` (se o `id` vier
    vazio, a mensagem de erro diz o que fazer) em vez de seguir adiante.
@@ -164,7 +164,7 @@ para trabalho longo, para uma sessão que precisa continuar viva, para segunda o
 ou para tarefa em paralelo. Para o que você resolve em um minuto, não abra.
 
 ```bash
-saida="$(dgclaw-card abrir --provedor claude --titulo "Revisão do contrato" --pedido-arquivo /tmp/pedido.md --monitor --entregue "contrato revisado e resumo das mudanças entregue")"; cod=$?
+cod=0; saida="$(dgclaw-card abrir --provedor claude --titulo "Revisão do contrato" --pedido-arquivo /tmp/pedido.md --monitor --entregue "contrato revisado e resumo das mudanças entregue")" || cod=$?
 id="$(printf '%s\n' "$saida" | head -1)"
 if [ "$cod" != 0 ]; then
   # Só consulte e avise. Não use mandar, esperar nem fechar neste ramo, e não repita o pedido.
