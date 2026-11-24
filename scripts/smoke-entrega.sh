@@ -48,15 +48,16 @@ AGENTES_JSON="$R/etc/dgclaw/agentes.json"
 REG="$(jq -r --arg s "$SLUG" '.agentes[] | select(.slug == $s and .tipo == "agente") | def n: if . == "" then "-" else . end; [((.runner // "") | tostring | n), ((.home_host // "") | tostring | n), (.provedor // "?"), ((.container // "") | tostring | n)] | @tsv' "$AGENTES_JSON" 2>/dev/null | head -n 1)"
 [ -n "$REG" ] || { echo "o agente '$SLUG' nao esta em $AGENTES_JSON. Veja os que existem com: dgclaw agente listar" >&2; exit 2; }
 IFS=$'\t' read -r _ _ PROVEDOR CONT_REG <<<"$REG"
-# Nome do container: o campo "container" do registro (o bin/dgclaw grava "dgclaw-<slug>"); vazio ou ausente, o padrao.
+# Nome do container: sempre dgclaw-<slug>, que e o que a CLI opera. O campo "container" do registro, se vier, tem que ser esse mesmo.
 C="dgclaw-$SLUG"
 if [ -n "$CONT_REG" ] && [ "$CONT_REG" != "-" ]; then
     case "$CONT_REG" in
         dgclaw-|dgclaw-*[!a-z0-9-]*) CONT_REG="" ;;
-        dgclaw-*) C="$CONT_REG" ;;
+        dgclaw-*) ;;
         *) CONT_REG="" ;;
     esac
     [ -n "$CONT_REG" ] || { echo "o nome de container registrado para o agente nao e valido (esperado: dgclaw- e letras minusculas, numeros e hifen). Confira o registro com: dgclaw agente listar" >&2; exit 2; }
+    [ "$CONT_REG" = "$C" ] || { echo "o registro aponta o container $CONT_REG, mas a CLI dgclaw opera sobre $C. Por isso o smoke nao segue nem recomenda iniciar ou recriar. A equipe deve conferir o registro com dgclaw agente listar antes de qualquer acao." >&2; exit 2; }
 fi
 
 FALHAS=0
@@ -78,14 +79,15 @@ desc_cobertura() {
 so_digitos() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "${#1}" -le "$2" ]; }
 # contar_oom <comando...>: quantas linhas de falta de memoria (eventos do OOM killer do kernel) o comando mostra
 # (o comando precisa imprimir "-o short-unix"; a janela de 7 dias ja vem do --since do proprio comando). So a
-# contagem fica guardada, o texto do journal passa direto pelo filtro. A leitura tem limite de 1 MiB: se passar
+# contagem fica guardada, o texto do journal passa direto pelo filtro (conta so a mensagem do kernel, e so se ela
+# COMECA com um padrao de OOM, para a linha de auditoria com "oom-kill:constraint=" no caminho nao contar). A leitura tem limite de 1 MiB: se passar
 # disso sem nenhuma ocorrencia no que foi lido, sai com 98 e nada (saida cortada, INCONCLUSIVO); se ja achou
 # ocorrencia, sai com 97 e a contagem parcial (e FALHA, com nota de contagem parcial). Se o comando terminar com erro
 # (journal ilegivel, prazo) depois de ja ter mostrado ocorrencia, tambem sai com 97 e a contagem parcial. Erro sem
 # nenhuma ocorrencia sai com 1 e nada: isso e INCONCLUSIVO, nao "zero".
 contar_oom() {
     local r linha n bytes rc
-    r="$("$@" 2>/dev/null | head -c 1048577 | LC_ALL=C awk 'BEGIN { n = 0; b = 0 } { b += length($0) + 1; m = $0; sub(/^[^ ]+ [^ ]+ /, "", m); if (tolower(m) ~ /invoked oom-killer|out of memory: killed process|memory cgroup out of memory|oom-kill:constraint=|oom_reaper: reaped process/) n++ } END { print n, b }'; printf 'rc=%s' "${PIPESTATUS[0]}")"
+    r="$("$@" 2>/dev/null | head -c 1048577 | LC_ALL=C awk 'BEGIN { n = 0; b = 0 } { b += length($0) + 1; m = $0; sub(/^[^ ]+ [^ ]+ kernel: /, "", m); if (tolower(m) ~ /^(out of memory: killed process|memory cgroup out of memory|oom-kill:constraint=|oom_reaper: reaped process|[^=]* invoked oom-killer: gfp_mask=)/) n++ } END { print n, b }'; printf 'rc=%s' "${PIPESTATUS[0]}")"
     rc="${r##*rc=}"; linha="${r%%$'\n'*}"
     read -r n bytes <<<"$linha"
     so_digitos "$n" 9 || return 1
@@ -255,28 +257,27 @@ else
     # A cobertura so e medida com a contagem lida inteira e sem OOM, e so vale com o journalctl terminando em 0.
     cob=""; cob7=0
     if [ "$rc_k" -eq 0 ] && [ "$parcial" -eq 0 ] && [ "$oom_n" -eq 0 ]; then
+        # Primeira entrada da janela (141 = SIGPIPE do head). Sem ela a janela esta vazia: nao ha o que concluir.
+        prim_saida="$(timeout 60 journalctl _TRANSPORT=kernel --since "@$corte" --no-pager -q -o short-unix 2>/dev/null | head -n 1; printf 'rc=%s' "${PIPESTATUS[0]}")"
+        prim_rc="${prim_saida##*rc=}"; prim_linha="${prim_saida%%$'\n'*}"; prim_ts="${prim_linha%% *}"; prim_ts="${prim_ts%%.*}"
         cov_saida="$(timeout 60 journalctl _TRANSPORT=kernel --until "@$corte" -r -n 1 --no-pager -q -o short-unix 2>/dev/null | head -c 4096; printf 'rc=%s' "${PIPESTATUS[0]}")"
         cov_rc="${cov_saida##*rc=}"; cov_linha="${cov_saida%%$'\n'*}"; cov_ts="${cov_linha%% *}"; cov_ts="${cov_ts%%.*}"
-        if ! so_digitos "$cov_rc" 3 || [ "$cov_rc" -ne 0 ]; then
+        if ! so_digitos "$cov_rc" 3 || [ "$cov_rc" -ne 0 ] || ! so_digitos "$prim_rc" 3 || { [ "$prim_rc" -ne 0 ] && [ "$prim_rc" -ne 141 ]; }; then
             rc_k=1
+        elif ! so_digitos "$prim_ts" 12; then
+            : # janela sem nenhuma entrada: cai no ultimo ramo (INCONCLUSIVO), mesmo com historico anterior ao corte
         elif so_digitos "$cov_ts" 12 && [ "$cov_ts" -le "$corte" ]; then
             cob7=1; cob="7 dias"
         else
-            # O historico nao alcanca o corte: o periodo examinado vem da primeira entrada da janela (141 = SIGPIPE do head).
-            prim_saida="$(timeout 60 journalctl _TRANSPORT=kernel --since "@$corte" --no-pager -q -o short-unix 2>/dev/null | head -n 1; printf 'rc=%s' "${PIPESTATUS[0]}")"
-            prim_rc="${prim_saida##*rc=}"; prim_linha="${prim_saida%%$'\n'*}"; prim_ts="${prim_linha%% *}"; prim_ts="${prim_ts%%.*}"
-            if ! so_digitos "$prim_rc" 3 || { [ "$prim_rc" -ne 0 ] && [ "$prim_rc" -ne 141 ]; }; then
-                rc_k=1
-            elif so_digitos "$prim_ts" 12; then
-                horas=$(( (agora - prim_ts) / 3600 )); [ "$horas" -ge 0 ] || horas=0
-                cob="$(desc_cobertura "$horas")"
-            fi
+            # O historico nao alcanca o corte: o periodo examinado vem da primeira entrada da janela.
+            horas=$(( (agora - prim_ts) / 3600 )); [ "$horas" -ge 0 ] || horas=0
+            cob="$(desc_cobertura "$horas")"
         fi
     fi
     # A linha do kernel sozinha nao diz que o agente estourou o proprio teto: so a leitura humana das linhas oom-kill
     # (oom_memcg e task_memcg) diz. Por isso a dica nunca manda aumentar a memoria direto.
-    oom_dica="a contagem sozinha nao diz de quem era o processo nem qual limite estourou, entao nao aumente o teto do agente por causa dela. Num terminal seu (nunca no chat do Admin), leia as linhas de OOM com journalctl _TRANSPORT=kernel --since '7 days ago' -o cat | grep -iE 'invoked oom-killer|out of memory: killed process|memory cgroup out of memory|oom-kill:constraint=|oom_reaper: reaped process' e veja a data, o oom_memcg (o cgroup cujo limite estourou) e o task_memcg (quem foi morto). So com o oom_memcg igual ao cgroup do container $C o agente estourou o proprio teto. Com o oom_memcg de um ancestral, de outro servico ou com OOM do servidor inteiro (CONSTRAINT_NONE), o ajuste e nesse limite ou no plano da VPS. Nunca aumente o teto do agente direto."
-    oom_cmd="journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o cat | grep -ciE 'invoked oom-killer|out of memory: killed process|memory cgroup out of memory|oom-kill:constraint=|oom_reaper: reaped process'; echo \"journalctl=\${PIPESTATUS[0]} grep=\${PIPESTATUS[1]}\""
+    oom_dica="a contagem sozinha nao diz de quem era o processo nem qual limite estourou, entao nao aumente o teto do agente por causa dela. Num terminal seu (nunca no chat do Admin), leia as linhas de OOM com journalctl _TRANSPORT=kernel --since '7 days ago' -o cat | grep -iE '^(out of memory: killed process|memory cgroup out of memory|oom-kill:constraint=|oom_reaper: reaped process|[^=]* invoked oom-killer: gfp_mask=)' e veja a data, o oom_memcg (o cgroup cujo limite estourou) e o task_memcg (quem foi morto). So com o oom_memcg igual ao cgroup do container $C o agente estourou o proprio teto. Com o oom_memcg de um ancestral, de outro servico ou com OOM do servidor inteiro (CONSTRAINT_NONE), o ajuste e nesse limite ou no plano da VPS. Nunca aumente o teto do agente direto."
+    oom_cmd="journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o cat | grep -ciE '^(out of memory: killed process|memory cgroup out of memory|oom-kill:constraint=|oom_reaper: reaped process|[^=]* invoked oom-killer: gfp_mask=)'; echo \"journalctl=\${PIPESTATUS[0]} grep=\${PIPESTATUS[1]}\""
     oom_leitura="num terminal seu, leia a janela toda: $oom_cmd. A contagem so vale com journalctl=0 e grep=0 ou 1 (grep=2 e erro), e este item continua INCONCLUSIVO ate essa leitura ser feita. Veja tambem se o journal e persistente (ls /var/log/journal) e rode o smoke de novo."
     if [ "$rc_k" -ne 0 ]; then
         inconclusivo 3 "nao consegui ler o journal do kernel do servidor dos ultimos 7 dias (erro, prazo ou saida cortada em 1 MiB). Isso nao quer dizer zero eventos de falta de memoria." \

@@ -31,7 +31,7 @@ cofre_com() { # <nome>...: o cofre falso com essas chaves (e uma revogada, que n
 }
 cgroup() { printf '%s\n' "$1" >"$CG/memory.max"; printf '%s\n' "$2" >"$CG/pids.max"; printf '%s\n' "${3:-max 100000}" >"$CG/cpu.max"; }
 smoke() { bash "$SMOKE" "$@" >"$TMP/s.txt" 2>&1; }
-limpar_estado() { find "$STUB_ESTADO" -mindepth 1 -delete; cofre_com GROQ_API_KEY GEMINI_API_KEY; cgroup 4294967296 8192; printf 'GROQ_API_KEY=gsk_segredo_do_teste\nOUTRA=1\n' >"$ETC/web.env"; : >"$STUB_LOG"; }
+limpar_estado() { find "$STUB_ESTADO" -mindepth 1 -delete; cofre_com GROQ_API_KEY GEMINI_API_KEY; cgroup 4294967296 8192; printf 'GROQ_API_KEY=gsk_segredo_do_teste\nOUTRA=1\n' >"$ETC/web.env"; : >"$STUB_LOG"; echo 3600 >"$STUB_ESTADO/kernel-extra"; }
 
 echo "smoke-entrega: tudo certo"
 limpar_estado
@@ -163,7 +163,7 @@ echo 2 >"$STUB_ESTADO/kernel-horas"
 smoke ana
 afirma "primeira entrada de 2 horas: INCONCLUSIVO com menos de 1 dia" grep -q 'INCONCLUSIVO \[3\] nenhum OOM achado.*menos de 1 dia' "$TMP/s.txt"
 nega "primeira entrada de 2 horas: nenhum OK de OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
-afirma "a dica do OOM usa o filtro dos eventos do kernel" grep -qF 'invoked oom-killer|out of memory: killed process|memory cgroup out of memory|oom-kill:constraint=|oom_reaper: reaped process' "$TMP/s.txt"
+afirma "a dica do OOM usa o filtro dos eventos do kernel" grep -qF "'^(out of memory: killed process|memory cgroup out of memory|oom-kill:constraint=|oom_reaper: reaped process|[^=]* invoked oom-killer: gfp_mask=)'" "$TMP/s.txt"
 afirma "a dica do OOM confere o grep" grep -qF 'PIPESTATUS[1]' "$TMP/s.txt"
 rm -f "$STUB_ESTADO/kernel-horas"
 : >"$STUB_ESTADO/kernel-vazio"
@@ -245,6 +245,18 @@ printf '%s\n' 'kernel: audit: type=1400 apparmor="DENIED" name="/tmp/oom-kill-te
 smoke ana
 igual "AppArmor mais OOM de verdade: sai com 1" "1" "$?"
 afirma "AppArmor mais OOM de verdade: FALHA com 1 linha" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias: 1 linha' "$TMP/s.txt"
+printf '%s\n' 'kernel: audit: type=1400 apparmor="DENIED" operation="open" name="/x/oom-kill:constraint=y"' >"$STUB_ESTADO/kernel-msg"
+smoke ana
+igual "AppArmor com oom-kill:constraint= no caminho: sai com 0" "0" "$?"
+nega "AppArmor com oom-kill:constraint= no caminho: nenhuma FALHA de OOM" grep -q 'FALHA  \[3\] OOM' "$TMP/s.txt"
+afirma "AppArmor com oom-kill:constraint= no caminho: OK com cobertura" grep -q 'OK     \[3\] nenhum OOM no journal do kernel do servidor (cobertura do kernel: 7 dias)' "$TMP/s.txt"
+echo "smoke-entrega: historico antigo e janela de 7 dias sem nenhuma entrada: INCONCLUSIVO"
+limpar_estado
+rm -f "$STUB_ESTADO/kernel-extra"
+echo 30 >"$STUB_ESTADO/kernel-dias"
+smoke ana
+nega "janela vazia com historico antigo: nenhum OK de OOM" grep -q 'OK     \[3\] nenhum OOM' "$TMP/s.txt"
+afirma "janela vazia com historico antigo: INCONCLUSIVO sem entrada nos 7 dias" grep -q 'INCONCLUSIVO \[3\] nenhum OOM achado, mas o journal do kernel do servidor nao mostrou nenhuma entrada nos ultimos 7 dias' "$TMP/s.txt"
 echo "smoke-entrega: OOM 30 minutos depois do corte de 7 dias conta"
 limpar_estado
 echo $((7 * 86400 - 1800)) >"$STUB_ESTADO/oom-seg"
@@ -268,10 +280,15 @@ echo "smoke-entrega: nome do container vindo do registro"
 limpar_estado
 jq -n --arg casa "$CASA" '{versao: 1, agentes: [{slug: "ana", tipo: "agente", runner: "127.0.0.1:4301", home_host: $casa, provedor: "claude", container: "dgclaw-ana-novo"}]}' >"$ETC/agentes.json"
 smoke ana
-igual "container do registro: sai com 0" "0" "$?"
-afirma "usa o container do registro (container exists)" grep -q 'podman container exists dgclaw-ana-novo' "$STUB_LOG"
-afirma "usa o container do registro (inspect)" grep -q 'podman inspect.*dgclaw-ana-novo' "$STUB_LOG"
-nega "nao usa o nome padrao quando o registro traz outro" grep -qE 'podman (container exists|inspect.*) dgclaw-ana( |$)' "$STUB_LOG"
+igual "container do registro diferente de dgclaw-<agente>: sai com 2" "2" "$?"
+afirma "divergencia: mensagem diz o container do registro e o da CLI" grep -q 'o registro aponta o container dgclaw-ana-novo, mas a CLI dgclaw opera sobre dgclaw-ana' "$TMP/s.txt"
+afirma "divergencia: manda conferir com dgclaw agente listar" grep -q 'conferir o registro com dgclaw agente listar antes de qualquer acao' "$TMP/s.txt"
+nega "divergencia: nenhum podman chamado" grep -q 'podman' "$STUB_LOG"
+jq -n --arg casa "$CASA" '{versao: 1, agentes: [{slug: "ana", tipo: "agente", runner: "127.0.0.1:4301", home_host: $casa, provedor: "claude", container: "dgclaw-ana"}]}' >"$ETC/agentes.json"
+limpar_estado
+smoke ana
+igual "container do registro igual a dgclaw-<agente>: sai com 0" "0" "$?"
+afirma "container igual: usa dgclaw-ana" grep -q 'podman container exists dgclaw-ana$' "$STUB_LOG"
 jq -n --arg casa "$CASA" '{versao: 1, agentes: [{slug: "ana", tipo: "agente", runner: "127.0.0.1:4301", home_host: $casa, provedor: "claude", container: ""}]}' >"$ETC/agentes.json"
 limpar_estado
 smoke ana

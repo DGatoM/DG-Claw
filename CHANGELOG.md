@@ -16,8 +16,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   journal do runner, o render, o `yt-dlp` e a varredura de skills ficam à mão. Ele
   imprime OK, AVISO, FALHA ou INCONCLUSIVO com a causa e o que fazer. Os limites de
   processos, memória e CPU saem do cgroup do container, a falta de memória é procurada no journal do kernel dos
-  últimos 7 dias (só passa com cobertura de 7 dias; com menos, fica inconclusivo e diz o período examinado) e o microfone só passa se a última atribuição de
-  `ELEVENLABS_API_KEY`, `GROQ_API_KEY` ou `OPENAI_API_KEY` do `web.env` tiver valor. O relatório não repete nenhum texto vindo de dentro do container. Ele nunca mostra o valor das chaves do cofre, só os nomes. O que não dá para automatizar
+  últimos 7 dias (só passa com cobertura de 7 dias; com menos, fica inconclusivo e diz o período examinado) e o microfone só passa se
+  `ELEVENLABS_API_KEY`, `GROQ_API_KEY` ou `OPENAI_API_KEY` tiver valor no `web.env`, numa linha só (chave repetida fica inconclusiva). O relatório não repete nenhum texto vindo de dentro do container. Ele nunca mostra o valor das chaves do cofre, só os nomes. O que não dá para automatizar
   (cruzar as skills com o cofre, o `yt-dlp`, a Tela e o login do YouTube, o render do Chrome, o `ffmpeg` do
   container, a troca de senha pelo cliente) fica à mão, com os comandos no guia. Não muda o comportamento de
   quem já usa o DG Claw.
