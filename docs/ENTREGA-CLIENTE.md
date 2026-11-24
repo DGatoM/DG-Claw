@@ -60,10 +60,11 @@ Os números abaixo são os mesmos que o script imprime entre colchetes.
 - **Se a chave permanente da equipe não funcionar:** não recrie a VPS. Entre pelo acesso temporário do
   suporte (`dgclaw suporte ligar`, veja o [projeto de cliente](PROJETO-DE-CLIENTE.md#2-o-fluxo-passo-a-passo)).
 - **Na entrega, confira as duas saídas:**
-  1. **Suporte temporário revogado.** O `sudo dgclaw suporte status` diz "suporte: desligado". Rode-o numa
-     sessão SSH do usuário nominal do cliente, depois de encerrada a última sessão SSH de root: o `status` só
-     confirma o desligamento com nenhuma sessão SSH de root aberta (o terminal de navegador da Hostinger usa SSH
-     por baixo e, entrando como root, também abre uma).
+  1. **Suporte temporário revogado.** Rode o `sudo dgclaw suporte status` numa sessão SSH do usuário nominal
+     do cliente, depois de encerrada a última sessão SSH de root, e confira as duas linhas: "suporte: desligado"
+     **e** "sessoes SSH de root abertas agora: nenhuma". A primeira sozinha não basta, porque uma conexão de
+     root aberta antes de a chave sair continua ativa (o terminal de navegador da Hostinger usa SSH por baixo e,
+     entrando como root, também abre uma).
   2. **Chave permanente da equipe sem acesso administrativo.** Ela não autoriza mais nenhuma conta com root ou
      `sudo`, por nenhuma origem nem porta do `sshd`. O `desligar` não mexe em chave que não é do suporte, então
      a conferência e a remoção são à mão. Se a chave aparecer em algum lugar, remova. Se alguma fonte de
@@ -76,7 +77,8 @@ Os números abaixo são os mesmos que o script imprime entre colchetes.
      `sudo dgclaw suporte desligar --derrubar-sessoes` (encerra as sessões SSH de root, menos a de quem roda) e
      encerre à mão as da equipe nas outras contas.
   5. **Fechamento.** O cliente encerra a última sessão SSH de root e faz a conferência final com
-     `sudo dgclaw suporte status` na sessão do usuário nominal, onde precisa aparecer "suporte: desligado".
+     `sudo dgclaw suporte status` na sessão do usuário nominal, onde precisam aparecer "suporte: desligado" e
+     "sessoes SSH de root abertas agora: nenhuma".
 - **Chaves de diagnóstico remoto:** desligar o SSH não revoga uma chave `diagnostico` emitida durante a
   instalação, e ela continua consultando serviços, agentes e canais. Rode `sudo dgclaw chave-api listar` e,
   para cada chave provisória da equipe que o cliente não autorizou manter, `sudo dgclaw chave-api revogar <id>`.
@@ -91,7 +93,7 @@ traz outro nome no campo `container`, o smoke para sem recomendar nada: confira 
 | --- | --- | --- |
 | Container | `podman container exists` e, se existe, `podman inspect` do estado | Rodando. Container inexistente é `FALHA` (um agente sem container precisa ser recriado pela equipe; confira antes com `dgclaw agente listar`). Parado é `FALHA` (`dgclaw agente iniciar`). Estado vazio ou fora da lista, ou o `podman` sem responder, é `INCONCLUSIVO`: rode de novo, sem alterar nada |
 | Processos | `pids.max` do cgroup do container, lido no servidor (`podman inspect -f '{{.State.CgroupPath}}'`, caminho validado, arquivo em `/sys/fs/cgroup<caminho>`), e `PidsLimit` do `podman inspect` | 4096 ou mais. Menos que isso, ou `max` (sem limite), é `FALHA`. Caminho ou arquivo ilegível é `INCONCLUSIVO` |
-| Memória | `memory.max` do mesmo cgroup e `MemTotal` do servidor | `max` (sem limite) é `FALHA`: configure `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin. Valor abaixo de 2 GB (o teto que o DG Claw aplica na criação) é `AVISO`: se ninguém configurou `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) de propósito, recrie o container. Valor numérico igual ou maior que o `MemTotal` do servidor é `AVISO`: o teto não protege o servidor. Com exatamente 2 GB e a VPS com mais de 4 GB de RAM, `AVISO`: nesta versão o teto é fixo na criação, e a partir da 1.1.1 ele se ajusta com `DGCLAW_CONTAINER_MEMORIA`. Toda mensagem mostra o valor lido em MB |
+| Memória | `memory.max` do mesmo cgroup e `MemTotal` do servidor | `max` (sem limite) é `FALHA`: configure `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin. Valor abaixo de 2 GB (o teto que o DG Claw aplica na criação) é `AVISO`: se ninguém configurou `DGCLAW_CONTAINER_MEMORIA` (a partir da 1.1.1) de propósito, recrie o container; se a própria VPS tem 2 GB de RAM ou menos, o `AVISO` manda trocar o plano, e não recriar. Valor numérico igual ou maior que o `MemTotal` do servidor é `AVISO`: o teto não protege o servidor. Com exatamente 2 GB e a VPS com mais de 4 GB de RAM, `AVISO`: nesta versão o teto é fixo na criação, e a partir da 1.1.1 ele se ajusta com `DGCLAW_CONTAINER_MEMORIA`. Toda mensagem mostra o valor lido em MB |
 | CPU | `cpu.max` do mesmo cgroup (quota dividida pelo período; `max` é sem limite) e `nproc` | Mais de 1 quando a VPS tem mais núcleos. Senão, `AVISO` (nesta versão o limite de CPU é fixo na criação). Arquivo ilegível é `INCONCLUSIVO` |
 | Falta de memória (OOM) | `journalctl _TRANSPORT=kernel` no servidor (o `-k` olharia só o boot atual), com `-o short-unix`: a contagem e a primeira entrada, só na janela de 7 dias, e a cobertura, com a entrada mais recente igual ou anterior ao corte | `OK` só com nenhuma linha de evento do OOM killer do kernel (mensagem que começa com `out of memory: killed process`, `memory cgroup out of memory`, `oom-kill:constraint=` ou `oom_reaper: reaped process`, ou que traz `invoked oom-killer: gfp_mask=` sem nenhum `=` antes), pelo menos uma entrada do kernel dentro da janela e cobertura de 7 dias: o histórico do journal precisa alcançar o início da janela, ou seja, existir uma entrada do kernel igual ou anterior ao corte de 7 dias (um kernel quieto na última hora antes do corte não atrapalha). O filtro ignora o timestamp e o nome da máquina de cada linha, para que um hostname como `oom-kill-test` não conte, e só aceita esses formatos no começo da mensagem, para que um registro de auditoria que cite `oom-kill` num nome de arquivo também não conte. Qualquer ocorrência no kernel dentro dos 7 dias é `FALHA`; se ela veio antes do corte de 1 MiB, ou antes de o `journalctl` terminar com erro, a mensagem avisa que a contagem é parcial. Zero ocorrência com cobertura menor que 7 dias é `INCONCLUSIVO`, mostrando o período de fato examinado: o journal não sustenta a janela (journal volátil, reinício ou VPS criada há menos de 7 dias). Se a VPS foi criada há menos de 7 dias, isso é esperado: registre a cobertura na entrega. Senão, confira se o journal é persistente (`ls /var/log/journal`) e leia à mão com `journalctl _TRANSPORT=kernel --since '7 days ago' --no-pager -q -o cat \| grep -ciE '^(out of memory: killed process\|memory cgroup out of memory\|oom-kill:constraint=\|oom_reaper: reaped process\|[^=]* invoked oom-killer: gfp_mask=)'; echo "journalctl=${PIPESTATUS[0]} grep=${PIPESTATUS[1]}"`: a contagem só vale com journalctl 0 e grep 0 ou 1 (2 é erro). Kernel ilegível, `journalctl` com erro ou prazo, saída cortada em 1 MiB sem ocorrência, ou nenhuma entrada do kernel dentro da janela (mesmo com histórico anterior ao corte) também é `INCONCLUSIVO`, que é diferente de "zero eventos". O journal do runner não entra na conta, porque o texto dele pode vir do agente: quem quiser lê à mão, como indício |
 
@@ -181,7 +183,7 @@ confere pela Tela e por um card de teste, **nunca no chat do Admin**.
 
 1. **Login com conta dedicada:** abra a Tela do agente (veja [TELA-DO-AGENTE.md](TELA-DO-AGENTE.md)) e entre no
    YouTube pelo navegador dela com uma **conta dedicada ao agente**, deixando a sessão aberta. A senha da Tela se
-   troca com `dgclaw agente tela-senha <agente>`. Se o perfil da Tela ainda não existe, ela nunca foi aberta.
+   troca na própria aba **Tela** do painel do agente ("Trocar a senha da tela"), que grava dentro do container. Se o perfil da Tela ainda não existe, ela nunca foi aberta.
 2. **Conta certa:** a partir da 1.1.1, olhe o item de diagnóstico `agente.<agente>.youtube`. Antes disso, confira
    na Tela qual conta do YouTube está logada e que é a dedicada ao agente: o vídeo público baixa mesmo com a
    sessão expirada, então o download sozinho não prova o login.
@@ -269,7 +271,7 @@ Hoje é passo manual. Para cada skill do cliente:
 
 - [ ] `sudo bash /opt/dgclaw/app/scripts/smoke-entrega.sh <agente>` sai com 0 e nenhum `AVISO` ficou sem resposta
 - [ ] A parte à mão do passo 3 (`TasksMax`, `OOMPolicy` e `NRestarts` do runner, lidos num terminal seu) está feita
-- [ ] Os passos 2 (inclusive suporte temporário revogado, com o "suporte: desligado" visto na sessão SSH do usuário nominal do cliente, depois de encerrada a última sessão de root, e chave permanente da equipe recusada
+- [ ] Os passos 2 (inclusive suporte temporário revogado, com "suporte: desligado" e "sessoes SSH de root abertas agora: nenhuma" vistos na sessão SSH do usuário nominal do cliente, depois de encerrada a última sessão de root, e chave permanente da equipe recusada
       numa conexão nova), 4, 5 (skills contra o cofre e chave do cliente), 6 (yt-dlp, Tela e login do YouTube), 7 (render e Chrome), 8 (ffmpeg do container), 9 (inclusive a
       senha trocada pelo próprio cliente), 10, 11 e 12 estão feitos e marcados
 - [ ] Nenhum `INCONCLUSIVO` ficou sem conferência à mão

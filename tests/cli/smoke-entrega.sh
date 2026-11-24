@@ -303,6 +303,15 @@ for ruim in 'ana-novo' 'dgclaw-' 'dgclaw-Ana' 'dgclaw-a;rm' 'dgclaw-a b'; do
     afirma "container invalido: mensagem fixa" grep -q 'o nome de container registrado para o agente nao e valido' "$TMP/s.txt"
     [ "$ruim" = 'dgclaw-' ] || nega "container invalido: nao repete o valor" grep -qF -- "$ruim" "$TMP/s.txt"
 done
+jq -n --arg casa "$CASA" '{versao: 1, agentes: [{slug: "ana", tipo: "agente", runner: "127.0.0.1:4301", home_host: $casa, provedor: "", container: "dgclaw-ana-novo"}]}' >"$ETC/agentes.json"
+limpar_estado
+smoke ana
+igual "provedor vazio nao esconde a divergencia de container: sai com 2" "2" "$?"
+afirma "provedor vazio: mensagem de divergencia" grep -q 'o registro aponta o container dgclaw-ana-novo' "$TMP/s.txt"
+jq -n --arg casa "$CASA" '{versao: 1, agentes: [{slug: "ana", tipo: "agente", runner: "127.0.0.1:4301", home_host: $casa, provedor: "claude", container: "-"}]}' >"$ETC/agentes.json"
+limpar_estado
+smoke ana
+igual "container '-' no registro e invalido: sai com 2" "2" "$?"
 jq -n --arg casa "$CASA" '{versao: 1, agentes: [{slug: "ana", tipo: "agente", runner: "127.0.0.1:4301", home_host: $casa, provedor: "claude"}]}' >"$ETC/agentes.json"
 
 echo "smoke-entrega: chaves de microfone no web.env (ultima atribuicao, valor vazio, sem executar o arquivo)"
@@ -381,6 +390,11 @@ smoke ana
 igual "128 MB num servidor de 4 GB: so aviso, sai com 0" "0" "$?"
 afirma "128 MB: AVISO abaixo dos 2 GB, mostrando o valor lido" grep -q 'AVISO  \[3\] .*limite de memoria de 128 MB, abaixo dos 2 GB que o DG Claw aplica na criacao' "$TMP/s.txt"
 nega "128 MB nao vira OK de memoria" grep -q 'OK     \[3\] memoria' "$TMP/s.txt"
+cgroup 1992294400 8192
+printf 'MemTotal:       1990000 kB\n' >"$DGCLAW_RAIZ/proc/meminfo"
+smoke ana
+afirma "1900 MB num servidor de ~1,9 GB: AVISO de VPS pequena" grep -q 'AVISO  \[3\] .*Nao ha folga para subir o teto' "$TMP/s.txt"
+nega "1900 MB num servidor de ~1,9 GB: nao manda recriar" grep -q 'dgclaw agente recriar ana' "$TMP/s.txt"
 printf 'MemTotal:       16384000 kB\n' >"$DGCLAW_RAIZ/proc/meminfo"
 limpar_estado
 smoke ana

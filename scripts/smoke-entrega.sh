@@ -45,20 +45,20 @@ done
 
 AGENTES_JSON="$R/etc/dgclaw/agentes.json"
 [ -s "$AGENTES_JSON" ] || { echo "nao achei $AGENTES_JSON, entao nao sei quais agentes existem. Rode o smoke no servidor do DG Claw, como root." >&2; exit 2; }
-REG="$(jq -r --arg s "$SLUG" '.agentes[] | select(.slug == $s and .tipo == "agente") | def n: if . == "" then "-" else . end; [((.runner // "") | tostring | n), ((.home_host // "") | tostring | n), (.provedor // "?"), ((.container // "") | tostring | n)] | @tsv' "$AGENTES_JSON" 2>/dev/null | head -n 1)"
-[ -n "$REG" ] || { echo "o agente '$SLUG' nao esta em $AGENTES_JSON. Veja os que existem com: dgclaw agente listar" >&2; exit 2; }
-IFS=$'\t' read -r _ _ PROVEDOR CONT_REG <<<"$REG"
-# Nome do container: sempre dgclaw-<slug>, que e o que a CLI opera. O campo "container" do registro, se vier, tem que ser esse mesmo.
+# shellcheck disable=SC2016 # $s e variavel do jq, nao do shell
+SEL='.agentes[] | select(.slug == $s and .tipo == "agente")'
+REG="$(jq -r --arg s "$SLUG" "[$SEL] | length" "$AGENTES_JSON" 2>/dev/null | head -n 1)"
+case "$REG" in ''|0|*[!0-9]*) echo "o agente '$SLUG' nao esta em $AGENTES_JSON. Veja os que existem com: dgclaw agente listar" >&2; exit 2 ;; esac
+PROVEDOR="$(jq -r --arg s "$SLUG" "[$SEL][0] | (.provedor // \"?\") | tostring" "$AGENTES_JSON" 2>/dev/null | head -n 1)"
+# Nome do container: sempre dgclaw-<slug>, que e o que a CLI opera. O campo "container" do registro, se vier (nao nulo e
+# nao vazio), tem que ser esse mesmo; a comparacao e feita no proprio jq, sem passar por separador de campos.
 C="dgclaw-$SLUG"
-if [ -n "$CONT_REG" ] && [ "$CONT_REG" != "-" ]; then
-    case "$CONT_REG" in
-        dgclaw-|dgclaw-*[!a-z0-9-]*) CONT_REG="" ;;
-        dgclaw-*) ;;
-        *) CONT_REG="" ;;
-    esac
-    [ -n "$CONT_REG" ] || { echo "o nome de container registrado para o agente nao e valido (esperado: dgclaw- e letras minusculas, numeros e hifen). Confira o registro com: dgclaw agente listar" >&2; exit 2; }
-    [ "$CONT_REG" = "$C" ] || { echo "o registro aponta o container $CONT_REG, mas a CLI dgclaw opera sobre $C. Por isso o smoke nao segue nem recomenda iniciar ou recriar. A equipe deve conferir o registro com dgclaw agente listar antes de qualquer acao." >&2; exit 2; }
-fi
+CONT_REG="$(jq -r --arg s "$SLUG" --arg c "$C" "[$SEL][0] | .container as \$v | if \$v == null or \$v == \"\" or \$v == \$c then \"igual\" elif (\$v | type) == \"string\" and (\$v | test(\"^dgclaw-[a-z0-9-]+\$\")) then \"diverge:\" + \$v else \"invalido\" end" "$AGENTES_JSON" 2>/dev/null | head -n 1)"
+case "$CONT_REG" in
+    igual) ;;
+    diverge:*) echo "o registro aponta o container ${CONT_REG#diverge:}, mas a CLI dgclaw opera sobre $C. Por isso o smoke nao segue nem recomenda iniciar ou recriar. A equipe deve conferir o registro com dgclaw agente listar antes de qualquer acao." >&2; exit 2 ;;
+    *) echo "o nome de container registrado para o agente nao e valido (esperado: $C). Por isso o smoke nao segue nem recomenda iniciar ou recriar. Confira o registro com: dgclaw agente listar" >&2; exit 2 ;;
+esac
 
 FALHAS=0
 AVISOS=0
@@ -213,12 +213,15 @@ else
     elif [ "$mem_cg" = max ]; then
         falha 3 "o container $C esta sem limite de memoria (memory.max=max, o servidor tem ${ram_gb} GB). Um render pesado pode derrubar o servidor inteiro." \
             "configure DGCLAW_CONTAINER_MEMORIA (a partir da 1.1.1) com um valor que caiba na RAM da VPS, deixando folga para o sistema e o Admin, e recrie o container. $RECRIAR_DICA"
-    elif [ "$mem_cg" -lt 2147483648 ]; then
-        aviso 3 "o container $C tem limite de memoria de $((mem_cg / 1048576)) MB, abaixo dos 2 GB que o DG Claw aplica na criacao. Render, Chrome da Tela e card paralelo caem com pouca memoria." \
-            "se ninguem configurou DGCLAW_CONTAINER_MEMORIA (a partir da 1.1.1) de proposito, recrie o container. $RECRIAR_DICA"
     elif [ -n "$ram_kb" ] && [ "$mem_cg" -ge $((ram_kb * 1024)) ]; then
         aviso 3 "o container $C tem limite de memoria de $((mem_cg / 1048576)) MB, que e igual ou maior que a RAM do servidor (${ram_gb} GB). O teto nao protege o servidor: um render pesado esgota a RAM antes de chegar nele." \
             "nesta versao o container nasce com teto fixo de 2 GB. Se a VPS tem 2 GB de RAM ou menos, ela e pequena demais: troque o plano. Se o teto esta acima de 2 GB, alguem mudou o container a mao; nao corrija com podman update (o ajuste se perde quando o container para e volta). A partir da 1.1.1, configure DGCLAW_CONTAINER_MEMORIA com um valor que caiba na RAM, recrie e confira de novo depois de reiniciar o container."
+    elif [ "$mem_cg" -lt 2147483648 ] && [ -n "$ram_kb" ] && [ $((ram_kb * 1024)) -le 2147483648 ]; then
+        aviso 3 "o container $C tem limite de memoria de $((mem_cg / 1048576)) MB e o servidor tem so $((ram_kb / 1024)) MB de RAM. Nao ha folga para subir o teto para os 2 GB que o DG Claw aplica na criacao: o servidor esgota a memoria antes." \
+            "nao recrie o container por causa disso: a VPS e pequena demais para o agente. Troque o plano da VPS por um com mais RAM e rode o smoke de novo."
+    elif [ "$mem_cg" -lt 2147483648 ]; then
+        aviso 3 "o container $C tem limite de memoria de $((mem_cg / 1048576)) MB, abaixo dos 2 GB que o DG Claw aplica na criacao. Render, Chrome da Tela e card paralelo caem com pouca memoria." \
+            "se ninguem configurou DGCLAW_CONTAINER_MEMORIA (a partir da 1.1.1) de proposito, recrie o container. $RECRIAR_DICA"
     elif [ "$mem_cg" -eq 2147483648 ] && [ "$ram_gb" -gt 4 ]; then
         sug=$((ram_gb / 2)); [ "$sug" -ge 3 ] || sug=3
         aviso 3 "o container tem limite de memoria de $((mem_cg / 1048576)) MB (2 GB) e o servidor tem ${ram_gb} GB. Render, Chrome da Tela e card paralelo apertam em 2 GB." \
