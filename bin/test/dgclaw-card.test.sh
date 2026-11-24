@@ -302,7 +302,7 @@ grep -q "uma pergunta ou uma permissao" "$T/o" && grep -q "dgclaw-card ler card-
 subir aguardando-pergunta
 "$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 3 >"$T/o" 2>"$T/e"; c=$?
 ok "waiting_input com motivo pergunta sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
-grep -q "pergunta de escolha" "$T/o" && grep -q "cartao da pergunta" "$T/o" && ! grep -q "Aprovar" "$T/o"; ok "motivo pergunta: o dono responde no cartao da pergunta, sem botao de permissao" $?
+grep -q "pergunta de escolha" "$T/o" && grep -q "NAO respondem a essa pergunta" "$T/o" && grep -q "dgclaw-card ler card-abc123" "$T/o" && grep -q "NAO mande nada ao card" "$T/o" && ! grep -qi "cartao da pergunta" "$T/o"; ok "motivo pergunta: botoes Aprovar/Negar nao respondem, manda ler, nao mandar e nao cita cartao da pergunta" $?
 subir aguardando-permissao
 "$BIN" abrir --provedor claude --titulo x --pedido oi --espera-turno 3 >"$T/o" 2>"$T/e"; c=$?
 ok "waiting_input com motivo permissao sai com 0" $([ $c = 0 ] && echo 0 || echo 1)
@@ -419,6 +419,12 @@ subir sem-processo
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 1 >"$T/o" 2>"$T/e"; c=$?
 ok "card resumable com contador 0 sai com 11, nao 9" $([ $c = 11 ] && echo 0 || echo 1)
 grep -q "sem processo vivo (status resumable)" "$T/e"; ok "o 11 do card sem processo cita o status" $?
+
+# --- prazo: nao comeca outra consulta depois do prazo --------------------------------------------------------------
+subir turno-so-na-2a-consulta
+DGCLAW_CARD_INTERVALO=5 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 1 >"$T/o" 2>"$T/e"; c=$?
+ok "turno que so aparece na 2a consulta, depois do prazo, nao sai com 0" $([ $c != 0 ] && echo 0 || echo 1)
+[ "$(grep -c '"metodo":"GET","url":"/api/agents/card-abc123"' "$LOG")" = 1 ]; ok "depois do prazo nao comeca outra consulta (1 GET so)" $?
 
 # --- turno visto, mas terminal ja fechado (resumable): nao confirma, sai com 11 ------------------------------------
 subir turno-resumable

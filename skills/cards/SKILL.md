@@ -86,6 +86,9 @@ id="$(printf '%s\n' "$saida" | head -1)"
 if [ "$cod" != 0 ]; then
   # Só consulte e avise: nada de mandar, esperar ou fechar neste ramo, e não repita o pedido.
   echo "o abrir saiu com $cod: não anuncie o acompanhamento"; [ -z "$id" ] || dgclaw-card estado "$id"
+else
+  # Imprima a mensagem do abrir. Se ela disser que o card espera uma decisão do dono, repasse o aviso ao dono.
+  printf '%s\n' "$saida"
 fi
 ```
 

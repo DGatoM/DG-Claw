@@ -307,7 +307,7 @@ cmd_abrir() {
     if [ "$ESPERANDO_DECISAO" = 1 ]; then
       local quem_decide
       case "$MOTIVO_DECISAO" in
-        pergunta) quem_decide="uma pergunta de escolha. O dono responde no cartao da pergunta (ou no terminal da sessao), na aba Sessoes do painel." ;;
+        pergunta) quem_decide="uma pergunta de escolha. Os botoes Aprovar e Negar da aba Sessoes do painel NAO respondem a essa pergunta. Veja a pergunta e as opcoes com 'dgclaw-card ler $id', conte ao dono a pergunta e as opcoes e NAO mande nada ao card por conta propria (um Enter pode escolher a opcao destacada)." ;;
         permissao) quem_decide="uma permissao. O dono usa os botoes Aprovar ou Negar na aba Sessoes do painel." ;;
         *) quem_decide="uma pergunta ou uma permissao. Confira qual das duas com 'dgclaw-card ler $id'." ;;
       esac
@@ -324,6 +324,27 @@ dica_monitor() { # $1 id ; $2 entregue ; $3 cada
   [ "$monitor" != 0 ] || return 0
   local q; q="$(printf '%q' "$2")"
   printf ' Como o abrir foi pedido com --monitor, ANTES de reenviar ligue o monitor com o mesmo criterio e intervalo: dgclaw-monitor add %s --entregue %s%s (o criterio vai escapado para o shell; confira se ele ficou igual ao que voce pediu). So depois reenvie o pedido com dgclaw-card mandar.' "$1" "$q" "${3:+ --cada $3}"
+}
+
+# Decide com a ultima observacao quando o prazo acabou. Usa as variaveis locais de esperar_primeiro_turno (escopo dinamico do bash).
+decidir_no_prazo() { # $1 id ; $2 segundos
+    [ -z "$falha" ] || sem_confirmacao "$1" "$falha"
+    if [ -n "$erro_visto" ]; then
+      sem_confirmacao "$1" "vi um erro de turno ($erro_visto), mas ele pode ser de outra mensagem, porque o pedido ainda esta pendente (na fila, sendo digitado ou esperando o recibo do Enter)"
+    fi
+    [ "$fila_presa" = 0 ] || sem_confirmacao "$1" "o card teve um turno, mas ainda ha texto pendente (na fila ou sendo digitado); o pedido pode nao ter sido digitado ainda"
+    [ "$recibo_preso" = 0 ] || sem_confirmacao "$1" "o card teve um turno, mas o runner ainda espera o recibo do Enter de um texto digitado (o pedido pode estar na caixa de texto)"
+    # Resumable (tem conversa guardada, mas sem processo vivo): o contador da conversa pode ter zerado: dizer que o pedido nao virou turno seria um palpite.
+    case "$ultimo_status" in
+      resumable)
+        sem_confirmacao "$1" "o card esta sem processo vivo (status $ultimo_status), entao o contador desta conversa pode ter zerado; confira a conversa" ;;
+    esac
+    # Claude sem nenhum hook recebido: o contador de turnos nao enxerga o aceite, entao 9 seria um palpite.
+    if [ "${provedor:-}" = claude ] && [ "$(campo .data.hookActive)" != true ]; then
+      sem_confirmacao "$1" "o runner ainda nao recebeu nenhum hook do Claude neste card, entao o contador de turnos nao consegue ver se o pedido foi aceito"
+    fi
+    avisar_monitor
+    CODIGO=9 die "o card $1 foi criado, mas o runner nao observou o primeiro turno do pedido em $2 segundos. Isso nao prova que o card esteja parado: o pedido ainda pode comecar, ou ja estar rodando sem ter sido observado. Nao feche o card e nao reenvie por conta propria (isso pode duplicar o pedido). Confira com 'dgclaw-card estado $1' e 'dgclaw-card ler $1' depois de um tempo. Ate ver o primeiro turno, nao diga ao dono que o card esta trabalhando, e tambem nao diga que ele esta parado."
 }
 
 # Espera o pedido virar turno: turnosAceitosSessao > 0 (turnos da conversa ATUAL) ou status working. Sem turno no
@@ -395,28 +416,12 @@ esperar_primeiro_turno() { # $1 id ; $2 segundos
         fi
       fi
     fi
-    if [ $((SECONDS - inicio)) -ge "$2" ]; then
-      [ -z "$falha" ] || sem_confirmacao "$1" "$falha"
-      if [ -n "$erro_visto" ]; then
-        sem_confirmacao "$1" "vi um erro de turno ($erro_visto), mas ele pode ser de outra mensagem, porque o pedido ainda esta pendente (na fila, sendo digitado ou esperando o recibo do Enter)"
-      fi
-      [ "$fila_presa" = 0 ] || sem_confirmacao "$1" "o card teve um turno, mas ainda ha texto pendente (na fila ou sendo digitado); o pedido pode nao ter sido digitado ainda"
-      [ "$recibo_preso" = 0 ] || sem_confirmacao "$1" "o card teve um turno, mas o runner ainda espera o recibo do Enter de um texto digitado (o pedido pode estar na caixa de texto)"
-      # Resumable (tem conversa guardada, mas sem processo vivo): o contador da conversa pode ter zerado: dizer que o pedido nao virou turno seria um palpite.
-      case "$ultimo_status" in
-        resumable)
-          sem_confirmacao "$1" "o card esta sem processo vivo (status $ultimo_status), entao o contador desta conversa pode ter zerado; confira a conversa" ;;
-      esac
-      # Claude sem nenhum hook recebido: o contador de turnos nao enxerga o aceite, entao 9 seria um palpite.
-      if [ "${provedor:-}" = claude ] && [ "$(campo .data.hookActive)" != true ]; then
-        sem_confirmacao "$1" "o runner ainda nao recebeu nenhum hook do Claude neste card, entao o contador de turnos nao consegue ver se o pedido foi aceito"
-      fi
-      avisar_monitor
-      CODIGO=9 die "o card $1 foi criado, mas o runner nao observou o primeiro turno do pedido em $2 segundos. Isso nao prova que o card esteja parado: o pedido ainda pode comecar, ou ja estar rodando sem ter sido observado. Nao feche o card e nao reenvie por conta propria (isso pode duplicar o pedido). Confira com 'dgclaw-card estado $1' e 'dgclaw-card ler $1' depois de um tempo. Ate ver o primeiro turno, nao diga ao dono que o card esta trabalhando, e tambem nao diga que ele esta parado."
-    fi
+    if [ $((SECONDS - inicio)) -ge "$2" ]; then decidir_no_prazo "$1" "$2"; fi
     resta=$(( $2 - (SECONDS - inicio) ))
     if [ "$resta" -lt 1 ] || [ "$(awk -v a="$passo" -v b="$resta" 'BEGIN{print (a>b)}')" = 1 ]; then passo="$resta"; fi
     [ "$passo" != 0 ] && sleep "$passo"
+    # Passou o prazo durante a pausa: nao comeca outra consulta, decide com a ultima observacao.
+    if [ $((SECONDS - inicio)) -ge "$2" ]; then decidir_no_prazo "$1" "$2"; fi
     passo="${DGCLAW_CARD_INTERVALO:-5}"; [ "$passo" = 5 ] && passo=1
   done
 }

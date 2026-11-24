@@ -170,14 +170,20 @@ if [ "$cod" != 0 ]; then
   # Só consulte e avise. Não use mandar, esperar nem fechar neste ramo, e não repita o pedido.
   echo "abrir saiu com $cod: não anuncie"; [ -z "$id" ] || dgclaw-card estado "$id"
 else
-  dgclaw-card mandar "$id" "texto"     # recado novo no mesmo card
-  # Se o abrir disse que o card espera uma decisão do dono (ou o estado mostra waiting_input), repasse o aviso a {{DONO}}
-  # em vez de chamar o esperar. Fora desse caso:
-  dgclaw-card esperar "$id" --max 900  # volta quando o card termina o turno; código 7 = término não confirmado a tempo
-  dgclaw-card ler "$id" --n 2          # as últimas respostas
-  dgclaw-card listar                   # os cards abertos
-  dgclaw-card fechar "$id"             # fecha (a conversa fica guardada); se o runner ainda não observou um turno, pede --forcar
+  # Imprima a mensagem do abrir. Se ela disser que o card espera uma decisão do dono, repasse o aviso a {{DONO}}
+  # e PARE aqui: não use mandar nem esperar, porque um Enter pode confirmar a opção destacada antes de ele decidir.
+  printf '%s\n' "$saida"
 fi
+```
+
+Os outros subcomandos são exemplos separados, para usar depois, e só quando o `abrir` não avisou que o card espera uma decisão do dono:
+
+```bash
+dgclaw-card mandar "$id" "texto"     # recado novo no mesmo card
+dgclaw-card esperar "$id" --max 900  # volta quando o card termina o turno; código 7 = término não confirmado a tempo
+dgclaw-card ler "$id" --n 2          # as últimas respostas
+dgclaw-card listar                   # os cards abertos
+dgclaw-card fechar "$id"             # fecha (a conversa fica guardada); se o runner ainda não observou um turno, pede --forcar
 ```
 
 O pedido é autossuficiente: o card não viu a conversa. Traga objetivo, caminhos completos, o que

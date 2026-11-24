@@ -120,11 +120,13 @@ if [ "$cod" != 0 ]; then
   # Só consulte e avise. Não use mandar, esperar nem fechar neste ramo, e não repita o pedido.
   echo "abrir saiu com $cod: não anuncie"; [ -z "$id" ] || dgclaw-card estado "$id"
 else
-  # Se o abrir disse que o card espera uma decisão do dono (ou o estado mostra waiting_input), repasse o aviso ao dono
-  # em vez de chamar o esperar. O código 7 do esperar significa término não confirmado a tempo.
-  dgclaw-card mandar|esperar|ler|listar|fechar ...
+  # Imprima a mensagem do abrir. Se ela disser que o card espera uma decisão do dono, repasse o aviso ao dono
+  # e PARE aqui: não use mandar nem esperar, porque um Enter pode confirmar a opção destacada antes de ele decidir.
+  printf '%s\n' "$saida"
 fi
 ```
+
+Os outros subcomandos (`mandar`, `esperar` com código 7 para término não confirmado a tempo, `ler`, `listar`, `fechar`) são exemplos separados, só para depois e só quando o `abrir` não avisou decisão do dono.
 
 Card de tarefa longa nasce SEMPRE com `--monitor --entregue "<critério>"`, no mesmo turno. Só diga ao
 dono que o card está trabalhando depois que o `dgclaw-card abrir` sair com 0 (com `--espera-turno 0` o 0 não

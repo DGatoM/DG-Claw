@@ -1,7 +1,7 @@
 // Runner falso para o teste do dgclaw-card. Grava cada requisicao em $LOG (uma linha JSON com
 // metodo, url, corpo e o cabecalho Authorization) e simula o ciclo de um card:
 // criado dormindo -> /input -> working -> idle com resposta do assistente.
-// Chaves de ambiente: RUNNER_BEARER (token esperado), MODO (normal|limite|sem-login|input-falha|nunca-termina|sem-turno|turno-lento|leitura-403|leitura-503|sem-contador|restaurado|lento-leitura|erro-turno|erro-campo|input-recusado|input-perdido|input-sem-capacidade|input-nao-acordou|working-sem-turno|stop-failure|ferramenta-com-erro-no-nome|sem-login-delete-falha|fila-parada|sem-hook|turno-com-fila|sem-processo|sem-campo-fila|item-em-voo|sem-turno-sem-total|erro-com-pendencia|erro-motivo-com-pendencia|turno-resumable|aguardando-decisao|aguardando-pergunta|aguardando-permissao|aguardando-motivo-estranho).
+// Chaves de ambiente: RUNNER_BEARER (token esperado), MODO (normal|limite|sem-login|input-falha|nunca-termina|sem-turno|turno-lento|leitura-403|leitura-503|sem-contador|restaurado|lento-leitura|erro-turno|erro-campo|input-recusado|input-perdido|input-sem-capacidade|input-nao-acordou|working-sem-turno|stop-failure|ferramenta-com-erro-no-nome|sem-login-delete-falha|fila-parada|sem-hook|turno-com-fila|sem-processo|sem-campo-fila|item-em-voo|sem-turno-sem-total|erro-com-pendencia|erro-motivo-com-pendencia|turno-resumable|aguardando-decisao|aguardando-pergunta|aguardando-permissao|aguardando-motivo-estranho|turno-so-na-2a-consulta).
 const http = require("http");
 const fs = require("fs");
 const LOG = process.env.LOG;
@@ -34,7 +34,7 @@ http.createServer((req, res) => {
       }
       const b = JSON.parse(corpo);
       const id = b.id || "card-abc123";
-      cards.set(id, { titulo: b.titulo, provedor: b.provedor, auth: b.auth || "assinatura", modelo: b.modelo || "", msgs: [], polls: 0, status: "stopped", turnos: 0, viraEm: 0 });
+      cards.set(id, { titulo: b.titulo, provedor: b.provedor, auth: b.auth || "assinatura", modelo: b.modelo || "", msgs: [], polls: 0, gets: 0, status: "stopped", turnos: 0, viraEm: 0 });
       return j(201, { success: true, data: visao(id) });
     }
     if ((m = p.match(/^\/api\/sessoes\/([^/]+)$/)) && req.method === "DELETE") {
@@ -100,7 +100,7 @@ http.createServer((req, res) => {
         if (MODO === "sem-turno-sem-total") return j(202, { success: true, data: { enfileirado: true, acordando: true } });
         // sem-turno: 202 enfileirado, mas o CLI nunca aceita o pedido (nada na conversa, status parado, turnos 0).
         // sem-hook: igual ao sem-turno, mas o runner nunca recebeu hook do Claude (hookActive false).
-        if (MODO === "sem-turno" || MODO === "sem-hook") return j(202, { success: true, data: { enfileirado: true, acordando: true } });
+        if (MODO === "sem-turno" || MODO === "sem-hook" || MODO === "turno-so-na-2a-consulta") return j(202, { success: true, data: { enfileirado: true, acordando: true } });
         c.msgs.push({ role: "user", text: JSON.parse(corpo).text });
         // restaurado: runner reiniciado (contador zerado), mas a conversa atual ja tem resposta do agente.
         if (MODO === "restaurado") { c.status = "idle"; c.msgs.push({ role: "assistant", text: "Ja respondi antes do reinicio." }); return j(202, { success: true, data: { enfileirado: true, acordando: true } }); }
@@ -116,6 +116,7 @@ http.createServer((req, res) => {
         if (MODO === "lento-leitura") { return setTimeout(() => j(200, { success: true, data: visao(m[1]) }), 6000); }
         if (MODO === "leitura-403") return j(403, { success: false, error: "sem permissao para ler este card", code: "PROIBIDO" });
         if (MODO === "leitura-503") return j(503, { success: false, error: "runner ocupado", code: "INDISPONIVEL" });
+        if (MODO === "turno-so-na-2a-consulta" && ++c.gets >= 2) { c.status = "working"; c.turnos = 1; }
         if (c.status === "working" && MODO !== "nunca-termina" && MODO !== "working-sem-turno" && ++c.polls >= 2) { c.status = "idle"; c.msgs.push({ role: "assistant", text: "Resposta do card sobre: " + c.msgs[0].text }); }
         return j(200, { success: true, data: visao(m[1]) });
       }
