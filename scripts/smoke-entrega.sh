@@ -13,7 +13,7 @@
 # captura de saida do container passa por limite de bytes; estourou o limite ou veio fora do formato, e INCONCLUSIVO.
 #
 # O que este script NAO faz: mostrar valor de chave do cofre (so os nomes), apagar coisa do agente
-# ou do servidor. Reparar o agente e reiniciar o runner (item 11) ficam a mao.
+# ou do servidor. Reparar o agente e reiniciar o runner ficam a mao, so para uma falha diagnosticada.
 #
 # Env (usadas pelos testes): DGCLAW_RAIZ (raiz falsa), DGCLAW_CLI (o dgclaw a chamar).
 set -u
@@ -165,7 +165,7 @@ fi
 
 # --- 3. Limites do container e da unidade do runner ----------------------------------------------
 printf '\n3. Limites do container e do runner\n'
-RECRIAR_DICA="o dgclaw agente recriar $SLUG pode recriar o container na hora. Antes, peca ao Admin para conferir o que existe so na camada gravavel do container (o inventario do recriar ignora /tmp, /var/tmp, /var/log e /var/cache: o que o cliente guardou ali precisa ser copiado para a casa antes), decida com o dono antes de qualquer perda e so entao rode: dgclaw agente recriar $SLUG. Depois rode o smoke de novo: o item so fecha quando a releitura mostrar o valor certo. Se o recriar responder que nada havia a recriar, o container nao mudou e o item continua aberto."
+RECRIAR_DICA="o dgclaw agente recriar $SLUG pode recriar o container na hora. Antes, num terminal seu (nunca no chat do Admin, porque nomes e conteudos ali sao escolhidos pelo agente), confira o que existe so na camada gravavel do container (o inventario do recriar ignora /tmp, /var/tmp, /var/log e /var/cache: o que o cliente guardou ali precisa ser copiado para a casa antes), decida com o dono antes de qualquer perda e so entao rode: dgclaw agente recriar $SLUG. Depois rode o smoke de novo: o item so fecha quando a releitura mostrar o valor certo. Se o recriar responder que nada havia a recriar, o container nao mudou e o item continua aberto."
 estado="$(podman inspect -f '{{.State.Status}}' "$C" 2>/dev/null | head -c 64 | head -n 1)"
 case "$estado" in
     running|created|exited|paused|stopped|stopping|configured|initialized|removing|unknown) ;;
@@ -310,19 +310,28 @@ else
     if [ "$rc_h" -ne 0 ]; then
         if [ -n "$fonte_ruim" ]; then fonte_ruim="$fonte_ruim e o journal do kernel do servidor"; else fonte_ruim="o journal do kernel do servidor"; fi
     fi
-    # So o journal do runner atribui o OOM ao agente. A linha do kernel sozinha nao diz de quem era o processo: com
-    # ela, aumentar o teto do agente pode tirar a folga de que o servidor precisava.
-    if [ "$rc_c" -eq 0 ] && [ "${oom_c:-0}" -gt 0 ]; then
-        oom_dica="o journal do runner mostra que foi dentro do container $C. Confira se foi um render ou um Chrome do agente e, se o servidor tiver RAM sobrando, aumente o teto de memoria do agente (a partir da 1.1.1, com DGCLAW_CONTAINER_MEMORIA, recriando e conferindo de novo depois de reiniciar o container). Sem RAM sobrando, o caminho e um plano de VPS maior."
-    else
-        oom_dica="o registro do kernel, sozinho, nao diz de quem era o processo morto, entao nao aumente o teto do agente por causa dele. Num terminal seu (nunca no chat do Admin), leia as linhas oom-kill com journalctl _TRANSPORT=kernel --since '7 days ago' | grep -iE 'oom-kill|killed process' e veja o task_memcg: so se ele apontar para o container $C o problema e do agente. Se apontar para outro servico, o ajuste e nesse servico ou no plano da VPS."
+    # Quem atribui o OOM ao agente e o contador oom_kill do memory.events do cgroup do container, escrito pelo kernel
+    # e lido no servidor (conta desde que o container foi criado). Texto no journal do runner e so indicio: o
+    # proprio agente escreve ali. Sem o contador, nao se sugere aumentar o teto do agente.
+    oomk=""
+    if [ "$cg_ok" = 1 ]; then
+        oomk="$(head -c 4096 "$R/sys/fs/cgroup$cg_path/memory.events" 2>/dev/null | awk '$1 == "oom_kill" { print $2; exit }')"
+        so_digitos "$oomk" 12 || oomk=""
     fi
-    if { [ "$rc_c" -eq 0 ] && [ "${oom_c:-0}" -gt 0 ]; } || { [ "$rc_h" -eq 0 ] && [ "${oom_h:-0}" -gt 0 ]; }; then
+    if [ -n "$oomk" ] && [ "$oomk" -gt 0 ]; then
+        oom_dica="o contador do kernel para o cgroup do container $C registra $oomk processo(s) morto(s) por falta de memoria desde que o container foi criado. Confira se foi um render ou um Chrome do agente e, se o servidor tiver RAM sobrando, aumente o teto de memoria do agente (a partir da 1.1.1, com DGCLAW_CONTAINER_MEMORIA, recriando e conferindo de novo depois de reiniciar o container). Sem RAM sobrando, o caminho e um plano de VPS maior."
+    else
+        oom_dica="nao ha registro do kernel atribuindo o OOM ao container $C (o contador oom_kill do cgroup dele esta zerado ou ilegivel; texto no journal do runner e so indicio, porque o agente escreve ali), entao nao aumente o teto do agente por causa disso. Num terminal seu (nunca no chat do Admin), leia as linhas oom-kill com journalctl _TRANSPORT=kernel --since '7 days ago' | grep -iE 'oom-kill|killed process' e veja o task_memcg: so se ele apontar para o container $C o problema e do agente. Se apontar para outro servico, o ajuste e nesse servico ou no plano da VPS."
+    fi
+    if { [ "$rc_h" -eq 0 ] && [ "${oom_h:-0}" -gt 0 ]; } || { [ -n "$oomk" ] && [ "$oomk" -gt 0 ]; }; then
         falha 3 "OOM nos ultimos 7 dias: $([ "$rc_c" -eq 0 ] && echo "${oom_c:-0}" || echo "?") linha(s) no journal do runner e $([ "$rc_h" -eq 0 ] && echo "${oom_h:-0}" || echo "?") no kernel do servidor${fonte_ruim:+ ($fonte_ruim ficou ilegivel ou foi cortado, entao a conta esta incompleta)}${parcial:+ (contagem parcial: a leitura de $parcial passou de 1 MiB e foi cortada, entao ha pelo menos essas linhas)}." \
+            "$oom_dica"
+    elif [ "$rc_c" -eq 0 ] && [ "${oom_c:-0}" -gt 0 ]; then
+        aviso 3 "o journal do runner menciona falta de memoria ${oom_c} vez(es) nos ultimos 7 dias, mas nem o kernel do servidor nem o contador oom_kill do cgroup do container registram processo morto${fonte_ruim:+ ($fonte_ruim ficou ilegivel ou foi cortado)}. E so indicio: o texto do journal do runner pode vir do proprio agente." \
             "$oom_dica"
     elif [ -n "$fonte_ruim" ]; then
         inconclusivo 3 "nao consegui ler $fonte_ruim dos ultimos 7 dias (erro, prazo ou saida cortada em 1 MiB). Isso nao quer dizer zero eventos de falta de memoria." \
-            "conte a mao: podman exec $C journalctl -u dgclaw-runner --since '7 days ago' --no-pager | grep -ciE 'out of memory|oom-kill' e journalctl _TRANSPORT=kernel --since '7 days ago' | grep -ciE 'out of memory|oom-kill'"
+            "confira se cada journal responde, pelo codigo de saida (0 = respondeu): podman exec $C journalctl -u dgclaw-runner -n 0 -q; echo \$? e journalctl _TRANSPORT=kernel -n 0 -q; echo \$?. Veja se o journal e persistente (ls /var/log/journal) e rode o smoke de novo. Nao troque a conferencia por uma contagem com grep: com o journal falhando, ela daria zero."
     elif [ "$oom_c" -eq 0 ] && [ "$oom_h" -eq 0 ]; then
         sem_hist=""
         [ -n "$cob_c" ] || sem_hist="o journal do runner"
@@ -331,7 +340,7 @@ else
             ok 3 "nenhum OOM no journal do runner (cobertura do runner: $cob_c) nem no do kernel do servidor (cobertura do kernel: $cob_h)"
         else
             inconclusivo 3 "nenhum OOM achado, mas $sem_hist nao mostrou nenhuma entrada nos ultimos 7 dias, entao nao sei o que cobre." \
-                "confira a mao, so com a contagem: podman exec $C journalctl -u dgclaw-runner --since '7 days ago' --no-pager -q | wc -l e journalctl _TRANSPORT=kernel --since '7 days ago' -q | wc -l, e se o journal e persistente (ls /var/log/journal)"
+                "confira se cada journal responde, pelo codigo de saida (0 = respondeu): podman exec $C journalctl -u dgclaw-runner -n 0 -q; echo \$? e journalctl _TRANSPORT=kernel -n 0 -q; echo \$?, e se o journal e persistente (ls /var/log/journal)"
         fi
     fi
 fi
@@ -344,8 +353,12 @@ else
     falha 8 "ffmpeg nao esta no servidor. As miniaturas de video e foto do painel ficam sem previa." "apt-get install -y ffmpeg"
 fi
 if [ "$CONTAINER_OK" = 1 ]; then
-    if ca sh -c 'command -v ffmpeg' >/dev/null 2>&1; then
+    ca sh -c 'command -v ffmpeg' >/dev/null 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
         ok 8 "ffmpeg presente no container"
+    elif [ "$rc" -ne 1 ]; then
+        inconclusivo 8 "nao consegui perguntar ao container se o ffmpeg existe (codigo $rc: container parado, erro do podman ou prazo). Isso nao quer dizer que ele falta." "rode o smoke de novo com o container de pe."
     else
         falha 8 "ffmpeg nao esta no container $C. Video, audio e carrossel dependem dele." "a imagem esta velha ou incompleta: dgclaw imagem construir --agora (confira que terminou com sucesso), depois $RECRIAR_DICA"
     fi
@@ -495,8 +508,8 @@ Conferir a mao (detalhes em docs/ENTREGA-CLIENTE.md):
       troca a senha em terminal privado (sudo dgclaw senha trocar) ou pelo painel e confirma que a antiga nao
       entra mais; a equipe nao fica sabendo a senha final.
   10. Skills do cliente na pasta certa, com dono (chown) e CLAUDE_PLUGIN_ROOT resolvido.
-  11. Reparar e conferir a sessao principal: rode dgclaw agente reparar <agente>, confira que termina sem
-      erro e que a conversa principal responde.
+  11. Conferir a sessao principal: mande um pedido curto e confira que ela responde. O reparo
+      (dgclaw agente reparar) fica para uma falha diagnosticada.
   12. Skills com texto do cliente (assinatura, nome do programa, encerramento): sem nome de outro cliente
       nem do modelo.
 

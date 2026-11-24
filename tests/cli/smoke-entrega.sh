@@ -28,7 +28,7 @@ cofre_com() { # <nome>...: o cofre falso com essas chaves (e uma revogada, que n
 }
 cgroup() { printf '%s\n' "$1" >"$CG/memory.max"; printf '%s\n' "$2" >"$CG/pids.max"; printf '%s\n' "${3:-max 100000}" >"$CG/cpu.max"; }
 smoke() { bash "$SMOKE" "$@" >"$TMP/s.txt" 2>&1; }
-limpar_estado() { find "$STUB_ESTADO" -mindepth 1 -delete; cofre_com GROQ_API_KEY GEMINI_API_KEY; cgroup 4294967296 8192; printf 'GROQ_API_KEY=gsk_segredo_do_teste\nOUTRA=1\n' >"$ETC/web.env"; : >"$STUB_LOG"; }
+limpar_estado() { find "$STUB_ESTADO" -mindepth 1 -delete; rm -f "$CG/memory.events"; cofre_com GROQ_API_KEY GEMINI_API_KEY; cgroup 4294967296 8192; printf 'GROQ_API_KEY=gsk_segredo_do_teste\nOUTRA=1\n' >"$ETC/web.env"; : >"$STUB_LOG"; }
 
 echo "smoke-entrega: tudo certo"
 limpar_estado
@@ -81,7 +81,7 @@ limpar_estado
 cofre_com GEMINI_API_KEY
 printf 'OUTRA=1\n' >"$ETC/web.env"
 cgroup 4294967296 1024; echo 153 >"$STUB_ESTADO/tasksmax"; echo 3 >"$STUB_ESTADO/nrestarts"
-: >"$STUB_ESTADO/oom-journal"; : >"$STUB_ESTADO/sem-ffmpeg-container"
+: >"$STUB_ESTADO/oom-journal"; : >"$STUB_ESTADO/sem-ffmpeg-container"; printf 'oom 1\noom_kill 1\n' >"$CG/memory.events"
 : >"$STUB_ESTADO/yt-falha"
 smoke ana
 igual "sai com 1" "1" "$?"
@@ -91,16 +91,20 @@ afirma "FALHA no NRestarts" grep -q 'FALHA  \[3\] o runner reiniciou sozinho 3' 
 afirma "FALHA no OOM" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias' "$TMP/s.txt"
 afirma "FALHA sem chave de microfone no web.env" grep -q 'FALHA  \[5\] o web.env nao tem ELEVENLABS_API_KEY, GROQ_API_KEY nem OPENAI_API_KEY' "$TMP/s.txt"
 afirma "as dicas de recriar nao mandam --forcar" bash -c "! grep -q -- 'recriar ana --forcar' '$TMP/s.txt'"
-afirma "a dica de recriar manda pedir ao Admin a camada gravavel" grep -q 'peca ao Admin para conferir o que existe so na camada gravavel' "$TMP/s.txt"
+afirma "a dica de recriar manda conferir a camada gravavel fora do chat do Admin" grep -q 'num terminal seu (nunca no chat do Admin' "$TMP/s.txt"
 nega "a dica de recriar nao manda abrir podman diff" grep -q 'podman diff' "$TMP/s.txt"
 afirma "a dica de recriar avisa que pode recriar na hora" grep -q 'pode recriar o container na hora' "$TMP/s.txt"
 nega "a dica de recriar nao a apresenta como so listar" grep -q 'ele lista e para' "$TMP/s.txt"
 afirma "FALHA sem ffmpeg no container" grep -q 'FALHA  \[8\] ffmpeg nao esta no container' "$TMP/s.txt"
 afirma "o resumo manda nao entregar" grep -q 'NAO entregue a VPS' "$TMP/s.txt"
-afirma "OOM no journal do runner: atribui ao container" grep -q 'o journal do runner mostra que foi dentro do container dgclaw-ana' "$TMP/s.txt"
+afirma "oom_kill no cgroup: atribui ao container" grep -q 'o contador do kernel para o cgroup do container dgclaw-ana registra 1 processo' "$TMP/s.txt"
 afirma "a dica de recriar exige a releitura e avisa do 'nada a recriar'" grep -q 'nada havia a recriar, o container nao mudou e o item continua aberto' "$TMP/s.txt"
 afirma "a dica de recriar cita o que o inventario ignora" grep -q 'ignora /tmp, /var/tmp, /var/log e /var/cache' "$TMP/s.txt"
 nega "a dica do NRestarts nao manda despejar o journal" grep -q 'tail -n 80' "$TMP/s.txt"
+rm -f "$STUB_ESTADO/sem-ffmpeg-container"; : >"$STUB_ESTADO/ffmpeg-erro"
+smoke ana
+afirma "erro do podman ao procurar o ffmpeg: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[8\] nao consegui perguntar ao container se o ffmpeg existe' "$TMP/s.txt"
+nega "erro do podman nao vira ffmpeg ausente" grep -q 'FALHA  \[8\] ffmpeg nao esta no container' "$TMP/s.txt"
 
 echo "smoke-entrega: memoria e processos sem limite no cgroup"
 limpar_estado
@@ -203,8 +207,14 @@ afirma "journal do kernel sem entradas: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\
 rm -f "$STUB_ESTADO/kernel-vazio"; : >"$STUB_ESTADO/oom-host"
 smoke ana
 afirma "OOM no kernel: FALHA" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias' "$TMP/s.txt"
-afirma "OOM so no kernel: diz que nao da para atribuir" grep -q 'nao diz de quem era o processo morto' "$TMP/s.txt"
+afirma "OOM so no kernel: diz que nao da para atribuir" grep -q 'nao ha registro do kernel atribuindo o OOM ao container' "$TMP/s.txt"
 nega "OOM so no kernel: nao manda aumentar o teto do agente" grep -q 'aumente o teto de memoria do agente' "$TMP/s.txt"
+rm -f "$STUB_ESTADO/oom-host"; : >"$STUB_ESTADO/oom-journal"
+smoke ana
+afirma "OOM so no texto do runner: AVISO de indicio" grep -q 'AVISO  \[3\] o journal do runner menciona falta de memoria 1 vez(es).*so indicio' "$TMP/s.txt"
+nega "OOM so no texto do runner: nao e FALHA" grep -q 'FALHA  \[3\] OOM' "$TMP/s.txt"
+nega "OOM so no texto do runner: nao manda aumentar o teto" grep -q 'aumente o teto de memoria do agente' "$TMP/s.txt"
+rm -f "$STUB_ESTADO/oom-journal"
 rm -f "$STUB_ESTADO/oom-host"; : >"$STUB_ESTADO/journal-host-erro"
 smoke ana
 afirma "journal do kernel com erro: INCONCLUSIVO" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal' "$TMP/s.txt"
@@ -257,7 +267,7 @@ afirma "runner com 2 dias: diz a cobertura de cada fonte" grep -q 'cobertura do 
 
 echo "smoke-entrega: OOM num journal com o outro ilegivel, saida cortada e systemctl com erro"
 limpar_estado
-: >"$STUB_ESTADO/oom-journal"; : >"$STUB_ESTADO/journal-host-erro"
+: >"$STUB_ESTADO/oom-journal"; : >"$STUB_ESTADO/journal-host-erro"; printf 'oom_kill 2\n' >"$CG/memory.events"
 smoke ana
 igual "OOM no runner e kernel ilegivel: sai com 1" "1" "$?"
 afirma "FALHA dizendo a fonte ilegivel (kernel)" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias.*o journal do kernel do servidor ficou ilegivel' "$TMP/s.txt"
@@ -273,7 +283,7 @@ igual "journal acima de 1 MiB: sem FALHA, sai com 0" "0" "$?"
 afirma "journal acima de 1 MiB: INCONCLUSIVO de saida cortada" grep -q 'INCONCLUSIVO \[3\] nao consegui ler o journal do runner.*saida cortada' "$TMP/s.txt"
 nega "journal cortado nao diz 'nenhum OOM'" grep -q 'nenhum OOM' "$TMP/s.txt"
 limpar_estado
-: >"$STUB_ESTADO/journal-oom-grande"
+: >"$STUB_ESTADO/journal-oom-grande"; printf 'oom_kill 1\n' >"$CG/memory.events"
 smoke ana
 igual "OOM achado e leitura cortada em 1 MiB: sai com 1" "1" "$?"
 afirma "OOM achado e leitura cortada: FALHA com nota de contagem parcial" grep -q 'FALHA  \[3\] OOM nos ultimos 7 dias.*contagem parcial' "$TMP/s.txt"

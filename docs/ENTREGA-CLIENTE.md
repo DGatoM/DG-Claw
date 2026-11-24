@@ -58,7 +58,9 @@ Os números abaixo são os mesmos que o script imprime entre colchetes.
   porque o `sshd -T` sem `-C` não aplica as regras `Match`. Para cada arquivo listado, `ssh-keygen -lf <arquivo>`
   mostra as impressões digitais. Se houver `authorizedkeyscommand`, confira a chave também na fonte que ele
   consulta (o `ssh-keygen` não o lê). Se ela aparecer em algum lugar, remova a linha, porque o `desligar` não
-  mexe nas chaves que não são do suporte. Por fim, teste de uma conexão nova, a partir da origem de suporte que
+  mexe nas chaves que não são do suporte. **Antes de remover**, peça ao cliente para abrir uma conexão SSH
+  nova com a credencial dele, confirmar que tem root ou `sudo` e deixá-la aberta até o fim deste item. Sem
+  isso, numa VPS que só aceita chave para o root, a remoção pode deixar o dono sem acesso administrativo. Por fim, teste de uma conexão nova, a partir da origem de suporte que
   antes era aceita, só com essa chave
   (`ssh -o IdentitiesOnly=yes -o IdentityAgent=none -i <chave da equipe> root@<servidor>`): ela precisa
   ser recusada.
@@ -93,8 +95,9 @@ mexer em qualquer limite, leia as linhas `oom-kill` num terminal seu (nunca no c
 aumentar o teto do agente tira ainda mais folga do servidor.
 
 **Recriar o agente sem perder nada.** O `dgclaw agente recriar <agente>` pode recriar o container na hora,
-então ele não é uma simples listagem. Antes dele, peça ao Admin para conferir o que existe só na camada
-gravável do container. Decida com o dono antes de qualquer perda e só então rode o `recriar`, sempre **sem** `--forcar`: sem a opção, se houver
+então ele não é uma simples listagem. Antes dele, confira num terminal seu (nunca no chat do Admin) o que existe só na camada
+gravável do container: ali os nomes e o conteúdo dos arquivos são escolhidos pelo agente, e texto plantado
+neles não pode chegar ao contexto do Admin root. Decida com o dono antes de qualquer perda e só então rode o `recriar`, sempre **sem** `--forcar`: sem a opção, se houver
 pacotes instalados à mão ou arquivos fora da casa, ele para e não recria. Esse inventário não cobre tudo: ele
 ignora `/tmp`, `/var/tmp`, `/var/log`, `/var/cache` e outras pastas de sistema. Se o cliente guarda algo
 nelas (um registro de auditoria em `/var/log`, por exemplo), copie para a casa do agente antes, porque o
@@ -128,7 +131,9 @@ sucesso antes de recriar.
   é `FALHA`. Ele só diz os nomes que têm valor e nunca imprime o valor. Arquivo ilegível, ou maior que 1 MiB (leitura cortada), é `INCONCLUSIVO`.
 - **Nomes do cofre (automático):** o script roda `dgclaw agente cofre <agente> listar --json` e mostra só o
   nome de cada chave ativa. Ele não afirma que as chaves das skills estão lá.
-- **Skills contra o cofre (à mão):** liste os nomes com `dgclaw agente cofre <agente> listar` e confira contra
+- **Skills contra o cofre (à mão):** liste só os nomes das chaves ativas com
+  `dgclaw agente cofre <agente> listar --json | jq -r '.chaves[] | select((.revogadaEm // "") == "") | .envName'`
+  (a listagem em texto mostra também o final de cada valor e as chaves revogadas) e confira contra
   o que as skills do cliente citam. Para ver o que uma skill cita, como o usuário `agente`:
   `podman exec --user agente dgclaw-<agente> grep -rhoE '\b([A-Z][A-Z0-9_]*_(API_KEY|API_TOKEN|TOKEN|SECRET|KEY|PASSWORD|WEBHOOK_URL|ID|SID|USERNAME|USER|ACCOUNT|URL|DSN|ENDPOINT|REGION|BUCKET|PROJECT|ORG|VERSION|EMAIL)|GOOGLE_APPLICATION_CREDENTIALS)\b' <pasta de skills>/<skill>`,
   com a pasta efetiva identificada no [passo 10](#10-skills-do-cliente-na-pasta-certa-à-mão)
@@ -229,14 +234,16 @@ Hoje é passo manual. Para cada skill do cliente:
 - **Esperado:** nenhum caminho aponta para fora da casa, nenhum arquivo é de `root`, e o `setup-check`
   não acusa nada ausente.
 
-### 11. Reparar e conferir a sessão principal (à mão)
+### 11. Conferir a sessão principal (à mão)
 
-- **Fazer:** rode `dgclaw agente reparar <agente>` e confira que termina sem erro e que a conversa
-  principal responde (abra o painel do agente e mande um pedido curto).
-- **Esperado:** o comando termina sem erro e a sessão principal responde, com o terminal vivo e em estado
-  normal.
-- **Se falhar:** `podman exec dgclaw-<agente> journalctl -u dgclaw-runner --no-pager | tail -n 50` e,
-  se preciso, `dgclaw agente reiniciar <agente>`. Veja [SESSAO-PRINCIPAL.md](SESSAO-PRINCIPAL.md).
+- **Fazer:** abra o painel do agente e mande um pedido curto na conversa principal.
+- **Esperado:** a sessão principal responde, com o terminal vivo e em estado normal.
+- **Se falhar:** veja o resultado da última parada do runner, só em campos fixos:
+  `podman exec dgclaw-<agente> systemctl show -p Result -p ExecMainStatus -p ExecMainExitTimestamp dgclaw-runner`.
+  O journal bruto do runner traz texto escrito pelo agente: leia-o só num terminal seu, nunca no chat do
+  Admin. Se preciso, `dgclaw agente reiniciar <agente>`. O `dgclaw agente reparar <agente>` fica para uma
+  falha diagnosticada, não para um agente saudável: ele regrava a configuração do agente. Veja
+  [SESSAO-PRINCIPAL.md](SESSAO-PRINCIPAL.md).
 
 ### 12. Texto personalizado nas skills do cliente (à mão)
 
