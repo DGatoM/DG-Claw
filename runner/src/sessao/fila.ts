@@ -502,6 +502,13 @@ export function pararComCaixaSuja(s: Sessao, envio: SemRecibo | null, motivo: st
   return false;
 }
 
+/** Codex: a marca do Enter do dono (que pode ter ficado de um Enter numa caixa vazia, sem turno nenhum) não torna ambíguo o recibo
+ *  de um pedido se o texto do turno aberto depois do Enter dele é o do pedido: o turno é do pedido. Vale para o item da fila
+ *  (confirmarRecibos) e para o envio direto (enviarComRecibo). Sem texto de turno ainda, ou com outro texto, devolve false. */
+export function turnoDoCodexEhDoTexto(s: Sessao, promptsAntes: number, texto: string): boolean {
+  return s.motor.reciboPorRollout && reciboDoTexto(s, promptsAntes, texto);
+}
+
 /** O CLI aceitou um prompt (`promptsAceitos` subiu). Só tira o pendente da frente se o Enter dele já foi escrito
  *  e o contador passou do valor de antes desse Enter; um recibo que chega antes é de outro turno (o dono, por
  *  exemplo) e não prova nada. Confirmar o recibo NÃO solta a fila: o próximo texto só sai no próximo idle, depois
@@ -519,7 +526,7 @@ export function confirmarRecibos(s: Sessao): void {
   // vazia, sem turno nenhum) não decide sozinha. Se o texto do turno é o do pedido, o turno é do pedido e a marca cai; se o turno
   // ainda não trouxe texto, a decisão espera o texto; se trouxe outro texto, vale a regra de sempre (reter, abaixo).
   if (reciboDoDono && s.motor.reciboPorRollout && e && e.enterEscrito && s.promptsAceitos > e.promptsAntes) {
-    if (reciboDoTexto(s, e.promptsAntes, e.textoEnviado ?? e.item.texto)) {
+    if (turnoDoCodexEhDoTexto(s, e.promptsAntes, e.textoEnviado ?? e.item.texto)) {
       reciboDoDono = false;
     } else if (!s.turnosDoCodex.some((t) => t.n > e.promptsAntes && t.textos.length > 0)) {
       return;

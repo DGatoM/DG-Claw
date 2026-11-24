@@ -121,6 +121,27 @@ subir 429-sem-code
 ok "429 sem code continua sendo limite (sai com 4)" $([ $c = 4 ] && echo 0 || echo 1)
 grep -q "dgclaw-card fechar" "$T/e"; ok "429 sem code sugere fechar card" $?
 
+# --- tempo do envio: cresce com o tamanho do texto; tempo esgotado depois de enviar e entrega INCERTA --------------------------
+eval "$(sed -n '/^max_time_do_texto()/,/^}/p;/^PEDACO_DO_RUNNER=/p' "$BIN")"
+TEMPO_BASE=60
+[ "$(max_time_do_texto 100)" = 61 ]; ok "max-time: texto curto fica na base de 60 s (mais 1 s do primeiro pedaco)" $?
+[ "$(max_time_do_texto $((512 * 1024)))" = 265 ]; ok "max-time: 512 KiB (4096 pedacos de 25 ms = 102 s) vai a 60 + 2 x 102 = 265 s" $?
+[ "$(max_time_do_texto $((1024 * 1024)))" = 470 ]; ok "max-time: o teto de 1 MiB vai a 470 s" $?
+[ "$(max_time_do_texto 2000)" -lt "$(max_time_do_texto 200000)" ]; ok "max-time: cresce com o tamanho" $?
+subir input-demora
+"$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
+: > "$LOG"
+DGCLAW_CARD_TEMPO_BASE=1 "$BIN" mandar card-abc123 "texto que o runner recebe e nunca responde" >"$T/o" 2>"$T/e"; c=$?
+ok "mandar com tempo esgotado depois de enviar sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+grep -q "INCERTA" "$T/e" && grep -q "Nao reenvie ja" "$T/e" && grep -q "dgclaw-card ler card-abc123" "$T/e"; ok "tempo esgotado: diz que a entrega e incerta, que nao reenvie e como conferir" $?
+! grep -qi "tente de novo\|fora do ar\|reiniciando" "$T/e"; ok "tempo esgotado: NAO manda tentar de novo e nao diz runner fora do ar" $?
+[ "$(grep -c '/input' "$LOG")" = 1 ]; ok "tempo esgotado: um unico POST (o texto chegou ao runner)" $?
+sem_segredo "$T/o" "$T/e"; ok "tempo esgotado: o token nao vaza" $?
+kill $SRV 2>/dev/null; wait $SRV 2>/dev/null; SRV=""
+"$BIN" mandar card-abc123 "texto com o runner fora do ar" >"$T/o" 2>"$T/e"; c=$?
+ok "mandar com conexao recusada continua saindo com 2" $([ $c = 2 ] && echo 0 || echo 1)
+grep -q "o runner deste agente nao respondeu" "$T/e"; ok "conexao recusada continua com a mensagem de runner fora do ar" $?
+
 # --- sem login ------------------------------------------------------------------------------------
 subir sem-login
 "$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?

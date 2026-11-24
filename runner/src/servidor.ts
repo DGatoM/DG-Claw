@@ -26,6 +26,7 @@ import { MOTIVO_SEM_MEDICAO, deStatusline, paraResposta } from "./uso.js";
 import { ESC, nonceConfere } from "./sessao/telas.js";
 import { ErroDeMotor } from "./provedores/motor.js";
 import { ErroEnviosDemais, ErroTextoGrandeDemais } from "./sessao/digitacao.js";
+import { MAX_BYTES_DIRETOS_ESPERANDO } from "./sessao/constantes.js";
 import { MOTIVO_CAIXA_COM_RASCUNHO, MOTIVO_ENVIO_PENDENTE, MOTIVO_NAO_ENTROU, MOTIVO_RECUSA_DE_ENTRADA } from "./sessao/fila.js";
 import { acharRolloutPorId, mensagensDoRollout } from "./provedores/codex-rollout.js";
 
@@ -364,6 +365,18 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
                 },
                 409,
               );
+              return;
+            }
+          }
+
+          // O limite de tamanho do envio direto vale ANTES de acordar a paralela e de gravar qualquer coisa na fila: com a sessão
+          // dormindo, o texto iria para a fila e a resposta seria 202 sem nunca passar pela conferência de digitarEEnviar.
+          if (enviar && !quandoOcioso) {
+            const bytes = Buffer.byteLength(texto);
+            if (bytes > MAX_BYTES_DIRETOS_ESPERANDO) {
+              log.aviso(sessao.a("entrada"), `recusei um envio direto de ${bytes} bytes: o texto sozinho passa do limite de ${MAX_BYTES_DIRETOS_ESPERANDO} bytes. Nada foi escrito, a sessão não foi acordada e a fila não mudou`);
+              const e = new ErroTextoGrandeDemais(bytes);
+              erroHttp(res, 413, "TEXTO_GRANDE_DEMAIS", e.message, e.howToFix);
               return;
             }
           }

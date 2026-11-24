@@ -1,7 +1,7 @@
 import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
 import { ErroDeMotor } from "../provedores/motor.js";
-import { MOTIVO_CAIXA_COM_RASCUNHO, MOTIVO_ENVIO_PENDENTE, MOTIVO_NAO_ENTROU, MOTIVO_RECUSA_DE_ENTRADA, type SemRecibo, caixaVaziaComProva, devolverNaoDigitado, levantarSuspensao, liberarBarra, marcarDigitadoAntesDeEscrever, outroEnvioSemRecibo, pararComCaixaSuja, pendenteEm, reciboDoTexto, reter, suspenderPorRascunho, talvezSoltarFila, telaServeDeProva, terminalQuietoParaLerTela } from "./fila.js";
+import { MOTIVO_CAIXA_COM_RASCUNHO, MOTIVO_ENVIO_PENDENTE, MOTIVO_NAO_ENTROU, MOTIVO_RECUSA_DE_ENTRADA, type SemRecibo, caixaVaziaComProva, devolverNaoDigitado, levantarSuspensao, liberarBarra, marcarDigitadoAntesDeEscrever, outroEnvioSemRecibo, pararComCaixaSuja, pendenteEm, reciboDoTexto, reter, suspenderPorRascunho, talvezSoltarFila, telaServeDeProva, terminalQuietoParaLerTela, turnoDoCodexEhDoTexto } from "./fila.js";
 import { INTERVALO_MS, MAX_BYTES_DIRETOS_ESPERANDO, MAX_ENVIOS_DIRETOS_ESPERANDO, PEDACO, RECIBO_ENTER_TENTATIVAS, SILENCIO_DA_MASCARA_MS } from "./constantes.js";
 import { caixaVaziaNaTela, ehDialogoDeAutoMode, estadoDaCaixa, caixaIdentificada, telaDeConfiancaDoCodex } from "./telas.js";
 
@@ -329,7 +329,7 @@ async function digitar(
     }
     // Antes de CADA pedaço: o agente passou a esperar uma resposta, alguém escreveu no terminal no meio da colagem, ou a tela
     // já não mostra a caixa de composição?
-    const motivo = motivoDeCaixaMudada(s, esperadas) ?? (await caixaLivre(i === 0)) ?? motivoDeCaixaMudada(s, esperadas) ?? (i === 0 && !envio && cancelado() ? "quem pediu desistiu da chamada" : null);
+    const motivo = motivoDeCaixaMudada(s, esperadas) ?? (await caixaLivre(i === 0)) ?? motivoDeCaixaMudada(s, esperadas) ?? (!envio && cancelado() ? (i === 0 ? "quem pediu desistiu da chamada" : MOTIVO_DESISTIU_NA_COLAGEM) : null);
     if (motivo) {
       parou = { motivo, escreveu: i > 0 };
       break;
@@ -363,8 +363,14 @@ async function digitar(
     return parou.escreveu ? terminalTrocado(s, envio) : naoEntrou(s, envio, "o terminal foi trocado antes de o texto ser escrito", REENVIAR);
   }
   if (s.proc !== proc) return terminalTrocado(s, envio);
+  // O cliente do envio direto desistiu enquanto os últimos pedaços eram colados: o Enter não é apertado, e o texto fica na caixa.
+  if (!envio && cancelado()) return parouComTextoNaCaixa(s, envio, MOTIVO_DESISTIU_NA_COLAGEM);
   return enviarComRecibo(s, { texto, comandoDeBarra: ehComandoDeBarra, envio, proc, entradasAposTexto: esperadas });
 }
+
+/** Por que a colagem longa de um envio direto parou depois de já ter escrito algo: quem pediu (a CLI, com timeout) desistiu. */
+const MOTIVO_DESISTIU_NA_COLAGEM =
+  "quem pediu desistiu da chamada no meio da colagem (o cliente desconectou); o texto parcial ficou na caixa de entrada, sem Enter, e a digitação automática fica suspensa até a caixa ser esvaziada";
 
 /** O pedaço da colagem que começa em `i`: até PEDACO unidades UTF-16, sem nunca separar um par substituto (emoji). Cortar entre o
  *  high e o low surrogate faria cada metade virar U+FFFD ao ser escrita em UTF-8. */
@@ -644,6 +650,12 @@ export async function enviarComRecibo(s: Sessao, ctx: ContextoDoEnvio): Promise<
     const ref = referencia ?? { prompts: s.promptsAceitos, compacts: s.compactsIniciados };
     const recebeu = await esperarRecibo(s, ref.prompts, espera, compact ? ref.compacts : undefined, soCompactVale, texto);
     if (recebeu) {
+      // Codex: o recibo só chegou porque o texto do turno é o deste pedido (esperarRecibo confere o texto), então a marca do Enter que
+      // o dono deu antes, numa caixa vazia, não decide nada: ela cai, como acontece com o item da fila.
+      if (enterDoDonoAmbiguo && turnoDoCodexEhDoTexto(s, ref.prompts, texto)) {
+        enterDoDonoAmbiguo = false;
+        if (s.enterManualPendente !== null && s.promptsAceitos > s.enterManualPendente.promptsAntes) s.enterManualPendente = null;
+      }
       if (enterDoDonoAmbiguo) {
         return parouComTextoNaCaixa(s, envio, "chegou um recibo, mas o dono tinha dado um Enter no terminal ainda sem recibo, então o recibo pode ser da mensagem dele");
       }

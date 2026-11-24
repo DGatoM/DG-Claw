@@ -288,6 +288,13 @@ bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-409.log" "$ETC/runn
 igual "409 NAO_ENTROU: sai com 1 depois das tentativas" "1" "$rc"
 igual "409 NAO_ENTROU: repete o POST (3 tentativas)" "3" "$(grep -c 'X POST' "$STUB_LOG")"
 afirma "409 NAO_ENTROU: o log diz o status e o code" grep -q 'HTTP 409, code NAO_ENTROU' "$TMP/reinicio-409.log"
+# 409 NO_PTY: o runner recusa antes de digitar (sem terminal vivo), entao repete as 3 tentativas e sai com 1.
+printf '%s' '{"success":false,"error":"sem terminal vivo","code":"NO_PTY"}' >"$STUB_ESTADO/admin-input-resposta"; printf 409 >"$STUB_ESTADO/admin-input-status"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-nopty.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "409 NO_PTY: sai com 1 depois das tentativas" "1" "$rc"
+igual "409 NO_PTY: repete o POST (3 tentativas)" "3" "$(grep -c 'X POST' "$STUB_LOG")"
+afirma "409 NO_PTY: o log diz o status e o code" grep -q 'HTTP 409, code NO_PTY' "$TMP/reinicio-nopty.log"
 # 504 de gateway: pode ter vindo depois de o pedido ser encaminhado. Entrega incerta, um unico POST, sai com 3.
 printf '%s' '{"error":"gateway timeout, segredo-no-corpo"}' >"$STUB_ESTADO/admin-input-resposta"; printf 504 >"$STUB_ESTADO/admin-input-status"
 : >"$STUB_LOG"
@@ -312,6 +319,26 @@ afirma "code forjado: o log diz CODIGO_DESCONHECIDO" grep -q 'HTTP 400, code COD
 nega "code forjado: o texto forjado nao chega ao log" grep -q 'forjado' "$TMP/reinicio-forjado.log"
 nega "code forjado: nenhuma linha extra com ATENCAO no log" grep -q '^ATENCAO' "$TMP/reinicio-forjado.log"
 rm -f "$STUB_ESTADO/admin-input-resposta" "$STUB_ESTADO/admin-input-status"
+# A porta do runner abre antes do terminal: a saude responde 200 com ptyVivo false e depois true. O POST so sai depois.
+rm -f "$STUB_ESTADO/admin-saude-n"
+printf '%s' '{"ok":true,"agente":{"id":"admin","slug":"admin","status":"spawning","ptyVivo":false}}' >"$STUB_ESTADO/admin-saude-resposta.1"
+printf '%s' '{"ok":true,"agente":{"id":"admin","slug":"admin","status":"spawning","ptyVivo":false}}' >"$STUB_ESTADO/admin-saude-resposta.2"
+printf '%s' '{"ok":true,"agente":{"id":"admin","slug":"admin","status":"idle","ptyVivo":true}}' >"$STUB_ESTADO/admin-saude-resposta.3"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-ptyvivo.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "ptyVivo false e depois true: sai com 0" "0" "$rc"
+igual "ptyVivo false e depois true: 3 consultas de saude" "3" "$(grep -c 'api/saude' "$STUB_LOG")"
+igual "ptyVivo false e depois true: um unico POST" "1" "$(grep -c 'X POST' "$STUB_LOG")"
+afirma "ptyVivo false e depois true: o POST veio depois da ultima consulta de saude" bash -c "[ \"\$(grep -n 'api/saude' '$STUB_LOG' | tail -n 1 | cut -d: -f1)\" -lt \"\$(grep -n 'X POST' '$STUB_LOG' | head -n 1 | cut -d: -f1)\" ]"
+# Terminal que nunca sobe dentro do prazo: nao tenta o POST e o log diz que o terminal nao ficou pronto.
+rm -f "$STUB_ESTADO/admin-saude-n" "$STUB_ESTADO"/admin-saude-resposta.*
+printf '%s' '{"ok":true,"agente":{"id":"admin","status":"spawning","ptyVivo":false}}' >"$STUB_ESTADO/admin-saude-resposta"
+: >"$STUB_LOG"
+DGCLAW_ESPERA_ADMIN=2 bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-semptyvivo.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "ptyVivo sempre false: sai com 1" "1" "$rc"
+afirma "ptyVivo sempre false: o log diz que o terminal nao ficou pronto" grep -q 'terminal dele (agente.ptyVivo) nao ficou pronto em 2s' "$TMP/reinicio-semptyvivo.log"
+nega "ptyVivo sempre false: nao tenta o POST" grep -q 'X POST' "$STUB_LOG"
+rm -f "$STUB_ESTADO/admin-saude-n" "$STUB_ESTADO/admin-saude-resposta"
 touch "$STUB_ESTADO/curl-falha"
 : >"$STUB_LOG"
 DGCLAW_ESPERA_ADMIN=2 bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio2.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?

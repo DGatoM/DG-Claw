@@ -1,7 +1,7 @@
 // Runner falso para o teste do dgclaw-card. Grava cada requisicao em $LOG (uma linha JSON com
 // metodo, url, corpo e o cabecalho Authorization) e simula o ciclo de um card:
 // criado dormindo -> /input -> working -> idle com resposta do assistente.
-// Chaves de ambiente: RUNNER_BEARER (token esperado), MODO (normal|limite|sem-login|input-falha|nunca-termina|entrega-incerta).
+// Chaves de ambiente: RUNNER_BEARER (token esperado), MODO (normal|limite|sem-login|input-falha|nunca-termina|entrega-incerta|input-demora).
 const http = require("http");
 const fs = require("fs");
 const LOG = process.env.LOG;
@@ -51,6 +51,8 @@ http.createServer((req, res) => {
       const c = cards.get(m[1]);
       if (!c) return j(404, { success: false, code: "AGENTE_DE_OUTRO_RUNNER", error: "pedido para " + m[1], howToFix: "ver o card" });
       if (m[2] === "/input" && req.method === "POST") {
+        // O runner recebeu o texto e segue colando: a resposta so sai muito depois do tempo do curl (tempo esgotado no cliente).
+        if (MODO === "input-demora") return;
         if (MODO === "sem-login") return j(409, { success: false, code: "SEM_LOGIN", error: "O agente ainda nao entrou no Codex", howToFix: "login" });
         if (MODO === "input-falha") return j(500, { success: false, code: "ERRO_INTERNO", error: "estourou" });
         if (MODO === "envios-demais") return j(429, { success: false, code: "ENVIOS_DEMAIS", error: "Ha envios demais esperando (texto do runner falso).", howToFix: "esperar" });

@@ -2283,6 +2283,41 @@ test("caixa suja: colagem longa para no pedaço seguinte se alguém escreveu no 
   assert.match(entrada.parada!.motivo, /outra escrita no terminal no meio do envio/);
 });
 
+test("envio direto longo: o cliente desiste depois do primeiro pedaço => nenhum pedaço a mais, nenhum Enter, sessão suspensa por rascunho", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  const longo = "d".repeat(700);
+  let desistiu = false;
+  depoisDaEscrita(s, escritas, 1, () => {
+    desistiu = true; // o cliente HTTP desconectou depois do primeiro pedaço, durante a pausa
+  });
+  try {
+    assert.equal(await s.digitarEEnviar(longo, false, null, () => desistiu), false);
+  } finally {
+    restaurar();
+  }
+  assert.equal(escritas.length, 1, "só o primeiro pedaço");
+  assert.equal(escritas[0].length, 128);
+  assert.equal(escritas.includes("\r"), false, "nenhum Enter");
+  assert.notEqual(s.digitacaoSuspensaEm, null, "suspensa por rascunho: o texto parcial ficou na caixa");
+});
+
+test("envio direto longo: o cliente desiste durante a pausa depois do ÚLTIMO pedaço => o Enter não é apertado e a sessão fica suspensa", async () => {
+  const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
+  const longo = "e".repeat(300); // 3 pedaços: 128 + 128 + 44
+  let desistiu = false;
+  depoisDaEscrita(s, escritas, 3, () => {
+    desistiu = true;
+  });
+  try {
+    assert.equal(await s.digitarEEnviar(longo, false, null, () => desistiu), false);
+  } finally {
+    restaurar();
+  }
+  assert.equal(escritas.length, 3, "os três pedaços, mais nada");
+  assert.equal(escritas.includes("\r"), false, "nenhum Enter");
+  assert.notEqual(s.digitacaoSuspensaEm, null);
+});
+
 test("caixa suja: colagem longa com o agente esperando uma resposta no meio para, e a parada é da caixa", async () => {
   const { s, escritas, restaurar } = await sessaoComEscritaAnotada();
   const longo = "y".repeat(700);

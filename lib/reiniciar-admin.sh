@@ -29,15 +29,25 @@ if ! systemctl restart dgclaw-admin; then
     log "o 'systemctl restart dgclaw-admin' falhou. Veja: journalctl -u dgclaw-admin -n 50. O resumo da atualizacao esta em $RESUMO."
     exit 1
 fi
-log "Admin reiniciado; esperando ele responder em $URL/api/saude (ate ${ESPERA}s)."
+log "Admin reiniciado; esperando ele responder em $URL/api/saude com o terminal vivo (ate ${ESPERA}s)."
 
-voltou=0
+# O runner abre a porta HTTP ANTES de subir o terminal: /api/saude ja responde 200, mas com agente.ptyVivo false, e nesse
+# intervalo o POST em /input receberia 409 NO_PTY. Por isso a espera so termina quando a saude responde E o terminal esta vivo,
+# dentro do mesmo prazo ESPERA (sem prazo novo).
+voltou=0; respondeu=0
 for ((i = 0; i < ESPERA; i++)); do
-    if curl -fsS --max-time 3 "$URL/api/saude" >/dev/null 2>&1; then voltou=1; break; fi
+    if saude="$(curl -fsS --max-time 3 "$URL/api/saude" 2>/dev/null)"; then
+        respondeu=1
+        if printf '%s' "$saude" | grep -Eq '"ptyVivo"[[:space:]]*:[[:space:]]*true'; then voltou=1; break; fi
+    fi
     sleep 1
 done
 if [ "$voltou" != 1 ]; then
-    log "o Admin nao respondeu em ${ESPERA}s, entao nao consegui avisar o resultado a ele. O resumo esta em $RESUMO. Veja: journalctl -u dgclaw-admin -n 50"
+    if [ "$respondeu" = 1 ]; then
+        log "o Admin respondeu em $URL/api/saude, mas o terminal dele (agente.ptyVivo) nao ficou pronto em ${ESPERA}s, entao nao consegui avisar o resultado a ele. O resumo esta em $RESUMO. Veja: journalctl -u dgclaw-admin -n 50"
+    else
+        log "o Admin nao respondeu em ${ESPERA}s, entao nao consegui avisar o resultado a ele. O resumo esta em $RESUMO. Veja: journalctl -u dgclaw-admin -n 50"
+    fi
     exit 1
 fi
 
@@ -60,7 +70,8 @@ printf 'header = "Authorization: Bearer %s"\n' "$(cat "$TOKEN_ARQ")" >"$cfg"
 # O curl roda SEM -f: com ele, qualquer HTTP >= 400 virava o codigo 22 e era repetido, inclusive um 504 de gateway, que pode vir
 # DEPOIS de o pedido ter sido encaminhado ao runner. Aqui o status e o `code` do JSON de erro decidem:
 #   - repete so quando status e code garantem que nada foi escrito no terminal: 409 NAO_ENTROU, ENVIO_PENDENTE, CAIXA_COM_RASCUNHO,
-#     TELA_BLOQUEADA ou ENTRADA_RECUSADA; 429 ENVIOS_DEMAIS; 507 FILA_NAO_GRAVADA;
+#     TELA_BLOQUEADA, ENTRADA_RECUSADA ou NO_PTY (o runner recusa antes de digitar, sem terminal vivo); 500 NAO_ACORDOU (a sessao
+#     nao acordou e o texto nao foi guardado em fila nenhuma); 429 ENVIOS_DEMAIS; 507 FILA_NAO_GRAVADA;
 #   - qualquer outro 4xx (401, 403, 400...) e recusa antes do envio, que repetir nao conserta: falha com exit 1, sem repetir;
 #   - qualquer 5xx (fora o 507 acima) ou status inesperado: a entrega e incerta (exit 3), sem repetir.
 # Do curl: 6 (host nao resolvido) e 7 (conexao recusada) repetem; qualquer outro codigo pode ter acontecido DEPOIS do envio.
@@ -107,7 +118,7 @@ for tentativa in 1 2 3; do
         esac
         repetir=0
         case "$status:$codigo" in
-            409:NAO_ENTROU|409:ENVIO_PENDENTE|409:CAIXA_COM_RASCUNHO|409:TELA_BLOQUEADA|409:ENTRADA_RECUSADA|429:ENVIOS_DEMAIS|507:FILA_NAO_GRAVADA)
+            409:NAO_ENTROU|409:ENVIO_PENDENTE|409:CAIXA_COM_RASCUNHO|409:TELA_BLOQUEADA|409:ENTRADA_RECUSADA|409:NO_PTY|500:NAO_ACORDOU|429:ENVIOS_DEMAIS|507:FILA_NAO_GRAVADA)
                 repetir=1 ;;
         esac
         if [ "$repetir" = 1 ]; then

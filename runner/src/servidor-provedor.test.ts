@@ -836,3 +836,75 @@ test("revisão rodada 12, item E: texto sozinho acima do limite => 413 TEXTO_GRA
     principal.diretosEsperando = original;
   }
 });
+
+test("revisão rodada 14, item B: 2 MiB no envio direto recebe 413 TEXTO_GRANDE_DEMAIS com o card acordado e com o card dormindo; no dormindo a sessão não acorda e a fila não muda", async () => {
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  const enorme = "h".repeat(2 * 1024 * 1024);
+  const acordado = await req("POST", `/api/agents/${ID}/input`, { text: enorme });
+  assert.equal(acordado.status, 413, JSON.stringify(acordado.corpo).slice(0, 300));
+  assert.equal(acordado.corpo.code, "TEXTO_GRANDE_DEMAIS");
+  const c = await req("POST", "/api/sessoes", { id: "card-grande", provedor: "claude", auth: "assinatura", modelo: "" });
+  assert.equal(c.status, 201, JSON.stringify(c.corpo));
+  try {
+    const dorm = gerente.porId("card-grande")!;
+    assert.equal(dorm.temPtyVivo(), false, "o card começa dormindo");
+    const r = await req("POST", "/api/agents/card-grande/input", { text: enorme });
+    assert.equal(r.status, 413, JSON.stringify(r.corpo).slice(0, 300));
+    assert.equal(r.corpo.code, "TEXTO_GRANDE_DEMAIS");
+    assert.match(r.corpo.howToFix, /reduzir o texto ou mandá-lo como arquivo/);
+    assert.equal(dorm.temPtyVivo(), false, "a sessão não acordou");
+    assert.equal(dorm.tamanhoDaFila(), 0, "a fila não mudou");
+    const ok = await req("POST", "/api/agents/card-grande/input", { text: "pedido-pequeno", injectWhenIdle: true });
+    assert.equal(ok.status, 202, "o pedido da fila (injectWhenIdle) segue o caminho de sempre");
+  } finally {
+    assert.equal((await req("DELETE", "/api/sessoes/card-grande")).status, 200);
+  }
+});
+
+test("revisão rodada 14, item D: no Codex, Enter manual numa caixa vazia e depois o envio direto => 200 enviado; com outro texto no turno continua 202 incerto", async () => {
+  const { aplicarEvento } = await import("./sessao/eventos.js");
+  const trocar = await req("POST", "/api/provedor", { provedor: "codex", auth: "assinatura", modelo: "" });
+  assert.equal(trocar.status, 200, JSON.stringify(trocar.corpo));
+  try {
+    await esperarAte(() => principal.estado.status === "idle", 8_000, "o Codex ocioso");
+    const priv = principal as unknown as { escrever: (t: string) => void };
+    const original = priv.escrever;
+    const rodar = async (texto: string, textoDoTurno: string) => {
+      // O dono deu Enter numa caixa vazia: a marca ficou, sem turno nenhum.
+      principal.enterManualPendente = { promptsAntes: principal.promptsAceitos, em: Date.now(), proc: principal.proc } as never;
+      let abriu = false;
+      priv.escrever = (t: string) => {
+        // O Enter não chega ao Codex falso (que abriria um turno de verdade com o texto do pedido): o turno é simulado aqui.
+        if (t !== "\r") original.call(principal, t);
+        if (t === "\r" && !abriu) {
+          abriu = true;
+          setTimeout(() => aplicarEvento(principal, { event: "UserPromptSubmit" }), 100); // task_started, sem texto ainda
+          setTimeout(() => aplicarEvento(principal, { event: "TextoDoUsuario", texto: textoDoTurno }), 400);
+        }
+      };
+      try {
+        return await req("POST", `/api/agents/${ID}/input`, { text: texto });
+      } finally {
+        priv.escrever = original;
+      }
+    };
+    const ok = await rodar("pedido-direto-depois-do-enter-vazio", "pedido-direto-depois-do-enter-vazio");
+    assert.equal(ok.status, 200, JSON.stringify(ok.corpo));
+    assert.equal(ok.corpo.data.enviado, true);
+    assert.equal(principal.enterManualPendente, null, "a marca caiu");
+    // O texto do primeiro pedido ficou na caixa do Codex falso (o Enter foi simulado): um reinício devolve a caixa vazia.
+    await req("POST", `/api/agents/${ID}/reiniciar`);
+    await esperarAte(() => principal.estado.status === "idle", 8_000, "o Codex ocioso de novo");
+    principal.digitacaoSuspensaEm = null;
+    const incerto = await rodar("pedido-direto-que-nao-bate", "mensagem que o dono escreveu no terminal");
+    assert.equal(incerto.status, 202, JSON.stringify(incerto.corpo));
+    assert.equal(incerto.corpo.data.entregaIncerta, true);
+  } finally {
+    principal.enterManualPendente = null;
+    principal.digitacaoSuspensaEm = null;
+    await req("POST", "/api/provedor", { provedor: "claude", auth: "assinatura", modelo: "" });
+    await esperarAte(() => principal.estado.status === "idle", 8_000, "idle de volta no Claude");
+  }
+});
