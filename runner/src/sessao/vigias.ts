@@ -101,10 +101,13 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
   let arquivo: string | null = null;
   let avisouAusencia = false;
   let arquivoNovo = false;
+  // Decidido pelo jeito que o processo subiu, não pelo ramo que acha o arquivo: o notify do Codex pode gravar o
+  // sessionId antes de o vigia achar o rollout, e a conversa nova passaria pelo ramo do id conhecido.
+  const conversaNova = !s.retomando;
   return vigiarRollout({
     desdeMs: desde,
-    // Conversa nova (id descoberto agora): o primeiro task_started tem que ser lido, mesmo com mais de 1 MiB gravado.
-    lerDoInicio: (f) => arquivoNovo && f === arquivo,
+    // Conversa nova: o primeiro task_started tem que ser lido, mesmo com mais de 1 MiB gravado.
+    lerDoInicio: (f) => (conversaNova || arquivoNovo) && f === arquivo,
     resolverArquivo: () => {
       if (s.proc !== esteProc) return null;
       if (arquivo) return arquivo;

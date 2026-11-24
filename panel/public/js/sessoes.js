@@ -973,8 +973,10 @@
     renderDetalhe();
     // Durante ou ao sair de "esperando o primeiro turno" (inclusive direto para concluído ou erro), mudança de estado,
     // de motivo ou de terminal muda a orientação da conversa vazia: recarrega mesmo fora do grupo trabalhando.
+    // Entrar nela vindo de outro estado (ex.: "Conversa nova" acabou de zerar a conversa) também troca a orientação.
     const saiuDaEspera = estadoAntes === 'esperando_primeiro_turno' && chaveDaEspera(d.item) !== esperaAntes;
-    if (d.item && (d.item.grupo === 'trabalhando' || saiuDaEspera)) carregaConversa('poll');
+    const entrouNaEspera = d.item && d.item.estado === 'esperando_primeiro_turno' && estadoAntes !== 'esperando_primeiro_turno';
+    if (d.item && (d.item.grupo === 'trabalhando' || saiuDaEspera || entrouNaEspera)) carregaConversa('poll');
   }
 
   // ─── Conversa ─────────────────────────────────────────────────
@@ -1175,7 +1177,18 @@
     if (acao === 'retomar' || acao === 'retomar-nova') {
       const nova = acao === 'retomar-nova';
       const ok = nova ? 'Abri uma conversa nova nessa sessão.' : (modoLocal() ? 'Pedi ao agente para retomar a conversa dessa sessão.' : `Pedi ao ${FN()} para reabrir o terminal desse card.`);
-      if (await postAcao(d, '/retomar', nova ? { nova: true } : {}, ok)) pollDetalhe();
+      if (await postAcao(d, '/retomar', nova ? { nova: true } : {}, ok)) {
+        if (nova && det === d) {
+          // A conversa antiga ficou guardada no disco: some da tela já, e a carga traz a da conversa nova.
+          d.msgs = [];
+          d.antes = null;
+          d.truncado = false;
+          d.motivoVazio = '';
+          renderConversa(false);
+          carregaConversa('poll');
+        }
+        pollDetalhe();
+      }
     }
   }
 

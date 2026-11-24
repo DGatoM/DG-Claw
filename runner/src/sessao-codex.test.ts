@@ -393,3 +393,38 @@ test("Codex login expirado: auth.json regravado depois do aviso reinicia RETOMAN
   assert.equal(s.estado.loginExpiradoEm, null);
   assert.equal(s.recusaDeEntrada(), null);
 });
+
+test("Codex: conversa nova lê o rollout desde o início mesmo com o sessionId já gravado pelo notify; retomada lê só o fim", async () => {
+  const { vigiarRolloutDoCodex } = await import("./sessao/vigias.js");
+  const ev = (type: string, p: Record<string, unknown>) => JSON.stringify({ timestamp: new Date().toISOString(), type, payload: p });
+  const enchimento = ev("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "x".repeat(900) }] });
+  const rodar = async (id: string, retomando: boolean): Promise<number> => {
+    const { s, id: sid } = await nova();
+    const cwd = path.join(amb.raiz, `casa-${sid.split("-")[1]}`);
+    // O rollout já existe, com o task_started no começo e mais de 1 MiB depois dele.
+    const d = new Date();
+    const dir = path.join(amb.codexHome, "sessions", String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0"));
+    fs.mkdirSync(dir, { recursive: true });
+    const meta = ev("session_meta", { id, cwd, base_instructions: "y".repeat(2_000) });
+    const linhas = [meta, ev("event_msg", { type: "task_started" })];
+    for (let i = 0; i < 1300; i++) linhas.push(enchimento);
+    fs.writeFileSync(path.join(dir, `rollout-2026-10-12T10-00-00-${id}.jsonl`), linhas.join("\n") + "\n");
+    // Como o notify faria: o id já está gravado quando o vigia procura o arquivo.
+    s.mudar({ sessionId: id, status: "spawning" });
+    s.retomando = retomando ? { sessionId: id, em: Date.now() } : null;
+    s.spawnEm = Date.now() - 1_000;
+    const proc = {} as never;
+    s.proc = proc;
+    const ctx = { env: { CODEX_HOME: amb.codexHome }, cwd, escolha: { provedor: "codex", auth: "assinatura", modelo: "" }, id: sid } as never;
+    const parar = vigiarRolloutDoCodex(s, proc, ctx);
+    try {
+      await dormir(1_500);
+    } finally {
+      parar();
+      s.proc = null;
+    }
+    return s.turnosDaSessao;
+  };
+  assert.equal(await rodar("eeeeeeee-0000-4000-8000-000000000021", false), 1, "conversa nova: o task_started do começo conta");
+  assert.equal(await rodar("eeeeeeee-0000-4000-8000-000000000022", true), 0, "retomada: só o último 1 MiB, o task_started antigo fica de fora");
+});

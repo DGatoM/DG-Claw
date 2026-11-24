@@ -285,6 +285,30 @@ subir stop-failure
 ok "statusReason hook:StopFailure sai com 12" $([ $c = 12 ] && echo 0 || echo 1)
 grep -q "StopFailure rate_limit" "$T/e"; ok "o 12 do StopFailure traz o motivo" $?
 
+# --- turno com texto ainda na fila nao confirma o pedido (mensagem do painel digitada direto no terminal) -----
+subir turno-com-fila
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
+ok "turno com fila 1 nao confirma: sai com 11 no prazo" $([ $c = 11 ] && echo 0 || echo 1)
+! grep -q "Card aberto" "$T/o"; ok "turno com fila 1 nao imprime 'Card aberto'" $?
+grep -q "ainda ha texto na fila" "$T/e"; ok "o 11 da fila explica que ha texto na fila" $?
+"$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
+ok "fechar com fila 1 recusa com 10" $([ $c = 10 ] && echo 0 || echo 1)
+grep -q "1 texto(s) na fila" "$T/e"; ok "a recusa do fechar com fila cita os textos na fila" $?
+"$BIN" fechar card-abc123 --forcar >/dev/null 2>&1; ok "--forcar fecha mesmo com fila" $?
+
+# --- resposta sem sessao.fila: nao da para confirmar nem fechar -----------------------------------------------
+subir sem-campo-fila
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
+ok "turno sem o campo da fila sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+"$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
+ok "fechar sem o campo da fila recusa com 10" $([ $c = 10 ] && echo 0 || echo 1)
+
+# --- card sem processo vivo no prazo: contador zerado pode ser reinicio, sai com 11 e nao com 9 -----------------
+subir sem-processo
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 1 >"$T/o" 2>"$T/e"; c=$?
+ok "card resumable com contador 0 sai com 11, nao 9" $([ $c = 11 ] && echo 0 || echo 1)
+grep -q "sem processo vivo (status resumable)" "$T/e"; ok "o 11 do card sem processo cita o status" $?
+
 # --- limpeza apos SEM_LOGIN: DELETE que falha informa o id ----------------------------------------------------
 subir sem-login-delete-falha
 "$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?

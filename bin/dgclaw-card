@@ -56,7 +56,7 @@
 #   9  (so no "abrir") o card foi criado e o texto entrou na fila, mas o pedido NAO virou turno dentro da espera
 #      (--espera-turno): o card nao esta trabalhando. O pedido ainda pode entrar sozinho: nao feche e nao reenvie
 #      por conta propria; confira com "estado" e "ler" depois de um tempo e, se continuar sem turno, avise o dono.
-#  10  (so no "fechar") o card nunca teve turno (turnosAceitosSessao igual a 0) ou nao deu para ler o estado dele.
+#  10  (so no "fechar") o card nunca teve turno (turnosAceitosSessao igual a 0), ainda tem texto na fila ou nao deu para ler o estado dele.
 #      Fechar pode jogar fora o pedido. Repita com --forcar se for isso mesmo.
 #  11  (so no "abrir") o card foi criado e o pedido entregue, mas nao consegui confirmar se ele aceitou o pedido
 #      (consulta recusada, erro do runner, de rede, resposta sem JSON ou sem o contador turnosAceitos). Nao e 9 nem 0:
@@ -310,10 +310,10 @@ cmd_abrir() {
 # o card aceitou o pedido. Card em erro: 12 (o pedido foi aceito, mas o turno falhou).
 # Cada consulta e cada pausa ficam limitadas ao tempo que resta do prazo (minimo 1 s para a consulta).
 esperar_primeiro_turno() { # $1 id ; $2 segundos
-  local inicio=$SECONDS passo="${DGCLAW_CARD_INTERVALO:-5}" turnos status falha="" resta erro_turno razao
+  local inicio=$SECONDS passo="${DGCLAW_CARD_INTERVALO:-5}" turnos status falha="" resta erro_turno razao fila="" fila_presa=0 ultimo_status=""
   [ "$passo" = 5 ] && passo=1
   while :; do
-    falha=""
+    falha=""; fila_presa=0
     resta=$(( $2 - (SECONDS - inicio) )); [ "$resta" -ge 1 ] || resta=1
     if ! CARD_MAX_TEMPO="$resta" chamar GET "/api/agents/$1"; then
       falha="o runner nao respondeu a consulta do estado (erro de rede ou tempo esgotado)"
@@ -322,11 +322,12 @@ esperar_primeiro_turno() { # $1 id ; $2 segundos
     elif ! printf '%s' "$RESP" | jq -e '.data | type == "object"' >/dev/null 2>&1; then
       falha="a resposta do runner nao e um JSON com o estado do card"
     else
-      turnos="$(campo .data.turnosAceitosSessao)"; status="$(campo .data.status)"
+      turnos="$(campo .data.turnosAceitosSessao)"; status="$(campo .data.status)"; ultimo_status="$status"
       if ! [[ "$turnos" =~ ^[0-9]+$ ]]; then
         # Esse campo nao aparece com o tempo: nao adianta esperar o prazo todo.
         sem_confirmacao "$1" "a resposta do runner nao traz o contador turnosAceitosSessao (runner antigo ou resposta incompleta)"
       fi
+      fila="$(campo .data.sessao.fila)"
       # Falha de turno conhecida: estado errored, campo de erro preenchido (inclusive em card dormindo/resumable)
       # ou statusReason de falha. Do statusReason vale so o nome do evento (antes do primeiro espaco): o resto pode ser
       # o nome de uma ferramenta (ex.: "hook:PreToolUse mcp__logs__error_report"), que nao e falha. Nenhuma delas conta como sucesso, mesmo que haja turno ou o status seja working.
@@ -340,10 +341,24 @@ esperar_primeiro_turno() { # $1 id ; $2 segundos
         CODIGO=6 die "o card $1 foi criado, mas esta com erro antes de o pedido virar turno: $erro_turno. Veja 'dgclaw-card estado $1'. Nao diga ao dono que ele esta trabalhando."
       fi
       # So o contador confirma o turno: working sozinho pode ser outra coisa (ex.: compactacao, hook:PreCompact).
-      if [ "$turnos" != 0 ]; then return 0; fi
+      # Um turno so confirma o pedido se o texto dele ja saiu da fila: o painel pode digitar uma mensagem direto no
+      # terminal (sem passar pela fila), e esse turno nao e o do pedido.
+      if [ "$turnos" != 0 ]; then
+        if ! [[ "$fila" =~ ^[0-9]+$ ]]; then
+          sem_confirmacao "$1" "a resposta do runner nao traz o tamanho da fila do card (sessao.fila), entao nao da para ver se o pedido ja saiu da fila"
+        fi
+        [ "$fila" != 0 ] || return 0
+        fila_presa=1
+      fi
     fi
     if [ $((SECONDS - inicio)) -ge "$2" ]; then
       [ -z "$falha" ] || sem_confirmacao "$1" "$falha"
+      [ "$fila_presa" = 0 ] || sem_confirmacao "$1" "o card teve um turno, mas ainda ha texto na fila (o pedido pode nao ter sido digitado ainda)"
+      # Resumable (tem conversa guardada, mas sem processo vivo): o contador da conversa pode ter zerado: dizer que o pedido nao virou turno seria um palpite.
+      case "$ultimo_status" in
+        resumable)
+          sem_confirmacao "$1" "o card esta sem processo vivo (status $ultimo_status), entao o contador desta conversa pode ter zerado; confira a conversa" ;;
+      esac
       # Claude sem nenhum hook recebido: o contador de turnos nao enxerga o aceite, entao 9 seria um palpite.
       if [ "${provedor:-}" = claude ] && [ "$(campo .data.hookActive)" != true ]; then
         sem_confirmacao "$1" "o runner ainda nao recebeu nenhum hook do Claude neste card, entao o contador de turnos nao consegue ver se o pedido foi aceito"
@@ -543,7 +558,7 @@ cmd_listar() {
 
 cmd_fechar() {
   validar_id "${1:-}"
-  local id="$1" forcar=0 turnos
+  local id="$1" forcar=0 turnos fila
   shift
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -565,6 +580,13 @@ cmd_fechar() {
         motivo="a resposta do runner nao traz o contador turnosAceitosSessao"
       elif [ "$turnos" = 0 ]; then
         motivo="o card nunca teve um turno"
+      else
+        fila="$(campo .data.sessao.fila)"
+        if ! [[ "$fila" =~ ^[0-9]+$ ]]; then
+          motivo="a resposta do runner nao traz o tamanho da fila do card (sessao.fila)"
+        elif [ "$fila" != 0 ]; then
+          motivo="ainda ha $fila texto(s) na fila do card, que seriam descartados"
+        fi
       fi
     fi
     if [ -n "$motivo" ]; then

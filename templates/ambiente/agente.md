@@ -117,7 +117,7 @@ tarefa curta direto, e mande a longa para um card do mesmo jeito.
    pode entrar sozinho: NÃO feche o card e NÃO reenvie o pedido por conta própria (isso o duplicaria).
    Confira com `dgclaw-card estado <id>` e `dgclaw-card ler <id>` depois de um tempo e, se continuar sem
    turno, avise {{DONO}}. Nunca feche um card que não respondeu sem avisar {{DONO}} antes (o `fechar`
-   também recusa, com o código 10, um card que nunca teve turno; só `--forcar` fecha, e isso pode jogar
+   também recusa, com o código 10, um card que nunca teve turno ou que ainda tem texto na fila; só `--forcar` fecha, e isso pode jogar
    o pedido fora).
 3. Fique livre. **Não use `dgclaw-card esperar` na conversa principal para tarefa longa**: ele prende
    você até o card acabar. Quem acompanha é o monitor, que te acorda quando o card para, termina, pede
