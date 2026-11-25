@@ -32,21 +32,63 @@ function pastaDeProjetos(configDir?: string | null): string {
  * calculado custa uma janela de conversa vazia sem nenhum erro no caminho.
  */
 export function acharArquivoDaSessao(sessionId: string, configDir?: string | null): string | null {
-  const raiz = pastaDeProjetos(configDir);
-  try {
-    if (!fs.existsSync(raiz)) return null;
-    for (const dir of fs.readdirSync(raiz)) {
-      const alvo = path.join(raiz, dir, `${sessionId}.jsonl`);
-      if (fs.existsSync(alvo)) return alvo;
-    }
-    // Algumas instalações gravam o jsonl solto na raiz.
-    const solto = path.join(raiz, `${sessionId}.jsonl`);
-    if (fs.existsSync(solto)) return solto;
-    return null;
-  } catch (err) {
-    log.aviso("conversa", `não consegui varrer ${raiz}: ${err instanceof Error ? err.message : err}`);
-    return null;
+  const r = inspecionarArquivoDaSessao(sessionId, configDir);
+  if (r.estado === "inconclusivo") {
+    log.aviso("conversa", `não consegui varrer ${pastaDeProjetos(configDir)}: ${r.motivo}`);
   }
+  return r.estado === "achou" ? r.arquivo : null;
+}
+
+export type InspecaoDoTranscript =
+  | { estado: "achou"; arquivo: string }
+  | { estado: "nao-existe" }
+  | { estado: "inconclusivo"; motivo: string };
+
+/** O arquivo existe? Só ENOENT e ENOTDIR (ausência comprovada) dão false; qualquer outro erro (permissão, I/O) sobe,
+ *  porque "não consegui olhar" não é "não existe". */
+function existe(caminho: string): boolean {
+  try {
+    fs.statSync(caminho);
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw err;
+  }
+}
+
+/** Como acharArquivoDaSessao, mas separa "não existe" (a pasta foi varrida e o id não está nela) de "não deu para
+ *  saber" (erro ao ler o disco). Quem decide algo grave com base na ausência precisa dessa diferença. */
+export function inspecionarArquivoDaSessao(sessionId: string, configDir?: string | null): InspecaoDoTranscript {
+  const raiz = pastaDeProjetos(configDir);
+  let entradas: string[];
+  try {
+    entradas = fs.readdirSync(raiz);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { estado: "nao-existe" };
+    return { estado: "inconclusivo", motivo: err instanceof Error ? err.message : String(err) };
+  }
+  // Um erro numa pasta de projeto (EACCES, ELOOP...) não interrompe a busca: o arquivo pode estar na pasta
+  // seguinte. O erro é guardado, a varredura continua, e só se não achar em nenhuma é que o resultado é
+  // "inconclusivo" (não deu para olhar tudo), nunca "não existe".
+  const erros: string[] = [];
+  const olhar = (alvo: string): boolean => {
+    try {
+      return existe(alvo);
+    } catch (err) {
+      erros.push(`${alvo}: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
+  };
+  for (const dir of entradas) {
+    const alvo = path.join(raiz, dir, `${sessionId}.jsonl`);
+    if (olhar(alvo)) return { estado: "achou", arquivo: alvo };
+  }
+  // Algumas instalações gravam o jsonl solto na raiz.
+  const solto = path.join(raiz, `${sessionId}.jsonl`);
+  if (olhar(solto)) return { estado: "achou", arquivo: solto };
+  if (erros.length) return { estado: "inconclusivo", motivo: `não consegui olhar ${erros.length} lugar(es): ${erros.slice(0, 3).join("; ")}` };
+  return { estado: "nao-existe" };
 }
 
 function textoDoConteudo(conteudo: unknown): string {
@@ -129,6 +171,21 @@ function lerCauda(arquivo: string): string {
   }
 }
 
+/** Registros de metadados do transcript, sem conteúdo de conversa (conferidos em transcripts reais). */
+const TIPOS_DE_METADADOS = ["ai-title", "summary", "file-history-snapshot", "custom-title", "agent-name", "last-prompt", "mode", "permission-mode"];
+
+/** Os dois textos exatos que o Claude Code grava quando o Esc interrompe o turno. */
+const TEXTOS_DE_INTERRUPCAO = ["[Request interrupted by user]", "[Request interrupted by user for tool use]"];
+
+function ehMensagemDeInterrupcao(o: { type?: string; message?: { content?: unknown } }): boolean {
+  if (o.type !== "user" || !o.message || typeof o.message !== "object") return false;
+  const c = o.message.content;
+  if (typeof c === "string") return TEXTOS_DE_INTERRUPCAO.includes(c);
+  if (!Array.isArray(c) || c.length !== 1) return false;
+  const b = c[0] as { type?: unknown; text?: unknown } | null;
+  return !!b && typeof b === "object" && typeof b.text === "string" && TEXTOS_DE_INTERRUPCAO.includes(b.text);
+}
+
 /**
  * O turno acabou? O Claude Code grava `system/turn_duration` (logo depois de `stop_hook_summary`) ao
  * fim de todo turno. Lê só os últimos ~16 KB e olha a ÚLTIMA linha JSON válida: se for uma dessas e
@@ -139,6 +196,8 @@ export function turnoEncerradoNoTranscript(
   sessionId: string,
   desdeMs: number,
   configDir?: string | null,
+  /** Horário do último Esc escrito neste mesmo terminal (null se não houve): sem ele a mensagem de interrupção não vale. */
+  escEm: number | null = null,
 ): { encerrado: boolean; motivo: string } {
   const arquivo = acharArquivoDaSessao(sessionId, configDir);
   if (!arquivo) return { encerrado: false, motivo: `transcript da sessão ${sessionId} não encontrado` };
@@ -152,22 +211,96 @@ export function turnoEncerradoNoTranscript(
   const linhas = cauda.split("\n");
   for (let i = linhas.length - 1; i >= 0; i--) {
     if (!linhas[i].trim()) continue;
-    let o: { type?: string; subtype?: string; timestamp?: string };
+    let o: { type?: string; subtype?: string; timestamp?: string; message?: { content?: unknown } };
     try {
-      o = JSON.parse(linhas[i]);
+      const lido: unknown = JSON.parse(linhas[i]);
+      if (!lido || typeof lido !== "object" || Array.isArray(lido)) continue;
+      o = lido as typeof o;
     } catch {
       continue;
     }
     const rotulo = `${o.type ?? "?"}${o.subtype ? "/" + o.subtype : ""}`;
-    if (o.type !== "system" || (o.subtype !== "turn_duration" && o.subtype !== "stop_hook_summary")) {
+    const fimNormal = o.type === "system" && (o.subtype === "turn_duration" || o.subtype === "stop_hook_summary");
+    // Esc do Parar: o Claude Code grava uma mensagem de usuário com o texto exato de interrupção e não dispara o hook Stop.
+    // Só metadados conhecidos são pulados; qualquer outro registro depois do marcador (queue-operation, attachment, system,
+    // user, assistant...) impede a prova.
+    if (!fimNormal && typeof o.type === "string" && TIPOS_DE_METADADOS.includes(o.type)) continue;
+    if (!fimNormal && !ehMensagemDeInterrupcao(o)) {
       return { encerrado: false, motivo: `última linha é ${rotulo}` };
     }
     const quando = o.timestamp ? Date.parse(o.timestamp) : NaN;
     if (!Number.isFinite(quando)) return { encerrado: false, motivo: `${rotulo} sem timestamp válido` };
     if (quando <= desdeMs) return { encerrado: false, motivo: `${rotulo} é anterior ao começo do turno atual` };
-    return { encerrado: true, motivo: `última linha é ${rotulo}` };
+    // A frase de interrupção sozinha não prova nada (o usuário pode digitá-la): só vale com um Esc nosso, deste terminal, logo antes.
+    if (!fimNormal && (escEm === null || quando < escEm)) {
+      return { encerrado: false, motivo: "a mensagem de interrupção não tem um Esc deste terminal antes dela" };
+    }
+    return { encerrado: true, motivo: fimNormal ? `última linha é ${rotulo}` : "última linha é a interrupção do usuário" };
   }
   return { encerrado: false, motivo: "nenhuma linha JSON válida no fim do transcript" };
+}
+
+/** A única saída do CLI que vale como recusa do /compact. Qualquer outro texto não conta. */
+const RX_RECUSA_DO_COMPACT = /^Not enough messages to compact\.?$/;
+
+/**
+ * O CLI recusou o último `/compact`? Quando a conversa é curta demais ("Not enough messages to compact."), o
+ * Claude Code dispara o hook PreCompact, grava uma linha `system/local_command` com `commandRun.command` "compact"
+ * e NÃO dispara SessionStart nem Stop. A recusa é a linha mais recente desse tipo, mais nova que `desdeMs` (o
+ * instante do PreCompact), cujo texto (sem as tags local-command) é exatamente a mensagem de recusa, e depois da
+ * qual só vieram metadados conhecidos (outro local_command, turn_duration, linha sem type): qualquer outra linha
+ * (conversa, ferramenta, fila, anexo, resumo, `compact_boundary`) mostra que o agente seguiu ou o compact aconteceu,
+ * e a recusa já não explica o estado.
+ * Devolve só o veredito: o texto cru do transcript nunca sai daqui, para não ir parar no log.
+ * Sem arquivo ou sem a linha, não afirma nada.
+ */
+export function compactRecusadoNoTranscript(
+  sessionId: string,
+  desdeMs: number,
+  configDir?: string | null,
+): { recusado: boolean } {
+  const arquivo = acharArquivoDaSessao(sessionId, configDir);
+  if (!arquivo) return { recusado: false };
+  let cauda: string;
+  try {
+    cauda = lerCauda(arquivo);
+  } catch (err) {
+    log.aviso("conversa", `não consegui ler o fim de ${arquivo}: ${err instanceof Error ? err.message : err}`);
+    return { recusado: false };
+  }
+  let recusado = false;
+  for (const linha of cauda.split("\n")) {
+    if (!linha.trim()) continue;
+    let o: { type?: string; subtype?: string; timestamp?: unknown; content?: unknown; commandRun?: { command?: unknown } };
+    try {
+      const lido: unknown = JSON.parse(linha);
+      if (!lido || typeof lido !== "object" || Array.isArray(lido)) continue;
+      o = lido as typeof o;
+    } catch {
+      // Linha ilegível (por exemplo, uma linha ainda sendo escrita): não dá para saber se o agente seguiu,
+      // então a recusa anterior deixa de valer e a próxima leitura decide.
+      recusado = false;
+      continue;
+    }
+    // A recusa só é aceita na linha de controle que o próprio CLI grava (system/local_command do comando compact).
+    // Uma linha de usuário pode citar o mesmo texto (inclusive com a tag local-command-stderr) e nunca conta.
+    const ehRecusaCandidata = o.type === "system" && o.subtype === "local_command" && o.commandRun?.command === "compact";
+    if (!ehRecusaCandidata) {
+      // Depois da recusa só valem metadados conhecidos (outro local_command, turn_duration, títulos, linha sem type).
+      // Qualquer outra coisa (conversa, ferramenta, fila, anexo, resumo, fronteira de compact) mostra que o agente seguiu.
+      const metadado =
+        o.type === undefined || o.type === "ai-title" || o.type === "custom-title" ||
+        (o.type === "system" && (o.subtype === "local_command" || o.subtype === "turn_duration"));
+      if (!metadado) recusado = false;
+      continue;
+    }
+    if (typeof o.timestamp !== "string") continue;
+    const quando = Date.parse(o.timestamp);
+    if (!Number.isFinite(quando) || quando < desdeMs) continue;
+    const texto = typeof o.content === "string" ? o.content.replace(/<\/?local-command-(?:stdout|stderr)>/g, "").replace(/\s+/g, " ").trim() : "";
+    recusado = RX_RECUSA_DO_COMPACT.test(texto);
+  }
+  return { recusado };
 }
 
 /** O texto que o Claude Code mostra (e devolve em `claude -p`) quando o OAuth da conta morreu. */
@@ -209,7 +342,9 @@ export function loginExpiradoNoFimDoTranscript(
       message?: { model?: string; content?: unknown };
     };
     try {
-      o = JSON.parse(linhas[i]);
+      const lido: unknown = JSON.parse(linhas[i]);
+      if (!lido || typeof lido !== "object" || Array.isArray(lido)) continue;
+      o = lido as typeof o;
     } catch {
       continue;
     }

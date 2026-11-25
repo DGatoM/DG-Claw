@@ -5,11 +5,11 @@
 const http = require('node:http');
 
 function criarRunnerFalso(opcoes) {
-  const o = Object.assign({ agenteId: 'ag1', token: null, sessionId: 'sess-0001-aaaa', status: 'idle', currentTool: null, provedor: null, codexHome: null, atrasoProvedorMs: 0, falhaInput: null,
+  const o = Object.assign({ agenteId: 'ag1', token: null, sessionId: 'sess-0001-aaaa', status: 'idle', currentTool: null, provedor: null, naFila: undefined, naFilaTotal: undefined, codexHome: null, atrasoProvedorMs: 0, falhaInput: null,
     statusReason: null, erroEstado: null,
     // login assistido: o estado que GET/POST /api/provedor/login devolvem (o teste muda à vontade)
     login: { estado: 'nenhum' }, loginRecusa: null }, opcoes || {});
-  const rec = { reinicios: 0, permissoes: [], permissaoIds: [], perguntas: [], inputs: [], cabecalhos: [], estadoPedidos: 0, provedorPedidos: 0, loginPosts: 0, loginDeletes: 0, codigos: [] };
+  const rec = { reinicios: 0, interrupcoes: 0, permissoes: [], permissaoIds: [], perguntas: [], inputs: [], cabecalhos: [], estadoPedidos: 0, provedorPedidos: 0, loginPosts: 0, loginDeletes: 0, codigos: [] };
   const servidor = http.createServer((req, res) => {
     const json = (status, corpo) => { const t = JSON.stringify(corpo); res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(t); };
     rec.cabecalhos.push({ metodo: req.method, url: req.url, authorization: req.headers.authorization || null });
@@ -18,7 +18,7 @@ function criarRunnerFalso(opcoes) {
     if (rota === `/api/agents/${o.agenteId}` && req.method === 'GET') {
       rec.estadoPedidos += 1;
       if (o.falhaEstado) return json(503, { success: false, error: 'runner indisponível no teste' });
-      return json(200, { success: true, data: { id: o.agenteId, status: o.status, sessionId: o.sessionId, currentTool: o.currentTool, updatedAt: Date.now(), codexHome: o.codexHome, statusReason: o.statusReason, error: o.erroEstado, motivo: o.motivo } });
+      return json(200, { success: true, data: { id: o.agenteId, status: o.status, sessionId: o.sessionId, currentTool: o.currentTool, updatedAt: Date.now(), codexHome: o.codexHome, statusReason: o.statusReason, error: o.erroEstado, motivo: o.motivo, naFila: o.naFila, naFilaTotal: o.naFilaTotal } });
     }
     if (rota === `/api/agents/${o.agenteId}/uso` && req.method === 'GET') {
       rec.usoPedidos = (rec.usoPedidos || 0) + 1;
@@ -35,6 +35,7 @@ function criarRunnerFalso(opcoes) {
         rec.inputs.push(corpo);
         if (o.falhaInputNaChamada === rec.inputs.length) return json(500, { success: false, error: 'o terminal sumiu no meio', howToFix: 'reinicie o agente' });
         if (o.falhaInput) return json(o.falhaInput.status, o.falhaInput.corpo);
+        if (o.entregaIncertaAviso !== undefined) return json(202, { success: true, data: { enviado: false, entregaIncerta: true, aviso: o.entregaIncertaAviso } });
         const resposta = () => json(202, { success: true, data: { enfileirado: true, aguardando: 'idle' } });
         if (o.seguraInput) return o.seguraInput.then(resposta);
         return resposta();
@@ -72,6 +73,15 @@ function criarRunnerFalso(opcoes) {
       if (o.falhaReiniciar) return json(o.falhaReiniciar.status, o.falhaReiniciar.corpo);
       rec.reinicios += 1;
       return json(202, { ok: true, sessao: o.sessionId, modo: 'retomar' });
+    }
+    if (rota === `/api/agents/${o.agenteId}/interromper` && req.method === 'POST') {
+      if (o.semRotaInterromper) return json(404, { success: false, error: 'sem rota', code: 'ROTA_INEXISTENTE' });
+      if (o.derrubaInterromper) { rec.interrupcoes += 1; req.socket.destroy(); return undefined; }
+      if (o.vazioInterromper) { rec.interrupcoes += 1; res.writeHead(204); res.end(); return undefined; }
+      if (o.falhaInterromper) return json(o.falhaInterromper.status, o.falhaInterromper.corpo);
+      rec.interrupcoes += 1;
+      if (o.grandeInterromper) return json(200, { success: true, data: { enviado: true, statusAntes: o.status, enchimento: 'x'.repeat(40 * 1024) } });
+      return json(200, { success: true, data: { enviado: true, enviadoEm: '2020-01-01T00:00:00.000Z', statusAntes: o.statusAntesInterromper !== undefined ? o.statusAntesInterromper : o.status, provedor: 'claude' } });
     }
     if (rota === '/api/provedor' && req.method === 'GET') {
       rec.provedorPedidos += 1;

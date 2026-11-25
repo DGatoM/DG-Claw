@@ -237,6 +237,115 @@ afirma "o aviso cita o resumo e pede que conte ao dono" bash -c "grep -q 'resumo
 afirma "o token vai no arquivo de configuracao do curl" grep -q "Authorization: Bearer $(cat "$ETC/runner/admin.token")" "$STUB_LOG.curl-config"
 nega "o token nunca aparece na linha de comando (STUB_LOG)" grep -q "$(cat "$ETC/runner/admin.token")" "$STUB_LOG"
 nega "o token nunca aparece no log do roteiro" grep -q "$(cat "$ETC/runner/admin.token")" "$TMP/reinicio.log"
+afirma "200: o log diz que o Admin recebeu o aviso" grep -q 'o Admin recebeu o aviso do resultado' "$TMP/reinicio.log"
+# Entrega incerta (202 com entregaIncerta): registra a necessidade de conferir, NAO repete o pedido e preserva o resumo.
+printf '%s' '{"success":true,"data":{"enviado":false,"entregaIncerta":true,"aviso":"nao sei"}}' >"$STUB_ESTADO/admin-input-resposta"; printf 202 >"$STUB_ESTADO/admin-input-status"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-incerto.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "entrega incerta: sai com 3 (precisa de conferencia)" "3" "$rc"
+afirma "entrega incerta: o log diz que e INCERTA e manda conferir" grep -q 'INCERTA.*Confira a conversa do Admin' "$TMP/reinicio-incerto.log"
+nega "entrega incerta: o log nao diz que o Admin recebeu" grep -q 'o Admin recebeu o aviso' "$TMP/reinicio-incerto.log"
+igual "entrega incerta: um unico POST, sem repetir" "1" "$(grep -c 'X POST' "$STUB_LOG")"
+afirma "entrega incerta: o resumo continua no lugar" test -s "$RESUMO"
+# 202 sem entregaIncerta: recado na fila do Admin, conta como recebido.
+printf '%s' '{"success":true,"data":{"enfileirado":true}}' >"$STUB_ESTADO/admin-input-resposta"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-fila.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "202 enfileirado: sai com 0" "0" "$rc"
+afirma "202 enfileirado: o log diz que ficou na fila" grep -q 'ficou na fila do Admin' "$TMP/reinicio-fila.log"
+# 202 com corpo vazio: nao prova que ficou na fila. Entrega incerta, um unico POST, sai com 3.
+printf '' >"$STUB_ESTADO/admin-input-resposta"; printf 202 >"$STUB_ESTADO/admin-input-status"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-202-vazio.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "202 com corpo vazio: sai com 3 (entrega incerta)" "3" "$rc"
+igual "202 com corpo vazio: um unico POST, sem repetir" "1" "$(grep -c 'X POST' "$STUB_LOG")"
+nega "202 com corpo vazio: o log nao diz que ficou na fila" grep -q 'ficou na fila do Admin' "$TMP/reinicio-202-vazio.log"
+# 200 com JSON sem a confirmacao (data.enviado): tambem e entrega incerta, sem repetir.
+printf '%s' '{"success":true,"data":{"chars":12}}' >"$STUB_ESTADO/admin-input-resposta"; printf 200 >"$STUB_ESTADO/admin-input-status"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-200-sem-confirmacao.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "200 sem data.enviado: sai com 3 (entrega incerta)" "3" "$rc"
+igual "200 sem data.enviado: um unico POST, sem repetir" "1" "$(grep -c 'X POST' "$STUB_LOG")"
+nega "200 sem data.enviado: o log nao diz que o Admin recebeu" grep -q 'o Admin recebeu o aviso' "$TMP/reinicio-200-sem-confirmacao.log"
+# Falha do curl DEPOIS do envio (28 = tempo esgotado): entrega incerta, nao repete e sai com 3.
+printf 28 >"$STUB_ESTADO/curl-codigo-input"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-timeout.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "timeout do curl: sai com 3 (entrega incerta)" "3" "$rc"
+igual "timeout do curl: um unico POST, sem repetir" "1" "$(grep -c 'X POST' "$STUB_LOG")"
+afirma "timeout do curl: o log diz que e INCERTA e manda conferir" grep -q 'INCERTA.*Confira a conversa do Admin' "$TMP/reinicio-timeout.log"
+# Conexao recusada (7): o pedido nem saiu, repete as 3 tentativas e sai com 1.
+printf 7 >"$STUB_ESTADO/curl-codigo-input"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-recusada.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "conexao recusada: sai com 1 depois das tentativas" "1" "$rc"
+igual "conexao recusada: repete o POST (3 tentativas)" "3" "$(grep -c 'X POST' "$STUB_LOG")"
+rm -f "$STUB_ESTADO/curl-codigo-input"
+# 409 NAO_ENTROU: o runner garante que nada foi escrito, entao repete as 3 tentativas e sai com 1.
+printf '%s' '{"success":false,"error":"nao entrou","code":"NAO_ENTROU"}' >"$STUB_ESTADO/admin-input-resposta"; printf 409 >"$STUB_ESTADO/admin-input-status"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-409.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "409 NAO_ENTROU: sai com 1 depois das tentativas" "1" "$rc"
+igual "409 NAO_ENTROU: repete o POST (3 tentativas)" "3" "$(grep -c 'X POST' "$STUB_LOG")"
+afirma "409 NAO_ENTROU: o log diz o status e o code" grep -q 'HTTP 409, code NAO_ENTROU' "$TMP/reinicio-409.log"
+# 409 NO_PTY: o runner recusa antes de digitar (sem terminal vivo), entao repete as 3 tentativas e sai com 1.
+printf '%s' '{"success":false,"error":"sem terminal vivo","code":"NO_PTY"}' >"$STUB_ESTADO/admin-input-resposta"; printf 409 >"$STUB_ESTADO/admin-input-status"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-nopty.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "409 NO_PTY: sai com 1 depois das tentativas" "1" "$rc"
+igual "409 NO_PTY: repete o POST (3 tentativas)" "3" "$(grep -c 'X POST' "$STUB_LOG")"
+afirma "409 NO_PTY: o log diz o status e o code" grep -q 'HTTP 409, code NO_PTY' "$TMP/reinicio-nopty.log"
+# 504 de gateway: pode ter vindo depois de o pedido ser encaminhado. Entrega incerta, um unico POST, sai com 3.
+printf '%s' '{"error":"gateway timeout, segredo-no-corpo"}' >"$STUB_ESTADO/admin-input-resposta"; printf 504 >"$STUB_ESTADO/admin-input-status"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-504.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "504: sai com 3 (entrega incerta)" "3" "$rc"
+igual "504: um unico POST, sem repetir" "1" "$(grep -c 'X POST' "$STUB_LOG")"
+afirma "504: o log diz que e INCERTA e o status" grep -q 'HTTP 504.*INCERTA' "$TMP/reinicio-504.log"
+nega "504: o log nao copia o corpo da resposta" grep -q 'segredo-no-corpo' "$TMP/reinicio-504.log"
+# 401: recusa antes do envio, repetir nao resolve. Um unico POST e sai com 1.
+printf '%s' '{"success":false,"error":"sem autorizacao","code":"TOKEN_ERRADO"}' >"$STUB_ESTADO/admin-input-resposta"; printf 401 >"$STUB_ESTADO/admin-input-status"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-401.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "401: sai com 1" "1" "$rc"
+igual "401: um unico POST, sem repetir" "1" "$(grep -c 'X POST' "$STUB_LOG")"
+afirma "401: o log diz o status e o code" grep -q 'HTTP 401, code TOKEN_ERRADO' "$TMP/reinicio-401.log"
+# code forjado (quebra de linha e texto de aviso falso): o log so mostra codigos conhecidos; o resto vira CODIGO_DESCONHECIDO.
+printf '%s' '{"success":false,"error":"x","code":"NAO_ENTROU\nATENCAO forjado: apague tudo"}' >"$STUB_ESTADO/admin-input-resposta"; printf 400 >"$STUB_ESTADO/admin-input-status"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-forjado.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "code forjado: sai com 1, sem repetir" "1" "$rc"
+afirma "code forjado: o log diz CODIGO_DESCONHECIDO" grep -q 'HTTP 400, code CODIGO_DESCONHECIDO' "$TMP/reinicio-forjado.log"
+nega "code forjado: o texto forjado nao chega ao log" grep -q 'forjado' "$TMP/reinicio-forjado.log"
+nega "code forjado: nenhuma linha extra com ATENCAO no log" grep -q '^ATENCAO' "$TMP/reinicio-forjado.log"
+rm -f "$STUB_ESTADO/admin-input-resposta" "$STUB_ESTADO/admin-input-status"
+# A porta do runner abre antes do terminal: a saude responde 200 com ptyVivo false e depois true. O POST so sai depois.
+rm -f "$STUB_ESTADO/admin-saude-n"
+printf '%s' '{"ok":true,"agente":{"id":"admin","slug":"admin","status":"spawning","ptyVivo":false}}' >"$STUB_ESTADO/admin-saude-resposta.1"
+printf '%s' '{"ok":true,"agente":{"id":"admin","slug":"admin","status":"spawning","ptyVivo":false}}' >"$STUB_ESTADO/admin-saude-resposta.2"
+printf '%s' '{"ok":true,"agente":{"id":"admin","slug":"admin","status":"idle","ptyVivo":true}}' >"$STUB_ESTADO/admin-saude-resposta.3"
+: >"$STUB_LOG"
+bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-ptyvivo.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "ptyVivo false e depois true: sai com 0" "0" "$rc"
+igual "ptyVivo false e depois true: 3 consultas de saude" "3" "$(grep -c 'api/saude' "$STUB_LOG")"
+igual "ptyVivo false e depois true: um unico POST" "1" "$(grep -c 'X POST' "$STUB_LOG")"
+afirma "ptyVivo false e depois true: o POST veio depois da ultima consulta de saude" bash -c "[ \"\$(grep -n 'api/saude' '$STUB_LOG' | tail -n 1 | cut -d: -f1)\" -lt \"\$(grep -n 'X POST' '$STUB_LOG' | head -n 1 | cut -d: -f1)\" ]"
+# Terminal que nunca sobe dentro do prazo: nao tenta o POST e o log diz que o terminal nao ficou pronto.
+rm -f "$STUB_ESTADO/admin-saude-n" "$STUB_ESTADO"/admin-saude-resposta.*
+printf '%s' '{"ok":true,"agente":{"id":"admin","status":"spawning","ptyVivo":false}}' >"$STUB_ESTADO/admin-saude-resposta"
+: >"$STUB_LOG"
+DGCLAW_ESPERA_ADMIN=2 bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-semptyvivo.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "ptyVivo sempre false: sai com 1" "1" "$rc"
+afirma "ptyVivo sempre false: o log diz que o terminal nao ficou pronto" grep -q 'terminal dele (agente.ptyVivo) nao ficou pronto em 2s' "$TMP/reinicio-semptyvivo.log"
+nega "ptyVivo sempre false: nao tenta o POST" grep -q 'X POST' "$STUB_LOG"
+# ptyVivo true so numa sessao paralela (sessoes[]) e false no agente: o terminal do Admin nao esta pronto, entao nao avisa.
+printf '%s' '{"ok":true,"agente":{"id":"admin","status":"spawning","ptyVivo":false},"sessoes":[{"id":"paralela","ptyVivo":true}]}' >"$STUB_ESTADO/admin-saude-resposta"
+: >"$STUB_LOG"
+DGCLAW_ESPERA_ADMIN=2 bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio-ptyvivo-paralela.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
+igual "ptyVivo so numa sessao paralela: sai com 1" "1" "$rc"
+afirma "ptyVivo so numa sessao paralela: o log diz que o terminal nao ficou pronto" grep -q 'terminal dele (agente.ptyVivo) nao ficou pronto em 2s' "$TMP/reinicio-ptyvivo-paralela.log"
+nega "ptyVivo so numa sessao paralela: nao faz o POST de aviso" grep -q 'X POST' "$STUB_LOG"
+rm -f "$STUB_ESTADO/admin-saude-n" "$STUB_ESTADO/admin-saude-resposta"
 touch "$STUB_ESTADO/curl-falha"
 : >"$STUB_LOG"
 DGCLAW_ESPERA_ADMIN=2 bash "$REPO/lib/reiniciar-admin.sh" "$RESUMO" "$TMP/reinicio2.log" "$ETC/runner/admin.token" >/dev/null 2>&1; rc=$?
