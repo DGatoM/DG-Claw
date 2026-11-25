@@ -502,7 +502,7 @@ test("AskUserQuestion: PreToolUse vira waiting_input/pergunta, a resposta (PostT
       }
     }
   }
-  assert.equal(conferidos, 8, "os oito eventos do runner têm teto");
+  assert.equal(conferidos, 10, "os dez eventos do runner têm teto (os oito de sempre mais SubagentStart e SubagentStop)");
   hook("UserPromptSubmit");
   hook("PreToolUse", { toolName: "AskUserQuestion" });
   assert.equal(s.estado.status, "waiting_input");
