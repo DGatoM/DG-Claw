@@ -43,7 +43,7 @@
     ['esperando_voce', 'Esperando você', true, 'O card parou pedindo permissão ou esperando uma resposta sua. Ele não anda enquanto ninguém decidir (a decisão é no DG Telegram).'],
     ['trabalhando', 'Trabalhando', true, 'O card está trabalhando agora: o Bunker diz que ele está ativo, ou a conversa dele mexeu há menos de 1 minuto.'],
     ['concluido', 'Concluídas', true, 'O terminal está aberto, o card parou e terminou o que tinha para fazer.'],
-    ['parado', 'Paradas', true, 'O terminal está aberto e o card parou sem ter terminado. Vale abrir e ler a conversa.'],
+    ['parado', 'Paradas', true, 'O terminal está aberto e o card parou sem ter terminado, ou está aguardando o primeiro turno. Vale abrir e ler a conversa.'],
     ['erro', 'Com erro', true, 'O Bunker marcou erro no card, ou o estado dele não é conhecido.'],
     ['fechado', 'Fechadas', false, 'Cards sem terminal aberto (foram parados ou terminaram). Dá para retomar. A lista mostra só as 60 mais recentes.'],
     ['arquivado', 'Arquivadas', false, 'Cards que você escondeu da lista. Dá para desarquivar quando quiser.'],
@@ -94,6 +94,12 @@
   const raiz = () => $('sessoes-root');
   const urlSegura = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u) ? u : '');
   const grupoDe = (it) => (it.arquivado ? 'arquivado' : (GRUPOS[it.grupo] ? it.grupo : 'parado'));
+  // O card que espera o primeiro turno fica no grupo 'parado' (os filtros dependem disso), mas o rótulo não diz "Parado":
+  // o runner ainda não observou o turno, e isso não prova que o card esteja parado.
+  const infoDe = (it) => {
+    const info = GRUPOS[grupoDe(it)];
+    return it.estado === 'esperando_primeiro_turno' ? { ...info, rotulo: 'Aguardando o primeiro turno' } : info;
+  };
   const precisaRetomar = (it) => !!it && (!it.tem_terminal || it.grupo === 'fechado');
 
   function tamanho(n) {
@@ -518,7 +524,7 @@
   }
 
   function itemDaLista(it) {
-    const info = GRUPOS[grupoDe(it)];
+    const info = infoDe(it);
     const meta = [it.pasta, quando(it.desde)].filter(Boolean).join(' · ');
     const topo = el('button', { type: 'button', class: 'sx-item-topo', style: `--cor:${info.cor}`, onclick: () => abreDetalhe(it.id, it) },
       el('span', { class: `sx-bol${info.pulsa ? ' pulsa' : ''}`, 'aria-hidden': 'true' }),
@@ -854,9 +860,9 @@
     const it = d.item;
     const r = d.ref;
     if (!it) { r.info.textContent = 'Carregando o card...'; return; }
-    const info = GRUPOS[grupoDe(it)];
+    const info = infoDe(it);
 
-    const sigInfo = JSON.stringify([it.nome_limpo, it.nome, grupoDe(it), it.motivo, it.pasta, it.cwd, it.desde, it.favorito, d.editandoNome, d.salvandoNome, recOn('favorito'), recOn('renomear')]);
+    const sigInfo = JSON.stringify([it.nome_limpo, it.nome, grupoDe(it), it.estado, it.motivo, it.pasta, it.cwd, it.desde, it.favorito, d.editandoNome, d.salvandoNome, recOn('favorito'), recOn('renomear')]);
     if (sigInfo !== d.sigInfo) {
       d.sigInfo = sigInfo;
       r.info.textContent = '';
@@ -946,6 +952,9 @@
   async function pollDetalhe() {
     const d = det;
     if (!d || !cfg || !cfg.ligado) return;
+    const chaveDaEspera = (it) => (it ? [it.estado, it.motivo, it.tem_terminal].join('|') : '');
+    const estadoAntes = d.item && d.item.estado;
+    const esperaAntes = chaveDaEspera(d.item);
     try {
       const res = await chama(`/api/sessoes/${encodeURIComponent(d.id)}`);
       if (det !== d) return;
@@ -968,22 +977,36 @@
       return;
     }
     renderDetalhe();
-    if (d.item && d.item.grupo === 'trabalhando') carregaConversa('poll');
+    // Durante ou ao sair de "esperando o primeiro turno" (inclusive direto para concluído ou erro), mudança de estado,
+    // de motivo ou de terminal muda a orientação da conversa vazia: recarrega mesmo fora do grupo trabalhando.
+    // Entrar nela vindo de outro estado (ex.: "Conversa nova" acabou de zerar a conversa) também troca a orientação.
+    const saiuDaEspera = estadoAntes === 'esperando_primeiro_turno' && chaveDaEspera(d.item) !== esperaAntes;
+    const entrouNaEspera = d.item && d.item.estado === 'esperando_primeiro_turno' && estadoAntes !== 'esperando_primeiro_turno';
+    if (d.item && (d.item.grupo === 'trabalhando' || saiuDaEspera || entrouNaEspera)) carregaConversa('poll');
   }
 
   // ─── Conversa ─────────────────────────────────────────────────
 
   async function carregaConversa(modo) {
     const d = det;
-    if (!d || d.carregandoConv) return;
+    if (!d) return;
+    if (d.carregandoConv) {
+      // Pedido de atualização durante uma carga em andamento: guarda e refaz ao terminar, senão a orientação fica velha.
+      if (modo === 'poll') d.recarregarConv = true;
+      return;
+    }
     d.carregandoConv = true;
+    // Geração da conversa: "Conversa nova" a incrementa, e a resposta de uma carga iniciada antes dela é da conversa antiga.
+    const geracao = d.geracaoConv || 0;
+    let obsoleta = false;
     let url = `/api/sessoes/${encodeURIComponent(d.id)}/conversa?`;
     if (modo === 'antigos') url += `limite=30&before=${encodeURIComponent(d.antes)}`;
     else url += `limite=${Math.min(100, Math.max(30, d.msgs.length + 15))}`;
     try {
       const res = await chama(url);
       if (det !== d) return;
-      if (!res.ok) {
+      if ((d.geracaoConv || 0) !== geracao) obsoleta = true;
+      else if (!res.ok) {
         d.erroConv = textoErro(res);
       } else {
         d.erroConv = '';
@@ -991,15 +1014,27 @@
         d.msgs = modo === 'antigos' ? lista.concat(d.msgs) : lista;
         d.antes = res.corpo.antes;
         d.truncado = !!res.corpo.truncado;
+        d.motivoVazio = typeof res.corpo.motivo_vazio === 'string' ? res.corpo.motivo_vazio : '';
         d.carregouConv = true;
       }
     } catch (e) {
       if (det !== d) return;
-      d.erroConv = e.message;
+      if ((d.geracaoConv || 0) !== geracao) obsoleta = true;
+      else d.erroConv = e.message;
     } finally {
       d.carregandoConv = false;
     }
+    if (obsoleta) {
+      // Resposta da conversa antiga: descarta sem tocar na tela e refaz a carga da conversa atual.
+      d.recarregarConv = false;
+      carregaConversa('poll');
+      return;
+    }
     renderConversa(modo === 'antigos');
+    if (d.recarregarConv && det === d) {
+      d.recarregarConv = false;
+      carregaConversa('poll');
+    }
   }
 
   function renderConversa(manterTopo) {
@@ -1009,7 +1044,7 @@
     r.convEstado.hidden = false;
     if (d.erroConv) { r.convEstado.textContent = d.erroConv; r.convEstado.className = 'sx-msg erro'; }
     else if (!d.carregouConv) { r.convEstado.textContent = 'Carregando a conversa...'; r.convEstado.className = 'sx-vazio'; }
-    else if (!d.msgs.length) { r.convEstado.textContent = 'Esta sessão ainda não tem mensagens.'; r.convEstado.className = 'sx-vazio'; }
+    else if (!d.msgs.length) { r.convEstado.textContent = d.motivoVazio || 'Esta sessão ainda não tem mensagens.'; r.convEstado.className = 'sx-vazio'; }
     else r.convEstado.hidden = true;
     r.mais.hidden = !(d.truncado && d.antes != null && !d.erroConv);
     const sig = JSON.stringify(d.msgs);
@@ -1168,7 +1203,19 @@
     if (acao === 'retomar' || acao === 'retomar-nova') {
       const nova = acao === 'retomar-nova';
       const ok = nova ? 'Abri uma conversa nova nessa sessão.' : (modoLocal() ? 'Pedi ao agente para retomar a conversa dessa sessão.' : `Pedi ao ${FN()} para reabrir o terminal desse card.`);
-      if (await postAcao(d, '/retomar', nova ? { nova: true } : {}, ok)) pollDetalhe();
+      if (await postAcao(d, '/retomar', nova ? { nova: true } : {}, ok)) {
+        if (nova && det === d) {
+          // A conversa antiga ficou guardada no disco: some da tela já, e a carga traz a da conversa nova.
+          d.geracaoConv = (d.geracaoConv || 0) + 1;
+          d.msgs = [];
+          d.antes = null;
+          d.truncado = false;
+          d.motivoVazio = '';
+          renderConversa(false);
+          carregaConversa('poll');
+        }
+        pollDetalhe();
+      }
     }
   }
 

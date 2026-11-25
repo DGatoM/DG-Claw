@@ -134,6 +134,12 @@ Agentes
       1 se alguma coisa falta e 2 se o agente nao esta ligado (nao da para conferir).
       Exemplo:  dgclaw agente tela ana
 
+  dgclaw agente youtube <slug> conta-dedicada [sim|nao]   liga ou desliga o uso da conta Google da Tela no download do YouTube
+      Sem sim|nao, mostra o estado. Padrao: desligado. So ligue quando a conta Google da Tela deste agente
+      for dedicada a ele (nunca a pessoal do dono): com ela ligada, o yt-dlp do agente pode usar os cookies
+      da Tela quando o YouTube pedir a checagem anti-robo. Vale na hora, sem reiniciar o agente.
+      Exemplo:  dgclaw agente youtube ana conta-dedicada sim
+
   dgclaw agente remover <slug> [--sim]   tira o agente do ar. Nao apaga: a casa dele vai
       para /var/lib/dgclaw/aposentados/. Pede confirmacao quando ha terminal.
       Exemplo:  dgclaw agente remover ana --sim
@@ -2320,6 +2326,67 @@ chave_api() {
     exec env -u DGCLAW_WEB_DATA DGCLAW_WEB_ENV="$DG_ETC/web.env" DGCLAW_WEB_DATA_PADRAO="$DG_LIB/web" node "$chave_js" "$@"
 }
 
+# agente_youtube <slug> conta-dedicada [sim|nao]: o dono declara que a conta Google da Tela deste agente e
+# dedicada a ele. So com o marcador o agente (e o vigia do diagnostico) pode usar os cookies da Tela no yt-dlp.
+# O marcador fica em $casa/config, que o container ve (somente leitura) em /run/dgclaw/config.
+agente_youtube() {
+    local slug="${1:-}" tema="${2:-}" valor="${3:-}" obj casa marcador
+    [ "$#" -le 3 ] || falha_uso "argumentos demais para dgclaw agente youtube." \
+        "use: dgclaw agente youtube <slug> conta-dedicada sim|nao"
+    ( exigir_slug "$slug" youtube ) || exit 2
+    [ "$tema" = conta-dedicada ] || falha_uso "faltou dizer o que mudar no YouTube do agente $slug." \
+        "use: dgclaw agente youtube $slug conta-dedicada sim|nao"
+    casa="$DG_CASAS/$slug"
+    marcador="$casa/config/youtube-conta-dedicada"
+    obj="$(agentes_obter "$slug")"
+    [ -n "$obj" ] || falha "o agente '$slug' nao esta no agentes.json." "veja os que existem com: dgclaw agente listar"
+    case "$valor" in
+        sim|nao) ;;
+        *)
+            if [ -f "$marcador" ]; then
+                printf 'Conta dedicada do YouTube do agente %s: LIGADA (o agente pode usar os cookies da Tela quando o YouTube pedir a checagem anti-robo).\n' "$slug"
+            else
+                printf 'Conta dedicada do YouTube do agente %s: DESLIGADA (o agente nao usa os cookies da Tela).\n' "$slug"
+            fi
+            printf 'Para mudar: dgclaw agente youtube %s conta-dedicada sim|nao\n' "$slug"
+            printf 'So ligue quando a conta Google da Tela deste agente tiver sido criada so para ele, nunca a conta pessoal do dono.\n'
+            [ -z "$valor" ] || return 2
+            return 0
+            ;;
+    esac
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] conta-dedicada $valor: $( [ "$valor" = sim ] && echo "gravaria" || echo "removeria" ) $marcador"
+        return 0
+    fi
+    # Sem trava com a restauracao: ela desliga a conta dedicada de todos os agentes antes e depois de extrair o backup.
+    _agente_youtube_gravar "$slug" "$valor"
+}
+
+# _agente_youtube_gravar <slug> sim|nao: grava ou remove o marcador.
+_agente_youtube_gravar() {
+    local slug="$1" valor="$2" casa marcador ub tmp
+    casa="$DG_CASAS/$slug"
+    marcador="$casa/config/youtube-conta-dedicada"
+    [ -n "$(agentes_obter "$slug")" ] || falha "o agente '$slug' nao esta no agentes.json." "veja os que existem com: dgclaw agente listar"
+    [ -d "$casa/config" ] || falha "a pasta de configuracao do agente $slug ($casa/config) nao existe." \
+        "rode: dgclaw agente reparar $slug"
+    ub="$(stat -c '%u:%g' "$casa/config")"
+    if [ "$valor" = sim ]; then
+        # Sem mkdir -p: se a casa sumiu no meio (agente removido), a gravacao falha em vez de recriar a pasta.
+        tmp="$(mktemp "$casa/config/.youtube-conta-dedicada.XXXXXX")" \
+            || falha "nao consegui gravar o marcador em $casa/config." "confira com: dgclaw agente listar"
+        if ! { printf 'sim\n' >"$tmp" && chmod 644 "$tmp" && dono "$ub" "$tmp" && mv -f -T "$tmp" "$marcador"; }; then
+            rm -f -- "$tmp"
+            falha "nao consegui gravar o marcador $marcador." "confira se o agente $slug ainda existe com: dgclaw agente listar"
+        fi
+        ok "conta dedicada do YouTube LIGADA para o agente $slug (vale na hora, sem reiniciar). O yt-dlp usa a sessao que estiver na Tela dele: nao entre la com a sua conta pessoal enquanto estiver ligada."
+    else
+        rm -f -- "$marcador" || falha "nao consegui remover o marcador $marcador: a conta dedicada do YouTube continua LIGADA." "confira o disco e a permissao de $casa/config e rode de novo."
+        [ ! -e "$marcador" ] || falha "o marcador $marcador continua la: a conta dedicada do YouTube continua LIGADA." "confira o disco e a permissao de $casa/config e rode de novo."
+        ok "conta dedicada do YouTube DESLIGADA para o agente $slug. Os proximos downloads nao usam os cookies da Tela; um download que ja comecou vai ate o fim, e o perfil da Tela continua na casa do agente."
+    fi
+}
+
 # agente_tela_senha <slug>: troca a senha da Tela. A nova senha vem pelo STDIN (ou e
 # pedida no terminal, sem eco). Quem valida o tamanho e o alfabeto e o gravador; o
 # x11vnc religa sozinho (dgclaw-tela-senha.path, dentro do agente).
@@ -2471,9 +2538,10 @@ agente_main() {
         cofre) agente_cofre "$@" ;;
         tela-senha) agente_tela_senha "$@" ;;
         tela) agente_tela "$@" ;;
+        youtube) agente_youtube "$@" ;;
         remover) agente_remover "$@" ;;
-        "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, restricoes, identidade, cofre, tela, tela-senha ou remover (veja dgclaw --ajuda)." ;;
-        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, restricoes, identidade, cofre, tela, tela-senha ou remover (veja dgclaw --ajuda)." ;;
+        "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, restricoes, identidade, cofre, tela, tela-senha, youtube ou remover (veja dgclaw --ajuda)." ;;
+        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, restricoes, identidade, cofre, tela, tela-senha, youtube ou remover (veja dgclaw --ajuda)." ;;
     esac
 }
 
