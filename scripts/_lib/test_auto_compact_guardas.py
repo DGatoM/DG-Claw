@@ -192,6 +192,84 @@ class MainDoAutoCompactNoRunner(unittest.TestCase):
         self.assertNotIn("last_compact_ts", gravado)
 
 
+class CompactarNaoAdiantaQuandoABaseJaPassaDoTeto(unittest.TestCase):
+    """Reproduz o loop de compactacao (relato de 18/11/2026): depois de compactar, o contexto
+    nao volta so ao resumo, volta ao resumo MAIS o que toda sessao carrega de base (instrucoes,
+    ferramentas, memoria). Num transcript real o resumo tem ~20k (postTokens) e a primeira resposta
+    seguinte ja mede ~80k. Se essa base fica perto ou acima do teto, cada ciclo do timer acha que
+    precisa compactar de novo, e cada compactacao custa a leitura do contexto inteiro."""
+
+    TETO = 140_000
+
+    def _rodar(self, base, depois, minutos_desde_o_compact=40):
+        def linha_assistant(total):
+            return json.dumps({"type": "assistant", "message": {
+                "role": "assistant", "content": "ok",
+                "usage": {"input_tokens": 10, "cache_read_input_tokens": total}}})
+        quando = (datetime.now(timezone.utc) - timedelta(minutes=minutos_desde_o_compact)).isoformat()
+        with tempfile.TemporaryDirectory() as d:
+            ws = Path(d)
+            transcript = ws / "t.jsonl"
+            linhas = [linha_assistant(190_000),
+                      json.dumps({"type": "system", "subtype": "compact_boundary", "timestamp": quando,
+                                  "compactMetadata": {"trigger": "manual", "preTokens": 190_000,
+                                                      "postTokens": 20_000}}),
+                      json.dumps({"type": "user", "isCompactSummary": True, "timestamp": quando,
+                                  "message": {"role": "user", "content": "resumo"}}),
+                      linha_assistant(base)]
+            if depois:
+                linhas.append(linha_assistant(depois))
+            transcript.write_text("\n".join(linhas) + "\n")
+            state_file = ws / "estado.json"
+            state_file.write_text(json.dumps({"last_compact_ts": quando}))
+            amb = {"DGCLAW_WORKSPACE": str(ws), "DGCLAW_SLUG": "teste", "DGCLAW_SESSION_DIR": str(ws),
+                   "DGCLAW_COMPACT_NOTIFY": "0", "DGCLAW_AUTO_RECOVERY": "on",
+                   "DGCLAW_COMPACT_THRESHOLD": str(self.TETO)}
+            from auto_compact import principal
+            injetou = []
+            with mock.patch.dict(os.environ, amb), \
+                 mock.patch.object(sys, "argv", ["auto-compact.py"]), \
+                 mock.patch.object(principal.inj, "resolve_mode", return_value="inject"), \
+                 mock.patch.object(guardas.inj, "resolve_mode", return_value="inject"), \
+                 mock.patch.object(principal.inj, "is_session_alive", return_value=True), \
+                 mock.patch.object(principal, "resolve_live_transcript", return_value=transcript), \
+                 mock.patch.object(principal, "resolve_state_file", return_value=state_file), \
+                 mock.patch.object(principal, "looks_idle", return_value=True), \
+                 mock.patch.object(principal, "notify_owner"), \
+                 mock.patch.object(principal, "esperar_assentar_e_fechar"), \
+                 mock.patch.object(principal, "inject_compact",
+                                   side_effect=lambda *a: (injetou.append(a), 0)[1]):
+                rc = principal.main()
+            return rc, injetou
+
+    def test_base_pos_compactacao_acima_do_teto_nao_compacta_de_novo(self):
+        rc, injetou = self._rodar(base=150_000, depois=155_000)
+        self.assertEqual(rc, 0)
+        self.assertEqual(injetou, [])
+
+    def test_base_perto_do_teto_com_pouco_a_liberar_nao_compacta(self):
+        rc, injetou = self._rodar(base=135_000, depois=145_000)
+        self.assertEqual(injetou, [])
+
+    def test_base_normal_com_muito_a_liberar_compacta(self):
+        rc, injetou = self._rodar(base=80_000, depois=150_000)
+        self.assertEqual(len(injetou), 1)
+
+    def test_sem_resposta_depois_do_compact_nao_ha_base_e_nada_muda(self):
+        from auto_compact.transcript import base_pos_compactacao
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d) / "t.jsonl"
+            t.write_text(json.dumps({"type": "system", "subtype": "compact_boundary"}) + "\n")
+            self.assertIsNone(base_pos_compactacao(t))
+
+    def test_transcript_sem_compactacao_nao_tem_base(self):
+        from auto_compact.transcript import base_pos_compactacao
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d) / "t.jsonl"
+            t.write_text(json.dumps({"type": "assistant", "message": {"usage": {"input_tokens": 5}}}) + "\n")
+            self.assertIsNone(base_pos_compactacao(t))
+
+
 class FilaParadaNoWatchdog(unittest.TestCase):
     def _card(self, **kw):
         base = {"status": "working", "statusReason": "hook:PreCompact", "naFilaTotal": 2,

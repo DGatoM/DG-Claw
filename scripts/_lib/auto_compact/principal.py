@@ -14,7 +14,14 @@ from .injecao import inject_compact
 from .modo_restart import do_restart_compact
 from .poke import resume_poke_enabled, write_resume_poke
 from .tarefas import _resumo_bg, background_tasks, turn_snapshot
-from .transcript import context_tokens, had_compact_since, looks_idle, resolve_live_transcript
+from .transcript import base_pos_compactacao, context_tokens, had_compact_since, looks_idle, resolve_live_transcript
+
+
+def _ganho_minimo() -> int:
+    try:
+        return max(0, int(float(env("DGCLAW_COMPACT_MIN_GAIN", "30000"))))
+    except (TypeError, ValueError):
+        return 30000
 
 
 def main():
@@ -140,6 +147,20 @@ def main():
         rem = cooldown_remaining(st, cooldown_min)
         if rem > 0:
             log(f"acima do teto, mas em cooldown ({rem:.0f}min restantes) — pulando")
+            return 0
+
+    # 3.5) compactar so vale se liberar espaco. Depois de compactar o contexto volta ao resumo MAIS a
+    # base da sessao (instrucoes, ferramentas, memoria), que a compactacao nao reduz. Se a primeira
+    # resposta depois da ultima compactacao ja media quase o teto, cada ciclo do timer achava que
+    # precisava compactar de novo e gastava a leitura do contexto inteiro a troco de nada (relato de
+    # 18/11/2026). O ganho possivel e o contexto de agora menos essa base. --force fura.
+    if not args.force:
+        base = base_pos_compactacao(transcript)
+        ganho_min = _ganho_minimo()
+        if base is not None and ctx - base < ganho_min:
+            log(f"acima do teto, mas a ultima compactacao deixou a base em {base // 1000}k e so dariam "
+                f"{max(0, ctx - base) // 1000}k a liberar (minimo {ganho_min // 1000}k, "
+                f"DGCLAW_COMPACT_MIN_GAIN); compactar de novo nao baixa o contexto; pulando")
             return 0
 
     # 4) ociosidade COM ESCALADA. Antes a checagem era binaria: se a sessao parecia

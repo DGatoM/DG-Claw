@@ -14,6 +14,16 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   instalada, resposta do painel, serviços do host e, para cada agente, se o container existe, está rodando e tem
   limite de memória. O resto do checklist fica à mão. Não muda o comportamento de quem já usa o DG Claw.
 
+**Correção do auto-compact que compactava em loop e gastava a sessão do plano.** Depois de compactar, o contexto não volta só
+ao resumo: volta ao resumo mais o que toda sessão carrega de base (instruções, ferramentas, memória), algo em torno de 70 mil a
+85 mil tokens nos transcritos reais. Se essa base ficava perto ou acima do teto (`DGCLAW_COMPACT_THRESHOLD`), o auto-compact
+achava a cada ciclo de 30 minutos que precisava compactar de novo, e cada compactação custa a leitura do contexto inteiro, sem
+baixar nada. Agora ele mede o tamanho da primeira resposta depois da última compactação e só compacta se o contexto de agora
+passar dessa base por pelo menos `DGCLAW_COMPACT_MIN_GAIN` tokens (padrão 30000). Quando pula, o log do auto-compact explica o
+motivo. Vale só no Claude, o único motor em que o auto-compact funciona hoje (o Codex continua na exceção de
+`docs/PARIDADE-CODEX.md`). Quem vê o log dizer que pulou por base alta pode subir `DGCLAW_COMPACT_THRESHOLD` ou reduzir o que o
+agente carrega de base (memória e instruções longas).
+
 **Correção do agente que ficava "trabalhando" para sempre depois de um /compact recusado.** Quando o auto-compact enfileirava
 vários `/compact` seguidos e o Claude Code respondia "Not enough messages to compact.", ele avisava o início da compactação
 e nunca o fim: o agente ficava em "working" por horas com as mensagens presas na fila. Agora (1) o runner olha o transcript

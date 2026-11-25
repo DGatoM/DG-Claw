@@ -83,6 +83,9 @@ Env:
                                  nova pro poke. Default 25.
   DGCLAW_RESUME_POKE_TTL_MIN   (modo inject) minutos que o poke pendente espera a
                                  compactacao assentar antes de ser descartado. Default 60.
+  DGCLAW_COMPACT_MIN_GAIN      tokens que uma compactacao precisa liberar (contexto de agora menos o
+                                 tamanho medido na 1a resposta depois da ultima compactacao) pra valer
+                                 a pena. Abaixo disso o auto-compact nao compacta de novo. Default 30000.
   DGCLAW_COMPACT_SETTLE_WAIT_S (modo inject) segundos que o run que injetou o /compact
                                  espera o recibo pra mandar o "Voltei" na hora. Default 600;
                                  0 deixa o fechamento pro proximo ciclo do timer.

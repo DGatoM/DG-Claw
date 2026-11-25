@@ -93,6 +93,40 @@ def context_tokens(transcript: Path) -> int:
     )
 
 
+def base_pos_compactacao(transcript: Path):
+    """Tamanho do contexto na PRIMEIRA resposta depois da ultima compactacao, ou None (sem
+    compactacao no transcript, ou ainda sem resposta depois dela).
+
+    O postTokens do compact_boundary so conta o resumo (~20k num transcript real); a primeira
+    resposta seguinte ja mede o resumo mais o que toda sessao carrega de base (instrucoes,
+    ferramentas, memoria: ~70k a 85k nos transcripts reais). E esse piso que uma nova compactacao
+    nao consegue baixar, entao e com ele que se decide se compactar de novo adianta."""
+    base = None
+    apos_boundary = False
+    try:
+        with transcript.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if o.get("subtype") == "compact_boundary":
+                    base, apos_boundary = None, True
+                elif apos_boundary and o.get("type") == "assistant":
+                    u = (o.get("message") or {}).get("usage")
+                    if isinstance(u, dict):
+                        total = ((u.get("input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0)
+                                 + (u.get("cache_read_input_tokens") or 0))
+                        if total > 0:
+                            base, apos_boundary = total, False
+    except Exception:
+        return None
+    return base
+
+
 def looks_idle(transcript: Path, idle_sec: int) -> bool:
     """Heuristica de ociosidade: a sessao NAO esta no meio de um turno.
 
