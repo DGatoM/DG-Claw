@@ -18,8 +18,8 @@ A lista nasceu do levantamento do que os agentes já em produção chamam no dia
 | fonts-liberation, fonts-noto-color-emoji, fontconfig | Imagens, PDFs e capturas de tela saem sem quadradinhos. |
 | gh (repositório oficial, com chave) | Push e pull request. |
 | git, curl, wget, jq, ripgrep, sqlite3, unzip, zip, xz-utils, rsync, file, less, nano, vim-tiny, procps, iproute2, dnsutils, openssh-client, gawk, bc, tini | Ferramentas básicas que os scripts dos agentes e dos alunos assumem. |
-| `/opt/venv` no PATH | Python com Pillow, requests, numpy, pyyaml, openpyxl, pymupdf, playwright (só o pacote) e yt-dlp. O venv evita o bloqueio PEP 668 do Ubuntu: o agente roda `pip install` normal. |
-| yt-dlp pelo pip | É o jeito que recebe atualização; o do apt envelhece rápido. |
+| `/opt/venv` no PATH | Python com Pillow, requests, numpy, pyyaml, openpyxl, pymupdf, playwright (só o pacote) e yt-dlp (com o yt-dlp-ejs, que resolve o desafio de JavaScript do YouTube; os dois com versão e hash fixos, instalados num passo próprio). O venv evita o bloqueio PEP 668 do Ubuntu: o agente roda `pip install` normal. |
+| yt-dlp pelo pip | É o jeito que recebe atualização; o do apt envelhece rápido. Há um link em `/usr/local/bin/yt-dlp`, para o comando funcionar também em serviço que não herda o PATH da imagem, e o arquivo `/etc/yt-dlp.conf` (root:root, 0644) com uma linha só, `--js-runtimes node`. Cookies não ficam em configuração global: o agente os pede na própria chamada. |
 
 Nenhum compilador fica na imagem final: o `node-pty` do runner compila num estágio à parte
 (`runner-build`) e só o resultado é copiado.
@@ -28,7 +28,7 @@ Nenhum compilador fica na imagem final: o `node-pty` do runner compila num está
 
 Claude Code 2.1.296, Codex CLI 0.167.1, Bun 1.4.5 (todos por `ARG`, no topo do estágio `base`).
 Python: Pillow 12.3.0, requests 2.34.2, numpy 2.5.4, pyyaml 6.0.3, openpyxl 3.1.5, pymupdf 1.28.2,
-playwright 1.63.0, yt-dlp 2026.8.19. Node 22 e o gh seguem o repositório oficial no dia do build.
+playwright 1.63.0, yt-dlp 2026.11.23 (yt-dlp-ejs 0.8.0), estes dois com hash fixo. Node 22 e o gh seguem o repositório oficial no dia do build.
 
 ## Como construir
 
