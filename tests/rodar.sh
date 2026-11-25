@@ -27,8 +27,11 @@
 #  21. docs-em-dia     tests/docs-em-dia: o manual (docs/manual) acompanha o codigo (inventario de scripts/docs-inventario.mjs), com bancada de manual falso
 #  22. heartbeat       tests/heartbeat: o batimento (scripts/heartbeat.sh) so acorda o agente quando o assunto muda, com plugin e sessao falsos
 #  23. reflexao        tests/reflexao: o scripts/reflection.sh pula o dia sem conversa com o dono e, na duvida, roda (workspace e plugin falsos)
+#  23b. comentarios     tests/comentarios: o cron de comentarios roda com ferramentas restritas e responde so pelo responder-comentario.sh (claude, plugin e Instagram falsos)
 #  24. instrucoes      tests/instrucoes: CLAUDE.md e AGENTS.md (agente e Admin) gerados da mesma fonte, com as mesmas secoes
 #  25. anexo-seguro    tests/anexo-seguro: o doctor --fix acrescenta secoes sem seguir link simbolico
+#  26. confianca        tests/confianca: a confianca de pasta do Claude (helper confiar-pastas, funcao dos crons) e o channel-watchdog dizendo a causa
+#  27. versao          tests/versao: as versoes (VERSION, package.json do runner e do painel, lock, CHANGELOG) dizem o mesmo numero
 #
 # Nada aqui encosta no sistema de verdade: nao cria container, rede nem unidade.
 #
@@ -129,9 +132,9 @@ testes_shellcheck() {
     command -v "$sc" >/dev/null || { echo "nao achei o shellcheck ('$sc'); instale, aponte SHELLCHECK=<binario> ou rode com DGCLAW_TESTES_PULAR=shellcheck" >&2; return 1; }
     (
         cd "$REPO" || exit 1
-        arquivos=(install.sh bin/dgclaw lib/*.sh tests/rodar.sh tests/cli/*.sh tests/cli/stubs/*
-                  tests/instalador/*.sh tests/novidades/*.sh tests/changelog/*.sh tests/monitor/*.sh tests/aviso-atualizacao/*.sh tests/boletins/*.sh tests/emergencia/*.sh tests/tela/*.sh tests/anonimizar/*.sh tests/docs-em-dia/*.sh tests/heartbeat/*.sh scripts/heartbeat.sh tests/reflexao/*.sh tests/instrucoes/*.sh tests/anexo-seguro/*.sh scripts/_lib/anexo-seguro.sh scripts/gerar-instrucoes.sh bin/dgclaw-tela-navegador tests/ronda/rodar.sh tests/ronda/stubs/* scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh
-                  scripts/revisao-adversarial.sh tests/revisao-adversarial/*.sh)
+        arquivos=(install.sh bin/dgclaw lib/*.sh tests/rodar.sh tests/cli/*.sh tests/cli/stubs/* tests/cli/stubs-entrega/* scripts/smoke-entrega.sh
+                  tests/instalador/*.sh tests/novidades/*.sh tests/changelog/*.sh tests/monitor/*.sh tests/aviso-atualizacao/*.sh tests/boletins/*.sh tests/emergencia/*.sh tests/tela/*.sh tests/anonimizar/*.sh tests/docs-em-dia/*.sh tests/heartbeat/*.sh scripts/heartbeat.sh tests/reflexao/*.sh tests/comentarios/*.sh scripts/responder-comentario.sh scripts/cron/dgclaw-comentarios.sh tests/instrucoes/*.sh tests/anexo-seguro/*.sh scripts/_lib/anexo-seguro.sh tests/confianca/*.sh scripts/_lib/confiar-pastas.sh scripts/channel-watchdog.sh scripts/gerar-instrucoes.sh bin/dgclaw-tela-navegador tests/ronda/rodar.sh tests/ronda/stubs/* scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh
+                  scripts/revisao-adversarial.sh tests/revisao-adversarial/*.sh tests/versao/*.sh)
         "$sc" -x "${arquivos[@]}"
     )
 }
@@ -168,10 +171,13 @@ parte emergencia bash "$REPO/tests/emergencia/rodar.sh"
 parte tela bash "$REPO/tests/tela/rodar.sh"
 parte anonimizar bash "$REPO/tests/anonimizar/rodar.sh"
 parte docs-em-dia bash "$REPO/tests/docs-em-dia/rodar.sh"
+parte comentarios bash "$REPO/tests/comentarios/rodar.sh"
 parte reflexao bash "$REPO/tests/reflexao/rodar.sh"
 parte heartbeat bash "$REPO/tests/heartbeat/rodar.sh"
 parte instrucoes bash "$REPO/tests/instrucoes/rodar.sh"
 parte anexo-seguro bash "$REPO/tests/anexo-seguro/rodar.sh"
+parte confianca bash "$REPO/tests/confianca/rodar.sh"
+parte versao bash "$REPO/tests/versao/rodar.sh"
 
 printf '\n'
 [ "${#PULADOS[@]}" -eq 0 ] || printf 'Pulado: %s\n' "${PULADOS[@]}"

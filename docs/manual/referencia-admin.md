@@ -51,6 +51,7 @@ mudar nada. Quem: Root. Detalhe geral em [ATUALIZAR.md](../ATUALIZAR.md) e no `d
 | `dgclaw agente cofre` | Guarda, revoga, lista ou aplica chaves de API do agente (`guardar`, `revogar`, `listar`, `aplicar`). O valor vem sempre pelo STDIN | [COFRE-POR-API.md](../COFRE-POR-API.md) |
 | `dgclaw agente tela` | Confere a Tela do agente e diz, linha a linha, o que falta | [TELA-DO-AGENTE.md](../TELA-DO-AGENTE.md) |
 | `dgclaw agente tela-senha` | Troca a senha da Tela (6 a 8 caracteres ASCII, pelo STDIN) | [TELA-DO-AGENTE.md](../TELA-DO-AGENTE.md) |
+| `dgclaw agente restricoes` | Mostra ou muda as travas do agente (`--sem-bash`, `--sem-enviar-arquivo`, `--escrita-so-em` ou `--escrita-livre`). Ficam fora da caixa e voltam sozinhas ao criar, reparar, recriar e atualizar. Não vale para o Admin nem, nesta versão, para agentes no Codex | [RESTRICOES-DO-AGENTE.md](../RESTRICOES-DO-AGENTE.md) |
 | `dgclaw agente remover` | Tira o agente do ar sem apagar: a casa vai para `/var/lib/dgclaw/aposentados/`. Pede confirmação, ou `--sim` | [ATUALIZAR.md](../ATUALIZAR.md) |
 
 ### Colaboradores: convidar quem vai usar um agente
@@ -209,6 +210,7 @@ Servidas pelo DG Claw Web. Quem: Dono, salvo o que a coluna disser. Colab só pa
 | `/api/v1/agents/:slug/permissao` | Responde a um pedido de permissão do agente | Dono, Colab (com o nome dele registrado) | [TRILHA-E-PERMISSAO.md](../../web/docs/TRILHA-E-PERMISSAO.md) |
 | `/api/v1/agents/:slug/pergunta` | Responde a uma pergunta de escolha do agente | Dono, Colab | [TRILHA-E-PERMISSAO.md](../../web/docs/TRILHA-E-PERMISSAO.md) |
 | `/api/v1/agents/:slug/reiniciar` | Reinicia a sessão do agente | Dono, Colab | Sem documento próprio |
+| `/api/v1/agents/:slug/parar` | Para o que o agente está fazendo (um Esc na sessão) | Dono. Colab recebe 403 | [PARAR.md](../../web/docs/PARAR.md) |
 | `/api/v1/agents/:slug/avatar` | Foto do agente | Dono, Colab | Sem documento próprio |
 | `/api/v1/agents/:slug/compartilhados` | Acervo de mídias e arquivos da conversa | Dono, Colab | [MIDIAS-CACHE.md](../../web/docs/MIDIAS-CACHE.md) |
 | `/api/v1/agents/:slug/lido` | Marca a conversa como lida até uma mensagem | Dono, Colab | [ESTADO-DOS-AGENTES.md](../../web/docs/ESTADO-DOS-AGENTES.md) |
@@ -220,6 +222,7 @@ Servidas pelo DG Claw Web. Quem: Dono, salvo o que a coluna disser. Colab só pa
 | `/api/v1/alertas` | Documentação dos alertas da conversa | Dono, Colab | [ALERTAS.md](../../web/docs/ALERTAS.md) |
 | `/api/v1/comandos` | Documentação dos comandos de barra | Dono, Colab | [COMANDOS-DE-BARRA.md](../../web/docs/COMANDOS-DE-BARRA.md) |
 | `/api/v1/trilha` | Documentação da trilha de ações e das permissões | Dono, Colab | [TRILHA-E-PERMISSAO.md](../../web/docs/TRILHA-E-PERMISSAO.md) |
+| `/api/v1/parar` | Documentação do botão Parar | Dono, Colab (só leitura) | [PARAR.md](../../web/docs/PARAR.md) |
 | `/api/v1/nao-lidas` | Quantas mensagens não lidas cada agente tem | Dono, Colab (só o dele) | [ESTADO-DOS-AGENTES.md](../../web/docs/ESTADO-DOS-AGENTES.md) |
 | `/api/v1/estados` | Estado de cada agente (trabalhando, precisa de você, terminou, ocioso, sem sinal) | Dono. Caixa recebe 403 | [ESTADO-DOS-AGENTES.md](../../web/docs/ESTADO-DOS-AGENTES.md) |
 | `/api/v1/compartilhados` | Documentação do acervo de mídias | Dono, Colab | [MIDIAS-CACHE.md](../../web/docs/MIDIAS-CACHE.md) |

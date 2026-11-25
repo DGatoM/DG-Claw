@@ -7,7 +7,7 @@ user-invocable: true
 # Vídeo animado (MP4 curto, renderizado na caixa)
 
 Você escreve UMA página HTML cuja animação depende só do tempo `t`. O script `scripts/renderizar.py`
-abre a página no Chromium, chama `__render(t)` quadro a quadro, e o ffmpeg monta o MP4
+abre a página no Chrome da Tela do agente (num contexto só dele; se a Tela não estiver no ar, abre um Chromium novo), chama `__render(t)` quadro a quadro, e o ffmpeg monta o MP4
 (H.264, 30 fps). Um vídeo de 5 s leva cerca de 20 segundos para renderizar.
 
 ## Passo a passo

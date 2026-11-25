@@ -52,6 +52,13 @@ TODAY="${DGCLAW_REFLECT_DATE:-$(date '+%Y-%m-%d')}"
 # date -d falha com data fora do formato esperado; o `||` cai no dia de hoje.
 DOW=$(date -d "$TODAY" '+%d' 2>/dev/null || date '+%d')
 
+# Restricoes do dono: com restricao ativa, so roda se a conta de IA for compativel (a mesma regra do runner)
+# e o motor recebe as ferramentas negadas. A conferencia vem ANTES de qualquer subprocesso que chame o
+# Claude (inclusive a busca do eco do passado, que chama o Haiku). Recusa = exit 1, sem chamar o claude.
+# shellcheck disable=SC1091
+. "$PLUGIN/scripts/_lib/restricoes-rotina.sh"
+restricoes_conferir_rotina "reflexao ${TODAY}" "$LOG" || exit 1
+
 # ─── eco do passado (Module 4): memory_search sobre a working-memory de hoje ────
 # Antes de montar o poke, deixa a busca semantica detectar "ecos" do passado no que a
 # persona viveu hoje. Se bater algo, anexa um bloco "Eco do passado: ..." no prompt da
@@ -85,10 +92,12 @@ else
     EMBED_STATUS=$(python3 "$PLUGIN/scripts/memory_index/embedder.py" status 2>&1 | head -1)
     echo "[$(date '+%F %T')] eco do passado: ${EMBED_STATUS:-embedder sem resposta (so o termo exato)}" >> "$LOG"
     WM_INPUT=$(head -c 3000 "$WM_FILE" 2>/dev/null | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null || head -c 3000 "$WM_FILE" 2>/dev/null)
-    RECALL=$(python3 - "$ECHO_SEARCH" <<PYEOF 2>>"$LOG"
-import json, sys, subprocess
+    # O texto da working-memory (que o agente grava) entra como DADO, pela variavel de ambiente, e o heredoc
+    # e entre aspas: interpolado no codigo, um """ dentro dele fecharia a string e executaria o resto.
+    RECALL=$(WM_INPUT="$WM_INPUT" python3 -I - "$ECHO_SEARCH" <<'PYEOF' 2>>"$LOG"
+import json, os, sys, subprocess
 search = sys.argv[1]
-wm = """${WM_INPUT}""".replace(chr(0), "")
+wm = os.environ.get("WM_INPUT", "").replace(chr(0), "")
 payload = json.dumps({"input": wm, "recent": []})
 try:
     r = subprocess.run(["python3", search], input=payload,
@@ -125,7 +134,7 @@ CONVERSA_BLOCK=""
 # A contagem de mensagens do dono (sem LLM) sai por um arquivo a parte, para nao misturar com o texto
 # que vai para o prompt: so um numero quando a leitura foi completa, ou "duvida: <motivo>".
 CONTAGEM_ARQ="$(mktemp 2>/dev/null)" || CONTAGEM_ARQ=""
-CONVERSA=$(DGCLAW_REFLECT_DIA="$TODAY" DGCLAW_REFLECT_CONTAGEM_ARQ="$CONTAGEM_ARQ" python3 - "$PLUGIN/scripts/_lib" <<'PYCONV' 2>>"$LOG"
+CONVERSA=$(DGCLAW_REFLECT_DIA="$TODAY" DGCLAW_REFLECT_CONTAGEM_ARQ="$CONTAGEM_ARQ" python3 -I - "$PLUGIN/scripts/_lib" <<'PYCONV' 2>>"$LOG"
 import json, os, sys
 from datetime import datetime, timezone, timedelta
 sys.path.insert(0, sys.argv[1])
@@ -420,9 +429,18 @@ if [ "$REFLECT_MODE" = "headless" ]; then
     RESTART_THRESHOLD="${DGCLAW_REFLECT_RESTART_THRESHOLD:-100000}"
 
     echo "[$(date '+%F %T')] reflexao ${TODAY}: consolidacao HEADLESS (claude --print, model=$REFLECT_MODEL)" >> "$LOG"
+    # O cwd e o --add-dir precisam estar marcados como confiaveis (Claude Code 2.1.326); falha so avisa no log.
+    if [ -f "$PLUGIN/scripts/_lib/confiar-pastas.sh" ]; then
+        # shellcheck disable=SC1091
+        . "$PLUGIN/scripts/_lib/confiar-pastas.sh"
+        confiar_pastas "$DGCLAW_WORKSPACE" >> "$LOG" 2>&1 || true
+    else
+        echo "[$(date '+%F %T')] aviso: $PLUGIN/scripts/_lib/confiar-pastas.sh nao existe (copia do plugin antiga); a pasta nao foi marcada como confiavel e o Claude pode parar no dialogo de confianca. Atualize o DG Claw." >> "$LOG"
+    fi
     "$CLAUDE_BIN" --print \
         --no-session-persistence \
         --permission-mode bypassPermissions \
+        "${RESTRICAO_DENY_ARGS[@]}" \
         --add-dir "$DGCLAW_WORKSPACE" \
         --model "$REFLECT_MODEL" \
         -p "$PROMPT" >> "$LOG" 2>&1

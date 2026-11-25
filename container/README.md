@@ -26,7 +26,7 @@ Nenhum compilador fica na imagem final: o `node-pty` do runner compila num está
 
 ### Versões fixadas
 
-Claude Code 2.1.296, Codex CLI 0.162.1, Bun 1.4.3 (todos por `ARG`, no topo do estágio `base`).
+Claude Code 2.1.296, Codex CLI 0.167.1, Bun 1.4.3 (todos por `ARG`, no topo do estágio `base`).
 Python: Pillow 12.3.0, requests 2.34.2, numpy 2.5.4, pyyaml 6.0.3, openpyxl 3.1.5, pymupdf 1.28.2,
 playwright 1.63.0, yt-dlp 2026.8.19. Node 22 e o gh seguem o repositório oficial no dia do build.
 
@@ -97,9 +97,9 @@ fluxbox), `dgclaw-tela-vnc.service` (só sobe com `/home/agente/.dgclaw/tela/vnc
 `.service`, que reinicia o VNC quando a senha muda. A arquitetura, a senha e a segurança estão em
 `docs/TELA-DO-AGENTE.md`.
 
-**Memória.** O Chrome pede RAM, e o `--memory 2g` que o `dgclaw agente criar` aplica pode apertar
+**Memória.** O Chrome pede RAM, e o limite de memória que o `dgclaw agente criar` aplica (até 2 GB num agente adicional) pode apertar
 com a Tela ligada mais o runner, o painel e o Claude Code. Para um agente com Tela, **3g** é um ponto
-de partida mais seguro. O `criar` ainda não tem opção de memória; o padrão de 2g não mudou. Para subir
+de partida mais seguro. O `criar` não tem opção de memória por agente; vale o cálculo do DG Claw ou `DGCLAW_CONTAINER_MEMORIA`. Para subir
 um agente com Tela agora: `podman update --memory 3g dgclaw-<slug>` depois de criado, e meça o uso real
 (`podman stats`) com um site pesado aberto antes de padronizar.
 

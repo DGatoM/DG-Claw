@@ -102,5 +102,8 @@ afirma "a imagem tem o link do lancador" grep -q 'ln -s /opt/dgclaw/app/bin/dgcl
 afirma "as unidades da Tela continuam habilitadas no perfil com navegador" grep -q 'systemctl enable dgclaw-tela.service dgclaw-tela-vnc.service dgclaw-tela-web.service' "$CF"
 afirma "o lancador e executavel" test -x "$LANCADOR"
 
+echo "render de video: Chrome da Tela por CDP e volta para o Chromium novo"
+afirma "renderizar.py: Tela responde usa CDP, sem Tela cai no launch (Playwright falso)" python3 "$AQUI/test_renderizar_tela.py"
+
 printf 'tela: %s verificacoes, %s falharam\n' "$TESTES" "$FALHAS"
 [ "$FALHAS" -eq 0 ]

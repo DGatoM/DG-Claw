@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# cut de mentira: com estado/cut-falha, o `cut -c1-80` do INVENTARIO falha (erro de gravacao simulado).
+if [ -n "${STUB_ESTADO:-}" ] && [ -f "$STUB_ESTADO/cut-falha" ]; then
+    for a in "$@"; do case "$a" in -c1-80) echo "cut: erro de escrita simulado" >&2; exit 1 ;; esac; done
+fi
+exec /usr/bin/cut "$@"

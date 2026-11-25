@@ -38,6 +38,13 @@ Duas coberturas, ambas com o MESMO cap anti-storm:
      O diagnostico vai para <ws>/.dgclaw/logs/saude.json (o painel e o doctor leem) e para o
      ledger do Pulso com id `saude`.
 
+  4) FILA PARADA (19/11/2026): mensagens esperando na fila do runner com o agente "working" (ou
+     outro estado que nao e idle nem waiting_input) e o card sem mudar de estado ha mais de
+     DGCLAW_FILA_PARADA_MIN (15) min. Um PreCompact recusado pelo CLI deixou um agente nesse estado por
+     horas, com este vigia dizendo "VIVA e saudavel". NUNCA reinicia: avisa o dono uma vez por incidente
+     (campo proprio do state, nao o saude_avisado) e grava saude.json com so_observou. Vale com
+     auto-recovery=off. So no Claude, com o transcript medido e mudo (Codex ou sem medicao nao avisa). So no mundo bunker.
+
   ONDE O RESTART ACONTECE: no mundo bunker (card do Bunker ou runner proprio, que e o caso
   da jaula) o restart e por HTTP (_lib/reinicio.py: parar + /resume), e nao systemctl. O
   watchdog da jaula roda como usuario comum e cada `systemctl restart` falhava (119 vezes
@@ -68,6 +75,8 @@ Env:
   DGCLAW_WATCHDOG_MAX_RESTARTS (opcional) cap de restarts na janela. Default 3.
   DGCLAW_WATCHDOG_WINDOW_MIN   (opcional) janela do cap, em min. Default 60.
   DGCLAW_WATCHDOG_POKE_GRACE_MIN (opcional) "poke recente" = poke ha <= isso min. Default 30.
+  DGCLAW_FILA_PARADA_MIN (opcional) minutos da mensagem mais antiga da fila E do card sem mudar de
+                            estado para contar como fila parada (so runner). Default 15.
   DGCLAW_OWNER_TELEGRAM_ID / TELEGRAM_STATE_DIR  consumidos por notify-owner.sh.
 
 Cron sugerido: */5 * * * *  (timer systemd a cada ~5min).
@@ -354,6 +363,102 @@ def gravar_saude(logs_dir: Path, diag: dict, acao: str, now) -> None:
         FALHAS.append(f"nao consegui gravar saude.json em {logs_dir}: {e}")
 
 
+# Listas fechadas: o card do runner traz texto livre (statusReason leva ate nome de ferramenta), e isso nunca
+# pode ir para aviso ao dono, saude.json nem Pulso. So estas frases saem.
+_STATUS_FRASES = {"spawning": "iniciando", "working": "trabalhando", "waiting_input": "esperando voce",
+                  "idle": "parado", "completed": "concluido", "errored": "com erro",
+                  "stopped": "desligado", "resumable": "retomavel"}
+_MOTIVO_PREFIXOS = (("hook:PreCompact", "compactando a conversa"),
+                    ("hook:PreToolUse", "usando uma ferramenta"),
+                    ("hook:UserPromptSubmit", "processando uma mensagem"),
+                    ("transcript:", "conferindo o transcript"))
+
+
+def _frase_status(status) -> str:
+    return _STATUS_FRASES.get(status, "em outro estado") if isinstance(status, str) else "em outro estado"
+
+
+def _frase_motivo(motivo) -> str:
+    if isinstance(motivo, str):
+        for prefixo, frase in _MOTIVO_PREFIXOS:
+            if motivo.startswith(prefixo):
+                return frase
+    return "em andamento"
+
+
+def fila_parada(card, now_ms: float, limite_min: int):
+    """O card do runner esta com a fila presa? Devolve {n, idade_min, status, motivo, mais_antigo_em} ou None.
+
+    Presa = tem item na fila E o agente nao esta idle (vai soltar sozinho) nem waiting_input (quem
+    espera ali e a pessoa) E a mensagem mais antiga espera ha mais de `limite_min` E o card nao muda de
+    estado (updatedAt, epoch ms) E sem evento do agente (ultimoEventoEm, epoch ms; um PreToolUse repetido nao
+    muda o updatedAt) ha mais de `limite_min`. So olha o card; a confirmacao pelo transcript
+    (uma ferramenta longa nao muda o card, mas o turno vivo escreve nele) e de quem chama. Sem `em`
+    legivel nao afirma nada."""
+    if not card:
+        return None
+    try:
+        total = int(card.get("naFilaTotal") or 0)
+    except (TypeError, ValueError):
+        return None
+    status = card.get("status")
+    if total <= 0 or status in ("idle", "waiting_input"):
+        return None
+    ems = [i.get("em") for i in (card.get("naFila") or []) if isinstance(i, dict)
+           and isinstance(i.get("em"), (int, float))]
+    atualizado = card.get("updatedAt")
+    if not ems or not isinstance(atualizado, (int, float)):
+        return None
+    idade_fila = (now_ms - min(ems)) / 60000.0
+    evento = card.get("ultimoEventoEm")
+    if isinstance(evento, (int, float)) and not isinstance(evento, bool):
+        atualizado = max(atualizado, evento)
+    parado_ha = (now_ms - atualizado) / 60000.0
+    if idade_fila <= limite_min or parado_ha <= limite_min:
+        return None
+    return {"n": total, "idade_min": int(idade_fila), "status": _frase_status(status),
+            "motivo": _frase_motivo(card.get("statusReason")), "mais_antigo_em": min(ems)}
+
+
+def cuidar_da_fila_parada(card, diag, ctx, transcript_epoch=None):
+    """Fila presa no runner: NUNCA reinicia, so avisa o dono uma vez por incidente e grava saude.json com
+    `so_observou`. Reiniciar um agente que pode estar no meio de um turno vivo custa mais que o aviso, e
+    no Codex o watchdog nem mede o transcript. So vale com o Claude medido e o transcript mudo ha mais de
+    DGCLAW_FILA_PARADA_MIN; Codex ou sem medicao nao avisa.
+
+    A deduplicacao usa o campo proprio state["fila_parada_avisada"] (o `em` do item mais antigo), e nao
+    saude_avisado, que a rodada limpa sempre que o diagnostico geral esta ativo. O campo sai quando a fila
+    destrava. Devolve (tratado, veredito, diag_para_a_saude)."""
+    now_ms = time.time() * 1000
+    limite = env_int("DGCLAW_FILA_PARADA_MIN", 15)
+    state, state_path = ctx["state"], ctx["state_path"]
+    f = fila_parada(card, now_ms, limite)
+    if not f:
+        if card and state.pop("fila_parada_avisada", None) is not None:
+            save_state(state_path, state)
+        return False, "", diag
+    # So com o transcript do Claude medido: no Codex (rollout nao lido aqui) ou sem medicao, um turno que
+    # so escreve texto nao renova o card e o aviso sairia com o agente trabalhando. O travamento do
+    # PreCompact e so do Claude.
+    if card.get("codexHome") or transcript_epoch is None:
+        return False, "", diag
+    if (now_ms / 1000.0 - transcript_epoch) / 60.0 <= limite:
+        return False, "", diag  # o transcript ainda anda: ferramenta longa, nao fila presa
+    resumo = (f"{f['n']} mensagem(ns) esperando ha {f['idade_min']} min com o agente "
+              f"{f['status']} ({f['motivo']})")
+    diag = dict(diag, estado="atencao", tipo="fila_parada", so_observou=True,
+                frase=f"A fila esta parada: {resumo}.")
+    incidente = int(f["mais_antigo_em"])
+    if state.get("fila_parada_avisada") == incidente:
+        return True, "fila parada, so observei (dono ja avisado)", diag
+    if notify_owner(f"⚠️ Watchdog DG Claw: {resumo}. Nao reiniciei o agente por conta propria. "
+                    f"Se ele nao estiver respondendo, da para reiniciar pelo botao Reiniciar do painel."):
+        state["fila_parada_avisada"] = incidente
+        save_state(state_path, state)
+        return True, "fila parada, so observei e avisei o dono", diag
+    return True, "fila parada, so observei (aviso NAO saiu, tento de novo na proxima rodada)", diag
+
+
 def _avisar_uma_vez(state, state_path, chave, msg) -> str:
     """Avisa o dono so uma vez por incidente. A chave so e gravada se o aviso CHEGOU:
     aviso que falhou e tentado de novo na proxima rodada, em vez de dar por avisado.
@@ -467,6 +572,22 @@ def main() -> int:
     return 0
 
 
+def _fila_parada_da_rodada(slug, diag, ctx, logs_dir, now):
+    """Checagem de fila parada (so runner). Roda so quando a rodada ia terminar sem acao: se o turno
+    travado ja reiniciou ou observou, a fila nao e checada nessa rodada. Devolve o veredito da fila
+    (com saude.json e Pulso `saude` ja gravados) ou None."""
+    if inject.resolve_mode() != "bunker":
+        return None
+    card = inject._bunker_estado()
+    t_fila = ultimo_turno_epoch(slug)  # None = sem medicao confiavel (nao cai no mtime da pasta)
+    tratado, verdict, diag_fila = cuidar_da_fila_parada(card, diag, ctx, t_fila)
+    if not tratado:
+        return None
+    gravar_saude(logs_dir, diag_fila, verdict, now)
+    pulso_write("saude", "aviso", f"{diag_fila.get('estado')}/{diag_fila.get('tipo')}: {diag_fila.get('frase')}")
+    return verdict
+
+
 def rodada() -> str:
     ws = resolve_workspace()
     slug = resolve_slug(ws)
@@ -567,6 +688,10 @@ def rodada() -> str:
 
     if t_mtime is None:
         log(f"sessao '{name}' VIVA; sem transcript em {session_dir} — sem heuristica de travamento")
+        v_fila = _fila_parada_da_rodada(slug, diag, ctx, logs_dir, now)
+        if v_fila:
+            log(f"sessao '{name}' VIVA mas com a FILA PARADA -> {v_fila}")
+            return v_fila
         return "ok"
 
     idle_min = (now_epoch - t_mtime) / 60.0
@@ -604,6 +729,10 @@ def rodada() -> str:
             f"{int(poke_age_min)}min, carencia {poke_min_age_min}min) -> {verdict}")
         return verdict
 
+    v_fila = _fila_parada_da_rodada(slug, diag, ctx, logs_dir, now)
+    if v_fila:
+        log(f"sessao '{name}' VIVA mas com a FILA PARADA -> {v_fila}")
+        return v_fila
     log(f"sessao '{name}' VIVA e saudavel (idle={int(idle_min)}min, "
         f"poke_valido={poke_valido}, poke_recente={poke_recent}) — sem acao")
     return f"viva e saudavel ({diag.get('estado')}/{diag.get('tipo')})"

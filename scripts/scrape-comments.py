@@ -25,6 +25,7 @@ Uso:
 """
 
 import json
+import re
 import sys
 import os
 import http.cookiejar
@@ -209,8 +210,9 @@ def scrape_comments(ws, num_posts=None, num_days=3, output_file=None, cookie_fil
 
     posts = get_recent_posts(data_dir)
     if not posts:
-        print("ERRO: nenhum post publicado encontrado em data/posts.jsonl", file=sys.stderr)
-        return None
+        print("ERRO: nenhum post publicado encontrado em data/posts.jsonl. O scrape NAO foi feito e "
+              "o scraped_comments.json anterior, se existir, e velho: nao o use.", file=sys.stderr)
+        sys.exit(3)
 
     if num_posts:
         posts_to_process = posts[:num_posts]
@@ -346,9 +348,15 @@ def update_followers_from_scrape(ws, scrape_file=None):
     comments = data.get("comments", [])
 
     by_user = {}
+    ignorados = 0
     for c in comments:
         uid = c.get("instagramId")
         if not uid:
+            continue
+        # O id vira nome de arquivo: so numeros (formato do Instagram). Qualquer outra coisa
+        # (barra, ponto-ponto, texto) e descartada e contada, nunca vira caminho.
+        if not re.fullmatch(r"[0-9]{1,30}", str(uid)):
+            ignorados += 1
             continue
         u = by_user.setdefault(uid, {"instagramId": uid, "username": c.get("username"), "comments": [], "dates": []})
         u["comments"].append(c)
@@ -358,12 +366,18 @@ def update_followers_from_scrape(ws, scrape_file=None):
         if c.get("username"):
             u["username"] = c.get("username")
 
+    if ignorados:
+        print(f"AVISO: {ignorados} comentario(s) com instagramId fora do formato (so numeros) foram "
+              "ignorados no cadastro de seguidores.", file=sys.stderr)
     print(f"{len(by_user)} usuarios unicos")
     followers_dir.mkdir(parents=True, exist_ok=True)
     created = updated = 0
 
     for uid, ud in by_user.items():
         filepath = followers_dir / f"{uid}.json"
+        if filepath.is_symlink():
+            print(f"AVISO: {filepath} e um link simbolico; pulei esse seguidor.", file=sys.stderr)
+            continue
         dates = sorted(ud["dates"]) if ud["dates"] else []
         today = datetime.now().strftime("%Y-%m-%d")
         first_date = dates[0] if dates else today

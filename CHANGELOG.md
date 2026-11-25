@@ -13,6 +13,345 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 Nesta versão a moldura do Web e o painel dentro do container precisam estar na mesma versão. O Web novo abre o painel num iframe isolado, e um painel antigo não sabe se montar assim: ele carrega em branco ou pela metade, com o aviso de que a página passou de 8 segundos carregando. O painel novo, por outro lado, continua funcionando atrás de um Web antigo. Por isso, depois de atualizar o Web, atualize também os agentes: `sudo dgclaw atualizar` já faz tudo na ordem certa (baixa a versão, reconstrói a imagem e recria o container de cada agente, sem tocar na casa, na memória nem no cofre). Se você instalou o Web por outro caminho, rode `sudo dgclaw imagem construir --agora` e depois `sudo dgclaw agente recriar <agente>` para cada agente. Quem já estava com o painel aberto no navegador só precisa recarregar a página.
 
+**Correção: o cofre do agente aceita `ZAPI_INSTANCE`.** A Z-API identifica a conexão de WhatsApp por um ID de
+instância, e o nome de mercado dessa credencial é `ZAPI_INSTANCE`. O cofre recusava esse nome. Agora ele entra pelo nome
+exato, e não por qualquer nome terminado em `_INSTANCE`, porque outras variáveis com esse final mudam o alvo de
+ferramentas (a instância padrão do gcloud, por exemplo). Nada muda para quem já usa o cofre.
+
+**Correção no canal de WhatsApp: reações e emojis como resposta.** Quando o agente perguntava "Posso fazer X?" e você respondia com um 👍 como reação à mensagem (o toque longo, não o emoji digitado), o agente nunca ficava sabendo, porque a ponte descartava a reação. Agora a reação chega ao agente num envelope marcado pela ponte (`tipo="reacao"`), com uma linha como `[reagiu com 👍 à sua mensagem: "Posso fazer X?"]`. A ponte guarda só as mensagens que o próprio agente enviou, apenas na memória (nada em disco), separadas por conversa. Se a reação aponta para uma mensagem que a ponte não tem (antiga, anterior a um reinício, sua própria mensagem, de outra conversa, editada ou apagada), o agente recebe "uma mensagem que a ponte não conseguiu identificar" e não conta isso como confirmação. A reação segue as mesmas regras de qualquer mensagem: só números da lista de permitidos, nada de grupos, e reação removida não entrega nada. Um emoji digitado como texto já chegava e continua chegando. As instruções do agente ganharam a regra de leitura: só vale como "sim" a reação marcada pela ponte que cita uma pergunta de sim ou não do agente (👍 ✅ 👌 🙏); ❤️ 😂 e afins não confirmam nada e não recebem resposta; e em ação sensível (pagamento, envio a terceiros, algo destrutivo ou irreversível) uma reação nunca basta, o agente pergunta de novo, e ação irreversível continua só pelo chat do DG Claw. O Claude e o Codex recebem o mesmo texto.
+
+- **Novo: checklist de entrega de cliente e smoke test da VPS.** O `docs/ENTREGA-CLIENTE.md` reúne, para a equipe
+  que entrega uma VPS pronta, os doze passos a conferir antes de passar o servidor ao cliente (limites do
+  container, cofre, YouTube, Chrome headless, ffmpeg, login pelo celular e outros). O
+  `/opt/dgclaw/app/scripts/smoke-entrega.sh` roda no servidor, como root, e faz só leituras simples: versão
+  instalada, resposta do painel, serviços do host e, para cada agente, se o container existe, está rodando e tem
+  limite de memória. O resto do checklist fica à mão. Não muda o comportamento de quem já usa o DG Claw.
+
+**Correção do auto-compact que compactava em loop e gastava a sessão do plano.** Depois de compactar, o contexto não volta só
+ao resumo: volta ao resumo mais o que toda sessão carrega de base (instruções, ferramentas, memória), algo em torno de 70 mil a
+85 mil tokens nos transcritos reais. Se essa base ficava perto ou acima do teto (`DGCLAW_COMPACT_THRESHOLD`), o auto-compact
+achava a cada ciclo de 30 minutos que precisava compactar de novo, e cada compactação custa a leitura do contexto inteiro, sem
+baixar nada. Agora ele mede o tamanho da primeira resposta depois da última compactação e só compacta se o contexto de agora
+passar dessa base por pelo menos `DGCLAW_COMPACT_MIN_GAIN` tokens (padrão 30000). Quando pula, o log do auto-compact explica o
+motivo. Vale só no Claude, o único motor em que o auto-compact funciona hoje (o Codex continua na exceção de
+`docs/PARIDADE-CODEX.md`). Quem vê o log dizer que pulou por base alta pode subir `DGCLAW_COMPACT_THRESHOLD` ou reduzir o que o
+agente carrega de base (memória e instruções longas).
+
+**Correção do agente que ficava "trabalhando" para sempre depois de um /compact recusado.** Quando o auto-compact enfileirava
+vários `/compact` seguidos e o Claude Code respondia "Not enough messages to compact.", ele avisava o início da compactação
+e nunca o fim: o agente ficava em "working" por horas com as mensagens presas na fila. Agora (1) o runner olha o transcript
+e, se o CLI recusou o `/compact` (a mensagem de recusa e nada de conversa nem de compactação depois dela), volta o agente
+para idle e solta a fila. Só a recusa confirmada no transcript solta a fila; sem essa prova nada muda por tempo, e o caso é
+coberto pelo aviso de fila parada do watchdog (item 3). (2) O auto-compact, no runner, não
+enfileira `/compact` com o agente ocupado ou com mensagens na fila, nem até 10 minutos depois de uma compactação do próprio
+agente (`DGCLAW_COMPACT_MIN_INTERVAL_MIN`). Sem conseguir ler o estado do agente, ou com um tamanho de fila que não faz sentido, o auto-compact também adia. E o runner não guarda mais de um `/compact` na fila: se já há um esperando, sendo digitado ou em andamento, o pedido repetido é descartado. Essas guardas
+do auto-compact só agem onde o auto-compact funciona: hoje só no Claude, porque o leitor de contexto dele não lê o rollout do Codex. (3) O watchdog
+passa a reconhecer fila parada (mensagens esperando há mais de `DGCLAW_FILA_PARADA_MIN`, 15 minutos, com o agente em working
+e o card sem mudar de estado, e o transcript do Claude também mudo). Ele não reinicia o agente: avisa o dono
+uma vez por ocorrência, dizendo quantas mensagens esperam, há quanto tempo e que dá para reiniciar pelo botão Reiniciar do
+painel, e registra no `saude.json` que apenas observou. O aviso de fila parada vale só no Claude, porque no Codex o vigia não lê o rollout, e só enquanto o vigia (watchdog) estiver rodando. Numa instalação nova com
+`DGCLAW_AUTO_RECOVERY=off` o vigia nem é instalado, e então não há aviso; numa instalação que já tinha o vigia, com essa
+opção desligada ele continua avisando. A compactação automática depende do transcript do Claude. O PreCompact é do
+Claude Code; o Codex não passa pela correção do runner.
+
+**Correção da fila de mensagens: um "ok" que esperou na fila não é mais lido como aprovação de outra coisa.** Quando você
+escreve enquanto o agente trabalha, a mensagem espera a vez. Se ela esperou mais de 20 segundos, agora chega ao agente
+com um aviso do sistema logo abaixo, dizendo a hora em que foi escrita e que uma resposta curta (ok, sim, pode) não
+autoriza uma ação nova proposta depois. Na tela, o balão "na fila" passa a mostrar há quanto tempo a mensagem espera e
+fica até o agente ler de verdade, mesmo se você recarregar a página ou abrir em outro aparelho (antes ele sumia).
+Vale para os agentes no Claude e no Codex, porque a fila é do runner e não depende do motor. Relatado por aluno da mentoria.
+
+**Correção do botão Baixar no app instalado no iPhone.** Com o painel na Tela de Início, baixar um arquivo levava o app
+inteiro para o arquivo, sem botão de voltar. Agora o app não sai da tela: o arquivo abre na folha de compartilhamento do
+iPhone ("Salvar em Arquivos") ou, se o aparelho não permitir, numa aba do sistema com o botão Concluído. No navegador
+comum nada muda. Relatado por aluno da mentoria.
+
+**Codex CLI da imagem dos agentes passa de 0.162.1 para 0.167.1** (compatível com o modelo GPT-6.1-Sol). A versão fica fixada no `Containerfile`.
+
+### Como atualizar (Codex 0.167.1)
+
+A versão nova do Codex só chega aos seus agentes depois que a imagem deles é reconstruída. O `dgclaw atualizar` já faz isso sozinho (a etapa "reconstruindo a imagem dos agentes", que leva de 10 a 20 minutos), então basta pedir ao Admin, no chat: "atualiza o DG Claw". Quem atualizou só o código e não reconstruiu a imagem continua com o Codex antigo: rode `dgclaw imagem construir --agora` e depois `dgclaw agente recriar <nome>` para cada agente, porque a imagem nova só vale quando o container é recriado. Suas chaves, logins, conversas e agentes continuam como estavam.
+
+**Correção no runner: pedido digitado sem confirmação não some e nunca é reenviado sozinho.** Um pedido enviado a
+um agente podia sumir quando o Claude Code não abria o turno (por exemplo, com os hooks travados) e o runner era
+reiniciado: o texto já tinha saído da fila, a conversa nunca tinha sido gravada e o agente subia vazio. Agora o runner só
+dá o pedido por entregue quando o Claude (`UserPromptSubmit`) ou o Codex (`task_started`) confirma que o aceitou. Antes
+de digitar, ele grava o pedido no arquivo da fila como digitado; se a gravação falhar (disco cheio, por exemplo), não
+digita nada e o pedido continua na frente da fila. Sem a confirmação, o pedido fica pendente, e a fila não solta o
+seguinte enquanto houver um pendente. Se o terminal sair, a retomada falhar, a sessão subir como nova, o provedor ou a
+conta mudarem, o runner reiniciar ou os Enters acabarem sem o agente abrir o turno, o pedido fica retido no arquivo da
+fila, marcado como incerto, e **nunca é digitado de novo sozinho**, para o agente não executar duas vezes o mesmo pedido.
+Ele também não trava os pedidos seguintes. O log avisa com o código e o tamanho do pedido (nunca o texto), diz onde o
+texto está guardado e o que fazer: conferir na conversa do agente se o pedido foi executado e, se não foi, reenviá-lo
+pela conversa. Se você escrever no terminal do agente enquanto um pedido espera a confirmação, o runner para de apertar o
+Enter, retém o pedido e suspende a digitação automática até você dar o Enter ou o agente terminar um turno. Os comandos de
+barra (`/compact`, `/clear`) também são gravados antes de digitar e, se o runner cair no meio, ficam retidos em vez de
+serem executados de novo. O runner também deixou de dar o Claude por "sem hooks" nos primeiros 60 s depois de abrir, de
+soltar a fila no boot sem o `SessionStart` ou o prompt na tela (teto de 30 s, com aviso no log) e de tentar `--resume` de
+uma conversa que comprovadamente não existe no disco: sem o histórico ele sobe a sessão nova direto, guardando a anterior
+em `previousSessionId`, e um erro de leitura do disco mantém o `--resume`. O log de "a sessão viva mudou por dentro"
+passou a trazer o evento e o `source` do hook, só quando são valores conhecidos. Funciona igual no Claude e no Codex.
+
+**Correção no runner: o Enter só se repete com o texto na caixa, e a fila de pedidos fica mais segura contra queda.** O
+runner repetia o Enter quando o agente não confirmava um pedido, sem olhar o que estava na tela, e podia aprovar uma
+permissão ou mandar um rascunho seu. Agora ele só repete o Enter se o mesmo texto continua na caixa de digitação. Com
+um diálogo aberto, outro texto ou uma tela que ele não reconhece, ele não aperta nada e guarda o pedido como incerto.
+Se a caixa já está vazia, ele só espera a confirmação. A digitação automática, quando suspensa porque a caixa pode ter
+texto, só volta quando a caixa aparece vazia com o agente parado: uma confirmação que chega não basta. Cada envio agora
+leva o seu próprio pedido e o seu próprio terminal: dois textos para o mesmo terminal (a fila e uma chamada direta) não
+se misturam mais, e, se o terminal for trocado no meio do envio, o runner para de escrever e guarda o pedido. O arquivo
+da fila passa a ser gravado com `fsync` (no arquivo e na pasta) e na versão 2, que um runner antigo recusa em vez de
+executar um pedido incerto. Claude sem nenhum hook por mais de 60 s deixa de dar o pedido por entregue: ele fica guardado
+como incerto. O comando de barra continua guardado em disco até a confirmação própria dele. Pedidos digitados sem
+confirmação passam a aparecer na contagem da fila do painel. A busca da conversa para retomar não para mais num erro em
+uma pasta de projeto. Funciona igual no Claude e no Codex.
+
+**Correção no runner: nada é digitado sem ver a caixa de digitação vazia, e o envio direto diz se o texto entrou.** O
+runner passou a ler a tela do agente com um emulador de terminal (`@xterm/headless`, instalado junto com o runner pelo
+`npm ci`) e só escreve o primeiro caractere de um pedido, e cada pedaço de um texto longo, quando a caixa de digitação do
+Claude ou do Codex aparece vazia e nenhum outro pedido espera confirmação. Um menu ou diálogo na tela, um rascunho seu na
+caixa ou uma tela que ele não reconhece fazem o pedido da fila esperar intacto. Se você começar a escrever no terminal do
+agente (inclusive colando várias linhas), a digitação automática fica suspensa até a caixa voltar a aparecer vazia. No
+Codex, a confirmação do pedido passa a exigir o texto do pedido no registro da conversa, para um card vizinho na mesma
+pasta não confirmar o pedido errado. O envio direto (`POST /input`, `dgclaw-card mandar` e os recados do painel) responde
+409 quando nada foi escrito (`NAO_ENTROU`, `ENVIO_PENDENTE`, `CAIXA_COM_RASCUNHO`), e aí pode ser reenviado; 507
+(`FILA_NAO_GRAVADA`) quando a fila não pôde ser gravada no disco; e 202 com `entregaIncerta` quando o texto foi escrito e o
+agente não confirmou. Nesse último caso o `dgclaw-card mandar` e o painel mostram o aviso para conferir a conversa antes
+de reenviar, em vez de dizer que o texto foi enviado. Com envios demais esperando para o mesmo agente, o runner responde
+429 (`ENVIOS_DEMAIS`) sem escrever nada, e o `dgclaw-card` sai com o código 9 pedindo para esperar os envios anteriores
+(o código 4 continua sendo só o limite de cards abertos). Um texto que sozinho passa de 1 MiB recebe 413
+(`TEXTO_GRANDE_DEMAIS`), e o `dgclaw-card` sai com o código 10 pedindo para reduzi-lo ou mandá-lo num arquivo. O `dgclaw-card mandar` espera mais quanto maior o texto, e se o tempo acabar ou a conexão cair depois do envio, ou se o runner responder que a entrega é incerta, ele sai com o código 11 (o `abrir` também, mostrando o id do card que ficou aberto e sem ligar o monitor) dizendo que a entrega é incerta e que não deve ser repetida antes de conferir o estado do card (o pedido pode estar guardado na fila) e a conversa; quem desiste no meio de uma colagem longa, ou entre o texto curto e o Enter, não tem o texto enviado (o que já foi escrito fica na caixa, sem Enter). O aviso que o Admin recebe ao fim de uma atualização não é
+repetido quando a entrega fica incerta (resposta 202 com `entregaIncerta`, erro 5xx, tempo esgotado ou conexão cortada
+depois do envio): o script registra no log para conferir a conversa do Admin e termina com o código 3. Ele só tenta de
+novo quando o runner garante que nada foi escrito. Funciona igual no Claude e
+no Codex.
+
+### Como atualizar (fila de recados guardada no disco)
+
+O arquivo onde cada agente guarda os recados que esperam a vez mudou de formato. Na primeira subida depois da
+atualização, se havia recados esperando, o primeiro deles fica guardado e não é enviado sozinho, porque a versão
+anterior não registrava se ele já tinha sido digitado, e mandá-lo de novo poderia repetir uma tarefa já feita. Os
+recados seguintes saem normalmente, na ordem. Se você tinha mandado recados a um agente pouco antes de atualizar, abra a
+conversa dele e confira se o primeiro foi atendido. Se não foi, mande-o de novo pelo chat. O texto guardado fica no
+arquivo `fila-ocioso/<id-da-sessão>.json`, na pasta de estado do runner do agente, marcado como `incerto`, e o Admin
+consegue lê-lo para você se você não lembrar o que tinha escrito.
+
+**Correção nos limites do container: memória e CPU saem do tamanho da VPS, e o `reparar` aumenta o container que já existe.** O container de cada agente era criado com `--memory 2g --cpus 1.0` em qualquer máquina. Numa VPS de 8 GB e 2 vCPU, um subagente que processava imagens passou de 1,2 GB, o cgroup do container matou o processo por falta de memória e o runner caiu junto. Além disso, um container criado antes do limite de 4096 processos continuava com 1024, porque o podman não muda o limite de um container que já existe, e ninguém percebeu até aparecer "fork: Resource temporarily unavailable". Duas mudanças. (1) Na criação e na recriação, as CPUs passam a ser o maior valor entre 1.0 e o número de núcleos menos 0.2, e a memória depende do papel do agente. O sistema e os serviços do DG Claw (painel, Admin, rondas) ficam com uma reserva: o maior valor entre 1,5 GB e 15% da RAM. O agente principal (o primeiro que foi criado e ainda existe, o que não pode parar) recebe o resto, o maior valor entre 2 GB e a RAM menos a reserva; numa VPS de 7 GB ele passa de 2 GB para cerca de 5,5 GB, o que evita a falta de memória em render de vídeo. Cada agente adicional recebe o menor valor entre 2 GB e a folga (RAM menos a reserva menos o que os outros containers já têm), nunca menos de 1 GB. A criação mostra a reserva e a folga, e avisa quando a folga é menor que 2 GB, dizendo o limite aplicado, como mudar (`DGCLAW_CONTAINER_MEMORIA`) e que a alternativa é uma VPS com mais memória. O agente principal nunca perde memória por causa de um agente criado depois. O piso de 2 GB é o valor de antes. Quem quiser outro valor define `DGCLAW_CONTAINER_MEMORIA` (como `4g`) e `DGCLAW_CONTAINER_CPUS` (como `1.5`) no `/etc/dgclaw/dgclaw.env`; valor inválido (ou memória abaixo de 512m) faz o comando parar dizendo o que corrigir. O limite de processos continua 4096. (2) O `dgclaw agente reparar` passa a conferir o container ligado e, se a memória, as CPUs ou os processos estiverem abaixo do calculado, roda `podman update` sem recriar, mostrando o antes e o depois. Ele só mexe no que ainda está no padrão antigo do DG Claw (2 GB, 1.0 CPU e 1024 processos), cada recurso por si: qualquer outro valor, para mais ou para menos, é tratado como escolha do dono e fica como está. Um recurso sem limite nenhum (`max`) fica como está: o `reparar` nunca o converte em teto finito. Um teto finito igual a zero também é tratado como escolha do dono. O comando mostra no log o que foi mantido e por quê. Se um limite finito (memória, swap, CPUs ou processos) aparecer como sem limite depois do `podman update`, ou se o reparar não conseguir reler os limites depois dele, o reparar acusa `FALHA: o limite de X do container Y sumiu`, termina com código de erro (depois de concluir o resto do reparo) e pede para rodar o comando de novo, em vez de contar como aumento. A leitura de `DGCLAW_CONTAINER_MEMORIA` e `DGCLAW_CONTAINER_CPUS` é a mesma ao criar, recriar e reparar (a variável de ambiente vale primeiro, depois a linha do `dgclaw.env`) e aceita comentário no fim da linha, como `DGCLAW_CONTAINER_MEMORIA=4g # teto do agente`, espaço no começo da linha e o prefixo `export`. A garantia de ler o `dgclaw.env` sem executá-lo vale só para o leitor desses dois limites: criar e recriar um agente ainda carregam o arquivo pelo shell, como antes, então ele precisa ser um arquivo de confiança, só seu. Um limite posto à mão num container (com `podman update`) não é guardado pelo `recriar`; o limite que vale para todos os agentes vem do `dgclaw.env` (`DGCLAW_CONTAINER_MEMORIA` e `DGCLAW_CONTAINER_CPUS`). Se o podman da máquina não tiver o `update` ou não aceitar algum flag, o reparar avisa em português qual limite não mudou e segue. A mudança é só do lado do host (CLI e diagnóstico), igual para o Claude e para o Codex.
+
+### Como atualizar (limites do container)
+
+Os agentes que você criou antes desta versão continuam com os limites antigos (2 GB de memória, 1 CPU e, se foram criados antes da versão anterior, 1024 processos), porque o container existente não muda sozinho. Depois do `dgclaw atualizar`, rode `dgclaw agente reparar <nome-do-agente>` em cada um: ele aumenta os limites sem recriar o container e sem apagar nada, e mostra o antes e o depois. O ajuste vale para o container ligado; o podman não o guarda quando o servidor ou o container reinicia, e o limite definitivo entra na próxima vez que o agente for recriado. No agente principal, que é o que mais ganha memória, rode também `dgclaw agente recriar <nome-do-agente> --forcar` para o novo limite sobreviver a um reinício (o `--forcar` pula a conferência de arquivos que só existem dentro do container, então copie para a casa do agente o que precisar guardar). O `recriar` não guarda um limite posto à mão num container (com `podman update`): ele volta ao valor calculado. Para um limite que valha sempre, escreva `DGCLAW_CONTAINER_MEMORIA` e `DGCLAW_CONTAINER_CPUS` no `/etc/dgclaw/dgclaw.env`, que é o lugar do limite escolhido pelo dono e vale para todos os agentes. Quem tem mais de um agente na mesma VPS vê, ao criar o seguinte, quanta memória sobra e um aviso quando não sobra o bastante. Se o seu podman for antigo e não aceitar o ajuste, o comando avisa qual limite não mudou, e o valor novo entra nessa recriação. Se você tinha escolhido algum limite à mão (maior ou menor que o padrão antigo), ele é mantido e o comando diz isso no log. Para fixar outro valor, escreva `DGCLAW_CONTAINER_MEMORIA` e `DGCLAW_CONTAINER_CPUS` no `/etc/dgclaw/dgclaw.env`.
+
+## [1.1.0] - 2026-11-18
+
+- **Correção no aviso de versão nova: o número agora sobe a cada release e, quando é igual, o aviso mostra o commit.** O
+  `dgclaw atualizar` acompanha a ponta da `main`, e o arquivo `VERSION` ficava parado em 1.0.0, então o aviso dizia
+  "1.0.0 -> 1.0.0" mesmo com mudanças novas. Duas mudanças. Cada release passa a subir o número da versão (o
+  processo está em `docs/RELEASE.md`). E o aviso, no terminal, no recado ao Admin e na faixa do painel, mostra só os
+  números quando eles são diferentes ("1.0.0 -> 1.1.0") e, quando são iguais, o commit curto dos dois lados ("1.0.0
+  (abc1234) -> 1.0.0 (def5678)"). Sem número de versão, mostra só o commit, como antes.
+
+**Correção: card que nascia parado e agente que caía sozinho.** O serviço do runner, dentro do container, não tinha teto
+de tarefas próprio, e o systemd aplicava 15% do limite de processos que o container tinha no boot (153 com o limite
+antigo de 1024; subir o limite do container depois não mudava esse número). Ali dentro rodam o Claude principal, um
+Claude por card, os hooks, os MCPs e os renders headless, e as threads contam. Num agente em produção o teto foi batido
+várias vezes: o Claude principal abortou no meio de um trabalho (o painel ficou em "retomável", com mensagem presa na
+fila), o bash respondia "fork: retry" e o hook do runner travava no arranque, antes de armar o próprio timer. Como o
+settings dos hooks não tinha `timeout`, o Claude esperava esse hook travado pelo padrão dele, e o pedido do card ficava
+escrito na caixa sem virar turno. Foram duas mudanças. O `dgclaw-runner.service` passa a declarar `TasksMax=2400`, e
+todo hook do runner no settings ganha `timeout` de 10 s. O handler saudável termina em até 2,5 s, e a folga cobre a
+partida do node numa máquina carregada; se mesmo assim o teto encerrar um hook, o Claude registra o erro e segue o turno.
+
+**Correção: comandos do venv da imagem sumiam do agente.** A imagem põe `/opt/venv/bin` no PATH pelo `ENV` e pelo
+profile de login, mas o runner roda como serviço do systemd, que não herda nenhum dos dois. O agente não achava o
+`yt-dlp` (e o que mais vive no venv), e o setup-check das skills dizia "ausente" com ele instalado. O
+`dgclaw-runner.service` agora declara o PATH, com o venv e `~/.local/bin` no fim, para não trocar o `python3` do sistema.
+
+### Como atualizar (teto de tarefas do runner)
+
+A unidade nova entra quando o container do agente é recriado, e o `dgclaw atualizar` padrão já recria. Para aliviar um
+agente vivo até a atualização, sem reiniciar nada: `podman exec <container> systemctl set-property --runtime
+dgclaw-runner.service TasksMax=2400` (vale na hora e some quando o container reinicia). Evite a forma persistente e links
+em `/usr/local/bin`: o inventário do `dgclaw agente recriar` os conta como alterações locais e a atualização para pedindo
+`--forcar`. Até lá, use os comandos do venv pelo caminho completo (`/opt/venv/bin/yt-dlp`). Um container antigo, criado
+com `--pids-limit 1024`, continua preso a esse limite até ser recriado. O `timeout` dos hooks entra nas sessões abertas
+por um runner já atualizado.
+
+**Botão Parar na conversa.** Quando o agente está trabalhando, a faixa "está trabalhando" ganha o botão **Parar**, que faz o
+mesmo que apertar Esc no terminal: manda um Esc, e se ele estava no meio de um turno, o turno costuma parar em instantes (um comando que estava rodando pode continuar executando; confira antes de mexer nos mesmos arquivos), sem reiniciar o agente e sem perder a conversa, e a
+próxima mensagem entra normalmente. Um comando que o agente deixou rodando em segundo plano pode continuar. Entre um toque e outro
+há uma espera de 3 segundos, porque dois Esc colados abrem o menu de voltar do terminal e travam a sessão. Funciona no
+Claude e no Codex. O botão é só do dono. Também há a rota
+`POST /api/v1/agents/<slug>/parar` e o guia `web/docs/PARAR.md`.
+
+### Como atualizar (botão Parar)
+
+O botão precisa do serviço novo dentro do container de cada agente. O `dgclaw atualizar` padrão já reconstrói a imagem e
+recria os agentes, então não há mais nada a fazer: peça ao Admin, no chat, "atualiza o DG Claw". Enquanto um agente ainda
+estiver com o serviço antigo, o botão avisa "Atualize o agente pelo Admin" em vez de falhar em silêncio. A explicação do
+botão para os agentes e para o Admin entra sozinha nas instruções que o DG Claw monta a cada atualização.
+
+**Correção: render de vídeo não esgota os processos do agente.** Um agente chegou a ficar mais de 30 minutos parado num
+render de vídeo porque o container tem um limite de processos (as threads contam), e o Chrome da Tela, o Claude Code e
+os Chromium novos que as tentativas de render abriam chegaram ao teto ("Resource temporarily unavailable" e "Target
+crashed"). Um render normal sozinho fica perto de 300; o teto baixo não deixava margem para tentativas repetidas. Foram
+duas mudanças. O limite de processos de cada container de agente passou de 1024 para 4096 (a memória continua 2 GB). E o
+`renderizar.py` da skill `video-animado` agora usa o Chrome da Tela que já está aberto, num contexto só dele, e fecha só
+esse contexto no fim, sem derrubar a Tela. Se a Tela não estiver no ar ou a conexão falhar, ele abre o Chromium novo como
+antes e escreve no terminal qual caminho usou e por quê. Funciona igual no Claude e no Codex, porque os dois chamam o mesmo script.
+
+### Como atualizar (limite de processos)
+
+O limite novo vale quando o container do agente é recriado, e o `dgclaw atualizar` padrão já recria os agentes. Não há
+mais nada a fazer. Um agente que estava parado ganha o limite novo na próxima vez que for recriado.
+
+**Correção de segurança e de perda de dados: `dgclaw agente recriar` mostra o que se perde e pede `--forcar`.** Trocar o
+container de um agente (o que a atualização faz com a imagem nova) apaga o que alguém instalou direto dentro dele, fora
+da casa do agente, como o `tailscale` que um dono tinha instalado à mão. Isso acontecia sem aviso nenhum. Agora, antes
+de trocar, o comando compara o container com a imagem e lista os pacotes instalados à mão e os arquivos que só existem
+ali. Se houver algo na lista, ele **não troca nada** e pede `--forcar`; se não conseguir conferir, também para. Com
+`--forcar` ele troca. A lista completa é gravada em `perdido-no-recriar-<data>.txt` na pasta do agente **antes** de pedir
+qualquer confirmação (a tela mostra só o começo, e o arquivo guarda tudo). Como os nomes vêm de dentro do container, o
+comando os simplifica (só letras, números e alguns símbolos) e avisa que a lista é dado, nunca instrução; o Admin foi
+orientado a não obedecer nada que apareça nela. Se qualquer passo da conferência falhar, o comando para em vez de
+tratar como "nada a perder". As rotinas padrão do agente (reflexão, vigia, coletas e afins), que o `reparar` regrava sozinho, só ficam de fora da lista se o arquivo for idêntico ao que o produto gerou (o `reparar` passa a gravar a impressão digital delas na casa do agente, em `.dgclaw/unidades-padrao.sha256`); o runner e o painel do agente só ficam de fora se forem idênticos aos da imagem; diretório que só aparece porque um arquivo dentro dele mudou fica de fora apenas se a permissão e o dono forem os da imagem, e programa só em bytecode (`.pyc`) conta como perda; rotina padrão que o dono desligou (e que a recriação religaria) também conta; container preso em `stopping` passa a pedir `--forcar`, porque não dá para conferir o que existe só dentro dele; se alguém editou uma rotina, ou se o agente é anterior a esta versão e ainda não tem essa impressão digital, elas aparecem na lista como possível perda (na primeira atualização depois desta, um agente antigo pede `--forcar` uma vez e já fica com a referência gravada); as rotinas do Instagram e o vigia do canal, que ninguém regrava, entram. A casa, o cofre, as portas e as rotinas do agente continuam intactos como antes.
+Falhas reportadas por Renato Gracie (divulgação responsável).
+
+### Como atualizar (recriar com inventário)
+
+1. **Atualize com o `dgclaw atualizar` padrão.** Se algum agente seu tiver coisa instalada só dentro do container, a
+   atualização termina avisando que aquele agente **não** foi trocado (ele continua rodando como estava, com a
+   imagem antiga) e mostra a lista do que se perderia. Nada é apagado nesse momento.
+2. **Decida com a lista na mão.** Se o que aparece pode ser perdido ou reinstalado depois, rode
+   `sudo dgclaw agente recriar <agente> --forcar`. Se precisa guardar algo, copie para a casa do agente (a pasta
+   `home` dele) antes. O Admin foi instruído a não usar `--forcar` sem mostrar a lista a você.
+3. **Agente sem nada instalado à mão** (a maioria) atualiza como sempre, sem perguntar nada.
+
+**Correção de segurança: o cron de comentários do Instagram não roda mais com permissão total.** A rotina que responde
+os comentários lia o texto de desconhecidos dentro do pedido ao agente e rodava sem nenhuma lista de ferramentas, com a
+permissão toda liberada. Um comentário escrito como ordem podia virar ação no servidor. Agora a sessão roda só com as
+ferramentas de que precisa (ler, o scrape, o cadastro de seguidores, o aviso ao dono e a memória dela), sem internet e
+sem rodar comandos livres. A resposta ao comentário sai por um script novo (`scripts/responder-comentario.sh`) que só
+aceita o número do comentário e o texto, confere que o comentário veio do scrape da rodada, não responde duas vezes e
+lê a conta e a chave da configuração, nunca de quem pede. Se o Claude Code instalado for antigo e não conhecer as
+travas, o cron não roda e avisa você em vez de rodar solto. As rotinas de post e de consolidação foram examinadas e não
+recebem texto de terceiros no pedido, então ficaram como estavam.
+Mais travas na mesma rotina: a sessão agora roda **sem terminal** (só ler e editar arquivos), porque até um comando de
+leitura como `grep -r` furava o bloqueio da pasta de credenciais; ela não lê a configuração da conta, o token nem os
+cookies, e escreve **só** o arquivo de respostas da rodada (`data/rodada/respostas.json`).
+Em vez de responder ela mesma, a sessão grava `data/rodada/respostas.json` e o próprio cron envia cada resposta pelo
+`responder-comentario.sh`. O scrape é feito pelo cron antes da sessão (e, numa rodada manual, pelo `scripts/preparar-scrape.sh`, que faz o scrape, confere e carimba sob a mesma trava), para um arquivo da rodada, e só vira o oficial
+depois de conferido (data recente e posts processados); se falhar, nada é respondido e você é avisado. A sessão
+não usa a memória automática do Claude, não herda nenhuma configuração de permissão (um `allow` antigo, de usuário ou de projeto, não amplia o que ela faz), roda
+dentro da pasta da rodada e só lê o que foi liberado: SOUL, PERSONALITY, a skill, o scrape da rodada, os cadastros de seguidores e as linhas de instrução do dono marcadas para comentários (sem acesso à memória privada). **A sessão deixou de escrever na memória, nos cadastros de seguidores e na memória de trabalho** (e de marcar
+instruções como "aplicadas"); o perfil dos seguidores segue sendo atualizado pelo scrape: a seção "Instruções do dono" que a rotina de posts obedece só muda por você, e a atualização
+das seções "Hoje" e "Pessoas Próximas" fica para a sua sessão principal, não para esta rotina. Duas rodadas nunca rodam juntas. O registro de comentários respondidos
+tem trava e reserva do número antes do envio, e a reserva só é desfeita quando o Instagram recusa de verdade: se a
+conexão cair no meio e não der para saber se a resposta saiu, o número fica reservado, você é avisado e confere na
+conta (nunca há resposta em dobro). O cadastro de seguidores só aceita número de conta e nome de usuário em formato
+válido e nunca grava fora da própria pasta.
+Falhas reportadas por Renato Gracie (divulgação responsável).
+
+### Como atualizar (comentários do Instagram)
+
+1. **Atualize com o `dgclaw atualizar` padrão.** O cron novo passa a valer na próxima rodada.
+2. **Confira a versão do Claude Code.** Se, depois de atualizar, você receber o aviso "Cron de comentários NÃO rodou", peça
+   ao Admin para rodar `claude update` no agente. O aviso diz exatamente qual trava a versão antiga não tem.
+3. **Se você personalizou as instruções do Instagram** (`skills/instagram/comments.md` do seu agente), troque o passo de
+   responder para usar `bash $DGCLAW_PLUGIN_ROOT/scripts/responder-comentario.sh "<id do comentário>" "<texto>"`. É o único
+   jeito que o cron agora permite, e ele já anota o comentário como respondido. Para pular um comentário, use
+   `responder-comentario.sh --pular "<id>"`, e retire do texto o passo de rodar o scrape, que agora é do cron.
+4. **Instruções do dono na memória de trabalho** continuam do jeito que você escreve, e a sessão de comentários não
+   escreve mais ali nem marca instrução como aplicada: uma instrução com a etiqueta `[comentarios]` vale em toda rodada
+   até você apagá-la.
+5. **Se você personalizou o prompt do cron de comentários**, saiba que a sessão não tem mais terminal: ela grava as
+   decisões em `data/rodada/respostas.json` e o cron faz o scrape, o envio e o aviso.
+
+**Correção: o instalador não para por repositório de terceiro.** Se o `apt-get update` falhava por causa de um repositório do
+servidor que não é do DG Claw (um de terceiro, fora do ar ou com chave vencida), a instalação inteira abortava. Agora vira um
+aviso e a instalação segue; se algum pacote realmente faltar, o passo de instalar dele avisa com a mensagem do próprio apt, e o
+instalador confere que o Node ficou na versão 22 ou mais antes de seguir (se o repositório dele falhou e o Node ficou velho,
+ele para e explica o que fazer).
+Falhas reportadas por Renato Gracie (divulgação responsável).
+
+### Como atualizar (instalador)
+
+Nada além do `dgclaw atualizar` padrão.
+
+**As restrições de cada agente sobrevivem à atualização.** Se você tirou de um agente o terminal (Bash) ou o envio de
+arquivos, ou deixou ele gravar só em certas pastas, essa trava ficava dentro da caixa dele, e a atualização recria a
+caixa: a trava sumia sem aviso. Agora existe um lugar oficial, fora da caixa e fora do alcance do agente, e um comando para
+usá-lo: `sudo dgclaw agente restricoes <agente> --sem-bash sim --sem-enviar-arquivo sim --escrita-so-em pasta1,pasta2`
+(sem opções, ele só mostra o estado; `--escrita-livre` solta de novo a gravação). Criar de novo, reparar, recriar e
+atualizar reaplicam as travas sozinhos, e um arquivo de restrições estragado faz o comando parar com a explicação, em vez
+de soltar a trava. A trava de pastas só barra as ferramentas de arquivo: com o Bash ligado, o terminal ainda grava em
+qualquer lugar, então combine as duas (o comando avisa). Travar o envio de arquivos só é aceito junto com a trava do
+terminal (`--sem-bash sim`), porque com o terminal liberado o agente manda o arquivo por fora das ferramentas. Nos agentes que rodam no Codex essas travas ainda não valem, e o
+comando também avisa. Guia: `docs/RESTRICOES-DO-AGENTE.md`.
+
+Qualquer restrição (inclusive só o terminal ou só o envio de arquivos) fecha também os arquivos de configuração do agente
+para as ferramentas de arquivo: pastas e arquivos ocultos em qualquer profundidade, `SKILL.md`, `CLAUDE.md` e `AGENTS.md`. Sem isso, um
+agente sem Bash editaria o próprio `config.sh` e executaria o que quisesse. No modo sem pastas, o agente também só grava na casa dele e em `/tmp`; o resto do sistema fica fechado. As rotinas que rodam sozinhas dentro da caixa (reflexão, batimento, crons) passam a usar `python3 -I` e a ler o texto da memória do agente como dado, não como parte do programa: um agente sem terminal não consegue mais executar código gravando um `datetime.py` na casa ou aspas no `working-memory.md`. O gancho de escrita bloqueia quando falha
+(não inicia, falta memória, passa do tempo) em vez de liberar.
+
+A trava fica na configuração administrada do Claude Code, que o agente não consegue desligar pelas próprias configurações.
+Com a trava de pastas ligada, o agente só grava a memória dele; as pastas de configuração (`.dgclaw`, `.claude`, `.codex`,
+`.plataforma`) e `/tmp` ficam fechadas, porque são lidas e executadas pelas rotinas do agente.
+
+As rotinas automáticas do agente (reflexão da noite, posts, respostas a comentários e consolidação) agora respeitam as restrições do
+mesmo jeito que a conversa: com restrição ligada, só rodam se a conta de IA conectada for compatível, e recebem as mesmas ferramentas
+travadas. Se recusarem, o log da rotina diz o motivo e o que fazer. Nada muda para quem não usa restrições.
+A reflexão da noite confere a conta antes de qualquer chamada ao Claude, inclusive a busca de lembranças antigas, que agora roda com
+ferramentas e conexões externas desligadas. Quando uma recusa por conta incompatível acontece com um processo antigo do agente ainda
+vivo, o runner o encerra e só então registra a recusa; se não conseguir, avisa que não confirmou a parada.
+
+### Como atualizar (restrições do agente)
+
+A imagem dos agentes precisa ser a nova (ela liga o arquivo de política administrada do Claude Code). O `dgclaw atualizar` já
+reconstrói a imagem e recria cada agente, então basta atualizar; um agente que você deixou parado ganha a trava quando for recriado
+(`sudo dgclaw agente recriar <agente> --forcar`).
+
+Se você já tinha travado algum agente por conta própria, mexendo dentro da caixa dele (por exemplo, editando o
+`settings.json` ou as permissões por lá), essa trava não é lida pelo novo mecanismo e continua sujeita a sumir na próxima
+atualização. Refaça uma vez, pelo comando novo, cada trava que você quer manter: peça ao Admin ("tira o Bash da Ana",
+"a Ana só grava na pasta relatórios") ou rode `sudo dgclaw agente restricoes <agente> ...`. Depois de refeitas, não
+precisam ser repetidas. Confira com `sudo dgclaw agente restricoes <agente>`.
+
+Contas Team e Enterprise do claude.ai não são compatíveis com as restrições nesta versão: uma organização pode passar a
+mandar uma política própria a qualquer momento, e ela substitui a configuração do DG Claw. Se o agente usa uma conta
+dessas, o comando `restricoes` recusa e para o agente; conecte uma conta pessoal (Pro ou Max) ou uma chave de API no painel
+do agente e rode o comando de novo. Um token OAuth ou login por assinatura sem plano Pro ou Max legível também é recusado, porque pode ser de uma organização. A consulta (`sudo dgclaw agente restricoes <agente>`) também passa a comparar o que está
+aplicado com o que você pediu, e mostra `NAO VALE` quando uma restrição foi gravada e não chegou a ser aplicada.
+
+Um agente que tem restrições agora só liga (`dgclaw agente iniciar`) ou reinicia o runner (`dgclaw agente reiniciar`) depois de
+os arquivos de política serem refeitos a partir das suas restrições e de a imagem dele ser conferida, porque o agente sobe
+sozinho e uma conferência feita depois deixaria um intervalo sem a trava. Se ele estiver numa imagem antiga, não liga e a
+mensagem pede para recriar. Quem deixou um agente parado com restrições e uma imagem antiga precisa rodar uma vez
+`sudo dgclaw imagem construir --agora` (se a imagem do servidor também for antiga) e `sudo dgclaw agente recriar <agente>`.
+Com o terminal travado, o `Monitor` também fica negado, porque ele executa comandos por conta própria.
+
+Se a conta de IA conectada a um agente pertence a uma organização do claude.ai (planos Team ou Enterprise) com política
+administrada remota, essa política substitui a configuração do DG Claw e as restrições deixam de valer. Para um agente
+com restrições, o `iniciar`, o `reiniciar` e a consulta passam a detectar isso, param o agente e explicam. A saída é conectar
+nele uma conta pessoal (Pro ou Max) ou uma chave de API. Como o agente fica parado, a ordem é: desligar as restrições
+(`sudo dgclaw agente restricoes <agente> --sem-bash nao --sem-enviar-arquivo nao --escrita-livre`), ligar o agente
+(`sudo dgclaw agente iniciar <agente>`), trocar a conta no painel do agente e ligar as restrições de novo com o mesmo comando `restricoes`. Conta de organização com política administrada remota não é compatível com as
+restrições nesta versão, nem quando a política pede para combinar com a local, porque a própria organização pode desligar os
+ganchos nela. Quando o DG Claw para o agente por esse motivo, ele só considera o container parado quando o podman confirma isso; sem
+confirmação, a mensagem diz que o agente pode estar ligado sem a trava e como pará-lo na mão.
+
+A conta de IA também é conferida depois que o agente já está ligado. Antes, quem conectava uma conta Team ou Enterprise pelo
+painel depois de aplicar as restrições escapava da conferência, e a política remota da organização podia desligar as travas. Agora,
+com qualquer restrição ativa, o runner confere a conta logo depois de cada login pelo painel e antes de abrir ou retomar cada
+sessão do Claude. Se a conta for de uma organização, tiver política remota ou não der para saber qual é, a sessão não abre: o
+painel mostra o motivo e o que fazer (conectar uma conta pessoal Pro ou Max, ou uma chave de API, ou desligar as restrições), e o
+log do runner registra. Se o arquivo de restrições existir e estiver ilegível, o runner trata o agente como restrito e também não
+abre a sessão. Sem restrições ativas nada muda. Depois de conectar a conta certa, a sessão abre sozinha.
+
+O Bun, que roda os ganchos do plugin, lê o arquivo `bunfig.toml` da pasta onde é iniciado, e um `preload` nele executa código. Um
+agente sem terminal, mas com escrita livre na casa, podia gravar esse arquivo e recuperar a execução de comandos. Agora os ganchos
+entram na pasta do plugin antes de chamar o Bun, e o gancho de escrita também recusa `bunfig.toml` em qualquer pasta.
+
 **Prévias de vídeo e foto passam a funcionar em qualquer servidor.** O painel monta a miniatura dos vídeos e das
 fotos com o programa ffmpeg, que o instalador não colocava no servidor. Em um servidor de um cliente, o vídeo que o
 agente enviou apareceu só como botão de arquivo, sem prévia, e o registro do painel repetia "Miniatura: ENOENT"
@@ -110,6 +449,7 @@ precisa fazer nada.
 - O vigia de saúde não confunde mais o resumo da compactação com uma mensagem sua sem resposta. Antes, depois de cada compactação, o agente era reiniciado várias vezes seguidas sem motivo e o painel avisava que ele não estava respondendo.
 - Os agentes que usam o Claude deixam de "responder no vazio". Às vezes o agente escrevia a resposta como texto solto no fim do turno, sem usar a ferramenta de resposta do chat (ou do WhatsApp), e esse texto ficava no terminal sem chegar a você. Agora, quando isso acontece, a plataforma devolve o turno uma vez e o agente reenvia a resposta pelo canal certo. Recados da própria plataforma, turnos sem nenhum texto e qualquer falha da conferência passam sem cobrança, e as decisões ficam no arquivo `trava-resposta.log`, sem o conteúdo das mensagens. Só vale como resposta a ferramenta do canal certo e que não falhou, e, quando o turno é devolvido, o painel continua mostrando o agente como trabalhando até ele terminar de verdade.
 - Quando o texto entregue ao agente demora a ser aceito, o sistema continua tentando enviar por mais de um minuto em vez de deixá-lo parado na caixa de entrada.
+- O agente que usa o Claude não fica mais parado no diálogo "Is this a directory you created or one you trust?" ao subir. O Claude Code 2.1.326 passou a perguntar isso para a pasta do agente e para cada pasta extra que recebe, e um agente que sobe sozinho (serviço, rotina, runner) ficava ali, com o processo vivo e parecendo "no ar". Agora o DG Claw marca essas pastas como confiáveis a cada subida (serviço do canal, runner, socorro do painel, reflexão, consolidação e post), sem apagar nada do seu `.claude.json`. Se o diálogo aparecer mesmo assim, o runner coloca o agente em erro com o motivo e a pasta (em vez de dizer que está tudo bem), e o vigia do canal do Telegram passa a apontar essa causa quando o reinício automático não resolve.
 
 **Nova tela Logs no Admin.** No menu do Admin, o item **Logs** (endereço `/logs`) mostra, do mais novo para o mais antigo,
 tudo o que cada agente fez: mensagens, comandos, arquivos e ferramentas, tanto dos agentes que usam o Claude quanto dos que

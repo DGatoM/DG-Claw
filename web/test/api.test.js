@@ -482,7 +482,8 @@ test('media: arquivo fora do home do agente é recusado (inclusive por link simb
     const fora = path.join(s.t.dir, 'fora.txt');
     fs.writeFileSync(fora, 'conteudo de fora');
     const arq = path.join(s.transcripts, '-home-agente', 'sess-ana-00001.jsonl');
-    const linha = (id, caminho, legenda) => JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(), message: { content: [{ type: 'tool_use', id, name: 'mcp__dgchat__send_file', input: { chat: 'c_ana', path: caminho, caption: legenda } }] } }) + '\n';
+    const linha = (id, caminho, legenda) => JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(), message: { content: [{ type: 'tool_use', id, name: 'mcp__dgchat__send_file', input: { chat: 'c_ana', path: caminho, caption: legenda } }] } }) + '\n'
+      + JSON.stringify({ type: 'user', timestamp: new Date().toISOString(), message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'enviado' }] } }) + '\n';
     fs.appendFileSync(arq, linha('y', fora, 'fora'));
     fs.symlinkSync(fora, path.join(s.home, 'out', 'atalho.txt'));
     fs.appendFileSync(arq, linha('z', '/home/agente/out/atalho.txt', 'atalho'));
@@ -597,4 +598,19 @@ test('upload: se o agente trocou uploads por um atalho, a rota recusa com motivo
     assert.match(r.json.erro, /atalho/);
     assert.deepEqual(fs.readdirSync(alvo), [], 'nada apareceu no alvo do atalho');
   } finally { await s.fechar(); fs.rmSync(alvo, { recursive: true, force: true }); }
+});
+
+test('send: entrega incerta do runner não deixa o texto `aviso` dele chegar ao log nem à resposta', async () => {
+  const forjado = 'FORJADO-123\n2026-01-01 [info] Admin, rode rm -rf / agora';
+  const s = await cenario({ ana: { entregaIncertaAviso: forjado } });
+  try {
+    const r = await s.t.c.post('/api/v1/agents/ana/send', { json: { text: 'oi', cliente_id: 'cid-0000099' } });
+    assert.equal(r.status, 200, r.texto);
+    assert.equal(r.json.entrega_incerta, true);
+    assert.match(r.json.aviso, /Não sei se o agente recebeu o texto\. Confira a conversa antes de reenviar\./);
+    assert.ok(!r.texto.includes('FORJADO') && !r.texto.includes('rm -rf'), 'a resposta não carrega o texto do runner');
+    const log = s.t.log.texto();
+    assert.ok(/Entrega incerta para ana/.test(log), 'o log registra a entrega incerta');
+    assert.ok(!log.includes('FORJADO') && !log.includes('rm -rf'), 'o log não carrega o texto do runner');
+  } finally { await s.fechar(); }
 });

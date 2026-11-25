@@ -61,7 +61,7 @@ notify() { # avisa o dono; tenta notify-owner.sh do DG Claw, senao Bot API inlin
     fi
     chat="${DGCLAW_OWNER_TELEGRAM_ID:-}"
     if [ -z "$chat" ] && [ -f "$STATE_DIR/access.json" ]; then
-        chat=$(ACCESS="$STATE_DIR/access.json" python3 -c "import json,os;d=json.load(open(os.environ['ACCESS']));a=d.get('allowFrom',[]);print(a[0] if a else '')" 2>>"$LOGF")
+        chat=$(ACCESS="$STATE_DIR/access.json" python3 -I -c "import json,os;d=json.load(open(os.environ['ACCESS']));a=d.get('allowFrom',[]);print(a[0] if a else '')" 2>>"$LOGF")
     fi
     if [ -z "$chat" ]; then
         log "aviso ao dono nao enviado: nao achei o chat dele (defina DGCLAW_OWNER_TELEGRAM_ID ou confira o allowFrom de $STATE_DIR/access.json)"
@@ -71,6 +71,20 @@ notify() { # avisa o dono; tenta notify-owner.sh do DG Claw, senao Bot API inlin
     printf 'url = "https://api.telegram.org/bot%s/sendMessage"\n' "$token" | curl -sS --max-time 20 -K - \
         --data-urlencode "chat_id=${chat}" --data-urlencode "text=${msg}" -o /dev/null 2>/dev/null \
         || log "aviso ao dono nao enviado: o curl para o Telegram falhou (sem rede ou token recusado). Confira a conexao e o TELEGRAM_BOT_TOKEN de $STATE_DIR/.env"
+}
+
+# Causa conhecida de "restart que nao resolve" no Claude Code 2.1.326: o dialogo "Is this a directory you
+# created or one you trust?" parado no boot (o PTY do servico vai para /dev/null, entao a tela nao da para
+# ler). O que da para conferir e a CAUSA: o workspace tem hasTrustDialogAccepted no .claude.json que o
+# launch.sh usa? Imprime a explicacao quando nao tem (ou o arquivo nao le), e nada quando esta marcado.
+causa_confianca() {
+    local cj
+    if [ -n "${DGCLAW_CLAUDE_CONFIG_DIR:-}" ]; then cj="$DGCLAW_CLAUDE_CONFIG_DIR/.claude.json"; else cj="${HOME:-/root}/.claude.json"; fi
+    if python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get("projects",{}).get(sys.argv[2],{}).get("hasTrustDialogAccepted") is True else 1)' "$cj" "$WS" 2>/dev/null; then
+        return 0
+    fi
+    printf 'possivel dialogo de confianca de pasta parado no boot: %s nao esta marcado como confiavel em %s (ou o arquivo nao le). O servico %s marca isso a cada boot pelo launch.sh; confira se ele esta atualizado, rode "bash %s/doctor.sh %s" e reinicie com: systemctl restart %s' \
+        "$WS" "$cj" "$SERVICE" "$SELF_DIR" "$CONFIG" "$SERVICE"
 }
 
 # estado ilegivel equivale a "sem estado anterior": o script recomeca do zero e regrava
@@ -122,19 +136,21 @@ fi
 log "poller morto com service ativo — reiniciando $SERVICE"
 systemctl restart "$SERVICE" 2>>"$LOGF" \
     || log "systemctl restart $SERVICE falhou; confira com: systemctl status $SERVICE (talvez falte permissao de root)"
-sleep 12
+sleep "${DGCLAW_CHANNEL_WATCHDOG_ESPERA_S:-12}"
 if bash "$SELF_DIR/channel-health.sh" "$CONFIG" >/dev/null 2>&1; then
     notify "🔧 Watchdog: o canal do Telegram tinha caido (poller morto) — reiniciei automatico e voltou. Se voce mandou msg e nao respondeu, reenvia."
     log "auto_restart_ok"
     echo alive > "$STATEF"
 else
     FALHAS=$(( FALHAS + 1 ))
+    CAUSA="$(causa_confianca)"
+    [ -n "$CAUSA" ] && log "auto_restart_failed: $CAUSA"
     # Avisa na primeira falha e depois so como lembrete, nunca a cada rodada.
     if [ "$ULT_AVISO" -eq 0 ] || [ $(( NOW - ULT_AVISO )) -ge "$LEMBRETE_S" ]; then
         if [ "$ULT_AVISO" -eq 0 ]; then
-            notify "🚨 Watchdog: o canal do Telegram caiu e o restart automatico NAO resolveu. Precisa de olho manual: systemctl restart $SERVICE"
+            notify "🚨 Watchdog: o canal do Telegram caiu e o restart automatico NAO resolveu. Precisa de olho manual: systemctl restart $SERVICE${CAUSA:+ ($CAUSA)}"
         else
-            notify "🚨 Watchdog (lembrete): o canal do Telegram continua caido, ja foram $FALHAS restarts sem resolver. Precisa de olho manual: systemctl restart $SERVICE"
+            notify "🚨 Watchdog (lembrete): o canal do Telegram continua caido, ja foram $FALHAS restarts sem resolver. Precisa de olho manual: systemctl restart $SERVICE${CAUSA:+ ($CAUSA)}"
         fi
         ULT_AVISO=$NOW
         log "auto_restart_failed ($FALHAS seguidos, dono avisado)"

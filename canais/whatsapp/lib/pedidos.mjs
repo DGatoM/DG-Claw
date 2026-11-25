@@ -5,7 +5,7 @@ import { motivoNumeroInvalido, normalizar } from './numeros.mjs';
 import { falha, motivoErro } from './util.mjs';
 
 /** `ligacao()` diz, na hora do pedido, se a ponte esta conectada e qual e o socket do Baileys. */
-export function criarPedidos({ lerPermitidos, estaPermitido, validarArquivo, montarEnvioArquivo, ligacao }) {
+export function criarPedidos({ memoria, lerPermitidos, estaPermitido, validarArquivo, montarEnvioArquivo, ligacao }) {
   const jids = new Map();
 
   // Sem "para", so ha destino padrao quando a lista tem exatamente um numero. Com dois ou mais,
@@ -87,6 +87,10 @@ export function criarPedidos({ lerPermitidos, estaPermitido, validarArquivo, mon
           ? { text: p.texto }
           : montarEnvioArquivo(arq.fd, p.caminho, p.legenda);
         const r = await sock.sendMessage(jid, conteudo);
+        const idEnviado = r && r.key && r.key.id;
+        // Guarda o que de fato saiu: o audio, por exemplo, vai sem a legenda pedida.
+        const enviado = conteudo.text || conteudo.caption;
+        if (enviado) memoria.lembrar((r && r.key && r.key.remoteJid) || jid, idEnviado, enviado);
         return { ok: true, para: numero, id: (r && r.key && r.key.id) || null };
       } catch (e) {
         return falha('FALHA_ENVIO', `o WhatsApp recusou o envio para ${numero} (${motivoErro(e)}); tente de novo`);

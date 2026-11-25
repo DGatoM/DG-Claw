@@ -2,12 +2,38 @@
 # podman de mentira: registra o argv e simula so o estado que os testes consultam.
 echo "podman $*" >> "${STUB_LOG:?}"
 est="${STUB_ESTADO:?}"
+# O conmon de verdade herda os descritores abertos: se o 9 (a trava das restricoes) chega aqui, ele a segurava para sempre.
+if [ -e /proc/$$/fd/9 ]; then echo "podman $*" >> "$est/fd9-aberto"; fi
+# Idem para as travas dos limites (7) e do agente (6): se chegam aqui, o conmon as seguraria para sempre.
+for n in 6 7; do [ -e /proc/$$/fd/$n ] && { echo "podman $*" >> "$est/fd$n-aberto"; }; done
+# ID do container: estado/id-<nome> (o teste troca o ID no meio do reparo); sem ele, "idfalso-<nome>". O podman de verdade aceita o
+# ID no lugar do nome em inspect e update; um ID que nao e o atual de nenhum container nao existe.
+id_de() { if [ -f "$est/id-$1" ]; then cat "$est/id-$1"; else echo "idfalso-$1"; fi; }
+nome_do() {
+    local f n
+    case "$1" in dgclaw-*) echo "$1"; return ;; esac
+    for f in "$est"/c-*; do
+        [ -f "$f" ] || continue
+        n="${f##*/c-}"
+        if [ "$(id_de "$n")" = "$1" ]; then echo "$n"; return; fi
+    done
+    echo "$1"
+}
 case "${1:-}" in
     image)
         # `image inspect -f {{.Id}}`: o id da imagem "atual" (muda quando o teste escreve estado/imagem-id).
+        # Com .Labels: o label dgclaw.configuracao-administrada (presente por padrao; a flag sem-label o tira).
+        if [ "$2" = inspect ] && printf '%s ' "$@" | grep -q '\.Labels'; then
+            [ -f "$est/sem-label" ] || echo 1; exit 0
+        fi
         if [ "$2" = inspect ]; then cat "$est/imagem-id" 2>/dev/null || echo imagem-nova; exit 0; fi
         [ "$2" = exists ] && [ ! -f "$est/sem-imagem" ]; exit $? ;;
     container)
+        # `container inspect --format {{.ImageID}} <c>`: o id da imagem com que o container foi criado.
+        if [ "$2" = inspect ]; then
+            nome="${*: -1}"; [ -f "$est/c-$nome" ] || exit 1
+            cat "$est/img-$nome" 2>/dev/null || echo imagem-velha; exit 0
+        fi
         [ "$2" = exists ] && [ -f "$est/c-$3" ]; exit $? ;;
     network)
         case "$2" in
@@ -17,24 +43,48 @@ case "${1:-}" in
         esac ;;
     create)
         dns=""
-        while [ $# -gt 0 ]; do [ "$1" = --name ] && nome="$2"; [ "$1" = --dns ] && dns="$dns $2"; shift; done
+        mem=0; cpus=0; pids=2048
+        while [ $# -gt 0 ]; do
+            [ "$1" = --name ] && nome="$2"; [ "$1" = --dns ] && dns="$dns $2"
+            [ "$1" = --memory ] && mem="$2"; [ "$1" = --cpus ] && cpus="$2"; [ "$1" = --pids-limit ] && pids="$2"
+            shift
+        done
+        # Limites do container: "<bytes> <quota> <periodo> <pids>", como o inspect devolve.
+        case "$mem" in *g) mem=$(( ${mem%g} * 1073741824 )) ;; *m) mem=$(( ${mem%m} * 1048576 )) ;; esac
+        echo "$mem $(awk -v c="$cpus" 'BEGIN { printf "%d", c * 100000 }') 100000 $pids $((mem * 2))" > "$est/lim-$nome"
         echo created > "$est/c-$nome"
         echo "[${dns# }]" > "$est/dns-$nome"
         # O container nasce com a imagem que estava "atual" na hora (para o `agente recriar` comparar).
         cat "$est/imagem-id" 2>/dev/null > "$est/img-$nome" || echo imagem-nova > "$est/img-$nome"
         echo "container-id" ;;
     start)
+        # Guarda o que estava gravado na pasta do runner na hora da partida (a ordem: regenerar antes de ligar).
+        for f in managed-settings.json runner.json; do
+            d="${DGCLAW_RAIZ:?}/var/lib/dgclaw/agentes/${2#dgclaw-}/runner/$f"
+            if [ -f "$d" ]; then cp "$d" "$est/no-start-$f"; else rm -f "$est/no-start-$f"; fi
+        done
         echo running > "$est/c-$2"
         # Simula o container que cai na partida (falta de inotify): estado exited, codigo 255.
         if [ -f "$est/saida-255" ]; then echo exited > "$est/c-$2"; echo 255 > "$est/codigo-$2"; fi ;;
     stop)
         nome="${*: -1}"
+        touch "$est/stop-feito"
         [ -f "$est/c-$nome" ] || exit 0
+        # stop-nao-para: o stop devolve 0, mas o container continua ligado (o caso do container que ignora o sinal).
+        [ -f "$est/stop-nao-para" ] && exit 0
+        # stop-paused: o container fica pausado (nem running nem parado); stop-remove: o container some (autoremove).
+        if [ -f "$est/stop-paused" ]; then echo paused > "$est/c-$nome"; exit 0; fi
+        if [ -f "$est/stop-remove" ]; then rm -f "$est/c-$nome"; exit 0; fi
         # stop-trava-<container> = N: o stop devolve, mas o estado fica "stopping" por N consultas
         # (depois vira exited); = sempre: fica "stopping" para sempre (o caso real do podman 4.9.3).
         if [ -f "$est/stop-trava-$nome" ]; then
             echo stopping > "$est/c-$nome"; cp "$est/stop-trava-$nome" "$est/stopping-resta-$nome"
         else echo exited > "$est/c-$nome"; fi ;;
+    kill)
+        nome="${*: -1}"
+        [ -f "$est/c-$nome" ] || exit 0
+        touch "$est/kill-feito"
+        [ -f "$est/kill-nao-mata" ] || echo exited > "$est/c-$nome" ;;
     rm)
         nome="${*: -1}"; forca=0
         for a in "$@"; do [ "$a" = -f ] && forca=1; done
@@ -46,7 +96,60 @@ case "${1:-}" in
         rm -f "$est/c-$nome" ;;
     inspect)
         nome="${*: -1}"
+        # Container chamado por um ID que ja nao e o dele (foi trocado no meio): nao existe.
+        nome="$(nome_do "$nome")"
         [ -f "$est/c-$nome" ] || exit 1
+        if printf '%s ' "$@" | grep -q '{{.Id}}'; then id_de "$nome"; exit 0; fi
+        if printf '%s ' "$@" | grep -q '{{.Id}}'; then id_de "$nome"; exit 0; fi
+        # inspect-falha: a consulta do estado falha sempre (depois do primeiro stop); inspect-falha-pre-kill: falha ate o kill; inspect-falha-pos-kill:
+        # falha depois do kill (o podman nao responde).
+        if printf '%s ' "$@" | grep -q 'State.Status'; then
+            # So depois do stop: antes dele o comando precisa enxergar o container ligado para conferir.
+            if [ -f "$est/stop-feito" ]; then
+                [ -f "$est/inspect-falha" ] && exit 125
+                [ -f "$est/inspect-falha-pre-kill" ] && [ ! -f "$est/kill-feito" ] && exit 125
+                [ -f "$est/inspect-falha-pos-kill" ] && [ -f "$est/kill-feito" ] && exit 125
+            fi
+        fi
+        # Limites efetivos: o DG Claw le o cgroup pelo host. O stub monta arquivos falsos sob $DGCLAW_RAIZ/sys/fs/cgroup a partir de
+        # estado/lim-<nome> ("<bytes> <quota> <periodo> <pids> <memoria+swap>"), como o kernel mostraria (swap.max e SO o swap).
+        # cgroup-ausente: o caminho existe mas os arquivos nao.
+        if printf '%s ' "$@" | grep -q 'State.CgroupPath'; then
+            [ -f "$est/inspect-limites-falha" ] && exit 125
+            # releitura-falha: a leitura dos limites funciona antes do `podman update` e falha depois dele.
+            [ -f "$est/releitura-falha" ] && [ -f "$est/update-feito" ] && exit 125
+            if [ ! -f "$est/cgroup-ausente" ] && [ -f "$est/lim-$nome" ]; then
+                read -r m q p n w < "$est/lim-$nome"; w="${w:-$((m * 2))}"
+                d="${DGCLAW_RAIZ:?}/sys/fs/cgroup/machine.slice/libpod-$nome.scope"; mkdir -p "$d"
+                if [ "$m" -gt 0 ]; then echo "$m" > "$d/memory.max"; else echo max > "$d/memory.max"; fi
+                if [ "$w" -gt "$m" ] && [ "$m" -gt 0 ]; then echo $((w - m)) > "$d/memory.swap.max"; elif [ "$w" = -1 ] || [ "$m" -eq 0 ]; then echo max > "$d/memory.swap.max"; else echo 0 > "$d/memory.swap.max"; fi
+                # pids "zero" = teto finito igual a 0 (0 literal no arquivo); 0 ou -1 = sem limite (max).
+                if [ "$n" = zero ]; then echo 0 > "$d/pids.max"; elif [ "$n" -gt 0 ]; then echo "$n" > "$d/pids.max"; else echo max > "$d/pids.max"; fi
+                if [ "$q" -gt 0 ]; then echo "$q $p" > "$d/cpu.max"; else echo "max $p" > "$d/cpu.max"; fi
+                # cgroup-sem-swap: o kernel sem contabilidade de swap nao tem o arquivo.
+                [ -f "$est/cgroup-sem-swap" ] && rm -f "$d/memory.swap.max"
+                # cpu-nao-relido: o cpu.max some depois do update (os outros controladores continuam legiveis).
+                [ -f "$est/cpu-nao-relido" ] && [ -f "$est/update-feito" ] && rm -f "$d/cpu.max"
+            fi
+            echo "/machine.slice/libpod-$nome.scope"; exit 0
+        fi
+        # `inspect -f {{.HostConfig.Memory}}`: so os bytes da memoria persistida em lim-<nome> (container parado). Com cgroup-ausente
+        # responde 0 (nada persistido), a menos que estado/memoria-persistida exista.
+        if [ "${*: -3:1}" = "-f" ] && [ "${*: -2:1}" = '{{.HostConfig.Memory}}' ]; then
+            [ -f "$est/inspect-limites-falha" ] && exit 125
+            # Com cgroup-ausente e sem memoria-persistida a consulta FALHA (nada persistido legivel); com memoria-zero ela tem
+            # sucesso e devolve 0 (container criado sem limite).
+            if [ -f "$est/memoria-zero" ]; then echo 0; exit 0; fi
+            if [ -f "$est/cgroup-ausente" ] && [ ! -f "$est/memoria-persistida" ]; then exit 125; fi
+            read -r m _ < "$est/lim-$nome" 2>/dev/null || m=0
+            echo "${m:-0}"; exit 0
+        fi
+        if printf '%s ' "$@" | grep -q 'HostConfig.Memory'; then
+            [ -f "$est/inspect-limites-falha" ] && exit 125
+            # Arquivo com 4 campos (sem swap): o swap padrao e 2x a memoria, como o podman faz na criacao.
+            read -r m q p n w < <(cat "$est/lim-$nome" 2>/dev/null || echo "2147483648 100000 100000 1024")
+            echo "$m $q $p $n ${w:-$((m * 2))}"; exit 0
+        fi
         if printf '%s ' "$@" | grep -q '\.Mounts'; then
             if [ -f "$est/mounts-volume" ]; then echo "bind volume "; else echo "bind bind bind bind bind "; fi
             exit 0
@@ -66,10 +169,92 @@ case "${1:-}" in
         else
             cat "$est/c-$nome"
         fi ;;
+    update)
+        # update-sem-suporte: o podman antigo nao tem o comando; update-sem-swap: nao aceita --memory-swap.
+        [ -f "$est/update-sem-suporte" ] && { echo "Error: unknown command \"update\" for \"podman\"" >&2; exit 125; }
+        if [ -f "$est/update-sem-swap" ] && printf '%s ' "$@" | grep -q -- '--memory-swap'; then echo "Error: unknown flag: --memory-swap" >&2; exit 125; fi
+        nome="$(nome_do "${*: -1}")"; [ -f "$est/lim-$nome" ] || exit 1
+        # update-sem-efeito: o comando termina com 0 mas nao muda nada (o podman que mente).
+        [ -f "$est/update-sem-efeito" ] && exit 0
+        touch "$est/update-feito"
+        read -r mem quota periodo pids swap < "$est/lim-$nome"
+        swap="${swap:-$((mem * 2))}"
+        mem_antes="$mem"; swap_antes="$swap"; quota_antes="$quota"; pids_antes="$pids"
+        args_update="$*"
+        shift   # tira o "update"
+        while [ $# -gt 1 ]; do
+            # aceita --flag=valor e --flag valor
+            case "$1" in --*=*) set -- "${1%%=*}" "${1#*=}" "${@:2}" ;; esac
+            case "$1" in
+                --memory) v="$2"; case "$v" in *g) v=$(( ${v%g} * 1073741824 )) ;; *m) v=$(( ${v%m} * 1048576 )) ;; esac; mem="$v"; [ -f "$est/update-mem-vira-max" ] && mem=0 ;;
+                --memory-swap) v="$2"; case "$v" in *g) v=$(( ${v%g} * 1073741824 )) ;; *m) v=$(( ${v%m} * 1048576 )) ;; esac; swap="$v" ;;
+                --cpus) [ -f "$est/update-cpu-sem-efeito" ] || quota="$(awk -v c="$2" 'BEGIN { printf "%d", c * 100000 }')"; [ -f "$est/update-cpu-vira-max" ] && quota=0 ;;
+                --pids-limit) pids="$2"; [ -f "$est/update-pids-vira-max" ] && pids=0 ;;
+            esac
+            shift 2
+        done
+        # update-*-acima: o cgroup fica ACIMA do pedido; update-swap-mais: o swap passa a ser mais permissivo que antes.
+        [ -f "$est/update-mem-acima" ] && { mem=$((mem + 1073741824)); swap=$((swap + 1073741824)); }
+        [ -f "$est/update-cpu-acima" ] && quota=$((quota * 2))
+        [ -f "$est/update-pids-acima" ] && pids=$((pids + 500))
+        [ -f "$est/update-swap-mais" ] && swap=$((swap + 1073741824))
+        # update-cpu-mexe-mem: quando o update pede CPUs, a memoria (finita) muda de colateral (+1 GiB, com o swap junto).
+        [ -f "$est/update-cpu-mexe-mem" ] && [[ "$args_update" == *--cpus* ]] && { mem=$((mem + 1073741824)); swap=$((swap + 1073741824)); }
+        # update-swap-vira-max: o swap finito vira sem limite (-1) depois do update, mesmo sem o reparo ter mexido nele.
+        [ -f "$est/update-swap-vira-max" ] && swap=-1
+        # update-*-menor: o valor relido fica ABAIXO do que era antes do update (metade do anterior), seja qual for o pedido.
+        if [ -f "$est/update-mem-menor" ] && [[ "$args_update" == *--memory* ]]; then mem=$((mem_antes / 2)); swap=$((mem + swap_antes - mem_antes)); fi
+        if [ -f "$est/update-cpu-menor" ] && [[ "$args_update" == *--cpu* ]]; then quota=$((quota_antes / 2)); fi
+        if [ -f "$est/update-pids-menor" ] && [[ "$args_update" == *--pids-limit* ]]; then pids=$((pids_antes / 2)); fi
+        # update-troca-id: depois do update o container passa a ter outro ID (foi trocado no meio do reparo).
+        [ -f "$est/update-troca-id" ] && echo "novo-id-$nome" > "$est/id-$nome"
+        echo "$mem $quota $periodo $pids $swap" > "$est/lim-$nome" ;;
     exec)
+        # `sh -c '...systemctl is-enabled...' sh <unidades>`: "unidade estado"; estado/timer-desligado lista as desligadas.
+        if printf '%s ' "$@" | grep -q 'is-enabled'; then
+            [ -f "$est/enabled-falha" ] && exit 1
+            # consulta das rotinas do proprio agente (glob no script): estado/self-timers lista "unidade estado"
+            if printf '%s ' "$@" | grep -q -- '-self-\*\.timer'; then
+                cat "$est/self-timers" 2>/dev/null; exit 0
+            fi
+            for u in "${@:7}"; do
+                if grep -qxF "$u" "$est/timer-vazio" 2>/dev/null; then echo "$u 1 VAZIO"
+                elif grep -qxF "$u" "$est/timer-desligado" 2>/dev/null; then echo "$u 1 disabled"; else echo "$u 1 enabled"; fi
+            done
+            exit 0
+        fi
+        # Permissao e dono dos diretorios (`sh -c '... stat -c ...'`, caminhos por STDIN): uma linha por caminho.
+        # No container, os caminhos listados em estado/dir-alterado saem com 700; na imagem, tudo e 755.
+        if printf '%s ' "$@" | grep -q 'stat -c'; then
+            [ -f "$est/dir-conferir-falha" ] && exit 1
+            while IFS= read -r d; do
+                if grep -qxF "$d" "$est/dir-alterado" 2>/dev/null; then echo "700 0 0"; else echo "755 0 0"; fi
+            done
+            exit 0
+        fi
         # `exec -i <container> bash -s` recebe o script por STDIN: guarda para o teste ler.
         if printf '%s ' "$@" | grep -q -- ' -i '; then cat >> "$STUB_LOG.stdin"; fi
         if printf '%s ' "$@" | grep -q is-system-running; then echo running; fi
+        # Conferencia das unidades padrao: `sha256sum <arquivos>`. Imprime "HASH-FIXO  <arquivo>", ou "OUTRO  <arquivo>"
+        # para os caminhos listados em estado/unidade-editada. estado/unidade-conferir-falha faz o comando falhar.
+        if printf '%s ' "$@" | grep -q 'sha256sum'; then
+            [ -f "$est/unidade-conferir-falha" ] && exit 1
+            for f in "${@:4}"; do
+                if grep -qxF "$f" "$est/unidade-editada" 2>/dev/null; then echo "OUTRO  $f"; else echo "HASH-FIXO  $f"; fi
+            done
+            exit 0
+        fi
+        # Rotinas proprias do agente: estado/self-tar (um tar de verdade) e o que `tar -cf -` devolve; `tar -xf -` so consome.
+        if printf '%s ' "$@" | grep -q 'tar -cf -' && [ -f "$est/self-tar" ]; then cat "$est/self-tar"; exit 0; fi
+        if printf '%s ' "$@" | grep -q 'tar -C /etc/systemd/system -xf -'; then cat >/dev/null; exit 0; fi
+        # `exec <container> dpkg-query ...`: pacotes do container (estado/pacotes-container).
+        if printf '%s ' "$@" | grep -q dpkg-query; then
+            if [ -f "$est/pacotes-sem-dpkg" ]; then exit 1; fi
+            # inventario-demora = N: a consulta leva N segundos (o teste confere que a trava dos limites fica livre nesse tempo).
+            if [ -f "$est/inventario-demora" ]; then touch "$est/inventario-em-curso"; sleep "$(cat "$est/inventario-demora")"; rm -f "$est/inventario-em-curso"; fi
+            cat "$est/pacotes-container" 2>/dev/null || printf 'base-files\nbash\n'
+            exit 0
+        fi
         if [ "${*: -1}" = env ] && [ -f "$est/exec-proxy" ]; then echo "HTTPS_PROXY=http://127.0.0.1:3128"; fi
         if printf '%s ' "$@" | grep -q api.anthropic.com && [ -f "$est/sem-internet" ]; then
             echo "curl: (6) Could not resolve host: api.anthropic.com" >&2; exit 6
@@ -85,7 +270,88 @@ case "${1:-}" in
         if [[ "$args" == *"127.0.0.1:6080"* ]] && [ -f "$est/sem-novnc" ]; then exit 7; fi
         if [[ "$args" == *"127.0.0.1:9222"* ]] && [ -f "$est/sem-cdp" ]; then exit 7; fi
         if [[ "$args" == *"command -v google-chrome-stable"* ]] && [ -f "$est/sem-chrome" ]; then exit 1; fi
+        # systemctl: restart-falha faz o restart falhar; inativo faz o is-active responder inactive.
+        if printf '%s ' "$@" | grep -q 'systemctl restart' && [ -f "$est/restart-falha" ]; then
+            echo "Job for dgclaw-runner.service failed (simulado)" >&2; exit 1
+        fi
+        if printf '%s ' "$@" | grep -q 'systemctl is-active'; then
+            if [ -f "$est/inativo" ]; then echo inactive; exit 3; fi
+            echo active; exit 0
+        fi
+        # exec como root, so leitura de /etc: a conferencia de suporte das restricoes (lib/restricoes.sh).
+        # sem-suporte = imagem antiga (sem o link); ms-diferente = o link aponta para outro conteudo;
+        # sem-script-gancho = a imagem nao traz o script do gancho de escrita.
+        case "${3:-}" in
+            readlink)
+                [ -f "$est/sem-suporte" ] && exit 1
+                echo /etc/dgclaw-runner/managed-settings.json; exit 0 ;;
+            cat)
+                if [ "${4:-}" = /etc/claude-code/managed-settings.json ]; then
+                    [ -f "$est/sem-suporte" ] && exit 1
+                    if [ -f "$est/ms-diferente" ]; then echo '{}'; exit 0; fi
+                    cat "${DGCLAW_RAIZ:?}/var/lib/dgclaw/agentes/${2#dgclaw-}/runner/managed-settings.json"; exit $?
+                fi ;;
+            test)
+                [ -f "$est/sem-script-gancho" ] && exit 1
+                exit 0 ;;
+        esac
+        # `exec --user agente <c> claude auth status --json`: a conta de IA do agente. Sem flag, "sem login" (e sai com 1,
+        # como o claude de verdade: o codigo nao conta, a saida sim). conta-saida = texto cru que o teste grava em
+        # $est/conta-saida; conta-trava = nao responde (o prazo estoura).
+        if [ "${2:-}" = "--user" ] && [ "${5:-}" = claude ] && [ "${6:-}" = auth ]; then
+            if [ -f "$est/conta-saida" ]; then cat "$est/conta-saida"; exit 0; fi
+            echo '{"loggedIn":false,"authMethod":"none","apiProvider":"firstParty"}'; exit 1
+        fi
+        # `exec --user agente <c> node -e <script> <arquivo>`: roda o node de verdade, mas trocando
+        # /home/agente pela casa do agente na raiz falsa (a caixa de mentira). `exec-node-nao` so registra.
+        if [ "${2:-}" = "--user" ] && [ "${3:-}" = agente ] && [ "${5:-}" = node ] && [ ! -f "$est/exec-node-nao" ]; then
+            slug="${4#dgclaw-}"; casa="${DGCLAW_RAIZ:?}/var/lib/dgclaw/agentes/$slug/home"
+            # Leitura da politica remota (remote-settings.json): as flags montam o arquivo na casa do agente
+            # e o node de verdade o le; sem flag, o arquivo some (sem-remota).
+            if printf '%s ' "$@" | grep -q 'remote-settings.json'; then
+                rs="$casa/.claude/remote-settings.json"; mkdir -p "$casa/.claude"; rm -f "$rs"
+                if [ -f "$est/remota-com-chave" ]; then echo '{"permissions":{"deny":["Bash"]}}' > "$rs"
+                elif [ -f "$est/remota-merge" ]; then echo '{"managedSourcesBehavior":"merge","permissions":{}}' > "$rs"
+                elif [ -f "$est/remota-merge-desliga" ]; then echo '{"managedSourcesBehavior":"merge","disableAllHooks":true}' > "$rs"
+                elif [ -f "$est/remota-link" ]; then ln -s /etc/passwd "$rs"
+                elif [ -f "$est/remota-invalida" ]; then echo '{nao e json' > "$rs"
+                elif [ -f "$est/remota-vazia" ]; then echo '{}' > "$rs"
+                fi
+            fi
+            shift 5; args=()
+            for a in "$@"; do args+=("${a/#\/home\/agente/$casa}"); done
+            # Alguns testes (atualizar) poem um node de mentira no PATH: aqui precisa ser o de verdade.
+            PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '/stubs$' | paste -sd:)"
+            exec node "${args[@]}"
+        fi
         [ -f "$est/exec-falha" ] && exit 1
+        exit 0 ;;
+    diff)
+        # `diff <container>`: o conteudo de estado/diff-<container> (vazio = nada alterado);
+        # estado/diff-falha faz o comando falhar.
+        nome="${*: -1}"
+        if [ -f "$est/diff-falha" ]; then echo "Error: no such container $nome" >&2; exit 125; fi
+        if printf '%s ' "$@" | grep -q -- '--format json'; then
+            if [ -f "$est/diff-json-$nome" ]; then cat "$est/diff-json-$nome"; exit 0; fi
+            jq -Rn '[inputs] | {added: [.[] | select(startswith("A ")) | .[2:]], changed: [.[] | select(startswith("C ")) | .[2:]], deleted: [.[] | select(startswith("D ")) | .[2:]]}' < "$est/diff-$nome" 2>/dev/null || echo '{}'
+            exit 0
+        fi
+        cat "$est/diff-$nome" 2>/dev/null; exit 0 ;;
+    run)
+        # `run --rm --entrypoint sha256sum <imagem> <arquivos>`: a referencia da imagem (sempre HASH-FIXO).
+        if printf '%s ' "$@" | grep -q 'entrypoint sha256sum'; then
+            for f in "${@:6}"; do echo "HASH-FIXO  $f"; done
+            exit 0
+        fi
+        if printf '%s ' "$@" | grep -q 'stat -c'; then
+            while IFS= read -r d; do echo "755 0 0"; done
+            exit 0
+        fi
+        # `run --rm --entrypoint dpkg-query <imagem> ...`: pacotes da imagem (estado/pacotes-imagem).
+        if printf '%s ' "$@" | grep -q dpkg-query; then
+            if [ -f "$est/pacotes-sem-dpkg" ]; then exit 1; fi
+            cat "$est/pacotes-imagem" 2>/dev/null || printf 'base-files\nbash\n'
+        fi
         exit 0 ;;
     build) echo "build simulado" ;;
 esac
