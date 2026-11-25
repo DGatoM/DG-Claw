@@ -45,8 +45,11 @@ function naFila(s: Sessao): Array<{ em: number; msg: string | null }> {
 function visao(s: Sessao, comMeta: boolean): Record<string, unknown> {
   const fila = naFila(s);
   const extra = { naFila: fila, naFilaTotal: s.tamanhoDaFila(),
-    // Envio sem recibo confirmado (vigia, retido, barra ou item em voo); os retidos como incertos não contam.
+    // Envio sem recibo confirmado (vigia, retido, barra ou item em voo); os retidos como incertos não contam aqui:
+    // eles aparecem no campo `retidosIncertos`.
     reciboPendente: s.vigiaDoRecibo !== null || s.semRecibo.length > 0 || s.barraPendente !== null || s.itemEmVoo !== null,
+    // Pedidos retidos como entrega incerta (ficam no arquivo da fila e nunca são enviados sozinhos).
+    retidosIncertos: s.retidos.length,
     ultimoEventoEm: s.ultimoEventoEm };
   // `codexHome` é só leitura: o CODEX_HOME que o último spawn usou, para quem lê o rollout do disco.
   // `turnosAceitos` é só leitura: quantos pedidos o CLI já aceitou como turno desde que este runner subiu

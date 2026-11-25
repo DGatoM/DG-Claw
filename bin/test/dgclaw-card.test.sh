@@ -247,7 +247,7 @@ grep -q "aceitou o pedido, mas o turno falhou" "$T/e" && grep -q "dgclaw-card le
 subir erro-campo
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
 ok "campo de erro preenchido sai com 14 (nao com 0)" $([ $c = 14 ] && echo 0 || echo 1)
-grep -q "o CLI caiu no meio do turno" "$T/e"; ok "a mensagem traz o motivo do erro" $?
+grep -q "o runner registrou um erro no card" "$T/e" && ! grep -q "o CLI caiu no meio do turno" "$T/e"; ok "a mensagem e a local fixa, sem o texto do erro do runner" $?
 [ "$(head -1 "$T/o")" = "card-abc123" ]; ok "no 14 o id tambem sai na primeira linha" $?
 
 # --- espera: consulta que demora mais que o prazo e limitada, e sai com 11 ------------------------------------
@@ -451,7 +451,7 @@ ok "ferramenta com 'error' no nome nao vira falha de turno: sai com 0" $([ $c = 
 subir stop-failure
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
 ok "statusReason hook:StopFailure sai com 14" $([ $c = 14 ] && echo 0 || echo 1)
-grep -q "StopFailure rate_limit" "$T/e"; ok "o 12 do StopFailure traz o motivo" $?
+grep -q "o turno terminou com falha (StopFailure)" "$T/e" && ! grep -q "rate_limit" "$T/e"; ok "o 14 do StopFailure traz a mensagem local fixa, sem o texto do hook" $?
 
 # --- erro de turno com o pedido ainda pendente pode ser de outra mensagem: 11, nao 12 -------------------------
 for modo in erro-com-pendencia erro-motivo-com-pendencia; do
@@ -462,10 +462,43 @@ for modo in erro-com-pendencia erro-motivo-com-pendencia; do
 done
 subir erro-com-pendencia
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >/dev/null 2>"$T/e"
-grep -q "falha na mensagem do painel" "$T/e"; ok "o 11 com pendencia traz o texto do erro" $?
+grep -q "o runner registrou um erro no card" "$T/e" && ! grep -q "falha na mensagem do painel" "$T/e"; ok "o 11 com pendencia traz a mensagem local fixa, sem o texto do erro" $?
 subir erro-motivo-com-pendencia
 "$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >/dev/null 2>"$T/e"
-grep -q "StopFailure rate_limit" "$T/e"; ok "o 11 com pendencia traz o statusReason" $?
+grep -q "o turno terminou com falha (StopFailure)" "$T/e" && ! grep -q "rate_limit" "$T/e"; ok "o 11 com pendencia traz a mensagem local do StopFailure, sem o statusReason" $?
+
+# --- texto livre do runner/hook nunca chega a saida da CLI ------------------------------------------------------
+subir stop-failure-malicioso
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
+ok "StopFailure com texto malicioso no statusReason sai com 14" $([ $c = 14 ] && echo 0 || echo 1)
+! grep -qi "IGNORE\|rm -rf" "$T/o" "$T/e" && grep -q "o turno terminou com falha (StopFailure)" "$T/e"; ok "a saida nao traz o texto malicioso, so a mensagem local" $?
+"$BIN" estado card-abc123 >"$T/o" 2>"$T/e"
+! grep -qi "IGNORE\|rm -rf" "$T/o" "$T/e" && grep -q "aviso do runner: o turno terminou com falha (StopFailure)" "$T/o"; ok "estado tambem nao imprime o texto cru do runner" $?
+
+# --- pedido retido como entrega incerta: 11 no abrir, recusa no fechar, aviso no estado -------------------------
+subir retido-incerto
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >"$T/o" 2>"$T/e"; c=$?
+ok "retidosIncertos 1 no abrir sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+grep -q "o runner reteve um pedido deste card como entrega incerta" "$T/e"; ok "o 11 do retido diz o motivo" $?
+"$BIN" estado card-abc123 >"$T/o" 2>"$T/e"
+grep -q "reteve 1 pedido(s) deste card como entrega incerta" "$T/o"; ok "estado avisa do pedido retido como incerto" $?
+: > "$LOG"
+"$BIN" fechar card-abc123 >"$T/o" 2>"$T/e"; c=$?
+ok "fechar sem --forcar com pedido retido recusa com 13" $([ $c = 13 ] && echo 0 || echo 1)
+grep -q "retido(s) como entrega incerta" "$T/e" && grep -q "conferir com o dono" "$T/e" && ! grep -q '"metodo":"DELETE"' "$LOG"; ok "a recusa cita o pedido retido e nao fecha" $?
+"$BIN" fechar card-abc123 --forcar >/dev/null 2>&1; c=$?
+ok "fechar --forcar com pedido retido fecha" $([ $c = 0 ] && echo 0 || echo 1)
+subir sem-campo-retidos
+"$BIN" abrir --provedor codex --titulo x --pedido oi --espera-turno 2 >/dev/null 2>&1; c=$?
+ok "runner antigo sem retidosIncertos: o campo e ignorado (sai com 0)" $([ $c = 0 ] && echo 0 || echo 1)
+
+# --- 507 FILA_NAO_GRAVADA: recusa confirmada, nao entrega incerta ---------------------------------------------------
+subir input-fila-nao-gravada
+"$BIN" abrir --provedor claude --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
+ok "507 FILA_NAO_GRAVADA no abrir sai com 6" $([ $c = 6 ] && echo 0 || echo 1)
+grep -q "o pedido NAO ficou na fila" "$T/e" && grep -q "dgclaw-card mandar card-abc123 --arquivo" "$T/e" && ! grep -q "entrega incerta" "$T/e" && ! grep -q "texto do runner que nao deve sair" "$T/e"; ok "507: recusa confirmada (nao e entrega incerta), com o caminho de reenvio" $?
+"$BIN" mandar card-abc123 "oi" >"$T/o" 2>"$T/e"; c=$?
+grep -q "o pedido NAO ficou na fila" "$T/e" && ! grep -qi "entrega incerta" "$T/e"; ok "507 no mandar tambem e recusa confirmada" $?
 
 # --- Claude sem hook: estado e ler nao afirmam que o card nao trabalha ---------------------------------------
 subir sem-hook
