@@ -590,7 +590,17 @@ function registrar(router, { CONFIG }) {
     enviarJson(res, 201, { ok: true, item: it });
   }
 
-  /** O que vale para qualquer entrega de texto a uma sessão. Devolve {enviado, enfileirado, quando, retomado}. */
+  /** Orientação para quando o runner responde 202 com entregaIncerta: o texto PODE ter sido digitado, e reenviar sem conferir pode
+   *  executar o pedido duas vezes. */
+  // O runner ainda pode concluir o envio em segundo plano: 3 Enters (até ~9 s no Codex) e a vigia, que espaça mais 4 verificações
+  // (5+10+20+40 = 75 s, RECIBO_VIGIA_PASSOS_MS em runner/src/sessao/constantes.ts), ~87 s no pior caso. O texto diz 2 minutos
+  // (arredondado para cima) e deve acompanhar essa conta se ela mudar.
+  const PRAZO_DA_VIGIA_TEXTO = '2 minutos';
+  const CONFERIR_ANTES_DE_REENVIAR = `O agente ainda pode receber o recado em segundo plano por até ${PRAZO_DA_VIGIA_TEXTO}. Espere esse prazo e confira a conversa do card: se o recado não aparecer ali, aí sim mande de novo. Mandar antes pode executar o pedido duas vezes.`;
+
+  /** O que vale para qualquer entrega de texto a uma sessão. Devolve {enviado, enfileirado, entregaIncerta, aviso?, quando, retomado}.
+   *  Um 202 do runner com `data.entregaIncerta` NÃO é "enfileirado": o texto pode ter sido escrito no terminal e o runner não
+   *  sabe se o agente o recebeu; nada foi para a fila persistente. */
   async function entregarTexto(it, texto, quando, retomar) {
     if (it.grupo === 'esperando_voce') {
       throw new ErroLocal(409, 'A sessão está esperando você decidir um pedido. Um recado agora cairia dentro do menu de permissão.', {
@@ -610,7 +620,15 @@ function registrar(router, { CONFIG }) {
     }
     const corpo = quando === 'quando_livre' ? { text: texto, injectWhenIdle: true } : { text: texto, submit: true };
     const r = await runner('POST', `/api/agents/${encodeURIComponent(it.id)}/input`, corpo, 'entregar o recado');
-    return { enviado: r.status === 200, enfileirado: r.status === 202, quando, retomado };
+    const dados = r.json && r.json.data && typeof r.json.data === 'object' ? r.json.data : {};
+    const incerta = r.status === 202 && dados.entregaIncerta === true;
+    const res = { enviado: r.status === 200, enfileirado: r.status === 202 && !incerta, entregaIncerta: incerta, quando, retomado };
+    if (incerta) {
+      // Texto fixo: o `aviso` do runner nunca é repassado (pode trazer quebra de linha ou texto forjado).
+      res.aviso = `Não sei se o agente recebeu o recado. ${CONFERIR_ANTES_DE_REENVIAR}`;
+      console.error(`sessoes-local: o runner respondeu 202 com entrega incerta ao recado de ${it.id}; o recado não foi para a fila e pode não ter chegado`);
+    }
+    return res;
   }
 
   const prefixoDeChave = (req) => (ehChave(req) ? `[recado de ${req.dgclawAuth.nome} pelo painel] ` : '');
@@ -624,7 +642,7 @@ function registrar(router, { CONFIG }) {
     const it = await itemPorId(id);
     const r = await entregarTexto(it, prefixoDeChave(req) + d.texto, quando, d.retomar === true);
     log(`recado (${r.quando}) em ${id} por ${quemPediu(req)}`);
-    enviarJson(res, r.enfileirado ? 202 : 200, Object.assign({ ok: true }, r));
+    enviarJson(res, r.enfileirado || r.entregaIncerta ? 202 : 200, Object.assign({ ok: true }, r));
   }
 
   async function rotaDecidir(req, res, id) {
@@ -788,9 +806,11 @@ function registrar(router, { CONFIG }) {
       enviarJson(res, 201, { ok: true, modo: 'novo', novo, abrir_em: novo.id, antigo_apagado: apagado });
       return;
     }
-    await entregarTexto(it, prefixoDeChave(req) + PEDIDO_DE_HANDOFF, 'quando_livre', true);
-    log(`handoff pedido em ${id} por ${quemPediu(req)}`);
-    enviarJson(res, 202, { ok: true, modo: 'pedido', aviso: 'Pedi o handoff. Quando ele responder, aperte Handoff de novo.' });
+    const entrega = await entregarTexto(it, prefixoDeChave(req) + PEDIDO_DE_HANDOFF, 'quando_livre', true);
+    log(`handoff pedido em ${id} por ${quemPediu(req)}${entrega.entregaIncerta ? ' (entrega incerta)' : ''}`);
+    enviarJson(res, 202, entrega.entregaIncerta
+      ? { ok: true, modo: 'pedido', entregaIncerta: true, aviso: `Pedi o handoff, mas não sei se o card o recebeu. ${entrega.aviso}` }
+      : { ok: true, modo: 'pedido', aviso: 'Pedi o handoff. Quando ele responder, aperte Handoff de novo.' });
   }
 
   // ─── Anexo (multipart sem dependência) ──────────────────────

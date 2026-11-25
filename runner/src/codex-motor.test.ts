@@ -476,3 +476,24 @@ test("vigia do rollout: aoErroDeTurno só recebe o erro de depois do spawn, e o 
     parar();
   }
 });
+
+test("vigia do rollout: acento e emoji cortados na fronteira do bloco chegam íntegros", async () => {
+  const home = pastaTemporaria("vigia-multibyte");
+  const texto = "preparação 😀 concluída";
+  const linha = JSON.stringify({ timestamp: new Date().toISOString(), type: "event_msg", payload: { type: "user_message", message: texto } }) + "\n";
+  const bytes = Buffer.from(linha, "utf8");
+  // Um bloco que termina no meio do "ç" (2 bytes) e outro no meio do emoji (4 bytes).
+  const cortes = [bytes.indexOf(Buffer.from("ç", "utf8")) + 1, bytes.indexOf(Buffer.from("😀", "utf8")) + 2];
+  for (const [i, corte] of cortes.entries()) {
+    const f = path.join(home, `rollout-${i}.jsonl`);
+    fs.writeFileSync(f, bytes);
+    const recebidos: string[] = [];
+    const parar = vigiarRollout({ resolverArquivo: () => f, desdeMs: Date.now() - 5_000, intervaloMs: 20, lerDesdeOInicio: () => true, aoEvento: (e) => recebidos.push(e.texto ?? "") }, corte);
+    try {
+      await esperarAte(() => recebidos.length >= 1, 4_000, "o texto do usuário");
+      assert.deepEqual(recebidos, [texto]);
+    } finally {
+      parar();
+    }
+  }
+});

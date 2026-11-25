@@ -18,6 +18,7 @@ docs/COFRE-NA-CONVERSA.md
 web/docs/CONECTAR-CONTA.md
 docs/ANONIMIZAR.md
 web/docs/CADEADO.md
+web/docs/PARAR.md
 docs/BOAS-PRATICAS-RONDAS.md
 docs/manual/README.md
 panel/docs/INTEGRACOES.md

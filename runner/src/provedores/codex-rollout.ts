@@ -10,6 +10,7 @@
 //   - a conversa do `GET /conversation`.
 import fs from "node:fs";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { log } from "../logger.js";
 import { mascarar } from "../mascara.js";
 import { type Leitura, usoDaLinhaDoRollout } from "../uso.js";
@@ -158,25 +159,39 @@ export function descobrirRollout(
 }
 
 /** Os eventos internos que a Sessao já entende (os mesmos que o hook do Claude traz). */
-export type EventoInterno = "UserPromptSubmit" | "PreToolUse" | "Stop";
+export type EventoInterno = "UserPromptSubmit" | "PreToolUse" | "Stop" | "TextoDoUsuario" | "Compactado";
 
 export interface EventoDoRollout {
   evento: EventoInterno;
   em: number;
   ferramenta?: string;
+  /** Só em "TextoDoUsuario": o texto da mensagem do usuário gravada no turno (a que o Codex recebeu de verdade). */
+  texto?: string;
 }
 
 /** Uma linha do rollout vira, ou não, um evento de status. `task_started` é o RECIBO do
  *  Enter (o Codex aceitou o prompt); `task_complete`, `task_aborted` e `turn_aborted`
  *  são o fim do turno; chamada de ferramenta é trabalho em andamento. */
 export function eventoDoRollout(registro: unknown): EventoDoRollout | null {
-  const r = registro as { timestamp?: string; type?: string; payload?: { type?: string; name?: string } } | null;
+  const r = registro as { timestamp?: string; type?: string; payload?: { type?: string; name?: string; message?: unknown; role?: unknown; content?: unknown } } | null;
   const em = Date.parse(r?.timestamp ?? "");
   if (!r || !Number.isFinite(em)) return null;
   const tipo = r.payload?.type ?? "";
+  // A compactação do contexto (/compact, ou a automática): o Codex grava um registro `compacted` (campos do payload: message,
+  // replacement_history, window_number, first_window_id, previous_window_id, window_id) e, logo depois, um
+  // event_msg `context_compacted`. É o equivalente do PreCompact do Claude: o recibo do /compact (ver eventos.ts).
+  if (r.type === "compacted" || (r.type === "event_msg" && tipo === "context_compacted")) return { evento: "Compactado", em };
   if (r.type === "event_msg") {
     if (tipo === "task_started") return { evento: "UserPromptSubmit", em };
+    // O que o usuário mandou naquele turno: é com ele que o runner confere de quem é o `task_started` (ver reciboDoTexto).
+    if (tipo === "user_message" && typeof r.payload?.message === "string" && r.payload.message.trim() !== "") {
+      return { evento: "TextoDoUsuario", em, texto: r.payload.message };
+    }
     if (tipo === "task_complete" || tipo === "task_aborted" || tipo === "turn_aborted") return { evento: "Stop", em };
+  }
+  if (r.type === "response_item" && tipo === "message" && r.payload?.role === "user") {
+    const texto = textoDosBlocos(r.payload.content);
+    if (texto.trim() !== "") return { evento: "TextoDoUsuario", em, texto };
   }
   if (r.type === "response_item" && (tipo === "function_call" || tipo === "custom_tool_call")) {
     return { evento: "PreToolUse", em, ferramenta: typeof r.payload?.name === "string" ? r.payload.name : undefined };
@@ -246,21 +261,31 @@ export interface OpcoesDoVigia {
   aoUso?: (u: { leitura: Leitura; em: number }) => void;
   /** Chamado quando um turno termina com erro (depois do `Stop` do mesmo registro). Só os de depois do spawn. */
   aoErroDeTurno?: (e: ErroDeTurnoDoCodex) => void;
+  /** Chamado quando o vigia vincula um arquivo pela primeira vez. true = rollout recém-criado pelo spawn desta sessão: lê desde o
+   *  início, em blocos, para não perder o `task_started` e o texto do usuário do primeiro turno. Sem isto (ou false), o arquivo é
+   *  de uma conversa antiga retomada e a leitura salta para o último MiB. */
+  lerDesdeOInicio?: (arquivo: string) => boolean;
   intervaloMs?: number;
 }
 
+/** Tamanho de cada leitura do rollout: a memória fica limitada mesmo quando o arquivo já nasce grande. */
+export const BLOCO_DO_ROLLOUT_BYTES = 256 * 1024;
+
 /**
- * Lê o rollout aos poucos (leitura incremental, no máximo 1 MB por pulso) e entrega os
+ * Lê o rollout aos poucos (leitura incremental em blocos de 256 KiB, até alcançar o fim que o arquivo tinha no pulso) e entrega os
  * eventos NA ORDEM em que foram gravados. Devolve a função que para o vigia.
  * Diferente do Bunker, não colapsa os eventos de um pulso em um só: o recibo do
  * Enter conta cada `task_started`.
  */
-export function vigiarRollout(op: OpcoesDoVigia): () => void {
+export function vigiarRollout(op: OpcoesDoVigia, blocoBytes: number = BLOCO_DO_ROLLOUT_BYTES): () => void {
   let parado = false;
   let ocupado = false;
   let arquivo: string | null = null;
   let deslocamento = 0;
   let resto = "";
+  // Um caractere multibyte pode ficar cortado na fronteira de dois blocos: o decodificador guarda os bytes soltos para o bloco
+  // seguinte. É um por arquivo e recomeça quando o arquivo troca ou é truncado.
+  let decodificador = new StringDecoder("utf8");
   const pulso = async (): Promise<void> => {
     if (parado || ocupado) return;
     ocupado = true;
@@ -272,14 +297,17 @@ export function vigiarRollout(op: OpcoesDoVigia): () => void {
       const st = await fd.stat();
       if (proximo !== arquivo || st.size < deslocamento) {
         arquivo = proximo;
-        deslocamento = Math.max(0, st.size - 1024 * 1024);
+        deslocamento = op.lerDesdeOInicio?.(proximo) ? 0 : Math.max(0, st.size - 1024 * 1024);
         resto = "";
+        decodificador = new StringDecoder("utf8");
       }
-      if (st.size === deslocamento) return;
-      const buf = Buffer.alloc(Math.min(st.size - deslocamento, 1024 * 1024));
+      const fim = st.size;
+      while (deslocamento < fim && !parado) {
+      const buf = Buffer.alloc(Math.min(fim - deslocamento, blocoBytes));
       const { bytesRead } = await fd.read(buf, 0, buf.length, deslocamento);
+      if (bytesRead === 0) break;
       deslocamento += bytesRead;
-      const linhas = (resto + buf.subarray(0, bytesRead).toString("utf8")).split("\n");
+      const linhas = (resto + decodificador.write(buf.subarray(0, bytesRead))).split("\n");
       resto = linhas.pop() ?? "";
       if (resto.length > 2 * 1024 * 1024) resto = "";
       for (const linha of linhas) {
@@ -306,6 +334,7 @@ export function vigiarRollout(op: OpcoesDoVigia): () => void {
             log.aviso("uso", `ignorei uma medição de uso do rollout que não consegui ler: ${err instanceof Error ? err.message : err}; os eventos da sessão seguem`);
           }
         }
+      }
       }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
@@ -377,4 +406,48 @@ export function mensagensDoRollout(arquivo: string, quantas = 6, segredos?: Iter
     fora.push({ role: p.role, text: mascarar(texto, segredos) });
   }
   return fora.slice(-Math.max(1, quantas));
+}
+
+export type InspecaoDoRollout =
+  | { estado: "achou"; arquivo: string }
+  | { estado: "nao-existe" }
+  | { estado: "inconclusivo"; motivo: string };
+
+/** Como acharRolloutPorId (em TODOS os dias com sessão), mas separa "não existe" (a pasta de sessões foi varrida e o
+ *  id não está nela, ou ela não existe: ENOENT) de "não deu para saber" (qualquer outro erro ao ler uma pasta). Quem
+ *  abandona uma conversa com base na ausência precisa dessa diferença. */
+export function inspecionarRolloutPorId(sessionId: string, codexHome: string): InspecaoDoRollout {
+  if (!SO_UUID_RE.test(sessionId)) return { estado: "nao-existe" };
+  const sufixo = `-${sessionId.toLowerCase()}.jsonl`;
+  const ler = (dir: string): string[] | "ausente" => {
+    try {
+      return fs.readdirSync(dir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return "ausente";
+      throw err;
+    }
+  };
+  try {
+    const raiz = path.join(codexHome, "sessions");
+    const anos = ler(raiz);
+    if (anos === "ausente") return { estado: "nao-existe" };
+    for (const ano of anos.filter((d) => /^\d{4}$/.test(d)).sort().reverse()) {
+      const meses = ler(path.join(raiz, ano));
+      if (meses === "ausente") continue;
+      for (const mes of meses.filter((d) => /^\d{2}$/.test(d)).sort().reverse()) {
+        const dias = ler(path.join(raiz, ano, mes));
+        if (dias === "ausente") continue;
+        for (const dia of dias.filter((d) => /^\d{2}$/.test(d)).sort().reverse()) {
+          const dir = path.join(raiz, ano, mes, dia);
+          const arquivos = ler(dir);
+          if (arquivos === "ausente") continue;
+          const f = arquivos.find((e) => e.toLowerCase().endsWith(sufixo));
+          if (f) return { estado: "achou", arquivo: path.join(dir, f) };
+        }
+      }
+    }
+    return { estado: "nao-existe" };
+  } catch (err) {
+    return { estado: "inconclusivo", motivo: err instanceof Error ? err.message : String(err) };
+  }
 }

@@ -416,6 +416,7 @@ function criarAvisos(opcoes) {
           const ag = lista.find((x) => x.slug === s);
           try {
             const r = await comTimeout(runner.input(ag, { text: filtro(s, texto), submit: true, injectWhenIdle: true }), TIMEOUT_RUNNER_MS, `O runner de ${ag.nome}`);
+            if (r && r.ok && r.entregaIncerta) log('aviso', `Quadro de avisos: entrega incerta do recado do aviso ${aviso.id} para o agente ${s}: ${r.aviso} Confira a conversa antes de reenviar.`);
             if (r && r.ok) resultado[s].recado_em = iso(agora());
             else throw new Error((r && r.erro) || 'o runner recusou o recado sem dizer o motivo');
           } catch (e) {
