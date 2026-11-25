@@ -7,11 +7,17 @@ import { MascaraDeFluxo } from "../mascara.js";
 import { type CtxMotor, ErroDeMotor, redigirArgs } from "../provedores/motor.js";
 import { motorDe } from "../provedores/motores.js";
 import { conferirContaComRestricoes } from "../restricoes-conta.js";
+import xtermHeadless from "@xterm/headless";
 import { montarCtx } from "./configuracao.js";
 import { RESUME_MORREU_CEDO_MS } from "./constantes.js";
+import { inspecionarRolloutPorId } from "../provedores/codex-rollout.js";
+import { configDirDoClaude } from "../provedores/claude.js";
+import { codexHomeDe } from "../provedores/codex.js";
+import { inspecionarArquivoDaSessao } from "../transcript.js";
 import { cancelarQuietoDeBoot, cancelarStopPendente } from "./eventos.js";
-import { cancelarReintentoDaFila } from "./fila.js";
+import { cancelarReintentoDaFila, devolverSemRecibo } from "./fila.js";
 import { conferirLoginExpiradoNoTranscript, encerrarIncidenteDeLogin } from "./login.js";
+import { semAnsi } from "./telas.js";
 import { aoReceberDados, descarregarMascara } from "./terminal.js";
 import { pararVigiaDoStopPerdido, vigiarRolloutDoCodex, vigiarStopPerdido } from "./vigias.js";
 
@@ -74,6 +80,36 @@ export function reviver(s: Sessao): Promise<void> {
   return op;
 }
 
+/** O histórico do id existe no disco? Claude: o mesmo transcript que o painel lê (transcript.ts), procurado na pasta de
+ *  configuração que o motor realmente usa (configDirDoClaude). Codex: o rollout, em qualquer dia com sessão (o limite
+ *  de 45 dias da busca do vigia não serve aqui, porque uma conversa antiga ainda abre e abandoná-la por engano é pior
+ *  que a falha de 4 s); o caminho achado vai para o vigia, que não o procuraria de novo só nos últimos 45 dias.
+ *  Só a ausência comprovada (ENOENT) leva à sessão nova. Qualquer outro erro de leitura (permissão, pasta que não
+ *  abre) conta como existente e mantém o --resume, como era antes, com um aviso no log. */
+function conversaNoDisco(s: Sessao, ctx: CtxMotor, sessionId: string): { existe: boolean; rollout: string | null } {
+  if (s.motor.provedor === "codex") {
+    const home = ctx.env.CODEX_HOME ?? codexHomeDe({ auth: ctx.escolha.auth, env: ctx.env, cwd: ctx.cwd, id: ctx.id });
+    const r = inspecionarRolloutPorId(sessionId, home);
+    if (r.estado === "inconclusivo") {
+      log.aviso(
+        s.a("pty"),
+        `não consegui conferir se o rollout da sessão ${sessionId} está no disco (${r.motivo}); mantenho o --resume em vez de abandonar a conversa`,
+      );
+      return { existe: true, rollout: null };
+    }
+    return { existe: r.estado === "achou", rollout: r.estado === "achou" ? r.arquivo : null };
+  }
+  const r = inspecionarArquivoDaSessao(sessionId, configDirDoClaude(ctx));
+  if (r.estado === "inconclusivo") {
+    log.aviso(
+      s.a("pty"),
+      `não consegui conferir se o histórico da sessão ${sessionId} está no disco (${r.motivo}); mantenho o --resume em vez de abandonar a conversa`,
+    );
+    return { existe: true, rollout: null };
+  }
+  return { existe: r.estado === "achou", rollout: null };
+}
+
 async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPedido: number): Promise<"retomar" | "nova"> {
   // Se o PTY anterior saiu sozinho, o grupo dele pode ainda ter filhos vivos: espera a faxina
   // terminar para nunca ter dois claude na mesma sessão (Layla, 30/10/2026).
@@ -118,13 +154,8 @@ async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPe
 
   const { escolha, problemas, catalogo } = s.lerEscolha();
   for (const p of problemas) log.erro(s.a("escolha"), p.motivo, p.comoResolver);
-  const motorMudou = s.motor.provedor !== escolha.provedor;
   s.escolhaVigente = escolha;
   s.motor = motorDe(escolha.provedor);
-  if (motorMudou) {
-    s.hooksVivos = false;
-    s.estado.hookActive = false;
-  }
 
   // O id guardado só abre no CLI e na conta que o criaram. Sem `escolha` gravada (estado
   // de antes desta função existir) o CLI era o Claude.
@@ -228,9 +259,25 @@ async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPe
     return modo;
   }
 
+  // Um id que nunca gravou conversa (a sessão morreu antes de o primeiro pedido virar turno) não abre: o
+  // `--resume` falharia em segundos e só então subiria uma sessão nova. Já sobe a nova, sem a falha.
+  let rolloutDaRetomada: string | null = null;
+  const conversa = modo === "retomar" && s.estado.sessionId ? conversaNoDisco(s, ctx, s.estado.sessionId) : null;
+  if (conversa) rolloutDaRetomada = conversa.rollout;
+  if (conversa && !conversa.existe) {
+    log.aviso(
+      s.a("pty"),
+      `não retomo a sessão ${s.estado.sessionId}: o histórico dela não está no disco (${s.motor.provedor === "codex" ? "rollout do Codex" : "transcript do Claude"} sem esse id), ` +
+        `o que quase sempre quer dizer que ela morreu antes de o primeiro pedido virar turno. ` +
+        `Subo uma sessão NOVA e guardo a antiga em previousSessionId`,
+    );
+    modo = "nova";
+  }
+
   let args: string[];
   if (modo === "retomar" && s.estado.sessionId) {
     args = s.motor.argsRetomar(ctx, s.estado.sessionId);
+    s.spawnSemRetomada = false;
     s.retomando = { sessionId: s.estado.sessionId, em: Date.now() };
     s.mudar({ status: "spawning", error: null, statusReason: "runner:resume" });
     log.info(s.a("pty"), `retomando a sessão ${s.estado.sessionId}`);
@@ -250,6 +297,7 @@ async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPe
       statusReason: "runner:sessao-nova",
     });
     args = s.motor.argsNova(ctx);
+    s.spawnSemRetomada = true;
     log.info(
       s.a("pty"),
       `sessão nova ${novo ?? "(o id é descoberto depois do spawn: no rollout do Codex ou pelo plugin do OpenCode)"}` +
@@ -257,7 +305,7 @@ async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPe
     );
   }
   s.modoDoUltimoSpawn = modo;
-  await spawn(s, ctx, args);
+  await spawn(s, ctx, args, modo === "retomar" ? rolloutDaRetomada : null);
 
   // Depois do spawn, e não antes: o `mudar` do spawn põe `spawning`, e este
   // aqui é que fica valendo. Sem isto o boot-timer de 8s marcaria `idle` e o
@@ -269,7 +317,9 @@ async function subirSerializado(s: Sessao, modo: "retomar" | "nova", geracaoNoPe
   return modo;
 }
 
-export async function spawn(s: Sessao, ctx: CtxMotor, args: string[]): Promise<void> {
+const { Terminal } = xtermHeadless;
+
+export async function spawn(s: Sessao, ctx: CtxMotor, args: string[], rolloutDaRetomada: string | null = null): Promise<void> {
   const cwd = ctx.cwd;
   const binario = s.motor.binario;
 
@@ -301,14 +351,29 @@ export async function spawn(s: Sessao, ctx: CtxMotor, args: string[]): Promise<v
   log.info(s.a("pty"), `PTY de pé, pid ${esteProc.pid}`);
   s.buffer = [];
   s.bufferBytes = 0;
+  // Um emulador por spawn, do mesmo tamanho do PTY: a tela do terminal novo começa limpa, e o anterior é descartado.
+  s.emulador?.dispose();
+  s.emulador = new Terminal({ cols: 120, rows: 40, scrollback: 200, allowProposedApi: true });
+  s.emuladorNaoConfiavel = null;
+  s.emuladorPendente = 0;
+  s.ptyPausadoPeloEmulador = false;
   s.caudaDaTela = "";
   s.spawnEm = Date.now();
+  // Hooks vivos é uma prova DESTE terminal: o do spawn anterior não vale para o novo (semHooksDeVerdade e o
+  // recibo dependem disso).
+  s.hooksVivos = false;
+  s.estado.hookActive = false;
+  // A caixa do terminal novo está vazia: o rascunho do dono no terminal antigo não suspende mais nada.
+  s.digitacaoSuspensaEm = null;
+  // O Enter que o dono deu no terminal ANTIGO nunca vira recibo do novo: sem isto o primeiro pedido do terminal novo seria
+  // tratado como ambíguo e retido como incerto.
+  s.enterManualPendente = null;
   s.mudar({ status: "spawning", statusReason: "runner:spawn" });
   // O id da conversa só vale para este CLI e esta conta: grava de quem é, para o boot seguinte decidir.
   gravarEstado({ escolha: ctx.escolha }, s.arquivoDeEstado);
 
   const pararVigias: Array<() => void> = [];
-  if (s.motor.provedor === "codex") pararVigias.push(vigiarRolloutDoCodex(s, esteProc, ctx));
+  if (s.motor.provedor === "codex") pararVigias.push(vigiarRolloutDoCodex(s, esteProc, ctx, rolloutDaRetomada));
 
   // Uma máscara por spawn: o que o CLI escreve passa por ela antes de chegar ao buffer da tela e ao painel.
   const mascara = new MascaraDeFluxo(s.segredosParaMascara());
@@ -348,19 +413,52 @@ export async function spawn(s: Sessao, ctx: CtxMotor, args: string[]): Promise<v
 
   // Rede de segurança do boot: se nenhum hook chegar (settings recusado, versão
   // do CLI sem hooks), o agente não pode ficar preso em "spawning" para sempre.
-  const prazoDoBoot = s.motor.prontidaoPorPlugin ? PRAZO_DA_PRONTIDAO_POR_PLUGIN_MS : 8_000;
-  setTimeout(() => {
+  const prazoDoBoot = s.motor.prontidaoPorPlugin ? PRAZO_DA_PRONTIDAO_POR_PLUGIN_MS : s.bootTimerMs;
+  // Mas "quieto" não é "pronto": um Claude travado (hooks sem processos no cgroup, 18/11/2026) também fica
+  // quieto, e soltar a fila ali digita o pedido numa caixa que nunca vira turno. No Claude o idle sem hook
+  // exige o prompt na tela ou o teto de espera, e o teto avisa no log.
+  let avisouEspera = false;
+  const olharBoot = (primeira: boolean): void => {
     if (s.estado.status !== "spawning" || s.proc !== esteProc) return;
-    // Um agente sem credencial não está `idle`: ele está parado numa tela de
-    // login. Dizer `idle` aqui foi o que fez o painel mentir por horas.
-    const semLogin = s.recusaDoMotor();
-    if (semLogin) {
-      s.mudar({ status: "errored", error: semLogin.mensagem, statusReason: "runner:sem-login" });
+    if (primeira) {
+      // Um agente sem credencial não está `idle`: ele está parado numa tela de
+      // login. Dizer `idle` aqui foi o que fez o painel mentir por horas.
+      const semLogin = s.recusaDoMotor();
+      if (semLogin) {
+        s.mudar({ status: "errored", error: semLogin.mensagem, statusReason: "runner:sem-login" });
+        return;
+      }
+      // A credencial existe, mas o fim do transcript pode já dizer que ela morreu (runner reiniciado
+      // com a conta expirada): idle aqui seria o mesmo silêncio que este incidente nasceu para acabar.
+      if (conferirLoginExpiradoNoTranscript(s, 0, "boot-timer")) return;
+    }
+    if (s.motor.usaHooks && !s.hooksVivos) {
+      if (semAnsi(s.caudaDaTela).includes("? for shortcuts")) {
+        s.mudar({ status: "idle", statusReason: "runner:boot-timer (prompt na tela, sem SessionStart)" });
+        return;
+      }
+      const desdeSpawn = Date.now() - s.spawnEm;
+      if (desdeSpawn < s.tetoBootSemSinalMs) {
+        if (!avisouEspera) {
+          avisouEspera = true;
+          log.info(
+            s.a("estado"),
+            `o SessionStart não chegou em ${Math.round(desdeSpawn / 1000)}s e a tela ainda não mostra o prompt pronto; ` +
+              `espero até ${Math.round(s.tetoBootSemSinalMs / 1000)}s antes de liberar a fila`,
+          );
+        }
+        setTimeout(() => olharBoot(false), 500).unref();
+        return;
+      }
+      log.aviso(
+        s.a("estado"),
+        `nenhum hook chegou em ${Math.round(desdeSpawn / 1000)}s desde o spawn e a tela não mostra o prompt pronto; ` +
+          `marquei idle assim mesmo para a fila não ficar presa, e o primeiro texto pode cair num ${s.motor.binario} travado. ` +
+          `Conferir os hooks do agente (limite de processos do container, runner-hook.mjs e a porta do runner) e a tela do terminal (GET /api/agents/:id/terminal)`,
+      );
+      s.mudar({ status: "idle", statusReason: `runner:boot-timer ${Math.round(s.tetoBootSemSinalMs / 1000)}s sem hook` });
       return;
     }
-    // A credencial existe, mas o fim do transcript pode já dizer que ela morreu (runner reiniciado
-    // com a conta expirada): idle aqui seria o mesmo silêncio que este incidente nasceu para acabar.
-    if (conferirLoginExpiradoNoTranscript(s, 0, "boot-timer")) return;
     if (s.motor.prontidaoPorPlugin) {
       // O aviso de "tela pronta" nunca veio: soltar a fila agora digitaria o pedido numa tela que talvez nem
       // aceite texto. Falha com o motivo, em vez de fingir que está ociosa.
@@ -372,8 +470,9 @@ export async function spawn(s: Sessao, ctx: CtxMotor, args: string[]): Promise<v
       log.erro(s.a("pty"), motivo, comoResolver);
       return;
     }
-    s.mudar({ status: "idle", statusReason: "runner:boot-timer 8s" });
-  }, prazoDoBoot).unref();
+    s.mudar({ status: "idle", statusReason: `runner:boot-timer ${Math.round(s.bootTimerMs / 1000)}s` });
+  };
+  setTimeout(() => olharBoot(true), prazoDoBoot).unref();
 }
 
 /**
@@ -441,6 +540,7 @@ export function parar(s: Sessao, motivo: string, statusReason?: string): void {
   s.encerrando = false;
   cancelarQuietoDeBoot(s);
   cancelarReintentoDaFila(s);
+  devolverSemRecibo(s, "o terminal foi encerrado antes do recibo");
   if (s.mascaraAtual) descarregarMascara(s, s.mascaraAtual);
   s.mudar({
     status: s.estado.sessionId ? "resumable" : "stopped",
@@ -717,6 +817,7 @@ export function aoSair(s: Sessao, exitCode: number, signal?: number): void {
   cancelarStopPendente(s);
   cancelarQuietoDeBoot(s);
   cancelarReintentoDaFila(s);
+  devolverSemRecibo(s, `o terminal saiu com código ${exitCode} antes do recibo`);
   const retomada = s.retomando;
   s.retomando = null;
   if (s.encerrando) return;

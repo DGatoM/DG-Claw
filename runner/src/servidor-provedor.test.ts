@@ -5,7 +5,7 @@ import http from "node:http";
 import WebSocket from "ws";
 import path from "node:path";
 import {
-  chaveFalsa, chaveFalsaOpenai, dormir, esperarAte, lerLinhasJson, lerTexto, logarClaude, logarCodex, portaLivre, prepararAmbiente,
+  chaveFalsa, chaveFalsaOpenai, dormir, esperarAte, lerLinhasJson, lerTexto, gravarTranscriptDoClaude, logarClaude, logarCodex, portaLivre, prepararAmbiente,
 } from "./apoio-teste.js";
 
 const amb = prepararAmbiente("servidor", {
@@ -237,6 +237,7 @@ test("login expirado: o turno é recusado com 409 LOGIN_EXPIRADO, a tecla passa,
   await req("POST", `/api/agents/${ID}/reiniciar`);
   await esperarAte(() => principal.estado.status === "idle", 8_000, "idle com a conta conectada");
   const sessionId = principal.estado.sessionId!;
+  gravarTranscriptDoClaude(sessionId);
   (principal as unknown as { marcarLoginExpirado(o: string, q: number | null, d: string | null): void }).marcarLoginExpirado("teste", null, null);
 
   const g = await req("GET", `/api/agents/${ID}`);
@@ -697,4 +698,340 @@ test("POST /api/provedor: trocar o modelo de um card OpenCode vale (papel de car
   const principalR = await req("POST", "/api/provedor", { provedor: "opencode", auth: "api", modelo: "outra/coisa", reiniciar: false });
   assert.ok(principalR.status >= 400 && principalR.status < 500, JSON.stringify(principalR.corpo));
   assert.equal((await req("DELETE", "/api/sessoes/oc-troca")).status, 200);
+});
+
+test("POST /input com injectWhenIdle: se o arquivo da fila não pode ser gravado, responde 507 FILA_NAO_GRAVADA e o pedido NÃO fica na fila", async () => {
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  const certo = principal.arquivoDaFila;
+  const bloqueio = path.join(amb.raiz, "arquivo-no-lugar-da-pasta");
+  fs.writeFileSync(bloqueio, "x"); // um arquivo no lugar da pasta: a gravação falha (ENOTDIR), até como root
+  (principal as unknown as { arquivoDaFila: string }).arquivoDaFila = path.join(bloqueio, "fila.json");
+  try {
+    const r = await req("POST", `/api/agents/${ID}/input`, { text: "pedido-que-nao-grava", injectWhenIdle: true });
+    assert.equal(r.status, 507);
+    assert.equal(r.corpo.code, "FILA_NAO_GRAVADA");
+    assert.match(r.corpo.error, /NÃO foi enfileirado/);
+    assert.match(r.corpo.howToFix, /espaço em disco e as permissões/);
+    assert.equal(principal.filaQuandoIdle.length, 0, "nada na fila em memória");
+  } finally {
+    (principal as unknown as { arquivoDaFila: string }).arquivoDaFila = certo;
+  }
+  const ok = await req("POST", `/api/agents/${ID}/input`, { text: "pedido-que-grava", injectWhenIdle: true });
+  assert.equal(ok.status, 202);
+});
+
+test("POST /input direto com a digitação suspensa e rascunho na caixa => 409 CAIXA_COM_RASCUNHO; tecla crua com Enter registra o Enter do dono e continua livre", async () => {
+  const { alimentarTela } = await import("./apoio-teste.js");
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  principal.digitacaoSuspensaEm = Date.now();
+  principal.ultimaSaidaEm = Date.now() - 5_000;
+  await alimentarTela(principal, "\u001b[2J\u001b[H╭──────────────────────────────────────────╮\r\n│ ❯ rascunho-do-dono\r\n╰──────────────────────────────────────────╯\r\n? for shortcuts\r\n");
+  const r = await req("POST", `/api/agents/${ID}/input`, { text: "mensagem-direta" });
+  assert.equal(r.status, 409, JSON.stringify(r.corpo));
+  assert.equal(r.corpo.code, "CAIXA_COM_RASCUNHO");
+  assert.match(r.corpo.howToFix, /terminal do agente/);
+  const crua = await req("POST", `/api/agents/${ID}/input`, { text: "x\r", submit: false });
+  assert.equal(crua.status, 200, "tecla crua continua livre");
+  assert.notEqual(principal.enterManualPendente, null);
+  principal.digitacaoSuspensaEm = null;
+  principal.enterManualPendente = null;
+});
+
+test("POST /input direto com entrega incerta responde 202 success:true com entregaIncerta e aviso (nunca erro, para ninguém reenviar sozinho)", async () => {
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  const original = principal.digitarEEnviar.bind(principal);
+  (principal as unknown as { digitarEEnviar: () => Promise<boolean> }).digitarEEnviar = async () => false;
+  try {
+    const r = await req("POST", `/api/agents/${ID}/input`, { text: "mensagem-de-entrega-incerta" });
+    assert.equal(r.status, 202);
+    assert.equal(r.corpo.success, true);
+    assert.equal(r.corpo.data.enviado, false);
+    assert.equal(r.corpo.data.entregaIncerta, true);
+    assert.equal(r.corpo.data.chars, "mensagem-de-entrega-incerta".length);
+    assert.match(r.corpo.data.aviso, /Não sei se o agente .* recebeu o texto/);
+    assert.match(r.corpo.data.aviso, /confira a conversa do agente e só reenvie se o pedido não aparecer/);
+  } finally {
+    (principal as unknown as { digitarEEnviar: unknown }).digitarEEnviar = original;
+  }
+});
+
+test("tecla crua sem Enter pelo POST /input suspende a digitação; depois dela o envio direto recebe 409 CAIXA_COM_RASCUNHO enquanto a tela mostra o rascunho", async () => {
+  const { alimentarTela } = await import("./apoio-teste.js");
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  principal.digitacaoSuspensaEm = null;
+  principal.ultimaSaidaEm = Date.now() - 5_000;
+  const crua = await req("POST", `/api/agents/${ID}/input`, { text: "abc", submit: false });
+  assert.equal(crua.status, 200);
+  assert.notEqual(principal.digitacaoSuspensaEm, null);
+  await alimentarTela(principal, "\u001b[2J\u001b[H╭" + "─".repeat(42) + "╮\r\n│ ❯ abc\r\n╰" + "─".repeat(42) + "╯\r\n? for shortcuts\r\n");
+  const r = await req("POST", `/api/agents/${ID}/input`, { text: "mensagem-direta" });
+  assert.equal(r.status, 409, JSON.stringify(r.corpo));
+  assert.equal(r.corpo.code, "CAIXA_COM_RASCUNHO");
+  principal.digitacaoSuspensaEm = null;
+});
+
+test("rodada 4, item 7: POST /input direto que NÃO escreveu nada (diálogo na tela) responde 409 NAO_ENTROU, nunca 202 entregaIncerta; com algo escrito e sem recibo continua 202", async () => {
+  const { alimentarTela } = await import("./apoio-teste.js");
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  principal.digitacaoSuspensaEm = null;
+  const escritas: string[] = [];
+  const original = principal.escrever.bind(principal);
+  (principal as unknown as { escrever: (t: string) => void }).escrever = (t: string) => {
+    escritas.push(t);
+  };
+  try {
+    await alimentarTela(principal, "\u001b[2J\u001b[H╭" + "─".repeat(42) + "╮\r\n│ ❯ \r\n╰" + "─".repeat(42) + "╯\r\n Do you want to proceed?\r\n   1. Yes\r\n   2. No\r\n Esc to cancel\r\n");
+    const r = await req("POST", `/api/agents/${ID}/input`, { text: "mensagem-com-dialogo" });
+    assert.equal(r.status, 409, JSON.stringify(r.corpo));
+    assert.equal(r.corpo.code, "NAO_ENTROU");
+    assert.match(r.corpo.howToFix, /pode ser reenviada/);
+    assert.deepEqual(escritas, [], "nenhum byte escrito");
+  } finally {
+    (principal as unknown as { escrever: unknown }).escrever = original;
+  }
+});
+
+test("rodada 4, item 8: o cliente HTTP que desiste do POST /input enquanto o envio espera a vez NÃO deixa o texto ser escrito depois", async () => {
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  principal.digitacaoSuspensaEm = null;
+  const escritas: string[] = [];
+  const original = principal.escrever.bind(principal);
+  (principal as unknown as { escrever: (t: string) => void }).escrever = (t: string) => {
+    escritas.push(t);
+  };
+  let soltar: () => void = () => {};
+  principal.cadeiaDeEnvio = new Promise<void>((r) => (soltar = r));
+  try {
+    const ctl = new AbortController();
+    const chamada = fetch(`http://127.0.0.1:${porta}/api/agents/${ID}/input`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "mensagem-que-o-cliente-largou" }),
+      signal: ctl.signal,
+    }).catch(() => null);
+    await dormir(300);
+    ctl.abort();
+    await chamada;
+    await dormir(300); // o servidor percebe o fechamento da conexão
+    soltar();
+    await dormir(500);
+    assert.deepEqual(escritas, [], "o texto não foi escrito depois da desistência");
+  } finally {
+    soltar();
+    (principal as unknown as { escrever: unknown }).escrever = original;
+    principal.cadeiaDeEnvio = Promise.resolve();
+  }
+});
+
+test("rodada 5, item 1: dois POST /input diretos; o primeiro fica sem recibo e com o texto na caixa, o segundo recebe 409 ENVIO_PENDENTE e nada dele é escrito", async () => {
+  const { alimentarTela } = await import("./apoio-teste.js");
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  principal.digitacaoSuspensaEm = null;
+  const caixa = (t: string) => "\u001b[2J\u001b[H╭" + "─".repeat(42) + "╮\r\n│ ❯ " + t + "\r\n╰" + "─".repeat(42) + "╯\r\n? for shortcuts\r\n";
+  await alimentarTela(principal, caixa(""));
+  const escritas: string[] = [];
+  const original = principal.escrever.bind(principal);
+  (principal as unknown as { escrever: (t: string) => void }).escrever = (t: string) => {
+    escritas.push(t);
+    if (t === "primeira-mensagem-direta") principal.guardarEEmitir(caixa(t));
+  };
+  try {
+    const primeira = await req("POST", `/api/agents/${ID}/input`, { text: "primeira-mensagem-direta" });
+    assert.equal(primeira.status, 202, JSON.stringify(primeira.corpo));
+    assert.equal(primeira.corpo.data.entregaIncerta, true);
+    const antes = escritas.length;
+    const segunda = await req("POST", `/api/agents/${ID}/input`, { text: "segunda-mensagem-direta" });
+    assert.equal(segunda.status, 409, JSON.stringify(segunda.corpo));
+    assert.equal(segunda.corpo.code, "ENVIO_PENDENTE");
+    assert.match(segunda.corpo.howToFix, /esperar/);
+    assert.equal(escritas.length, antes, "nada do segundo foi escrito");
+    assert.ok(!escritas.includes("segunda-mensagem-direta"));
+  } finally {
+    (principal as unknown as { escrever: unknown }).escrever = original;
+  }
+});
+
+test("rodada 9, item 1: TextoDoUsuario e Compactado pelo POST /api/agent-hook (nonce válido) são recusados com o motivo e não mudam nada", async () => {
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  const antes = principal.compactsIniciados;
+  for (const event of ["TextoDoUsuario", "Compactado"]) {
+    const r = await req("POST", "/api/agent-hook", { agentId: ID, event, nonce: principal.nonce, texto: "qualquer" });
+    assert.equal(r.corpo.success, false, event);
+    assert.match(r.corpo.reason, new RegExp(`${event}.*rollout`));
+  }
+  assert.equal(principal.compactsIniciados, antes, "nenhuma compactação contada");
+});
+
+test("rodada 9, item 5: envio direto com pedidos ou bytes demais esperando a vez => 429 ENVIOS_DEMAIS, motivo e howToFix, e nada é escrito", async () => {
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  const { MAX_BYTES_DIRETOS_ESPERANDO, MAX_ENVIOS_DIRETOS_ESPERANDO } = await import("./sessao/constantes.js");
+  const original = principal.diretosEsperando;
+  const entradas = principal.entradasManuais;
+  try {
+    for (const cheio of [{ pedidos: MAX_ENVIOS_DIRETOS_ESPERANDO, bytes: 10 }, { pedidos: 1, bytes: MAX_BYTES_DIRETOS_ESPERANDO }]) {
+      principal.diretosEsperando = { ...cheio };
+      const r = await req("POST", `/api/agents/${ID}/input`, { text: "mensagem-que-nao-cabe" });
+      assert.equal(r.status, 429, JSON.stringify(r.corpo));
+      assert.equal(r.corpo.code, "ENVIOS_DEMAIS");
+      assert.match(r.corpo.error, /envios demais/);
+      assert.match(r.corpo.howToFix, /reenviar/);
+      assert.equal(principal.entradasManuais, entradas, "nada foi escrito");
+      assert.deepEqual(principal.diretosEsperando, cheio, "a contagem não mudou com a recusa");
+    }
+  } finally {
+    principal.diretosEsperando = original;
+  }
+});
+
+test("revisão rodada 12, item E: texto sozinho acima do limite => 413 TEXTO_GRANDE_DEMAIS com a cadeia vazia e nada escrito; 429 ENVIOS_DEMAIS só quando a soma passa", async () => {
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  const { MAX_BYTES_DIRETOS_ESPERANDO } = await import("./sessao/constantes.js");
+  const entradas = principal.entradasManuais;
+  assert.deepEqual(principal.diretosEsperando, { pedidos: 0, bytes: 0 }, "cadeia vazia");
+  const r = await req("POST", `/api/agents/${ID}/input`, { text: "g".repeat(MAX_BYTES_DIRETOS_ESPERANDO + 1) });
+  assert.equal(r.status, 413, JSON.stringify(r.corpo).slice(0, 300));
+  assert.equal(r.corpo.code, "TEXTO_GRANDE_DEMAIS");
+  assert.match(r.corpo.error, /passa do limite/);
+  assert.match(r.corpo.howToFix, /reduzir o texto ou mandá-lo como arquivo/);
+  assert.equal(principal.entradasManuais, entradas, "nada foi escrito");
+  assert.deepEqual(principal.diretosEsperando, { pedidos: 0, bytes: 0 }, "a contagem não mudou");
+  // Texto que cabe sozinho, mas com a soma acima do limite: continua 429.
+  const original = principal.diretosEsperando;
+  try {
+    principal.diretosEsperando = { pedidos: 1, bytes: MAX_BYTES_DIRETOS_ESPERANDO - 5 };
+    const r2 = await req("POST", `/api/agents/${ID}/input`, { text: "dez bytes!" });
+    assert.equal(r2.status, 429, JSON.stringify(r2.corpo));
+    assert.equal(r2.corpo.code, "ENVIOS_DEMAIS");
+    assert.equal(principal.entradasManuais, entradas, "nada foi escrito");
+  } finally {
+    principal.diretosEsperando = original;
+  }
+});
+
+test("revisão rodada 14, item B: 2 MiB no envio direto recebe 413 TEXTO_GRANDE_DEMAIS com o card acordado e com o card dormindo; no dormindo a sessão não acorda e a fila não muda", async () => {
+  logarClaude(amb);
+  await req("POST", `/api/agents/${ID}/reiniciar`);
+  await esperarAte(() => principal.estado.status === "idle", 8_000, "idle");
+  const enorme = "h".repeat(2 * 1024 * 1024);
+  const acordado = await req("POST", `/api/agents/${ID}/input`, { text: enorme });
+  assert.equal(acordado.status, 413, JSON.stringify(acordado.corpo).slice(0, 300));
+  assert.equal(acordado.corpo.code, "TEXTO_GRANDE_DEMAIS");
+  const c = await req("POST", "/api/sessoes", { id: "card-grande", provedor: "claude", auth: "assinatura", modelo: "" });
+  assert.equal(c.status, 201, JSON.stringify(c.corpo));
+  try {
+    const dorm = gerente.porId("card-grande")!;
+    assert.equal(dorm.temPtyVivo(), false, "o card começa dormindo");
+    const r = await req("POST", "/api/agents/card-grande/input", { text: enorme });
+    assert.equal(r.status, 413, JSON.stringify(r.corpo).slice(0, 300));
+    assert.equal(r.corpo.code, "TEXTO_GRANDE_DEMAIS");
+    assert.match(r.corpo.howToFix, /reduzir o texto ou mandá-lo como arquivo/);
+    assert.equal(dorm.temPtyVivo(), false, "a sessão não acordou");
+    assert.equal(dorm.tamanhoDaFila(), 0, "a fila não mudou");
+    const ok = await req("POST", "/api/agents/card-grande/input", { text: "pedido-pequeno", injectWhenIdle: true });
+    assert.equal(ok.status, 202, "o pedido da fila (injectWhenIdle) segue o caminho de sempre");
+  } finally {
+    assert.equal((await req("DELETE", "/api/sessoes/card-grande")).status, 200);
+  }
+});
+
+test("revisão rodada 14, item D: no Codex, Enter manual numa caixa vazia e depois o envio direto => 200 enviado; com outro texto no turno continua 202 incerto", async () => {
+  const { aplicarEvento } = await import("./sessao/eventos.js");
+  const trocar = await req("POST", "/api/provedor", { provedor: "codex", auth: "assinatura", modelo: "" });
+  assert.equal(trocar.status, 200, JSON.stringify(trocar.corpo));
+  try {
+    await esperarAte(() => principal.estado.status === "idle", 8_000, "o Codex ocioso");
+    const priv = principal as unknown as { escrever: (t: string) => void };
+    const original = priv.escrever;
+    const rodar = async (texto: string, textoDoTurno: string) => {
+      // O dono deu Enter numa caixa vazia: a marca ficou, sem turno nenhum.
+      principal.enterManualPendente = { promptsAntes: principal.promptsAceitos, em: Date.now(), proc: principal.proc } as never;
+      let abriu = false;
+      priv.escrever = (t: string) => {
+        // O Enter não chega ao Codex falso (que abriria um turno de verdade com o texto do pedido): o turno é simulado aqui.
+        if (t !== "\r") original.call(principal, t);
+        if (t === "\r" && !abriu) {
+          abriu = true;
+          setTimeout(() => aplicarEvento(principal, { event: "UserPromptSubmit" }), 100); // task_started, sem texto ainda
+          setTimeout(() => aplicarEvento(principal, { event: "TextoDoUsuario", texto: textoDoTurno }), 400);
+        }
+      };
+      try {
+        return await req("POST", `/api/agents/${ID}/input`, { text: texto });
+      } finally {
+        priv.escrever = original;
+      }
+    };
+    const ok = await rodar("pedido-direto-depois-do-enter-vazio", "pedido-direto-depois-do-enter-vazio");
+    assert.equal(ok.status, 200, JSON.stringify(ok.corpo));
+    assert.equal(ok.corpo.data.enviado, true);
+    assert.equal(principal.enterManualPendente, null, "a marca caiu");
+    // O texto do primeiro pedido ficou na caixa do Codex falso (o Enter foi simulado): um reinício devolve a caixa vazia.
+    await req("POST", `/api/agents/${ID}/reiniciar`);
+    await esperarAte(() => principal.estado.status === "idle", 8_000, "o Codex ocioso de novo");
+    principal.digitacaoSuspensaEm = null;
+    const incerto = await rodar("pedido-direto-que-nao-bate", "mensagem que o dono escreveu no terminal");
+    assert.equal(incerto.status, 202, JSON.stringify(incerto.corpo));
+    assert.equal(incerto.corpo.data.entregaIncerta, true);
+  } finally {
+    principal.enterManualPendente = null;
+    principal.digitacaoSuspensaEm = null;
+    await req("POST", "/api/provedor", { provedor: "claude", auth: "assinatura", modelo: "" });
+    await esperarAte(() => principal.estado.status === "idle", 8_000, "idle de volta no Claude");
+  }
+});
+
+test("POST /input: cliente que desiste durante o despertar da paralela dormindo não deixa o pedido na fila", async () => {
+  const c = await req("POST", "/api/sessoes", { id: "card-desiste", provedor: "codex", auth: "assinatura", modelo: "gpt-5.5" });
+  assert.equal(c.status, 201, JSON.stringify(c.corpo));
+  const sessao = gerente.porId("card-desiste")!;
+  const acordarOriginal = gerente.acordar.bind(gerente);
+  let chamado = false;
+  let liberar: () => void = () => {};
+  const trava = new Promise<void>((resolve) => { liberar = resolve; });
+  (gerente as any).acordar = async () => {
+    chamado = true;
+    await trava;
+    return { ok: true };
+  };
+  const aborto = new AbortController();
+  try {
+    const pedido = new Promise<void>((resolve) => {
+      const rq = http.request(
+        { host: "127.0.0.1", port: porta, method: "POST", path: "/api/agents/card-desiste/input", signal: aborto.signal, headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" } },
+        () => resolve(),
+      );
+      rq.on("error", () => resolve());
+      rq.end(JSON.stringify({ text: "pedido que o cliente abandona" }));
+    });
+    await esperarAte(() => chamado, 5_000, "o acordar ser chamado");
+    aborto.abort();
+    await pedido;
+    await new Promise((r) => setTimeout(r, 300)); // deixa o servidor perceber o fechamento antes de o despertar terminar
+    liberar();
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(sessao.tamanhoDaFila(), 0, "o pedido de quem desistiu não pode ficar na fila");
+  } finally {
+    liberar();
+    (gerente as any).acordar = acordarOriginal;
+  }
 });

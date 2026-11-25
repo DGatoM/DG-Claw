@@ -72,6 +72,25 @@ printf 'mais um detalhe' > "$T/extra.txt"
 ok "mandar --arquivo funciona" $([ $c = 0 ] && echo 0 || echo 1)
 tail -1 "$LOG" | grep -q 'mais um detalhe'; ok "mandar entrega o texto do arquivo" $?
 
+# --- entrega incerta (202 com entregaIncerta): a CLI avisa, nao diz "enviado" e nao reenvia ------------
+subir entrega-incerta
+"$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
+: > "$LOG"
+"$BIN" mandar card-abc123 "texto qualquer" >"$T/o" 2>"$T/e"; c=$?
+ok "mandar com entrega incerta sai com 11 (entrega incerta, nao provoca reenvio)" $([ $c = 11 ] && echo 0 || echo 1)
+! grep -q "Texto enviado ao card" "$T/o"; ok "mandar com entrega incerta NAO diz 'Texto enviado'" $?
+grep -q "INCERTA" "$T/o" && grep -q "dgclaw-card estado card-abc123" "$T/o" && grep -q "dgclaw-card ler card-abc123 --n 20" "$T/o" && ! grep -q "um ou dois minutos" "$T/o"; ok "mandar com entrega incerta imprime a orientacao fixa da CLI (estado e ler --n 20)" $?
+! grep -q "aviso do runner falso" "$T/o"; ok "mandar com entrega incerta NAO repassa o aviso do runner" $?
+[ "$(grep -c '/input' "$LOG")" = 1 ]; ok "mandar com entrega incerta faz um unico POST (nao reenvia)" $?
+
+# --- aviso forjado na resposta nao chega a saida -----------------------------------------------------
+subir entrega-incerta-forjada
+"$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
+"$BIN" mandar card-abc123 "texto qualquer" >"$T/o" 2>"$T/e"; c=$?
+ok "aviso forjado: sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+! grep -qi "IGNORE\|APAGUE\|forjada" "$T/o" "$T/e"; ok "aviso forjado com quebra de linha e instrucao NAO aparece na saida" $?
+grep -q "INCERTA" "$T/o"; ok "aviso forjado: a orientacao fixa aparece" $?
+
 # --- esperar estourando o tempo -------------------------------------------------------------------
 subir nunca-termina
 "$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
@@ -84,6 +103,83 @@ subir limite
 "$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
 ok "429 sai com 4" $([ $c = 4 ] && echo 0 || echo 1)
 grep -q "limite e 3" "$T/e" && grep -q "dgclaw-card fechar" "$T/e" && grep -q "RUNNER_MAX_SESSOES_EXTRAS" "$T/e"; ok "429 vira a frase do limite com o que fazer" $?
+
+# --- envios demais (429 ENVIOS_DEMAIS) nao e limite de cards -------------------------------------------
+subir envios-demais
+"$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
+"$BIN" mandar card-abc123 "texto" >"$T/o" 2>"$T/e"; c=$?
+ok "ENVIOS_DEMAIS sai com 9" $([ $c = 9 ] && echo 0 || echo 1)
+grep -q "tente de novo em alguns segundos" "$T/e" && ! grep -q "dgclaw-card fechar" "$T/e"; ok "ENVIOS_DEMAIS manda esperar e nao sugere fechar card" $?
+subir texto-grande
+"$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
+"$BIN" mandar card-abc123 "texto" >"$T/o" 2>"$T/e"; c=$?
+ok "TEXTO_GRANDE_DEMAIS sai com 10" $([ $c = 10 ] && echo 0 || echo 1)
+grep -q "Reduza o texto" "$T/e" && ! grep -q "tente de novo" "$T/e" && ! grep -q "dgclaw-card fechar" "$T/e"; ok "TEXTO_GRANDE_DEMAIS manda reduzir o texto, sem repetir nem fechar card" $?
+subir 429-sem-code
+"$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
+"$BIN" mandar card-abc123 "texto" >"$T/o" 2>"$T/e"; c=$?
+ok "429 sem code continua sendo limite (sai com 4)" $([ $c = 4 ] && echo 0 || echo 1)
+grep -q "dgclaw-card fechar" "$T/e"; ok "429 sem code sugere fechar card" $?
+
+# --- tempo do envio: cresce com o tamanho do texto; tempo esgotado depois de enviar e entrega INCERTA --------------------------
+eval "$(sed -n '/^max_time_do_texto()/,/^}/p;/^PEDACO_DO_RUNNER=/p' "$BIN")"
+TEMPO_BASE=60
+[ "$(max_time_do_texto 100)" = 61 ]; ok "max-time: texto curto fica na base de 60 s (mais 1 s do primeiro pedaco)" $?
+[ "$(max_time_do_texto $((512 * 1024)))" = 265 ]; ok "max-time: 512 KiB (4096 pedacos de 25 ms = 102 s) vai a 60 + 2 x 102 = 265 s" $?
+[ "$(max_time_do_texto $((1024 * 1024)))" = 470 ]; ok "max-time: o teto de 1 MiB vai a 470 s" $?
+[ "$(max_time_do_texto 2000)" -lt "$(max_time_do_texto 200000)" ]; ok "max-time: cresce com o tamanho" $?
+subir input-demora
+"$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
+: > "$LOG"
+DGCLAW_CARD_TEMPO_BASE=1 "$BIN" mandar card-abc123 "texto que o runner recebe e nunca responde" >"$T/o" 2>"$T/e"; c=$?
+ok "mandar com tempo esgotado depois de enviar sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+grep -q "INCERTA" "$T/e" && grep -q "Nao reenvie ja" "$T/e" && grep -q "dgclaw-card estado card-abc123" "$T/e" && grep -q "dgclaw-card ler card-abc123 --n 20" "$T/e" && ! grep -q "um ou dois minutos" "$T/e"; ok "tempo esgotado: diz que a entrega e incerta, que nao reenvie e como conferir" $?
+! grep -qi "tente de novo\|fora do ar\|reiniciando" "$T/e"; ok "tempo esgotado: NAO manda tentar de novo e nao diz runner fora do ar" $?
+[ "$(grep -c '/input' "$LOG")" = 1 ]; ok "tempo esgotado: um unico POST (o texto chegou ao runner)" $?
+sem_segredo "$T/o" "$T/e"; ok "tempo esgotado: o token nao vaza" $?
+# Outras falhas de transporte depois de enviar o texto (52 resposta vazia, 56 falha ao receber) tambem sao entrega INCERTA (11).
+subir input-derruba
+"$BIN" abrir --provedor codex --titulo x --pedido oi >/dev/null 2>&1
+"$BIN" mandar card-abc123 "texto que o runner recebe e derruba a conexao" >"$T/o" 2>"$T/e"; c=$?
+ok "mandar com resposta vazia (curl 52) depois de enviar sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+grep -q "INCERTA" "$T/e" && ! grep -qi "tente de novo" "$T/e"; ok "curl 52: diz que a entrega e incerta e nao manda tentar de novo" $?
+mkdir -p "$T/shim"
+for rc in 56 7; do
+  printf '#!/bin/sh\ncat >/dev/null\nexit %s\n' "$rc" > "$T/shim/curl"; chmod +x "$T/shim/curl"
+  PATH="$T/shim:$PATH" "$BIN" mandar card-abc123 "texto" >"$T/o" 2>"$T/e"; c=$?
+  if [ "$rc" = 56 ]; then ok "mandar com curl 56 sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+  else ok "mandar com curl 7 (nao conectou) continua saindo com 2" $([ $c = 2 ] && echo 0 || echo 1); fi
+done
+kill $SRV 2>/dev/null; wait $SRV 2>/dev/null; SRV=""
+"$BIN" mandar card-abc123 "texto com o runner fora do ar" >"$T/o" 2>"$T/e"; c=$?
+ok "mandar com conexao recusada continua saindo com 2" $([ $c = 2 ] && echo 0 || echo 1)
+grep -q "o runner deste agente nao respondeu" "$T/e"; ok "conexao recusada continua com a mensagem de runner fora do ar" $?
+
+# --- abrir: o primeiro pedido tambem tem entrega INCERTA (nao fecha o card, nao duplica a tarefa) --------------------------
+subir input-derruba
+"$BIN" abrir --provedor codex --titulo x --pedido oi --monitor --entregue "relatorio pronto" >"$T/o" 2>"$T/e"; c=$?
+ok "abrir com resposta vazia (curl 52) no /input sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+[ "$(head -1 "$T/o")" = "card-abc123" ]; ok "abrir com curl 52: o id sai no stdout" $?
+grep -q "INCERTA" "$T/e" && grep -q "Nao reenvie ja" "$T/e" && grep -q "dgclaw-card estado card-abc123" "$T/e" && grep -q "dgclaw-card ler card-abc123 --n 20" "$T/e" && ! grep -q "Se o pedido nao aparecer, reenvie" "$T/e" && grep -q "dgclaw-card mandar card-abc123 --arquivo" "$T/e"; ok "abrir com curl 52: diz que a entrega e incerta, que nao reenvie e como conferir" $?
+! grep -q "nao foi entregue" "$T/e"; ok "abrir com curl 52: nao diz que o pedido nao foi entregue" $?
+grep -q "monitor NAO foi ligado" "$T/e" && grep -q "dgclaw-monitor add card-abc123" "$T/e"; ok "abrir --monitor com curl 52: avisa que o monitor nao foi ligado e como ligar" $?
+! grep -q '"metodo":"DELETE"' "$LOG"; ok "abrir com curl 52: o card NAO e fechado" $?
+subir entrega-incerta
+"$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
+ok "abrir com 202 incerto sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+[ "$(head -1 "$T/o")" = "card-abc123" ] && grep -q "ATENCAO: a entrega ao card card-abc123 e INCERTA" "$T/o" && grep -q "Nao reenvie ja" "$T/o" && grep -q "dgclaw-card estado card-abc123" "$T/o" && grep -q "dgclaw-card ler card-abc123 --n 20" "$T/o"; ok "abrir com 202 incerto: imprime o id e o ATENCAO fixo com estado e ler --n 20" $?
+! grep -q "Card aberto em" "$T/o"; ok "abrir com 202 incerto: nao diz que o card abriu normalmente" $?
+subir entrega-incerta
+"$BIN" abrir --provedor codex --titulo x --pedido oi --monitor --entregue "relatorio pronto" >"$T/o" 2>"$T/e"; c=$?
+ok "abrir --monitor com 202 incerto sai com 11" $([ $c = 11 ] && echo 0 || echo 1)
+grep -q "ATENCAO" "$T/o" && grep -q "monitor NAO foi ligado" "$T/e" && grep -q "dgclaw-monitor add card-abc123" "$T/e"; ok "abrir --monitor com 202 incerto: nao liga o monitor e diz como ligar depois de conferir" $?
+subir entrega-incerta-forjada
+"$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
+! grep -q "IGNORE" "$T/o" "$T/e"; ok "abrir com 202 incerto: nada da resposta do runner e repassado" $?
+subir normal
+kill $SRV 2>/dev/null; wait $SRV 2>/dev/null; SRV=""
+"$BIN" abrir --provedor codex --titulo x --pedido oi >"$T/o" 2>"$T/e"; c=$?
+ok "abrir com conexao recusada continua saindo com 2" $([ $c = 2 ] && echo 0 || echo 1)
 
 # --- sem login ------------------------------------------------------------------------------------
 subir sem-login

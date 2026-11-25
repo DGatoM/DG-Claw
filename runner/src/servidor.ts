@@ -24,6 +24,10 @@ import { LoginAssistido } from "./provedores/login.js";
 import { tratarRotasDeProvedor } from "./provedores/rotas.js";
 import { MOTIVO_SEM_MEDICAO, deStatusline, paraResposta } from "./uso.js";
 import { ESC, nonceConfere } from "./sessao/telas.js";
+import { ErroDeMotor } from "./provedores/motor.js";
+import { ErroEnviosDemais, ErroTextoGrandeDemais } from "./sessao/digitacao.js";
+import { MAX_BYTES_DIRETOS_ESPERANDO } from "./sessao/constantes.js";
+import { MOTIVO_CAIXA_COM_RASCUNHO, MOTIVO_ENVIO_PENDENTE, MOTIVO_NAO_ENTROU, MOTIVO_RECUSA_DE_ENTRADA } from "./sessao/fila.js";
 import { acharRolloutPorId, mensagensDoRollout } from "./provedores/codex-rollout.js";
 import { ErroDeConversa, lerConversaDoOpenCode } from "./provedores/opencode-conversa.js";
 import { garantirCacheOpenRouter } from "./provedores/openrouter-modelos.js";
@@ -43,7 +47,7 @@ function naFila(s: Sessao): Array<{ em: number; msg: string | null }> {
 
 function visao(s: Sessao, comMeta: boolean): Record<string, unknown> {
   const fila = naFila(s);
-  const extra = { naFila: fila, naFilaTotal: s.tamanhoDaFila() + (s.itemEmVoo ? 1 : 0) };
+  const extra = { naFila: fila, naFilaTotal: s.tamanhoDaFila(), ultimoEventoEm: s.ultimoEventoEm };
   // `codexHome` é só leitura: o CODEX_HOME que o último spawn usou, para quem lê o rollout do disco.
   if (!comMeta && s.papel === "principal") return { ...s.estado, codexHome: s.codexHome(), ...extra };
   return {
@@ -67,6 +71,20 @@ function ociosoHaMin(s: Sessao): number {
 
 function respostaDeRecusa(res: http.ServerResponse, r: Recusa): void {
   json(res, { success: false, error: r.error, howToFix: r.howToFix, code: "SEM_CAPACIDADE" }, 503);
+}
+
+/** O pedido NÃO entrou na fila porque o arquivo dela não pôde ser gravado: dizer 202 seria prometer algo que um reinício apaga. */
+function respostaFilaNaoGravada(res: http.ServerResponse): void {
+  json(
+    res,
+    {
+      success: false,
+      error: "O pedido NÃO foi enfileirado: o arquivo da fila não pôde ser gravado, e só em memória ele se perderia num reinício.",
+      howToFix: "Conferir o espaço em disco e as permissões da pasta de estado do runner e reenviar o pedido depois.",
+      code: "FILA_NAO_GRAVADA",
+    },
+    507,
+  );
 }
 
 export function criarServidor(gerente: GerenteDeSessoes): http.Server {
@@ -366,17 +384,42 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             }
           }
 
+          // O limite de tamanho do envio direto vale ANTES de acordar a paralela e de gravar qualquer coisa na fila: com a sessão
+          // dormindo, o texto iria para a fila e a resposta seria 202 sem nunca passar pela conferência de digitarEEnviar.
+          if (enviar && !quandoOcioso) {
+            const bytes = Buffer.byteLength(texto);
+            if (bytes > MAX_BYTES_DIRETOS_ESPERANDO) {
+              log.aviso(sessao.a("entrada"), `recusei um envio direto de ${bytes} bytes: o texto sozinho passa do limite de ${MAX_BYTES_DIRETOS_ESPERANDO} bytes. Nada foi escrito, a sessão não foi acordada e a fila não mudou`);
+              const e = new ErroTextoGrandeDemais(bytes);
+              erroHttp(res, 413, "TEXTO_GRANDE_DEMAIS", e.message, e.howToFix);
+              return;
+            }
+          }
+
           // Paralela dormindo e um pedido de TURNO: acorda e enfileira. O texto só é
           // guardado depois que a capacidade deixou acordar; recusado, ele não fica
           // em fila nenhuma (quem enviou precisa saber, para reenviar depois).
           if (sessao.papel === "paralela" && !sessao.temPtyVivo() && (enviar || quandoOcioso)) {
+            // Se o cliente desconectar durante o despertar, o pedido não é guardado: ele vai reenviar, e a fila ficaria com duas cópias.
+            let desistiuNoDespertar = false;
+            res.on("close", () => {
+              if (!res.writableEnded) desistiuNoDespertar = true;
+            });
             const r = await gerente.acordar(sessao.id, "input recebido");
             if (!r.ok) {
               if ("recusa" in r) respostaDeRecusa(res, r.recusa);
               else json(res, { success: false, error: r.falha, howToFix: "ver o log do runner e tentar POST /api/agents/:id/resume", code: "NAO_ACORDOU" }, 500);
               return;
             }
-            sessao.enfileirarQuandoOcioso(texto, esperouNoPainel);
+            // Sem await entre esta conferência e a gravação na fila.
+            if (desistiuNoDespertar) {
+              log.aviso(sessao.a("entrada"), `o cliente desistiu durante o despertar da sessão: o pedido de ${texto.length} caracteres não foi guardado na fila`);
+              return;
+            }
+            if (sessao.enfileirarQuandoOcioso(texto, esperouNoPainel) === "nao-gravado") {
+              respostaFilaNaoGravada(res);
+              return;
+            }
             json(res, { success: true, data: { enfileirado: true, acordando: true } }, 202);
             return;
           }
@@ -391,8 +434,15 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
           }
 
           if (quandoOcioso) {
-            sessao.enfileirarQuandoOcioso(texto, esperouNoPainel);
-            json(res, { success: true, data: { enfileirado: true, aguardando: "idle" } }, 202);
+            // false = /compact repetido: já havia um na fila, sendo digitado ou em andamento. Esse /compact pendente
+            // atende o pedido (quem chamou queria a sessão compactada, e o recibo dele vem do mesmo compact_boundary),
+            // então a resposta é a mesma do enfileirado, só com `deduplicado` para quem quiser saber.
+            const resultado = sessao.enfileirarQuandoOcioso(texto, esperouNoPainel);
+            if (resultado === "nao-gravado") {
+              respostaFilaNaoGravada(res);
+              return;
+            }
+            json(res, { success: true, data: { enfileirado: true, aguardando: "idle", ...(resultado === "deduplicado" ? { deduplicado: true } : {}) } }, 202);
             return;
           }
           if (!sessao.temPtyVivo()) {
@@ -412,8 +462,57 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             return;
           }
           if (enviar) {
-            await sessao.digitarEEnviar(texto);
+            let confirmado: boolean;
+            // O cliente desistiu (timeout da CLI, conexão fechada) antes de a resposta sair: um envio que ainda espera a vez e não
+            // escreveu nada é cancelado, para o reenvio do cliente não deixar duas cópias aptas a rodar.
+            let desistiu = false;
+            const aborto = new AbortController();
+            res.on("close", () => {
+              if (!res.writableEnded) {
+                desistiu = true;
+                aborto.abort(); // tira o pedido da espera na hora, liberando o texto e a contagem
+              }
+            });
+            try {
+              confirmado = await sessao.digitarEEnviar(texto, false, null, () => desistiu, aborto.signal);
+            } catch (err) {
+              if (err instanceof ErroTextoGrandeDemais) {
+                erroHttp(res, 413, "TEXTO_GRANDE_DEMAIS", err.message, err.howToFix);
+                return;
+              }
+              if (err instanceof ErroEnviosDemais) {
+                erroHttp(res, 429, "ENVIOS_DEMAIS", err.message, err.howToFix);
+                return;
+              }
+              // O agente deixou de poder conversar (ou uma tela bloqueia a caixa) depois de o pedido ser aceito: nada foi
+              // digitado, e a resposta diz o motivo e o que fazer em vez de um erro interno sem orientação.
+              if (!(err instanceof ErroDeMotor)) throw err;
+              json(res, { success: false, error: err.message, howToFix: `${err.comoResolver}. Nada foi digitado: depois disso a mensagem pode ser reenviada.`, code: err.statusReason === MOTIVO_RECUSA_DE_ENTRADA ? "ENTRADA_RECUSADA" : err.statusReason === MOTIVO_CAIXA_COM_RASCUNHO ? "CAIXA_COM_RASCUNHO" : err.statusReason === MOTIVO_ENVIO_PENDENTE ? "ENVIO_PENDENTE" : err.statusReason === MOTIVO_NAO_ENTROU ? "NAO_ENTROU" : "TELA_BLOQUEADA" }, 409);
+              return;
+            }
+            if (!confirmado) {
+              // 202 com entregaIncerta, e não erro: o texto PODE ter sido escrito no terminal (quando nada foi escrito a rota já respondeu 409 acima). Um erro faria quem chama (scripts que
+              // repetem o POST quando ele falha, a CLI e o painel, que mandam reenviar) repetir o pedido e executá-lo duas vezes.
+              json(
+                res,
+                {
+                  success: true,
+                  data: {
+                    enviado: false,
+                    entregaIncerta: true,
+                    submit: enviar,
+                    chars: texto.length,
+                    aviso:
+                      `Não sei se o agente ${sessao.slug} recebeu o texto: o terminal mudou ou o envio foi interrompido (por um diálogo, outro texto na caixa ou um reinício) depois de o texto poder ter sido digitado. A entrega é incerta. ` +
+                      "O runner ainda pode concluir a entrega nos próximos ~2 minutos: espere, confira a conversa do agente e só reenvie se o pedido não aparecer.",
+                  },
+                },
+                202,
+              );
+              return;
+            }
           } else {
+            sessao.registrarEscritaDeFora(texto);
             sessao.escrever(texto);
           }
           json(res, { success: true, data: { enviado: true, submit: enviar, chars: texto.length } });
@@ -707,6 +806,7 @@ export function criarServidor(gerente: GerenteDeSessoes): http.Server {
             }
             return;
           }
+          sessao.registrarEscritaDeFora(msg.data);
           sessao.escrever(msg.data);
           return;
         case "request_terminal_buffer": {

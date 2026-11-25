@@ -1053,6 +1053,14 @@
 
   // ─── Recado e anexo ───────────────────────────────────────────
 
+  /** O que a tela faz depois que o painel aceitou o recado. Com entregaIncerta o texto PODE não ter chegado: não se apaga o campo. */
+  function resultadoDoRecado(corpo, livre) {
+    if (corpo && corpo.entregaIncerta) {
+      return { limpaCampo: false, nota: { texto: `${corpo.aviso || 'Não sei se o card recebeu o recado. Confira a conversa antes de reenviar.'} O texto continua na caixa para você reenviar se precisar.`, tom: 'erro' } };
+    }
+    return { limpaCampo: true, nota: { texto: livre ? 'Recado na fila: entra quando o card terminar.' : 'Recado enviado.', tom: 'ok' } };
+  }
+
   async function envia(retomar) {
     const d = det;
     if (!d || d.enviando) return;
@@ -1078,9 +1086,10 @@
       });
       if (res.ok) {
         if (det === d) {
-          r.texto.value = '';
-          rascunhos.delete(d.id);
-          d.notaEnvio = { texto: livre ? 'Recado na fila: entra quando o card terminar.' : 'Recado enviado.', tom: 'ok' };
+          const fim = resultadoDoRecado(res.corpo, livre);
+          // Entrega incerta: o campo e o rascunho ficam como estão, porque o texto pode não ter chegado e o reenvio é do dono.
+          if (fim.limpaCampo) { r.texto.value = ''; rascunhos.delete(d.id); } else guardaRascunho();
+          d.notaEnvio = fim.nota;
         }
         setTimeout(() => { if (det === d) { pollDetalhe(); carregaConversa('poll'); } }, 1800);
       } else if (res.status === 409 && !retomar && /retomar/i.test(res.corpo.como_resolver || '')) {
@@ -1424,6 +1433,6 @@
   window.DGSessoes = {
     carregar,
     abrirTutorial,
-    _interno: { prefixoNome, linkDoTelegram, passosDoTutorial, grupoDe, textoErro, GRUPOS, CHIPS },
+    _interno: { resultadoDoRecado, prefixoNome, linkDoTelegram, passosDoTutorial, grupoDe, textoErro, GRUPOS, CHIPS },
   };
 })();

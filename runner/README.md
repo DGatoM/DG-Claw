@@ -105,6 +105,62 @@ Suspensão: a cada 60 s, paralela em `idle`, com fila vazia e parada além de
 input a acorda com `--resume`). `working`, `waiting_input` e `spawning` nunca são
 suspensas. A fila de ocioso agora é FIFO (antes o segundo texto apagava o primeiro).
 
+Pedido sem recibo: um texto da fila só conta como entregue quando o CLI confirma que o aceitou
+(`UserPromptSubmit` no Claude, `task_started` do rollout no Codex). A fila solta no máximo um texto
+sem recibo por vez: enquanto houver um digitado sem confirmação, o próximo espera. Antes da primeira
+escrita no terminal o item é gravado no arquivo da fila com `digitado: true`; se a gravação falhar
+(disco cheio, por exemplo), nada é digitado, o item volta para a frente da fila e o log diz o arquivo e
+o que fazer. A gravação só conta como feita depois do `fsync` do temporário, do `rename` e do `fsync` da
+pasta, e o arquivo é escrito com `versao: 2` (a leitura aceita 1 e 2; um item vindo da versão 1 não tem
+`digitado` nem `incerto`, e um runner antigo, que só aceita 1, recusa o arquivo em vez de executar um pedido
+incerto). O pedido que está digitado sem recibo, o comando de barra à espera do recibo e os que esperam na
+fila aparecem juntos (sem repetir) em `naFila` e em `naFilaTotal`, só com os metadados que o painel já recebia.
+
+Comando de barra (`/compact`, `/clear`) também é gravado como `digitado` antes de ser digitado, mas não
+entra em `semRecibo` (não dispara `UserPromptSubmit`). Ele fica em `barraPendente`, no arquivo da fila e ligado
+à vigia do Enter, até o recibo próprio (o `PreCompact` do `/compact`) ou até ser retido como incerto; o `finally`
+do envio não o apaga enquanto a vigia estiver armada. Comando de barra sem recibo próprio (`/clear`) conta como
+consumido quando a caixa aparece vazia depois do Enter. Enquanto houver um comando de barra pendente, a fila não
+digita outro texto.
+
+O recibo só tira o pendente da frente se o Enter dele já foi escrito; um recibo que chega antes é de outro
+turno. Confirmar o recibo não solta a fila: o próximo texto só sai no próximo idle, depois que o turno
+começou e terminou.
+
+Cada envio de texto recebe o item dele explicitamente (a rotina do Enter não consulta um campo global da
+sessão para saber de quem é o Enter), e os envios de texto de um mesmo terminal são serializados: a fila e o
+`POST /input` com `submit: true` não colam um texto no meio do outro. O terminal é capturado no começo do
+envio e conferido antes de cada escrita (colagem, tela de confiança, primeiro Enter e repetições): se foi
+trocado, o runner para de escrever e retém o pedido.
+
+O Enter só se repete se a tela mostrar que o MESMO texto (o final dele, sem contar quebras de linha e moldura)
+continua na caixa de composição. Diálogo (permissão, menu, confiança), tela que não se reconhece ou caixa com
+outro texto: nenhum Enter é escrito e o pedido fica retido como incerto, com a digitação do terminal suspensa.
+Caixa vazia: o texto saiu dela, então o runner só espera o recibo, sem Enter. Quando a tela pode ter ficado com
+um paste colapsado (o TUI troca o texto longo por um marcador), o runner não consegue provar que é o mesmo texto
+e também não repete o Enter.
+
+Um item digitado sem recibo NUNCA é digitado de novo sozinho. Terminal que sai, terminal trocado no meio do
+envio, retomada que falha, sessão nova, troca de provedor ou de conta, runner reiniciado com item `digitado` no
+arquivo, outra escrita no terminal durante a repetição do Enter, caixa que mudou, vigia do Enter esgotada sem
+recibo e Claude sem nenhum hook além do prazo de 60 s levam o item para `retidos`, marcado `incerto: true` no
+arquivo da fila. Retido não trava os próximos. O log avisa com o id e o tamanho (nunca o texto), diz onde o
+texto está guardado e o que fazer: conferir na conversa se o pedido foi executado e, se não foi, reenviá-lo pelo
+chat. Passados 60 s do spawn sem nenhum hook, o pedido NÃO é declarado entregue: não existe recibo possível,
+então o runner escreve o Enter, espera uma vez e retém o pedido como incerto.
+
+Suspensão da digitação: quando a caixa pode ter texto (rascunho do dono, pedido que ficou na caixa) ou um
+diálogo, a digitação automática do terminal fica suspensa. Um recibo NÃO a encerra (pode ser de outro turno).
+Ela só acaba quando, num idle, a tela mostra a caixa de composição vazia; enquanto isso o log avisa uma vez e
+a fila olha de novo a cada poucos segundos. Um pedido que entra com um item sem recibo ou com a suspensão ativa
+recebe o aviso de atraso (`esperou`). O Claude só é tratado como agente sem hooks (sem recibo possível) depois
+de 60 s do spawn sem nenhum hook, e a prova de hooks vivos é zerada a cada spawn. A fila não é solta no boot
+sem o `SessionStart` ou o prompt na tela (teto de 30 s, com aviso no log). Antes de `--resume`, o runner
+confere se o transcript (Claude, na pasta de configuração do motor) ou o rollout (Codex, entregue ao vigia)
+do id existe: só a ausência comprovada (ENOENT) sobe direto a sessão nova. Um erro de leitura em uma pasta de
+projeto (permissão, link em laço) não interrompe a busca nas outras pastas; só se o arquivo não for achado em
+nenhuma o resultado é "inconclusivo" e o `--resume` é mantido, com aviso no log.
+
 ## Provedores (Claude e Codex, e OpenCode nos cards)
 
 Cada sessão (a principal e as paralelas) roda o CLI que o dono escolheu: **Claude Code**

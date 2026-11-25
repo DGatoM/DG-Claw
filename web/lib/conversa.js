@@ -650,6 +650,11 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     }
     log('info', `Mensagem entregue a ${agente.slug} (${cru ? 'comando cru' : `${textoFinal.length} caracteres`}).`);
     const corpo = { ok: true, ep_enviado: epEnviado, agente: agente.slug };
+    if (r.entregaIncerta) {
+      log('aviso', `Entrega incerta para ${agente.slug}: ${r.aviso}`);
+      corpo.entrega_incerta = true;
+      corpo.aviso = `${r.aviso} Confira a conversa antes de reenviar.`;
+    }
     // O texto é guardado sempre (não só quando o painel viu o agente ocupado): outro aparelho pode ter enviado
     // com o agente ocioso, e a mensagem mesmo assim ficar atrás de outra no runner.
     if (msgId) guardaTextoNaFila(agente.slug, msgId, textoFinal, colaboradorId);
