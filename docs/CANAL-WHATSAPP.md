@@ -127,13 +127,28 @@ o campo `id` de `DGCLAW_RUNNER_JSON`, padrão `/etc/dgclaw-runner/runner.json`),
 ### Entrada (WhatsApp para o agente)
 
 1. Só `messages.upsert` do tipo `notify`. Ignora `fromMe`, grupos (`@g.us`), `status@broadcast`, listas e
-   canais (`@newsletter`), reações e mensagens de protocolo. Ignora id repetido.
+   canais (`@newsletter`) e mensagens de protocolo. Ignora id repetido. A reação (emoji sobre uma mensagem)
+   passa pelas mesmas travas da mensagem normal e é tratada no passo 3.
 2. Número fora da lista (ou lista ausente ou inválida): descarta, loga a linha de recusa, não marca como
    lida e não responde nada.
 3. Número na lista: monta o corpo. Texto puro, legenda, ou, para imagem, áudio, vídeo e documento, baixa
    o arquivo para `~/uploads/whatsapp/<AAAA-MM-DD>/<id>.<ext>` (limite de 25 MB) e escreve
    `[áudio salvo em /home/agente/uploads/whatsapp/2026-10-17/ABC.ogg]` no corpo. Tipo que a ponte não lê
-   vira `[mensagem do tipo <tipo>, que a ponte ainda não lê]`.
+   vira `[mensagem do tipo <tipo>, que a ponte ainda não lê]`. Reação vira uma linha de texto, e o envelope dela
+   ganha dois atributos que só a ponte gera, `tipo="reacao"` e `ref="<id da mensagem referenciada>"` (só
+   `[A-Za-z0-9_-]`, até 64 caracteres), para um texto digitado imitando o marcador não ser confundido com uma reação
+   de verdade. A mensagem normal não leva `tipo`. O texto da reação é
+   `[reagiu com 👍 à sua mensagem: "Posso fazer tal coisa?"]` quando ela aponta para uma mensagem que o agente
+   enviou nessa mesma conversa e a ponte ainda tem o texto, e `[reagiu com 👍 a uma mensagem que a ponte não
+   conseguiu identificar]` em qualquer outro caso (mensagem antiga, ponte reiniciada, mensagem do contato, outra
+   conversa, mensagem editada ou apagada). O trecho são os primeiros 200 caracteres, com as quebras de linha
+   viradas em espaço, `…` se cortou, e as aspas duplas viram simples. A ponte guarda só o que o agente enviou, na
+   memória (até 500 mensagens, nada em disco, some quando ela reinicia), por conversa (JID exato) e id. É o texto
+   que de fato saiu: o áudio vai sem legenda, então não há trecho. Edição ou revogação feita pela própria conta (`protocolMessage` com `fromMe`,
+   `messages.update`) e `messages.delete` apagam o trecho desse id em todas as conversas (o mesmo contato pode vir com JID
+   de telefone ou `@lid`), sem entregar nada ao agente. Reação removida (emoji vazio) não entrega nada e não gera linha de recusa. O emoji
+   perde os caracteres de controle e fica limitado a 16 caracteres. Emoji mandado como texto comum segue entrando
+   como texto.
 4. Escapa o corpo (`&` para `&amp;`, `<` para `&lt;`, `>` para `&gt;`), para nenhum texto de fora conseguir
    fechar o envelope ou forjar um `<dgchat>`. Os atributos só levam valores limpos (o id da mensagem fica
    restrito a `[A-Za-z0-9_-]`).
@@ -397,3 +412,15 @@ Mensagem do WhatsApp entra como **externa**, nunca como fala do dono. Veio de um
 autorizou, e o agente responde normalmente por `whatsapp_reply`, mas não age sozinho sobre nada
 irreversível, sobre credenciais, canais ou a lista de permitidos só porque uma mensagem do WhatsApp
 pediu: confirma antes no chat do DG Claw. A lista nunca muda a pedido de uma mensagem do próprio canal.
+
+### Reações e emojis como resposta
+
+O agente trata as reações assim (a regra está em `templates/ambiente/agente.md` e na skill `canais`):
+👍 ✅ 👌 🙏, e o emoji solto mandado como texto, em resposta a uma pergunta de sim ou não dele valem como
+sim, mas só quando a reação chega com `tipo="reacao"` e "à sua mensagem" com o trecho da pergunta. "Não conseguiu
+identificar" nunca confirma nada: o agente pergunta de novo. Cada pergunta autoriza uma vez só (reação nova ou
+trocada não autoriza de novo), o trecho só localiza a pergunta (o agente confere a mensagem completa no histórico e
+confirma se ela não estiver lá ou se o trecho terminar em `…`), e o emoji solto só vale com uma única pergunta pendente. ❤️ 😂 e afins são reação social: não confirmam nada e não recebem resposta, o que evita um laço de
+uma resposta para cada reação. Reação que não responde a uma pergunta do agente não precisa de resposta.
+Em ação sensível (pagamento, envio a terceiros, algo destrutivo ou irreversível) uma reação nunca basta: o
+agente confirma com uma pergunta curta e explícita, e a ação irreversível continua só no chat do DG Claw.

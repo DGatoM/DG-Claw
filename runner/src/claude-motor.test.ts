@@ -4,7 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { chaveFalsa, ctxDeTeste, pastaTemporaria } from "./apoio-teste.js";
-import { arquivoClaudeJson, confiarNaPasta, dicaDeLogin, motorClaude, preAprovarChaveDeApi, pularAvisoDoAutoMode, pularPrimeiraExecucao } from "./provedores/claude.js";
+import { log } from "./logger.js";
+import { arquivoClaudeJson, confiarNaPasta, confiarNasPastas, pastasParaConfiar, dicaDeLogin, motorClaude, preAprovarChaveDeApi, pularAvisoDoAutoMode, pularPrimeiraExecucao } from "./provedores/claude.js";
 
 test("pré-aprovação: grava os ÚLTIMOS 20 caracteres, é idempotente e preserva o resto do JSON", () => {
   const dir = pastaTemporaria("claudejson");
@@ -55,6 +56,39 @@ test("confiarNaPasta marca a casa uma vez só e preserva o JSON", () => {
   confiarNaPasta("/casa/x", { CLAUDE_CONFIG_DIR: dir }, "spawn");
   const o = JSON.parse(fs.readFileSync(path.join(dir, ".claude.json"), "utf8"));
   assert.deepEqual(o, { a: 1, projects: { "/casa/x": { hasTrustDialogAccepted: true } } });
+});
+
+test("pastasParaConfiar: cwd e cada --add-dir, forma separada e com =, relativo contra o cwd", () => {
+  assert.deepEqual(pastasParaConfiar("/c", ["--add-dir", "/a", "--model", "x", "--add-dir=/b", "--add-dir", "rel", "--add-dir", "/a"]), ["/c", "/a", "/b", "/c/rel"]);
+  assert.deepEqual(pastasParaConfiar("/c", []), ["/c"]);
+});
+
+test("confiarNasPastas: marca todas numa escrita, preserva chave alheia e confiança já existente, não regrava se nada mudou", () => {
+  const dir = pastaTemporaria("trust-varias");
+  const arq = path.join(dir, ".claude.json");
+  fs.writeFileSync(arq, JSON.stringify({ numStartups: 3, projects: { "/ja": { hasTrustDialogAccepted: true, outra: 1 }, "/c": { allowedTools: ["x"] } } }), { mode: 0o640 });
+  fs.chmodSync(arq, 0o640);
+  confiarNasPastas(["/c", "/a", "/ja"], { CLAUDE_CONFIG_DIR: dir }, "spawn");
+  const o = JSON.parse(fs.readFileSync(arq, "utf8"));
+  assert.equal(o.numStartups, 3);
+  assert.deepEqual(o.projects, {
+    "/ja": { hasTrustDialogAccepted: true, outra: 1 },
+    "/c": { allowedTools: ["x"], hasTrustDialogAccepted: true },
+    "/a": { hasTrustDialogAccepted: true },
+  });
+  assert.equal(fs.statSync(arq).mode & 0o777, 0o640);
+  const bytes = fs.readFileSync(arq);
+  confiarNasPastas(["/c", "/a", "/ja"], { CLAUDE_CONFIG_DIR: dir }, "spawn");
+  assert.deepEqual(fs.readFileSync(arq), bytes, "nada mudou: não regrava");
+  assert.deepEqual(fs.readdirSync(dir), [".claude.json"]);
+});
+
+test("preparar do motor Claude marca o cwd e os --add-dir do extraArgs", async () => {
+  const dir = pastaTemporaria("trust-preparar");
+  const ctx = ctxDeTeste({ env: { CLAUDE_CONFIG_DIR: dir }, cwd: "/casa/x", config: { name: "x", cwd: "/casa/x", initialPrompt: "", provider: "local-cli", extraArgs: ["--add-dir", "/extra/um", "--add-dir=/extra/dois"] } } as never);
+  await motorClaude.preparar?.(ctx);
+  const o = JSON.parse(fs.readFileSync(path.join(dir, ".claude.json"), "utf8"));
+  for (const p of ["/casa/x", "/extra/um", "/extra/dois"]) assert.equal(o.projects[p].hasTrustDialogAccepted, true, p);
 });
 
 test("pularPrimeiraExecucao: arquivo inexistente vira objeto com as chaves", () => {
@@ -186,3 +220,23 @@ test("pularAvisoDoAutoMode: marca o aviso como visto, preserva o resto e é idem
   pularAvisoDoAutoMode({ CLAUDE_CONFIG_DIR: novo }, "spawn");
   assert.equal(JSON.parse(fs.readFileSync(path.join(novo, ".claude.json"), "utf8")).hasSeenAutoModeEntryWarning, true);
 });
+
+test("confiarNasPastas: JSON inválido não leva trecho do arquivo para o log nem é reescrito", () => {
+  const dir = pastaTemporaria("trust-segredo");
+  const arq = path.join(dir, ".claude.json");
+  const quebrado = '{"mcpServers":{"x":{"env":{"TOKEN": SEGREDO_FICTICIO_123456}}}}';
+  fs.writeFileSync(arq, quebrado);
+  const avisos: string[] = [];
+  const original = log.aviso;
+  log.aviso = (_a: string, m: string) => { avisos.push(m); };
+  try {
+    confiarNasPastas(["/c"], { CLAUDE_CONFIG_DIR: dir }, "spawn");
+  } finally {
+    log.aviso = original;
+  }
+  assert.equal(avisos.length, 1);
+  assert.doesNotMatch(avisos[0], /SEGREDO/);
+  assert.match(avisos[0], /não é um JSON válido/);
+  assert.equal(fs.readFileSync(arq, "utf8"), quebrado);
+});
+

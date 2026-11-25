@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# curl de mentira: imprime o corpo do /api/saude (marca "saude" no estado troca o corpo; padrao, o do DG Claw).
+est="${STUB_ESTADO:?}"
+echo "curl $*" >>"${STUB_LOG:?}"
+# Sem a marca, "agentes" e o total do agentes.json da raiz falsa, como num painel que aceitou todos os registros.
+total="$(jq -r '.agentes | length' "${DGCLAW_RAIZ:?}/etc/dgclaw/agentes.json" 2>/dev/null)"
+if [ -f "$est/saude" ]; then cat "$est/saude"; else printf '{"ok":true,"agentes":%s,"registro_ok":true,"login_trancado":false}' "${total:-0}"; fi
+# marca "curl-rc": o codigo de saida (ex.: 7 = sem conexao, 28 = prazo estourado)
+if [ -f "$est/curl-rc" ]; then exit "$(cat "$est/curl-rc")"; fi
+exit 0

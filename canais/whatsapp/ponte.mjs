@@ -28,6 +28,7 @@ import { criarEntrada } from './lib/entrada.mjs';
 import { criarEntregaRunner } from './lib/entrega-runner.mjs';
 import { criarEnvioArquivo } from './lib/envio-arquivo.mjs';
 import { criarEnvioSeguro } from './lib/envio-seguro.mjs';
+import { criarMemoriaMensagens } from './lib/memoria-mensagens.mjs';
 import { criarLids } from './lib/lids.mjs';
 import { motivoNumeroInvalido, normalizar, numeroDeJid } from './lib/numeros.mjs';
 import { criarPedidos } from './lib/pedidos.mjs';
@@ -297,16 +298,18 @@ export async function iniciar(opcoes = {}) {
     dir: path.join(dir, 'envio'), arqConfig: path.join(dir, 'envio.json'), agora, registrar,
     dormir: opcoes.dormirEnvio, aleatorio: opcoes.aleatorioEnvio,
   });
-  const { aoReceber } = criarEntrada({
+  const memoria = criarMemoriaMensagens();
+  const { aoReceber, aoAtualizar, aoApagar, aoApagarConversas } = criarEntrada({
     envioSeguro,
     ligacao: () => ({ conectado, sock: sockAtual }),
-    opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico,
+    memoria, opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico,
     arqUltimo, dirUploads, downloadMediaMessage, pendentes,
   });
   const raizesArquivo = opcoes.raizesArquivo || [home];
   const { validarArquivo, montarEnvioArquivo } = criarEnvioArquivo({ home, raizesArquivo });
   const { tratarPedido } = criarPedidos({
     envioSeguro,
+    memoria,
     lerPermitidos,
     estaPermitido,
     validarArquivo,
@@ -346,6 +349,9 @@ export async function iniciar(opcoes = {}) {
       sock.ev.on('chats.phoneNumberShare', (d) => {
         if (minha === geracao && modo === 'servico' && d) aprenderLid(d.lid, numeroDeJid(d.jid));
       });
+      sock.ev.on('messages.update', (u) => { if (minha === geracao && modo === 'servico') aoAtualizar(u); });
+      sock.ev.on('messages.delete', (d) => { if (minha === geracao && modo === 'servico') aoApagar(d); });
+      sock.ev.on('chats.delete', (j) => { if (minha === geracao && modo === 'servico') aoApagarConversas(j); });
       sock.ev.on('messages.upsert', (u) => { if (minha === geracao && modo === 'servico') aoReceber(sock, u); });
       sock.ev.on('connection.update', async (u) => {
         if (minha !== geracao || encerrando) return;

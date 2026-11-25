@@ -43,6 +43,8 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/dns-containers.sh"
 # shellcheck source=lib/colaborador.sh
 . "$APP_DIR/lib/colaborador.sh"
+# shellcheck source=lib/limites.sh
+. "$APP_DIR/lib/limites.sh"
 
 # Tempo maximo de espera (segundos) do systemd e do /api/saude de dentro do agente.
 # Variavel so para os testes nao esperarem um minuto de verdade.
@@ -894,6 +896,8 @@ criar_container() {
         fi
     else
         dns_containers_calcular
+        # LIM_* ja foram calculados (e validados) por agente_criar e agente_recriar, antes de reservar ou parar qualquer coisa.
+        limites_relatar "$c" "$C_SLUG"
         if [ "${#DNS_CONTAINER_ARGS[@]}" -gt 0 ]; then
             info "o DNS deste servidor ($DNS_HOST_PRIVADOS) fica numa rede privada, que a cerca dos agentes bloqueia; o container $c usa DNS publico (1.1.1.1 e 8.8.8.8)."
         fi
@@ -909,7 +913,7 @@ criar_container() {
             "${DNS_CONTAINER_ARGS[@]}"
             --publish "127.0.0.1:$C_PORTA_RUNNER:4300"
             --publish "127.0.0.1:$C_PORTA_PAINEL:8300"
-            --memory 2g --cpus 1.0 --pids-limit 1024 --restart unless-stopped
+            --memory "$LIM_MEM_ARG" --cpus "$LIM_CPUS_ARG" --pids-limit "$LIMITE_PIDS" --restart unless-stopped
             # O podman copia as variaveis de proxy de quem roda o comando para dentro do
             # container. Um proxy local do host (127.0.0.1:...) nao existe la dentro, e todo
             # curl do agente falharia com "connection refused".
@@ -920,6 +924,8 @@ criar_container() {
         executar podman "${args[@]}" >/dev/null
         ok "container $c criado (portas so em 127.0.0.1: runner $C_PORTA_RUNNER, painel $C_PORTA_PAINEL)"
     fi
+    # O container ja existe (ou ja existia): o proximo calculo de limites o enxerga, entao a trava dos limites pode soltar.
+    limites_trava_soltar
     # Mesmo caminho do `iniciar`: com restricoes.json, os arquivos sao refeitos e a imagem conferida ANTES de ligar
     # (o recriar liga o container novo antes do reparar), e a conferencia de dentro roda depois, tudo sob a trava.
     restricoes_com_trava "$C_SLUG" _criar_container_ligar_sob_trava "$C_SLUG" "$c"
@@ -1294,9 +1300,17 @@ agente_criar() {
     # Trava compartilhada da faixa de rede: da leitura da configuracao (a faixa) ate a cerca publicada.
     # O instalador, que pode trocar a faixa, espera por ela (ver trava_faixa_pegar em lib/comum.sh).
     trava_faixa_pegar -s
-    # O podman nao herda o descritor da trava: o conmon vive ate o container parar e a seguraria.
-    podman() { command podman "$@" 8>&-; }
+    # O podman nao herda os descritores das travas (8: faixa de rede; 7: limites): o conmon vive ate o container parar e as seguraria.
+    podman() { command podman "$@" 7>&- 8>&-; }
+    # `timeout` executa o podman direto do PATH, sem passar pela funcao acima (lib/restricoes.sh usa `timeout 15 podman`).
+    timeout() { command timeout "$@" 7>&- 8>&-; }
     carregar_env_dgclaw
+    # Trava dos limites: do calculo ate o `podman create` (soltada em criar_container), para dois criar ao mesmo tempo nao
+    # se acharem os dois o principal (lib/limites.sh).
+    limites_trava_pegar
+    # Antes de reservar uid, portas, casa ou rede: uma sobrescrita invalida (DGCLAW_CONTAINER_MEMORIA=4GB) falha aqui, sem nada reservado.
+    # O criar_container reaproveita este resultado (LIM_*).
+    limites_calcular "$C_SLUG"
     if ! podman image exists "$DGCLAW_IMAGEM" >/dev/null 2>&1; then
         falha "a imagem dos agentes ($DGCLAW_IMAGEM) ainda nao existe nesta maquina." \
               "ela e construida em segundo plano pelo instalador; espere ficar pronta: dgclaw imagem status (para construir agora: dgclaw imagem construir)"
@@ -1517,8 +1531,12 @@ regravar_config_sh() {
 
 agente_reparar() {
     exigir_slug "${1:-}" reparar
-    local slug="$1" c="dgclaw-$1" obj porta
+    local slug="$1" c="dgclaw-$1" obj porta lim_rc=0
     exigir_ferramentas jq podman curl
+    # Reparar e recriar do mesmo agente nao rodam juntos (lib/comum.sh); chamado pelo recriar, passa direto pela trava.
+    trava_agente_pegar "$slug"
+    podman() { command podman "$@" 6>&- 7>&- 8>&-; }
+    timeout() { command timeout "$@" 6>&- 7>&- 8>&-; }
     obj="$(agentes_obter "$slug")"
     [ -n "$obj" ] || falha "o agente '$slug' nao esta no agentes.json." \
         "se a criacao nao terminou, rode de novo: dgclaw agente criar $slug --nome \"...\""
@@ -1526,6 +1544,9 @@ agente_reparar() {
         falha "o container $c nao esta ligado." "ligue com: dgclaw agente iniciar $slug"
     fi
     porta="$(printf '%s' "$obj" | jq -r '.runner | sub("^.*:"; "")')"
+    passo "Conferindo os limites de memoria, CPU e processos do container"
+    # Limite que sumiu depois do ajuste e erro, mas o resto do reparar segue; o codigo de erro sai no fim.
+    limites_ajustar_existente "$slug" || lim_rc=1
     passo "Garantindo o gancho do Modo foco no runner.json"
     garantir_gancho_foco "$DG_CASAS/$slug/runner/runner.json" "$slug"
     passo "Garantindo o gancho do aviso de novidades no runner.json"
@@ -1546,6 +1567,7 @@ agente_reparar() {
               "veja o log: podman exec $c journalctl -u dgclaw-runner -n 50"
     fi
     if [ "$ENSAIO" != 1 ]; then tela_avisar_sem_senha "$slug"; fi
+    return "$lim_rc"
 }
 
 # Rotinas que o `reparar` (vida_script -> install-timers.sh) regrava no container novo: nao contam como
@@ -1579,6 +1601,10 @@ inventario_container() {
     INV_MOTIVO=""
     _inv_limpar() { rm -f "$difusao" "$difusao.err" "$difusao.arq" "$difusao.prod" "$difusao.img" "$difusao.dirs" "$difusao.dm" "$difusao.on" "$pacs_c" "$pacs_i" 2>/dev/null || true; [ -z "$dirtmp" ] || rmdir "$dirtmp" 2>/dev/null || true; }
     : >"$saida" || { INV_MOTIVO="nao consegui gravar o arquivo do inventario ($saida)."; return 1; }
+    # Toda consulta ao container tem prazo (DGCLAW_PRAZO_INVENTARIO, padrao 60 s): um podman que nao responde nao pode
+    # deixar o comando pendurado. Estourou o prazo, o inventario devolve 1 e o motivo diz qual consulta travou.
+    local prazo="${DGCLAW_PRAZO_INVENTARIO:-60}"
+    case "$prazo" in ''|*[!0-9]*|0) prazo=60 ;; esac
     # Os nomes de arquivo de dentro do container podem ser privados: todos os intermediarios ficam numa pasta so do
     # root (modo 700), nao soltos em /tmp com a mascara do processo.
     dirtmp="$(mktemp -d)" || { INV_MOTIVO="nao consegui criar uma pasta temporaria."; return 1; }
@@ -1587,11 +1613,16 @@ inventario_container() {
     # O formato de texto do podman nao escapa quebra de linha no nome do arquivo: um nome com "\nA /x" viraria
     # dois registros e esconderia um caminho real. O JSON guarda cada caminho como um valor indivisivel;
     # caracteres de controle e o proprio % viram %HH (reversivel, sem colisao entre nomes diferentes) ja aqui, antes de qualquer filtro; o "?" so aparece na exibicao.
-    podman diff --format json "$c" 2>"$difusao.err" | jq -r '
+    timeout "$prazo" podman diff --format json "$c" 2>"$difusao.err" | jq -r '
         def hx: "0123456789ABCDEF"[(. / 16 | floor):(. / 16 | floor) + 1] + "0123456789ABCDEF"[(. % 16):(. % 16) + 1];
         def esc: explode | map(if . < 32 or . == 127 or . == 37 then "%" + hx else ([.] | implode) end) | join("");
         ((.added // [])[] | "A " + esc), ((.changed // [])[] | "C " + esc), ((.deleted // [])[] | "D " + esc)' >"$difusao" 2>>"$difusao.err"
     rc_a=("${PIPESTATUS[@]}")
+    if [ "${rc_a[0]}" -eq 124 ]; then
+        INV_MOTIVO="o 'podman diff --format json $c' nao respondeu em ${prazo}s e foi interrompido."
+        _inv_limpar
+        return 1
+    fi
     if [ "${rc_a[0]}" -ne 0 ] || [ "${rc_a[1]}" -ne 0 ]; then
         INV_MOTIVO="o 'podman diff --format json $c' falhou ou nao deu para ler a resposta ($(head -n 1 "$difusao.err" 2>/dev/null | _inv_sanear))."
         _inv_limpar
@@ -1601,10 +1632,22 @@ inventario_container() {
     if [ "$estado_c" = running ]; then
         # shellcheck disable=SC2015
         pacs_c="$(mktemp)" && pacs_i="$(mktemp)" || { INV_MOTIVO="nao consegui criar um arquivo temporario."; _inv_limpar; return 1; }
-        podman exec "$c" dpkg-query -W -f '${Package}\n' 2>/dev/null | LC_ALL=C sort -u >"$pacs_c"
+        # shellcheck disable=SC2016 # o $ e interpretado dentro do container ou pelo dpkg-query
+        timeout "$prazo" podman exec "$c" dpkg-query -W -f '${Package}\n' 2>/dev/null | LC_ALL=C sort -u >"$pacs_c"
         rc_a=("${PIPESTATUS[@]}")
-        podman run --rm --entrypoint dpkg-query "$DGCLAW_IMAGEM" -W -f '${Package}\n' 2>/dev/null | LC_ALL=C sort -u >"$pacs_i"
+        if [ "${rc_a[0]}" -eq 124 ]; then
+            INV_MOTIVO="o 'dpkg-query' dentro do container $c nao respondeu em ${prazo}s e foi interrompido."
+            _inv_limpar
+            return 1
+        fi
+        # shellcheck disable=SC2016 # o $ e interpretado dentro do container ou pelo dpkg-query
+        timeout "$prazo" podman run --rm --entrypoint dpkg-query "$DGCLAW_IMAGEM" -W -f '${Package}\n' 2>/dev/null | LC_ALL=C sort -u >"$pacs_i"
         rc_b=("${PIPESTATUS[@]}")
+        if [ "${rc_b[0]}" -eq 124 ]; then
+            INV_MOTIVO="o 'dpkg-query' na imagem $DGCLAW_IMAGEM nao respondeu em ${prazo}s e foi interrompido."
+            _inv_limpar
+            return 1
+        fi
         if [ "${rc_a[0]}" -ne 0 ] || [ "${rc_a[1]}" -ne 0 ] || [ "${rc_b[0]}" -ne 0 ] || [ "${rc_b[1]}" -ne 0 ] \
             || ! [ -s "$pacs_c" ] || ! [ -s "$pacs_i" ]; then
             INV_MOTIVO="nao consegui listar os pacotes do container (dpkg-query) nem os da imagem para comparar."
@@ -1708,8 +1751,8 @@ inventario_container() {
         fi
         ref="$DG_CASAS/$slug/home/.dgclaw/unidades-padrao.sha256"
         mapfile -t arqs <"$difusao.prod"
-        atuais="$(podman exec "$c" sha256sum "${arqs[@]}" 2>/dev/null)" \
-            || { INV_MOTIVO="nao consegui conferir as rotinas padrao dentro do container (podman exec sha256sum)."; _inv_limpar; return 1; }
+        atuais="$(timeout "$prazo" podman exec "$c" sha256sum "${arqs[@]}" 2>/dev/null)" \
+            || { INV_MOTIVO="nao consegui conferir as rotinas padrao dentro do container (podman exec sha256sum; prazo de ${prazo}s por consulta)."; _inv_limpar; return 1; }
         while IFS= read -r linha; do
             [ -n "$linha" ] || continue
             if ! { [ -f "$ref" ] && grep -qxF -- "$linha" "$ref"; }; then
@@ -1723,10 +1766,12 @@ inventario_container() {
     if [ "$estado_c" = running ]; then
         local un=() n u ex st
         for n in $DG_UNIDADES_REPARAR; do un+=("dgclaw-$slug-$n.timer"); done
-        podman exec "$c" sh -c 'for u in "$@"; do e=0; [ -e "/etc/systemd/system/$u" ] && e=1; s="$(systemctl is-enabled "$u" 2>/dev/null)"; printf "%s %s %s\n" "$u" "$e" "${s:-VAZIO}"; done' sh "${un[@]}" >"$difusao.on" 2>/dev/null \
+        # shellcheck disable=SC2016 # o $ e interpretado dentro do container ou pelo dpkg-query
+        timeout "$prazo" podman exec "$c" sh -c 'for u in "$@"; do e=0; [ -e "/etc/systemd/system/$u" ] && e=1; s="$(systemctl is-enabled "$u" 2>/dev/null)"; printf "%s %s %s\n" "$u" "$e" "${s:-VAZIO}"; done' sh "${un[@]}" >"$difusao.on" 2>/dev/null \
             || { INV_MOTIVO="nao consegui consultar quais rotinas padrao estao ligadas (systemctl is-enabled)."; _inv_limpar; return 1; }
         # As rotinas do proprio agente (self-*) tambem: a devolucao delas faz `enable --now`.
-        podman exec "$c" sh -c 'for f in /etc/systemd/system/dgclaw-'"$slug"'-self-*.timer; do [ -e "$f" ] || continue; u="${f##*/}"; s="$(systemctl is-enabled "$u" 2>/dev/null)"; printf "%s 1 %s\n" "$u" "${s:-VAZIO}"; done' >>"$difusao.on" 2>/dev/null \
+        # shellcheck disable=SC2016 # o $ e interpretado dentro do container ou pelo dpkg-query
+        timeout "$prazo" podman exec "$c" sh -c 'for f in /etc/systemd/system/dgclaw-'"$slug"'-self-*.timer; do [ -e "$f" ] || continue; u="${f##*/}"; s="$(systemctl is-enabled "$u" 2>/dev/null)"; printf "%s 1 %s\n" "$u" "${s:-VAZIO}"; done' >>"$difusao.on" 2>/dev/null \
             || { INV_MOTIVO="nao consegui consultar quais rotinas do proprio agente estao ligadas (systemctl is-enabled)."; _inv_limpar; return 1; }
         local lidos=0
         while read -r u ex st; do
@@ -1754,8 +1799,8 @@ inventario_container() {
         fi
         mapfile -t arqs <"$difusao.img"
         # shellcheck disable=SC2015
-        atuais="$(podman exec "$c" sha256sum "${arqs[@]}" 2>/dev/null)" \
-            && ref="$(podman run --rm --entrypoint sha256sum "$DGCLAW_IMAGEM" "${arqs[@]}" 2>/dev/null)" \
+        atuais="$(timeout "$prazo" podman exec "$c" sha256sum "${arqs[@]}" 2>/dev/null)" \
+            && ref="$(timeout "$prazo" podman run --rm --entrypoint sha256sum "$DGCLAW_IMAGEM" "${arqs[@]}" 2>/dev/null)" \
             || { INV_MOTIVO="nao consegui comparar o runner e o painel com os da imagem (sha256sum)."; _inv_limpar; return 1; }
         while IFS= read -r linha; do
             [ -n "$linha" ] || continue
@@ -1775,8 +1820,8 @@ inventario_container() {
         # shellcheck disable=SC2016
         local lemeta='while IFS= read -r d; do stat -c "%a %u %g" -- "$d" 2>/dev/null || echo ERRO; done'
         # shellcheck disable=SC2015
-        podman exec -i "$c" sh -c "$lemeta" <"$difusao.dirs" >"$difusao.dm" 2>/dev/null \
-            && ref="$(podman run --rm -i --entrypoint sh "$DGCLAW_IMAGEM" -c "$lemeta" <"$difusao.dirs" 2>/dev/null)" \
+        timeout "$prazo" podman exec -i "$c" sh -c "$lemeta" <"$difusao.dirs" >"$difusao.dm" 2>/dev/null \
+            && ref="$(timeout "$prazo" podman run --rm -i --entrypoint sh "$DGCLAW_IMAGEM" -c "$lemeta" <"$difusao.dirs" 2>/dev/null)" \
             || { INV_MOTIVO="nao consegui comparar as permissoes dos diretorios alterados com os da imagem (stat)."; _inv_limpar; return 1; }
         local n=0 m_c m_i d
         while IFS= read -r d; do
@@ -1824,6 +1869,11 @@ agente_recriar() {
     done
     exigir_slug "$slug" recriar
     exigir_ferramentas jq podman curl
+    # Reparar e recriar do mesmo agente nao rodam juntos (lib/comum.sh); o reparar de dentro daqui passa direto pela trava.
+    trava_agente_pegar "$slug"
+    # O podman nao herda os descritores das travas (6: agente; 7: limites): o conmon vive ate o container parar e as seguraria.
+    podman() { command podman "$@" 6>&- 7>&- 8>&-; }
+    timeout() { command timeout "$@" 6>&- 7>&- 8>&-; }
     carregar_env_dgclaw
     local c="dgclaw-$slug" obj aloc estado img_atual img_nova unidades inv
     obj="$(agentes_obter "$slug")"
@@ -1940,6 +1990,12 @@ agente_recriar() {
         rm -f "$unidades"
     fi
 
+    # Trava dos limites: so aqui, depois do inventario e das outras conferencias lentas (comandos dentro do agente, sem a trava
+    # global na mao), e solta depois do `podman create` (em criar_container), como no criar. A sobrescrita invalida
+    # (DGCLAW_CONTAINER_MEMORIA=4GB) falha neste calculo, antes de parar ou remover qualquer coisa.
+    limites_trava_pegar
+    limites_calcular "$slug"
+
     passo "Trocando o container do agente $slug pelo da imagem atual"
     C_RECRIANDO="$slug"; C_RECRIOU=0
     trap '_recriar_ao_sair' EXIT
@@ -1951,7 +2007,21 @@ agente_recriar() {
     C_RECRIANDO=""
     trap - EXIT
 
-    agente_reparar "$slug"
+    # `agente_reparar ... || rep_rc=$?` desligaria o `set -e` dentro de TODA a funcao (regra do bash para o comando a
+    # esquerda de ||), e uma etapa que falhasse deixaria o reparo seguir e anunciar sucesso. Por isso o reparo roda num
+    # subshell com o `set -e` ligado de novo, e o codigo de saida e capturado depois, sem `||`. O subshell e seguro: o
+    # reparo so usa variaveis locais e escreve em arquivos e no podman, nada que este processo leia depois.
+    local rep_rc=0 tinha_e=0
+    case "$-" in *e*) tinha_e=1 ;; esac
+    set +e
+    ( set -e; agente_reparar "$slug" )
+    rep_rc=$?
+    if [ "$tinha_e" = 1 ]; then set -e; fi
+    if [ "$rep_rc" -ne 0 ]; then
+        # Reparo incompleto: os timers ficam desligados, para nenhuma rotina disparar com a configuracao pela metade.
+        aviso "o reparo do agente $slug nao terminou (codigo $rep_rc), entao as rotinas dele (timers dgclaw-$slug-self-*) ficaram DESLIGADAS ate a recriacao dar certo. Corrija o erro acima e rode: dgclaw agente reparar $slug. Para religar as rotinas guardadas em $unidades (a lista fica la, nao a apague): podman exec -i dgclaw-$slug tar -C /etc/systemd/system -xf - < $unidades; podman exec dgclaw-$slug systemctl daemon-reload; e para cada timer: podman exec dgclaw-$slug systemctl enable --now <nome>.timer"
+        return "$rep_rc"
+    fi
     devolver_unidades_self "$slug" "$unidades"
     ok "agente $slug recriado com a imagem atual (casa, cofre e portas intactos)"
 }

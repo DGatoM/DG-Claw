@@ -82,22 +82,13 @@ fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 TITULO "2. Permissoes que travam o Claude sob systemd"
-if python3 -I -c "import json,sys; d=json.load(open('$CFGJSON')); p=d.get('projects',{}).get('$WS',{}); sys.exit(0 if p.get('hasTrustDialogAccepted') else 1)" 2>/dev/null; then
+if python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); p=d.get("projects",{}).get(sys.argv[2],{}); sys.exit(0 if p.get("hasTrustDialogAccepted") else 1)' "$CFGJSON" "$WS" 2>/dev/null; then
     P "workspace marcado como confiavel"
 else
-    # Traceback omitido: se a gravacao falhar, o B logo abaixo diz o arquivo e as causas provaveis.
-    if python3 -I - "$CFGJSON" "$WS" <<'PY' 2>/dev/null
-import json,sys
-path,ws=sys.argv[1],sys.argv[2]
-try: d=json.load(open(path))
-except Exception: d={}
-d.setdefault("projects",{}); pr=d["projects"].get(ws,{})
-pr["hasTrustDialogAccepted"]=True; pr["hasCompletedProjectOnboarding"]=True
-d["projects"][ws]=pr; d["hasCompletedOnboarding"]=True
-json.dump(d,open(path,"w"),indent=2)
-PY
+    # O helper explica sozinho o que houve (JSON invalido, sem permissao) e nunca apaga o arquivo.
+    if ERRO_CONF="$(python3 -I "$SCRIPT_DIR/_lib/confiar-pastas.py" --onboarding "$CFGJSON" "$WS" 2>&1 >/dev/null)"
     then F "workspace marcado como confiavel (sem isso o servico para na pergunta de confianca)"
-    else B "nao consegui marcar o workspace como confiavel em $CFGJSON (permissao? arquivo corrompido?)"
+    else B "nao consegui marcar o workspace como confiavel em $CFGJSON: ${ERRO_CONF:-motivo desconhecido} (permissao? arquivo corrompido?)"
     fi
 fi
 
