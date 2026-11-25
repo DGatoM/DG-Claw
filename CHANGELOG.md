@@ -7,6 +7,13 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+- **Novo: checklist de entrega de cliente e smoke test da VPS.** O `docs/ENTREGA-CLIENTE.md` reúne, para a equipe
+  que entrega uma VPS pronta, os doze passos a conferir antes de passar o servidor ao cliente (limites do
+  container, cofre, YouTube, Chrome headless, ffmpeg, login pelo celular e outros). O
+  `/opt/dgclaw/app/scripts/smoke-entrega.sh` roda no servidor, como root, e faz só leituras simples: versão
+  instalada, resposta do painel, serviços do host e, para cada agente, se o container existe, está rodando e tem
+  limite de memória. O resto do checklist fica à mão. Não muda o comportamento de quem já usa o DG Claw.
+
 **Correção do agente que ficava "trabalhando" para sempre depois de um /compact recusado.** Quando o auto-compact enfileirava
 vários `/compact` seguidos e o Claude Code respondia "Not enough messages to compact.", ele avisava o início da compactação
 e nunca o fim: o agente ficava em "working" por horas com as mensagens presas na fila. Agora (1) o runner olha o transcript

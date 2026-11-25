@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# journalctl de mentira: o smoke nao pode chamar. Registra a chamada e falha.
+echo "journalctl $*" >>"${STUB_LOG:?}"
+exit 1
