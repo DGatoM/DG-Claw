@@ -132,7 +132,7 @@ testes_shellcheck() {
     command -v "$sc" >/dev/null || { echo "nao achei o shellcheck ('$sc'); instale, aponte SHELLCHECK=<binario> ou rode com DGCLAW_TESTES_PULAR=shellcheck" >&2; return 1; }
     (
         cd "$REPO" || exit 1
-        arquivos=(install.sh bin/dgclaw lib/*.sh tests/rodar.sh tests/cli/*.sh tests/cli/stubs/*
+        arquivos=(install.sh bin/dgclaw lib/*.sh tests/rodar.sh tests/cli/*.sh tests/cli/stubs/* tests/cli/stubs-entrega/* scripts/smoke-entrega.sh
                   tests/instalador/*.sh tests/novidades/*.sh tests/changelog/*.sh tests/monitor/*.sh tests/aviso-atualizacao/*.sh tests/boletins/*.sh tests/emergencia/*.sh tests/tela/*.sh tests/anonimizar/*.sh tests/docs-em-dia/*.sh tests/heartbeat/*.sh scripts/heartbeat.sh tests/reflexao/*.sh tests/comentarios/*.sh scripts/responder-comentario.sh scripts/cron/dgclaw-comentarios.sh tests/instrucoes/*.sh tests/anexo-seguro/*.sh scripts/_lib/anexo-seguro.sh tests/confianca/*.sh scripts/_lib/confiar-pastas.sh scripts/channel-watchdog.sh scripts/gerar-instrucoes.sh bin/dgclaw-tela-navegador tests/ronda/rodar.sh tests/ronda/stubs/* scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh
                   scripts/revisao-adversarial.sh tests/revisao-adversarial/*.sh tests/versao/*.sh)
         "$sc" -x "${arquivos[@]}"

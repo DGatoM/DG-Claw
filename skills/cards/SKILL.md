@@ -59,7 +59,7 @@ fi
 ```
 
 - Capture a saída e o código antes de pegar o id: com `| head -1` direto, o código de saída do `abrir` se perde.
-  O id sai uma vez, na primeira linha, assim que o card é criado, mesmo quando o `abrir` termina com 8, 9, 11 ou 12.
+  O id sai uma vez, na primeira linha, assim que o card é criado, mesmo quando o `abrir` termina com 8, 11, 12 ou 14.
   O `abrir` só imprime "Card aberto" e só sai com 0 quando o pedido virou o primeiro turno do card (espera até
   60 s). Com `--espera-turno 0` o `abrir` sai com 0 sem conferir o aceite (diz "Card criado", não "Card aberto"):
   aí confira com `dgclaw-card estado "$id"` antes de avisar o dono. Só siga para o `esperar` e só avise o dono com `cod` igual a 0. Com `cod` diferente de 0, confira com
@@ -147,20 +147,20 @@ O comando já escreve a frase pronta. Repasse ao dono em linguagem simples:
 - Código 4 (limite): há cards demais abertos (o padrão desta instalação é 8). Rode `dgclaw-card listar`, feche os que acabaram com
   `dgclaw-card fechar <id>` e tente de novo. Se o dono quiser mais vagas, o limite sobe em
   `RUNNER_MAX_SESSOES_EXTRAS` (quem mantém a máquina ajusta).
-- Código 9 (o runner não observou o primeiro turno): o card foi criado, mas o runner não viu o primeiro turno
+- Código 12 (o runner não observou o primeiro turno): o card foi criado, mas o runner não viu o primeiro turno
   do pedido dentro da espera. Isso não prova que o card esteja parado: o pedido pode ainda começar, ou já
   estar rodando sem ter sido observado. Não diga ao dono que ele está trabalhando (nem que está parado), não
   feche o card e NÃO reenvie o pedido por conta própria (reenviar poderia duplicá-lo). Confira com
   `dgclaw-card estado <id>` e `dgclaw-card ler <id>` depois de um tempo.
   O `abrir` espera 60 segundos por isso; `--espera-turno SEG` muda o prazo (0 desliga).
-- Código 10 (`fechar` recusado): o runner ainda não observou um turno nesta conversa, ainda tem texto na fila, ou não deu para ler o
+- Código 13 (`fechar` recusado): o runner ainda não observou um turno nesta conversa, ainda tem texto na fila, ou não deu para ler o
   estado dele, e fechar agora pode jogar o pedido fora. Só use `dgclaw-card fechar <id> --forcar`
   depois de avisar o dono.
-- Código 12 (o turno falhou): o card aceitou o pedido, mas o turno deu erro e o card está parado em erro.
+- Código 14 (o turno falhou): o card aceitou o pedido, mas o turno deu erro e o card está parado em erro.
   Leia o que ele fez com `dgclaw-card ler <id>` e conte ao dono. Não diga que o trabalho está indo bem.
 - Código 11 (não deu para confirmar): o card foi criado e o pedido entregue, mas o `abrir` não conseguiu
   ler o estado dele (recusa, erro do runner ou resposta sem o contador de turnos). Não diga ao dono que o
-  card está trabalhando, não feche e não reenvie. Rode `dgclaw-card estado <id>` e conte ao dono o que viu.
+  card está trabalhando, não feche e não reenvie. Rode `dgclaw-card estado <id>` e `dgclaw-card ler <id> --n 20` e conte ao dono o que viu. É o mesmo código 11 da entrega incerta do envio.
 - Código 5 (sem login): o provedor ainda não está conectado. Peça ao dono para abrir o painel,
   aba Status, cartão Modelo e autenticação, e usar Entrar com a assinatura (ou colar a chave de
   API). Depois repita o pedido.
@@ -175,5 +175,5 @@ O comando já escreve a frase pronta. Repasse ao dono em linguagem simples:
 - Só quando a mensagem diz que o pedido "nao foi entregue" (o runner recusou o texto com uma resposta 4xx, antes
   de enfileirar), ela traz o id: reenvie com `dgclaw-card mandar <id> --arquivo ...` ou feche com
   `dgclaw-card fechar <id> --forcar`. Esse é o único caso em que vale reenviar, e a tarefa só passa a ser feita
-  na conversa principal quando ficou confirmado que o pedido não foi entregue. Com os códigos 8, 9, 11 e 12 e
+  na conversa principal quando ficou confirmado que o pedido não foi entregue. Com os códigos 8, 11, 12 e 14 e
   com "entrega incerta" o pedido pode ter sido entregue: não repita a tarefa pela conversa principal.
