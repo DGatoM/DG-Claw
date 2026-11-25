@@ -9,11 +9,19 @@ import inject as inj  # _lib já está no sys.path (ver auto-compact.py)
 from .ambiente import env, escalation_marks, log, resolve_compact_mode, resolve_session_dir, resolve_slug, resolve_state_file, resolve_threshold, resolve_workspace
 from .ciclo import esperar_assentar_e_fechar, fechar_ciclo_pendente
 from .estado import _antes, _modo_seguro, cooldown_remaining, load_state, notify_owner, save_state
+from .guardas import acabou_de_compactar, agente_ocupado_no_bunker
 from .injecao import inject_compact
 from .modo_restart import do_restart_compact
 from .poke import resume_poke_enabled, write_resume_poke
 from .tarefas import _resumo_bg, background_tasks, turn_snapshot
-from .transcript import context_tokens, had_compact_since, looks_idle, resolve_live_transcript
+from .transcript import base_pos_compactacao, context_tokens, had_compact_since, looks_idle, resolve_live_transcript
+
+
+def _ganho_minimo() -> int:
+    try:
+        return max(0, int(env("DGCLAW_COMPACT_MIN_GAIN", "30000")))
+    except (TypeError, ValueError, OverflowError):
+        return 30000
 
 
 def main():
@@ -141,13 +149,29 @@ def main():
             log(f"acima do teto, mas em cooldown ({rem:.0f}min restantes) — pulando")
             return 0
 
+    # 3.5) compactar so vale se liberar espaco. Depois de compactar o contexto volta ao resumo MAIS a
+    # base da sessao (instrucoes, ferramentas, memoria), que a compactacao nao reduz. Se a primeira
+    # resposta depois da ultima compactacao ja media quase o teto, cada ciclo do timer achava que
+    # precisava compactar de novo e gastava a leitura do contexto inteiro a troco de nada (relato de
+    # 18/11/2026). O ganho possivel e o contexto de agora menos essa base. So no modo inject: o
+    # restart abre sessao nova (sem resumo, base propria) e o reinicio noturno da reflexao o pede de
+    # proposito. No nivel critico a guarda nao vale: perto do limite duro, compacta mesmo assim. --force fura.
+    hot_at, crit_at = escalation_marks(threshold, limit)
+    if not args.force and resolve_compact_mode() != "restart" and ctx < crit_at:
+        base = base_pos_compactacao(transcript)
+        ganho_min = _ganho_minimo()
+        if base is not None and ctx - base < ganho_min:
+            log(f"acima do teto, mas a ultima compactacao deixou a base em {base // 1000}k e so dariam "
+                f"{max(0, ctx - base) // 1000}k a liberar (minimo {ganho_min // 1000}k, "
+                f"DGCLAW_COMPACT_MIN_GAIN); compactar de novo nao baixa o contexto; pulando")
+            return 0
+
     # 4) ociosidade COM ESCALADA. Antes a checagem era binaria: se a sessao parecia
     # ocupada, adiava, e ponto. Numa conversa viva isso adia TODO ciclo e o contexto sobe
     # sem teto (caso real num agente pessoal em 19/08/2026: de 150k a 604k sem uma compactacao). Agora
     # a espera encolhe conforme o excesso, e no nivel critico compacta mesmo com turno em
     # voo, porque o poke de retomada devolve a tarefa.
     snap = turn_snapshot(transcript)
-    hot_at, crit_at = escalation_marks(threshold, limit)
     if ctx >= crit_at:
         nivel, idle_eff = "CRITICO", 0
     elif ctx >= hot_at:
@@ -179,6 +203,20 @@ def main():
                                   state_file, st, args.dry_run, transcript=transcript,
                                   snap=snap, nivel=("CRITICO" if args.force else nivel),
                                   idle_eff=(0 if args.force else idle_eff))
+
+    # 4.2) guardas do runner (so modo bunker, e --force as ignora): nao enfileirar /compact atras de
+    # trabalho nem logo depois de uma compactacao. Saem sem gravar last_compact_ts nem contar falha.
+    # A checagem e uma foto: a corrida entre ela e o POST continua possivel. O pior caso e um /compact atras de
+    # uma mensagem, e o runner nao deixa empilhar mais de um /compact na fila; a recusa ele trata (vigias.ts).
+    if not args.force:
+        motivo = agente_ocupado_no_bunker()
+        if motivo:
+            log(motivo)
+            return 0
+        if inj.resolve_mode() == "bunker" and acabou_de_compactar(transcript):
+            log("acabou de compactar (compact_boundary recente no transcript); "
+                "nao enfileiro outro /compact, tento no proximo ciclo")
+            return 0
 
     # 4.5) a injecao ANTERIOR surtiu efeito? Se ja injetamos antes e NENHUM compact_boundary
     # apareceu desde entao (e ainda estamos acima do teto), o /compact foi engolido (sessao

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# systemctl de mentira: so "is-active <unidade>". A marca "inativo-<unidade>" no estado devolve inactive.
+est="${STUB_ESTADO:?}"
+echo "systemctl $*" >>"${STUB_LOG:?}"
+if [ "${1:-}" = is-active ] && [ -f "$est/inativo-${2:-}" ]; then echo inactive; exit 3; fi
+echo active
+exit 0

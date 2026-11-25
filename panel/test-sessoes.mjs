@@ -384,7 +384,7 @@ console.log('\n11. A tela: funções puras, tutorial completo e nada de HTML mon
   const fonteTela = fs.readFileSync(path.join(AQUI, 'public/js/sessoes.js'), 'utf-8');
   const janela = {};
   new Function('window', 'document', fonteTela)(janela, { querySelector: () => null, readyState: 'complete' });
-  const { prefixoNome, linkDoTelegram, passosDoTutorial, textoErro } = janela.DGSessoes._interno;
+  const { resultadoDoRecado, prefixoNome, linkDoTelegram, passosDoTutorial, textoErro } = janela.DGSessoes._interno;
 
   const card = { nome: '▶️ ATIVA [VPS] — Mini-Bunker: fase 1', nome_limpo: 'Mini-Bunker: fase 1' };
   ok(prefixoNome(card) === '▶️ ATIVA [VPS] — ', 'renomear: o prefixo de status do card é preservado');
@@ -392,6 +392,10 @@ console.log('\n11. A tela: funções puras, tutorial completo e nada de HTML mon
   ok(prefixoNome({ nome: '⏳ Espera', nome_limpo: 'Espera' }) === '⏳ ', 'renomear: prefixo ⏳');
   ok(prefixoNome({ nome: 'Sem prefixo', nome_limpo: 'Sem prefixo' }) === '', 'card sem prefixo: nada é inventado');
   ok(prefixoNome({ nome: 'Só o nome' }) === '', 'sem nome_limpo: nada é inventado');
+
+  const inc = resultadoDoRecado({ entregaIncerta: true, aviso: 'Não sei se o card recebeu.' }, false);
+  ok(inc.limpaCampo === false && inc.nota.tom === 'erro' && /Não sei se o card recebeu/.test(inc.nota.texto), 'recado com entrega incerta: o campo e o rascunho NÃO são apagados e o aviso aparece');
+  ok(resultadoDoRecado({ enviado: true }, false).limpaCampo === true && resultadoDoRecado({ enfileirado: true }, true).limpaCampo === true, 'recado entregue ou na fila: o campo é limpo');
 
   const c = { appUrl: 'https://tg.exemplo.test/', agente: 'luna' };
   ok(linkDoTelegram(c, 'pedidos', 'abc') === 'https://tg.exemplo.test/a/luna?sessoes=pedidos&card=abc', 'Decidir no DG Telegram: <appUrl>/a/<agente>?sessoes=pedidos&card=<id>');

@@ -3,8 +3,8 @@ import { log } from "../logger.js";
 import { mascarar } from "../mascara.js";
 import { RX_LOGIN_EXPIRADO } from "../transcript.js";
 import { spawn } from "./ciclo.js";
-import { STOP_CONFIRM_MS } from "./constantes.js";
-import { talvezSoltarFila } from "./fila.js";
+import { STOP_CONFIRM_MS, TURNOS_DO_CODEX_GUARDADOS } from "./constantes.js";
+import { confirmarRecibos, normalizarTexto, talvezSoltarFila } from "./fila.js";
 import { conferirLoginExpiradoNoTranscript, marcarLoginExpirado } from "./login.js";
 import { nonceConfere } from "./telas.js";
 
@@ -18,12 +18,26 @@ export interface PayloadDeEvento {
   source?: string | null;
   error?: string | null;
   lastAssistantMessage?: string | null;
+  /** Codex: o texto da mensagem do usuário gravada no turno do rollout (evento "TextoDoUsuario"). */
+  texto?: string | null;
 }
 
 export interface PayloadDeHook extends PayloadDeEvento {
   agentId?: string;
   nonce?: string;
 }
+
+/** Os eventos de hook que o runner trata (os `case` de aplicarEvento) e as origens de SessionStart do Claude Code. */
+const EVENTOS_CONHECIDOS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "PreCompact", "Stop", "StopBloqueado", "StopFailure"];
+const ORIGENS_CONHECIDAS = ["startup", "resume", "clear", "compact"];
+
+/** Eventos que SÓ o leitor do rollout do Codex produz (chamam aplicarEvento direto). A rota de hook HTTP os recusa:
+ *  quem tem o nonce (que aparece nos argumentos do processo) não pode forjar o recibo de um envio. */
+const EVENTOS_SO_DO_ROLLOUT = ["TextoDoUsuario", "Compactado"];
+
+/** No Codex, o único evento que o `notify` produz (e manda pela rota de hook) é o fim de turno, `Stop` (ver codex-notify-source.ts).
+ *  Qualquer outro evento chegando por lá num Codex (como o PreCompact, que dá baixa no /compact) não veio do notify e é recusado. */
+const EVENTOS_DO_NOTIFY_DO_CODEX = ["Stop"];
 
 /** Recebe o POST do handler de hook (o do Claude ou o `notify` do Codex). Nonce errado é
  *  descartado: é hook de um PTY já morto, ou de um processo que não é este. O evento SÓ
@@ -32,6 +46,14 @@ export function receberHook(s: Sessao, payload: PayloadDeHook): { ok: boolean; m
   if (!payload.agentId || !payload.event) return { ok: false, motivo: "faltou agentId ou event" };
   if (payload.agentId !== s.descritor.id) return { ok: false, motivo: "agentId de outro agente" };
   if (!nonceConfere(s.nonce, payload.nonce)) return { ok: false, motivo: "nonce de um spawn antigo" };
+  if (EVENTOS_SO_DO_ROLLOUT.includes(payload.event)) {
+    log.aviso(s.a("hook"), `o evento ${payload.event} chegou pela rota de hook e foi recusado: ele só vale vindo do rollout do Codex lido pelo runner`);
+    return { ok: false, motivo: `o evento ${payload.event} só é aceito do rollout lido pelo runner, não pela rota de hook` };
+  }
+  if (s.motor.reciboPorRollout && !EVENTOS_DO_NOTIFY_DO_CODEX.includes(payload.event)) {
+    log.aviso(s.a("hook"), `o evento ${EVENTOS_CONHECIDOS.includes(payload.event) ? payload.event : "desconhecido"} chegou pela rota de hook de um agente Codex e foi recusado: o notify do Codex só manda ${EVENTOS_DO_NOTIFY_DO_CODEX.join(", ")}`);
+    return { ok: false, motivo: `um agente Codex só aceita pela rota de hook o evento ${EVENTOS_DO_NOTIFY_DO_CODEX.join(", ")}` };
+  }
   return aplicarEvento(s, payload);
 }
 
@@ -42,20 +64,35 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
   // dentro (um `/resume` digitado no TUI), caso em que o id que guardamos
   // ficaria apontando para uma conversa que ninguém mais escreve.
   if (payload.sessionId && payload.sessionId !== s.estado.sessionId) {
-    log.info(s.a("hook"), `a sessão viva mudou por dentro: ${s.estado.sessionId} -> ${payload.sessionId}`);
+    // Quem causou: o evento e o source do hook (SessionStart com source=resume/clear/compact/startup...).
+    // Só valores conhecidos do protocolo entram no log: o que vem do hook não é confiável e não deve virar texto de log.
+    const evento = payload.event ? (EVENTOS_CONHECIDOS.includes(payload.event) ? payload.event : "outro") : null;
+    const origem = payload.source ? (ORIGENS_CONHECIDAS.includes(payload.source) ? payload.source : "outro") : null;
+    const causa = [evento ? `evento ${evento}` : null, origem ? `source ${origem}` : null].filter(Boolean).join(", ");
+    log.info(s.a("hook"), `a sessão viva mudou por dentro: ${s.estado.sessionId} -> ${payload.sessionId}${causa ? ` (${causa})` : ""}`);
     s.mudar({
       sessionId: payload.sessionId,
       previousSessionId: s.estado.sessionId ?? s.estado.previousSessionId ?? null,
     });
   }
 
-  if (["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "StopBloqueado", "StopFailure", "PreCompact"].includes(payload.event ?? "")) s.marcarAtividade();
+  if (["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "StopBloqueado", "StopFailure", "PreCompact"].includes(payload.event ?? "")) {
+    s.marcarAtividade();
+    s.ultimoEventoEm = Date.now();
+  }
   s.hooksVivos = true;
   if (!s.estado.hookActive) s.estado.hookActive = true;
 
   // Estado terminal não é mexido por hook: quem manda no fim é o onExit do PTY.
   if (s.estado.status === "stopped" || s.estado.status === "resumable" || s.estado.status === "errored") {
     return { ok: true };
+  }
+
+  // Qualquer hook depois do PreCompact prova que o CLI seguiu em frente (compact bom, ferramenta, prompt, fim de turno):
+  // a vigia do PreCompact sem fim (vigias.ts) deixa de valer e o motivo "hook:PreCompact" sai de cena.
+  if (payload.event !== "PreCompact" && s.compactComecouEm !== 0) {
+    s.compactComecouEm = 0;
+    if (s.estado.statusReason === "hook:PreCompact") s.mudar({ statusReason: `hook:${payload.event}` });
   }
 
   switch (payload.event) {
@@ -66,6 +103,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       // dias assim (02/09 a 11/09/2026) com o /api/saude dizendo ok. Se o compact
       // foi o automático no meio de um turno, o PreToolUse seguinte cancela.
       if (payload.source === "compact") {
+        s.compactando = null;
         log.info(s.a("hook"), "fim do compact (SessionStart source=compact): volto para idle depois da janela quieta");
         agendarStop(s);
       }
@@ -76,6 +114,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       }
       break;
     case "UserPromptSubmit":
+      s.ultimoEscReal = null;
       cancelarStopPendente(s);
       // Atividade nova: o aviso da trava (se sobrou de um Stop que se perdeu) não pode engolir o Stop que vem.
       s.stopBloqueadoAte = 0;
@@ -83,8 +122,46 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       // de que o texto virou turno em vez de ficar escrito na caixa. Quem espera
       // por ele é o enviarComRecibo().
       s.promptsAceitos += 1;
+      s.compactadoSemTurno = false;
+      // Codex: o turno guarda os textos do usuário gravados nele; o recibo só vale com o texto do pedido (ver reciboDoTexto).
+      if (s.motor.reciboPorRollout) {
+        s.turnosDoCodex.push({ n: s.promptsAceitos, textos: s.textosSoltosDoCodex.splice(0) });
+        if (s.turnosDoCodex.length > TURNOS_DO_CODEX_GUARDADOS) s.turnosDoCodex.splice(0, s.turnosDoCodex.length - TURNOS_DO_CODEX_GUARDADOS);
+        aparaTextosDoCodex(s);
+      }
+      confirmarRecibos(s);
       s.turnoComecouEm = Date.now();
       s.mudar({ status: "working", hookLatched: false, statusReason: "hook:UserPromptSubmit" });
+      break;
+    case "TextoDoUsuario": {
+      // Só o Codex confere o recibo pelo texto do turno (o rollout pode ser o de outro card no mesmo diretório).
+      if (!s.motor.reciboPorRollout || typeof payload.texto !== "string") break;
+      const texto = normalizarTexto(payload.texto);
+      if (texto === "") break;
+      s.compactadoSemTurno = false;
+      // O rollout grava o mesmo texto duas vezes no turno (user_message e response_item): guarda uma só.
+      const ultimo = s.turnosDoCodex[s.turnosDoCodex.length - 1];
+      const destino = ultimo ? ultimo.textos : s.textosSoltosDoCodex;
+      if (!destino.includes(texto)) destino.push(texto);
+      aparaTextosDoCodex(s);
+      // O `task_started` do turno chega antes do texto: agora o recibo pode ser conferido.
+      confirmarRecibos(s);
+      break;
+    }
+    case "Compactado":
+      // Codex: o rollout registrou a compactação. É o recibo do /compact (o Codex não tem PreCompact), no mesmo contador que o
+      // PreCompact do Claude usa: o comando de barra à espera do recibo próprio é liberado e a fila segue sem esperar a vigia.
+      if (s.motor.reciboPorRollout) {
+        // O rollout grava `compacted` e `context_compacted` para a mesma compactação: sem turno novo nem texto do usuário entre
+        // os dois, o segundo é a outra representação da primeira e não conta de novo.
+        if (s.compactadoSemTurno) {
+          log.info(s.a("hook"), "compactação repetida no rollout, sem turno no meio: é a mesma, ignorada");
+          break;
+        }
+        s.compactadoSemTurno = true;
+        s.compactsIniciados += 1;
+        log.info(s.a("hook"), "o rollout do Codex registrou a compactação do contexto: é o recibo do /compact");
+      }
       break;
     case "PreToolUse":
       cancelarStopPendente(s);
@@ -141,9 +218,13 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       break;
     case "PreCompact":
       // O compact é o único trabalho que começa e não termina em Stop. Quem
-      // devolve o agente para idle é o SessionStart source=compact, lá em cima.
+      // devolve o agente para idle é o SessionStart source=compact, lá em cima. Se o CLI recusar o /compact
+      // ("Not enough messages to compact.") ele manda o PreCompact e nada mais: quem resolve é a vigia do
+      // Stop perdido (vigias.ts), que só solta a fila com a recusa confirmada no transcript.
       cancelarStopPendente(s);
       s.compactsIniciados += 1;
+      s.compactando = s.proc;
+      s.compactComecouEm = Date.now();
       s.mudar({ status: "working", hookLatched: false, statusReason: "hook:PreCompact" });
       break;
     case "Stop":
@@ -205,6 +286,29 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       log.debug(s.a("hook"), `evento sem tratamento: ${payload.event}`);
   }
   return { ok: true };
+}
+
+/** Teto, em bytes, da soma dos textos guardados para o recibo do Codex (turnos e textos soltos). */
+export const TETO_BYTES_TEXTOS_DO_CODEX = 1024 * 1024;
+
+/** Mantém os textos do recibo do Codex dentro do teto de bytes, descartando os mais antigos primeiro. O turno mais novo
+ *  (ou, sem turno, o último texto solto) fica, para o recibo do pedido mais recente continuar valendo. */
+export function aparaTextosDoCodex(s: Sessao): void {
+  const bytes = (t: string): number => Buffer.byteLength(t, "utf8");
+  let total = 0;
+  for (const t of s.turnosDoCodex) for (const x of t.textos) total += bytes(x);
+  for (const x of s.textosSoltosDoCodex) total += bytes(x);
+  while (total > TETO_BYTES_TEXTOS_DO_CODEX && s.turnosDoCodex.length > 1) {
+    const velho = s.turnosDoCodex.shift()!;
+    for (const x of velho.textos) total -= bytes(x);
+  }
+  while (total > TETO_BYTES_TEXTOS_DO_CODEX && s.textosSoltosDoCodex.length > 1) {
+    total -= bytes(s.textosSoltosDoCodex.shift()!);
+  }
+  const unico = s.turnosDoCodex[0];
+  while (total > TETO_BYTES_TEXTOS_DO_CODEX && s.turnosDoCodex.length === 1 && unico && unico.textos.length > 1) {
+    total -= bytes(unico.textos.shift()!);
+  }
 }
 
 export function agendarStop(s: Sessao): void {
