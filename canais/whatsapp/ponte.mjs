@@ -292,7 +292,7 @@ export async function iniciar(opcoes = {}) {
     opcoes, env, runnerUrl, tokenFile, runnerJson, esperasEntrega, dormir, estaEncerrando: () => encerrando,
   });
   const memoria = criarMemoriaMensagens();
-  const { aoReceber, aoAtualizar, aoApagar } = criarEntrada({
+  const { aoReceber, aoAtualizar, aoApagar, aoApagarConversas } = criarEntrada({
     memoria, opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico,
     arqUltimo, dirUploads, downloadMediaMessage, pendentes,
   });
@@ -341,6 +341,7 @@ export async function iniciar(opcoes = {}) {
       });
       sock.ev.on('messages.update', (u) => { if (minha === geracao && modo === 'servico') aoAtualizar(u); });
       sock.ev.on('messages.delete', (d) => { if (minha === geracao && modo === 'servico') aoApagar(d); });
+      sock.ev.on('chats.delete', (j) => { if (minha === geracao && modo === 'servico') aoApagarConversas(j); });
       sock.ev.on('messages.upsert', (u) => { if (minha === geracao && modo === 'servico') aoReceber(sock, u); });
       sock.ev.on('connection.update', async (u) => {
         if (minha !== geracao || encerrando) return;

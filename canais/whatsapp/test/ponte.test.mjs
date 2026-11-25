@@ -483,6 +483,18 @@ test('reacao: messages.delete (keys e all) faz esquecer o trecho', async () => {
   await a.fim();
 });
 
+test('reacao: chats.delete esquece as perguntas da conversa; messages.update do contato nao apaga nada', async () => {
+  const a = await ambiente();
+  const r1 = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'Um' });
+  a.sock.ev.emit('messages.update', [{ key: { id: r1.id, remoteJid: DONO_JID, fromMe: false }, update: { message: { conversation: 'x' } } }]);
+  await receber(a, reacao('👍', r1.id));
+  assert.ok(textoEntregue(a, 0).includes('à sua mensagem: "Um"'), textoEntregue(a, 0));
+  a.sock.ev.emit('chats.delete', [DONO_JID]);
+  await receber(a, reacao('👍', r1.id, { id: 'RE2' }));
+  assert.ok(textoEntregue(a, 1).includes('não conseguiu identificar'), textoEntregue(a, 1));
+  await a.fim();
+});
+
 test('reacao removida (texto vazio) nao entrega nada nem loga recusa', async () => {
   const a = await ambiente();
   await receber(a, reacao('', 'QUALQUER'), reacao('\u0007\u0000', 'OUTRO', { id: 'RE2' }));

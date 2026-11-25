@@ -176,7 +176,8 @@ export function criarEntrada({ memoria, opcoes, registrar, agora, lids, aprender
   function aoAtualizar(atualizacoes) {
     if (!Array.isArray(atualizacoes)) return;
     for (const { key, update } of atualizacoes) {
-      if (!key || !update) continue;
+      // So edicao ou revogacao da propria conta: as mensagens do contato nao ficam na memoria.
+      if (!key || !update || key.fromMe !== true) continue;
       if (update.message || update.messageStubType === 1 || update.messageStubType === 'REVOKE') memoria.esquecerId(key.id);
     }
   }
@@ -188,6 +189,12 @@ export function criarEntrada({ memoria, opcoes, registrar, agora, lids, aprender
     } else if (info.all && info.jid) {
       memoria.esquecerConversa(info.jid);
     }
+  }
+
+  // "Apagar conversa" no celular vinculado (chats.delete): esquece as perguntas daquela conversa.
+  function aoApagarConversas(jids) {
+    if (!Array.isArray(jids)) return;
+    for (const jid of jids) if (typeof jid === 'string' && jid) memoria.esquecerConversa(jid);
   }
 
   function aoReceber(sock, { messages, type }) {
@@ -202,5 +209,5 @@ export function criarEntrada({ memoria, opcoes, registrar, agora, lids, aprender
     }
   }
 
-  return { aoReceber, aoAtualizar, aoApagar };
+  return { aoReceber, aoAtualizar, aoApagar, aoApagarConversas };
 }
