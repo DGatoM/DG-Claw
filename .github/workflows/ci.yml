@@ -295,7 +295,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          arquivos=(lib/*.sh bin/dgclaw bin/dgclaw-agente tests/cli/*.sh)
+          arquivos=(lib/*.sh bin/dgclaw bin/dgclaw-agente tests/cli/*.sh scripts/smoke-entrega.sh tests/cli/stubs-entrega/*)
           # install.sh vem de outro card: só entra quando existir.
           [ -f install.sh ] && arquivos+=(install.sh)
           shellcheck -x "${arquivos[@]}"

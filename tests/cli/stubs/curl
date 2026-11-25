@@ -10,6 +10,24 @@ for ((i = 0; i < ${#args[@]}; i++)); do
     esac
 done
 [ -f "${STUB_ESTADO:?}/curl-falha" ] && exit 22
+# GET no /api/saude do Admin (lib/reiniciar-admin.sh): a resposta da chamada de numero N vem de admin-saude-resposta.N (sem arquivo
+# numerado vale admin-saude-resposta; padrao: o Admin de pe e com o terminal vivo). O contador admin-saude-n e do teste.
+case "$*" in *api/saude*)
+    n=$(( $(cat "$STUB_ESTADO/admin-saude-n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUB_ESTADO/admin-saude-n"
+    corpo="$STUB_ESTADO/admin-saude-resposta.$n"; [ -f "$corpo" ] || corpo="$STUB_ESTADO/admin-saude-resposta"
+    cat "$corpo" 2>/dev/null || echo '{"ok":true,"agente":{"id":"admin","slug":"admin","status":"idle","ptyVivo":true}}'
+    exit 0 ;;
+esac
+# POST no /input do Admin (lib/reiniciar-admin.sh): responde corpo + status como o curl real com -w '\n%{http_code}'. O corpo vem de
+# admin-input-resposta e o status de admin-input-status (padrao: o runner confirmando, 200).
+case "$*" in *agents/admin/input*)
+    # curl-codigo-input: o curl termina com esse codigo (28 = tempo esgotado, 7 = conexao recusada...), como numa falha de rede.
+    [ -f "$STUB_ESTADO/curl-codigo-input" ] && exit "$(cat "$STUB_ESTADO/curl-codigo-input")"
+    case "$*" in *%{http_code}*)
+        printf '%s\n%s' "$(cat "$STUB_ESTADO/admin-input-resposta" 2>/dev/null || echo '{"success":true,"data":{"enviado":true}}')" "$(cat "$STUB_ESTADO/admin-input-status" 2>/dev/null || echo 200)" ;;
+    esac
+    exit 0 ;;
+esac
 # `dgclaw colaborador`: fala com o Web pelo socket Unix. A resposta vem de colab-resposta[.N] e colab-status[.N] (N = a
 # chamada de numero N no teste; sem arquivo numerado vale o geral). curl-sem-socket imita o Web fora do ar.
 case "$*" in *--unix-socket*)
