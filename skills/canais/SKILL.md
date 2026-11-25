@@ -263,6 +263,11 @@ As mensagens do WhatsApp chegam para você neste formato:
   "trecho"]`, e só se o trecho é uma pergunta de sim ou não que você fez. Nesse caso 👍 ✅ 👌 🙏, e também o
   emoji solto mandado como texto respondendo a essa pergunta, valem como sim. `[reagiu com 👍 a uma mensagem que a
   ponte não conseguiu identificar]` nunca confirma nada: se havia uma pergunta pendente, pergunte de novo, curto.
+  Cada pergunta autoriza uma vez só: reação nova (ou trocada, 👍 depois ✅) a uma pergunta já atendida não autoriza
+  de novo. O trecho só serve para localizar a pergunta: confira a sua mensagem completa no seu histórico da conversa;
+  se ela não estiver lá, ou o trecho terminar em … e a parte cortada puder mudar o pedido, confirme antes de agir.
+  O emoji solto como texto só vale como sim se houver uma única pergunta sua pendente naquela conversa; com mais de
+  uma, pergunte qual.
   ❤️ 😂 e afins são reação social: não confirmam nada, e você não responde a elas (no máximo segue em silêncio),
   senão cada reação puxa uma resposta e vira conversa em círculo. Reação que não responde a uma pergunta sua também
   não precisa de resposta. Em ação sensível (pagamento, envio a terceiros, algo destrutivo ou irreversível), uma

@@ -25,12 +25,15 @@ export function criarMemoriaMensagens({ teto = GUARDAR_IDS } = {}) {
 
   const trecho = (jid, id) => trechos.get(chave(jid, id)) || null;
 
-  // Mensagem editada ou apagada: nunca citar a versao original. So esquece, nao regrava.
-  const esquecer = (jid, id) => { trechos.delete(chave(jid, id)); };
+  // Mensagem editada ou apagada: nunca citar a versao original. So esquece, nao regrava. Vale para o id em
+  // qualquer conversa, porque o mesmo contato pode aparecer com JID de telefone ou @lid.
+  function esquecerId(id) {
+    for (const k of [...trechos.keys()]) if (k.endsWith('\n' + id)) trechos.delete(k);
+  }
 
   function esquecerConversa(jid) {
     for (const k of [...trechos.keys()]) if (k.startsWith(jid + '\n')) trechos.delete(k);
   }
 
-  return { lembrar, trecho, esquecer, esquecerConversa };
+  return { lembrar, trecho, esquecerId, esquecerConversa };
 }

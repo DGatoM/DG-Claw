@@ -31,18 +31,18 @@ test('memoria: passando do teto, o mais antigo sai', () => {
   assert.equal(m.trecho(J1, '4'), 't4');
 });
 
-test('memoria: o mesmo id em outra conversa e outra entrada; esquecer e esquecerConversa tem escopo', () => {
+test('memoria: o mesmo id em outra conversa e outra entrada; esquecerId apaga em todas e esquecerConversa so uma', () => {
   const m = criarMemoriaMensagens();
   m.lembrar(J1, 'X', 'um');
   m.lembrar(J2, 'X', 'dois');
+  m.lembrar(J2, 'Y', 'tres');
   assert.equal(m.trecho(J1, 'X'), 'um');
-  m.esquecer(J2, 'X');
-  assert.equal(m.trecho(J2, 'X'), null);
-  assert.equal(m.trecho(J1, 'X'), 'um');
-  m.lembrar(J2, 'X', 'dois');
-  m.esquecerConversa(J1);
+  m.esquecerId('X');
   assert.equal(m.trecho(J1, 'X'), null);
-  assert.equal(m.trecho(J2, 'X'), 'dois');
+  assert.equal(m.trecho(J2, 'X'), null);
+  assert.equal(m.trecho(J2, 'Y'), 'tres');
+  m.esquecerConversa(J2);
+  assert.equal(m.trecho(J2, 'Y'), null);
 });
 
 test('memoria: 200 mil espacos seguidos de texto processa rapido', () => {

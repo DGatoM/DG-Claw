@@ -451,11 +451,19 @@ test('reacao: ref de outra conversa no mesmo envelope nao cita o trecho', async 
   await a.fim();
 });
 
-test('reacao: edicao vinda de OUTRA conversa com o mesmo id nao apaga o trecho', async () => {
-  const a = await ambiente({ lista: [DONO, '+5521999998888'] });
+test('reacao: edicao fromMe com remoteJid @lid do mesmo id apaga o trecho enviado pelo telefone', async () => {
+  const a = await ambiente();
   const r = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'Posso?' });
-  await receber(a, { key: { id: 'PX', remoteJid: '5521999998888@s.whatsapp.net', fromMe: true }, message: { protocolMessage: { type: 0, key: { id: r.id } } } });
-  a.sock.ev.emit('messages.update', [{ key: { id: r.id, remoteJid: '5521999998888@s.whatsapp.net' }, update: { message: {} } }]);
+  await receber(a, { key: { id: 'PX', remoteJid: '99887766@lid', fromMe: true }, message: { protocolMessage: { type: 14, key: { id: r.id } } } });
+  await receber(a, reacao('👍', r.id));
+  assert.ok(textoEntregue(a, 0).includes('não conseguiu identificar'), textoEntregue(a, 0));
+  await a.fim();
+});
+
+test('reacao: edicao que NAO e fromMe nao apaga nada', async () => {
+  const a = await ambiente();
+  const r = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'Posso?' });
+  await receber(a, { key: { id: 'PX', remoteJid: DONO_JID, fromMe: false }, message: { protocolMessage: { type: 14, key: { id: r.id } } } });
   await receber(a, reacao('👍', r.id));
   assert.ok(textoEntregue(a, 0).includes('à sua mensagem: "Posso?"'), textoEntregue(a, 0));
   await a.fim();
@@ -516,6 +524,15 @@ test('reacao: trecho longo e cortado em 200 + … e aspas duplas viram simples',
   await receber(a, reacao('👍', r.id));
   const esperado = ('a\'b' + 'x'.repeat(300)).slice(0, 200) + '…';
   assert.ok(textoEntregue(a, 0).includes(`[reagiu com 👍 à sua mensagem: "${esperado}"]`), textoEntregue(a, 0));
+  await a.fim();
+});
+
+test('reacao: texto de emoji gigante e cortado antes de processar', async () => {
+  const a = await ambiente();
+  const t0 = Date.now();
+  await receber(a, reacao('😀'.repeat(500000), 'Z2'));
+  assert.ok(Date.now() - t0 < 1500);
+  assert.ok(textoEntregue(a, 0).includes('😀'.repeat(16)));
   await a.fim();
 });
 

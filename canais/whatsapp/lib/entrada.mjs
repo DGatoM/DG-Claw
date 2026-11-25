@@ -96,7 +96,7 @@ export function criarEntrada({ memoria, opcoes, registrar, agora, lids, aprender
   // null = reacao removida (emoji vazio): nada a entregar. So a pergunta que o agente enviou nesta
   // mesma conversa e citada; qualquer outro caso vira "nao conseguiu identificar" e nunca confirma nada.
   function descreverReacao(reacao, jid) {
-    const emoji = Array.from(String(reacao && reacao.text || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, '')).slice(0, 16).join('');
+    const emoji = Array.from(String((reacao && reacao.text) || '').slice(0, 64).replace(/[\u0000-\u001f\u007f-\u009f]/g, '')).slice(0, 16).join('');
     if (!emoji) return null;
     const ref = reacao.key || {};
     const mesmaConversa = !ref.remoteJid || ref.remoteJid === jid;
@@ -169,22 +169,22 @@ export function criarEntrada({ memoria, opcoes, registrar, agora, lids, aprender
   function esquecerSeEditadaOuApagada(msg) {
     const conteudo = msg && msg.message ? desembrulhar(msg.message) : null;
     const proto = conteudo && conteudo.protocolMessage;
-    if (!proto || !proto.key || !msg.key) return;
-    if (TIPOS_REVOGA_OU_EDICAO.has(proto.type) || proto.editedMessage) memoria.esquecer(msg.key.remoteJid, proto.key.id);
+    if (!proto || !proto.key || !msg.key || msg.key.fromMe !== true) return;
+    if (TIPOS_REVOGA_OU_EDICAO.has(proto.type) || proto.editedMessage) memoria.esquecerId(proto.key.id);
   }
 
   function aoAtualizar(atualizacoes) {
     if (!Array.isArray(atualizacoes)) return;
     for (const { key, update } of atualizacoes) {
       if (!key || !update) continue;
-      if (update.message || update.messageStubType === 1 || update.messageStubType === 'REVOKE') memoria.esquecer(key.remoteJid, key.id);
+      if (update.message || update.messageStubType === 1 || update.messageStubType === 'REVOKE') memoria.esquecerId(key.id);
     }
   }
 
   function aoApagar(info) {
     if (!info) return;
     if (Array.isArray(info.keys)) {
-      for (const k of info.keys) if (k) memoria.esquecer(k.remoteJid, k.id);
+      for (const k of info.keys) if (k) memoria.esquecerId(k.id);
     } else if (info.all && info.jid) {
       memoria.esquecerConversa(info.jid);
     }

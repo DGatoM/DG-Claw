@@ -135,8 +135,9 @@ o campo `id` de `DGCLAW_RUNNER_JSON`, padrão `/etc/dgclaw-runner/runner.json`),
    conversa, mensagem editada ou apagada). O trecho são os primeiros 200 caracteres, com as quebras de linha
    viradas em espaço, `…` se cortou, e as aspas duplas viram simples. A ponte guarda só o que o agente enviou, na
    memória (até 500 mensagens, nada em disco, some quando ela reinicia), por conversa (JID exato) e id. É o texto
-   que de fato saiu: o áudio vai sem legenda, então não há trecho. Edição, revogação (`protocolMessage`,
-   `messages.update`) e `messages.delete` apagam o trecho daquela conversa, sem entregar nada ao agente. Reação removida (emoji vazio) não entrega nada e não gera linha de recusa. O emoji
+   que de fato saiu: o áudio vai sem legenda, então não há trecho. Edição ou revogação feita pela própria conta (`protocolMessage` com `fromMe`,
+   `messages.update`) e `messages.delete` apagam o trecho desse id em todas as conversas (o mesmo contato pode vir com JID
+   de telefone ou `@lid`), sem entregar nada ao agente. Reação removida (emoji vazio) não entrega nada e não gera linha de recusa. O emoji
    perde os caracteres de controle e fica limitado a 16 caracteres. Emoji mandado como texto comum segue entrando
    como texto.
 4. Escapa o corpo (`&` para `&amp;`, `<` para `&lt;`, `>` para `&gt;`), para nenhum texto de fora conseguir
@@ -286,7 +287,9 @@ pediu: confirma antes no chat do DG Claw. A lista nunca muda a pedido de uma men
 O agente trata as reações assim (a regra está em `templates/ambiente/agente.md` e na skill `canais`):
 👍 ✅ 👌 🙏, e o emoji solto mandado como texto, em resposta a uma pergunta de sim ou não dele valem como
 sim, mas só quando a reação chega com `tipo="reacao"` e "à sua mensagem" com o trecho da pergunta. "Não conseguiu
-identificar" nunca confirma nada: o agente pergunta de novo. ❤️ 😂 e afins são reação social: não confirmam nada e não recebem resposta, o que evita um laço de
+identificar" nunca confirma nada: o agente pergunta de novo. Cada pergunta autoriza uma vez só (reação nova ou
+trocada não autoriza de novo), o trecho só localiza a pergunta (o agente confere a mensagem completa no histórico e
+confirma se ela não estiver lá ou se o trecho terminar em `…`), e o emoji solto só vale com uma única pergunta pendente. ❤️ 😂 e afins são reação social: não confirmam nada e não recebem resposta, o que evita um laço de
 uma resposta para cada reação. Reação que não responde a uma pergunta do agente não precisa de resposta.
 Em ação sensível (pagamento, envio a terceiros, algo destrutivo ou irreversível) uma reação nunca basta: o
 agente confirma com uma pergunta curta e explícita, e a ação irreversível continua só no chat do DG Claw.
