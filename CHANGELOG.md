@@ -108,6 +108,72 @@ comum nada muda. Relatado por aluno da mentoria.
 
 A versão nova do Codex só chega aos seus agentes depois que a imagem deles é reconstruída. O `dgclaw atualizar` já faz isso sozinho (a etapa "reconstruindo a imagem dos agentes", que leva de 10 a 20 minutos), então basta pedir ao Admin, no chat: "atualiza o DG Claw". Quem atualizou só o código e não reconstruiu a imagem continua com o Codex antigo: rode `dgclaw imagem construir --agora` e depois `dgclaw agente recriar <nome>` para cada agente, porque a imagem nova só vale quando o container é recriado. Suas chaves, logins, conversas e agentes continuam como estavam.
 
+**Correção nos cards: o agente só diz que o card está trabalhando depois que o pedido virou turno.** Num caso real, o
+agente abriu um card, o `dgclaw-card abrir` respondeu "Card aberto" assim que o texto entrou na fila (o runner responde
+202 antes de qualquer Enter), o agente avisou o dono, o pedido nunca virou turno e a tela de Sessões mostrou a sessão
+como "concluída" com a conversa vazia. Dois minutos depois o agente fechou o card por achar que tinha travado, e o
+pedido se perdeu. O que mudou:
+
+- O runner passou a informar `turnosAceitos` no estado de cada sessão (quantos pedidos o CLI já aceitou como turno
+  desde que o runner subiu). É só leitura: a lógica de envio e de recibo não mudou.
+- `dgclaw-card abrir` espera até 60 s (`--espera-turno SEG`, 0 desliga) o primeiro turno. Sem turno, sai com o código
+  novo 12, que quer dizer que o runner não confirmou o primeiro turno dentro do prazo; isso não prova que o card esteja parado. O pedido ainda pode entrar sozinho: o agente
+  confere depois de um tempo, avisa o dono se continuar sem turno e não reenvia por conta própria. Com `--monitor`, o
+  monitor é ligado logo depois de entregar o pedido, antes dessa espera, então o card do código 12 também fica vigiado
+  (se o monitor não ligar, a saída é 8, com o motivo e o comando para ligar à mão). Se o `abrir` não conseguir ler o
+  estado do card (recusa 401 ou 403, erro 5xx, falha de rede, resposta inválida ou sem o contador `turnosAceitos`),
+  sai com o código 11 (o mesmo da entrega incerta: o card foi criado e o pedido entregue, mas não dá para confirmar o aceite; o
+  agente confere com `dgclaw-card estado <id>` e `dgclaw-card ler <id> --n 20` antes de reenviar), e nunca com 12 nem 0.
+- O contador de turnos agora é da conversa atual: o runner informa `turnosAceitosSessao` (com o id da conversa a que se
+  refere), que volta a zero quando a sessão troca para uma conversa nova. O `dgclaw-card` (`abrir`, `estado`, `fechar`)
+  e a aba Sessões usam esse contador. No `estado` e na aba Sessões, um card restaurado depois de reiniciar o runner,
+  com resposta do agente na conversa atual, conta como tendo trabalhado.
+- `dgclaw-card abrir` tem um código novo, 14, para o card que aceitou o pedido mas cujo turno falhou (o card está em
+  erro): a mensagem manda ler o que ele fez com `dgclaw-card ler <id>`. Cada consulta da espera pelo primeiro turno
+  respeita o tempo que resta do prazo; se a última consulta estourar sem resposta válida, a saída é 11.
+- `dgclaw-card fechar` recusa, com o código novo 13, só o card em que o runner ainda não observou um turno
+  (`turnosAceitosSessao` igual a 0) ou cujo estado não deu para ler; `--forcar` fecha mesmo assim. Depois de o runner
+  reiniciar, o contador volta a zero, então o `fechar` pode pedir `--forcar` mesmo que a conversa já tenha respostas
+  gravadas de antes da reinicialização. O `fechar` não lê mais a conversa do card.
+- As instruções do agente e a skill de cards passaram a dizer que a tarefa só vai para a conversa principal quando ficou
+  confirmado que o pedido NÃO foi entregue ao card (o runner o recusou com uma resposta 4xx). Com os códigos 8, 11, 12 e 14
+  e com a "entrega incerta" o pedido pode ter sido entregue e nunca se repete: o agente confere com
+  `dgclaw-card estado <id>` e avisa o dono. Os exemplos capturam a saída e o código do `abrir` antes de pegar o id e,
+  com código diferente de 0, vão conferir o estado em vez de seguir adiante.
+- Entrega incerta: se o `abrir` cria o card e a resposta do envio do pedido se perde (rede, tempo esgotado) ou volta
+  com erro 5xx, a mensagem diz "entrega incerta: o card pode já estar trabalhando" e manda conferir o estado, nunca
+  reenviar. A frase "o pedido não foi entregue" só aparece quando o runner recusou o texto com uma resposta 4xx.
+- O id do card sai uma vez, na primeira linha da saída, assim que a criação é confirmada, mesmo quando o `abrir`
+  termina com 8, 11, 12 ou 14. Os códigos 9, 10 e 11 do envio (envios demais, texto grande demais e entrega incerta) seguem como estão.
+- O `abrir` não aceita como sucesso um card com falha de turno conhecida (estado com erro, campo de erro preenchido ou
+  motivo de falha, inclusive com a sessão dormindo): sai com código diferente de 0 e a mensagem traz o motivo.
+- `--espera-turno` aceita só inteiros de 0 a 3600 (lidos em base decimal, então `08` vale 8) e é conferido antes de
+  criar o card. O prazo de cada chamada do `dgclaw-card` (`CARD_MAX_TEMPO`) passou a ser validado como inteiro de 1 a
+  3600 e vai ao `curl` como argumento, não mais dentro do arquivo de configuração que leva a chave do runner.
+- Na aba Sessões, o card sem primeiro turno manda aguardar e conferir o estado (o pedido pode ainda entrar sozinho), sem
+  sugerir reenviar nem fechar, e um card com o terminal ainda abrindo não aparece como trabalhando no primeiro turno.
+  Quando há pedido guardado na fila e a sessão está dormindo, sem terminal, a mensagem diz que o pedido está guardado e
+  que Retomar o processa, sem reenviar o texto.
+- `dgclaw-card estado` diz "sem primeiro turno ainda" e `dgclaw-card ler` diz o motivo da conversa vazia (na fila,
+  digitado e sem turno, ou dormindo). Só a aba Sessões consulta o histórico da conversa; o `estado` e o `fechar` olham apenas o contador do runner. Se o runner ainda não observou um turno, ou se a consulta do estado falhar (erro de rede,
+  HTTP diferente de 200, resposta sem o contador), `dgclaw-card fechar` recusa com o código 13 e pede `--forcar`.
+- Na aba Sessões, um card sem primeiro turno aparece como "esperando o primeiro turno" (grupo Paradas, visível em
+  "Ativas"), nunca como concluído. A conversa vazia mostra o motivo no lugar de "Esta sessão ainda não tem mensagens". Se o runner
+  reiniciou (o contador voltou a zero) mas a conversa da sessão atual já tem resposta do agente no disco, o card
+  aparece como concluído, e não como esperando o primeiro turno.
+
+No Codex vale igual: o contador `turnosAceitos` conta o `task_started` e o nascimento do rollout, e o `dgclaw-card` é o
+mesmo comando.
+
+### Como atualizar (primeiro turno do card)
+
+Nesta versão há uma instrução nova para o seu agente entender quando um card realmente começou: só avisar você que o card
+está trabalhando depois que o `dgclaw-card abrir` terminar bem, e nunca fechar nem reenviar por conta própria um card que não respondeu, sem contar a
+você. O `dgclaw atualizar` padrão já recria os agentes com o comando novo. Se você personalizou as instruções do agente,
+peça ao Admin para juntar a instrução nova a elas, sem apagar o que você escreveu. O `turnosAceitos` volta a zero quando o
+runner reinicia, então depois de uma reinicialização um card antigo e ocioso pode pedir `--forcar` para fechar, caso a
+conversa dele também esteja vazia.
+
 **Correção no download do YouTube: yt-dlp atualizado, conta dedicada declarada pelo dono e teste de verdade na saúde.** O agente
 não conseguia baixar vídeo do YouTube por três motivos. O `yt-dlp` da imagem estava velho e sem o `yt-dlp-ejs`, que resolve o
 desafio de JavaScript do YouTube; o comando `yt-dlp` não estava no PATH do serviço do runner; e o YouTube responde "Sign in to
