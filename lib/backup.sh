@@ -291,6 +291,29 @@ _restaurar_conferir() {
     if [ "$RES_PROBLEMAS" -eq 0 ]; then ok "configuracao, Admin e cofres estao identicos aos do backup"; fi
 }
 
+# _restaurar_desligar_youtube: o perfil da Tela que volta de um backup pode nao ser o da conta dedicada que o dono
+# declarou, entao a declaracao (dgclaw agente youtube <nome> conta-dedicada sim) cai em todos os agentes e o dono liga de novo.
+_restaurar_desligar_youtube() {
+    local marcador_yt
+    for marcador_yt in "$DG_CASAS"/*/config/youtube-conta-dedicada; do
+        [ -e "$marcador_yt" ] || [ -L "$marcador_yt" ] || continue
+        rm -f -- "$marcador_yt" || falha "nao consegui desligar a conta dedicada do YouTube em $marcador_yt." "apague esse arquivo e rode de novo."
+        aviso "conta dedicada do YouTube desligada no agente $(basename "$(dirname "$(dirname "$marcador_yt")")") por causa da restauracao. Confira a conta na Tela e ligue de novo com: dgclaw agente youtube <nome> conta-dedicada sim"
+    done
+}
+
+# _restaurar_extrair_tudo <backup> <backup agora>: extrai os arquivos do backup por cima, com a conta dedicada do
+# YouTube desligada antes e depois.
+_restaurar_extrair_tudo() {
+    local b="$1" antes="$2"
+    _restaurar_desligar_youtube
+    _restaurar_extrair "$b/config.tar.gz" "a configuracao em /etc/dgclaw" "$antes"
+    if [ -f "$b/admin.tar.gz" ]; then _restaurar_extrair "$b/admin.tar.gz" "a pasta do Admin" "$antes"; fi
+    if [ -f "$b/dados.tar.gz" ]; then _restaurar_extrair "$b/dados.tar.gz" "os dados em /var/lib/dgclaw" "$antes"; fi
+    if [ -f "$b/extras.tar.gz" ]; then _restaurar_extrair "$b/extras.tar.gz" "os arquivos extras" "$antes"; fi
+    _restaurar_desligar_youtube
+}
+
 restaurar_main() {
     local pasta="" mesmo_assim=0 a b versao_backup versao_atual novos antes slug ligados="" resumo_arq log_arq
     while [ $# -gt 0 ]; do
@@ -350,10 +373,9 @@ restaurar_main() {
     if [ -z "$ligados" ]; then info "nenhum agente estava ligado"; fi
 
     passo "Restaurando configuracao, Admin e dados do backup"
-    _restaurar_extrair "$b/config.tar.gz" "a configuracao em /etc/dgclaw" "$antes"
-    if [ -f "$b/admin.tar.gz" ]; then _restaurar_extrair "$b/admin.tar.gz" "a pasta do Admin" "$antes"; fi
-    if [ -f "$b/dados.tar.gz" ]; then _restaurar_extrair "$b/dados.tar.gz" "os dados em /var/lib/dgclaw" "$antes"; fi
-    if [ -f "$b/extras.tar.gz" ]; then _restaurar_extrair "$b/extras.tar.gz" "os arquivos extras" "$antes"; fi
+    # Antes de extrair (agentes ja parados): se a restauracao parar no meio, nenhum agente fica com a conta dedicada
+    # do YouTube ligada sobre um perfil da Tela que voltou do backup. Depois de extrair, a mesma limpeza tira o que veio nele.
+    _restaurar_extrair_tudo "$b" "$antes"
     ok "restaurado (a conversa do Admin nao e tocada, para nao voltar o chat em que voce esta)"
     if [ "$(_env_de "$b/MANIFESTO.txt" casas_dos_agentes_no_backup)" != sim ]; then
         aviso "esse backup foi feito sem as casas dos agentes (--sem-casas): a memoria e as conversas dos agentes ficaram como estavam."
