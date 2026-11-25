@@ -89,13 +89,17 @@ export function criarEntrada({ memoria, opcoes, registrar, agora, lids, aprender
     return `[mensagem do tipo ${tipo}, que a ponte ainda não lê]`;
   }
 
+  function idDaReferencia(ref) {
+    return String((ref && ref.id) || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+  }
+
   // null = reacao removida (emoji vazio): nada a entregar.
   function descreverReacao(reacao, numero) {
     const emoji = Array.from(String(reacao && reacao.text || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, '')).slice(0, 16).join('');
     if (!emoji) return null;
     const ref = reacao.key || {};
-    const trecho = memoria.trecho(ref.id, numero);
     const minha = ref.fromMe === true;
+    const trecho = memoria.trecho(ref.id, numero, minha ? 'enviada' : 'recebida');
     if (!trecho) {
       return `[reagiu com ${emoji} ${minha ? 'à sua mensagem anterior' : 'a uma mensagem anterior'}, cujo texto não está mais na memória da ponte]`;
     }
@@ -129,10 +133,12 @@ export function criarEntrada({ memoria, opcoes, registrar, agora, lids, aprender
     const id = String(key.id || '').replace(/[^A-Za-z0-9_-]/g, '') || 'sem-id';
     const corpo = tipo === 'reactionMessage' ? descreverReacao(conteudo.reactionMessage, numero) : await montarCorpo(msg, conteudo, tipo, id);
     if (corpo === null) return;
-    if (tipo !== 'reactionMessage') memoria.lembrar(key.id, corpo, numero);
+    if (tipo !== 'reactionMessage') memoria.lembrar(key.id, corpo, numero, 'recebida');
     const seg = numeroDe(msg.messageTimestamp);
     const quando = Number.isFinite(seg) && seg > 0 ? new Date(seg * 1000) : agora();
-    const envelope = `<canal-externo origem="whatsapp" de="${numero}" msg="${id}" ts="${quando.toISOString()}">${escaparCorpo(corpo)}</canal-externo>`;
+    // tipo e ref so saem da ponte (valores limpos): o texto do contato nao consegue forja-los.
+    const marca = tipo === 'reactionMessage' ? ` tipo="reacao" ref="${idDaReferencia(conteudo.reactionMessage.key)}"` : '';
+    const envelope = `<canal-externo origem="whatsapp" de="${numero}" msg="${id}" ts="${quando.toISOString()}"${marca}>${escaparCorpo(corpo)}</canal-externo>`;
 
     const r = await entregar(envelope);
     if (!r.ok) {

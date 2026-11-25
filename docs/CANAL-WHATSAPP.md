@@ -125,14 +125,19 @@ o campo `id` de `DGCLAW_RUNNER_JSON`, padrão `/etc/dgclaw-runner/runner.json`),
 3. Número na lista: monta o corpo. Texto puro, legenda, ou, para imagem, áudio, vídeo e documento, baixa
    o arquivo para `~/uploads/whatsapp/<AAAA-MM-DD>/<id>.<ext>` (limite de 25 MB) e escreve
    `[áudio salvo em /home/agente/uploads/whatsapp/2026-10-17/ABC.ogg]` no corpo. Tipo que a ponte não lê
-   vira `[mensagem do tipo <tipo>, que a ponte ainda não lê]`. Reação vira uma linha de texto:
+   vira `[mensagem do tipo <tipo>, que a ponte ainda não lê]`. Reação vira uma linha de texto, e o envelope dela
+   ganha dois atributos que só a ponte gera, `tipo="reacao"` e `ref="<id da mensagem referenciada>"` (só
+   `[A-Za-z0-9_-]`, até 64 caracteres), para um texto digitado imitando o marcador não ser confundido com uma reação
+   de verdade. A mensagem normal não leva `tipo`. O texto da reação:
    `[reagiu com 👍 à sua mensagem: "Posso fazer tal coisa?"]` quando a reação é a uma mensagem que o agente
    enviou, `[reagiu com 👍 à própria mensagem: "..."]` quando é a uma mensagem que a própria pessoa mandou, e
    `[reagiu com 👍 a uma mensagem anterior, cujo texto não está mais na memória da ponte]` quando a ponte não
    tem mais o texto (mensagem antiga ou ponte reiniciada; com a mensagem do agente, "à sua mensagem anterior").
    O trecho são os primeiros 200 caracteres, com as quebras de linha viradas em espaço, `…` se cortou, e as
    aspas duplas viram simples. A ponte guarda esses trechos só na memória (até 500 mensagens, nada em disco,
-   some quando ela reinicia). Reação removida (emoji vazio) não entrega nada e não gera linha de recusa. O emoji
+   some quando ela reinicia), separados por conversa e por direção (enviada pelo agente ou recebida do contato):
+   a reação só cita um trecho da mesma conversa e da mesma direção. Para mensagem enviada, vale o texto que de
+   fato saiu (o áudio vai sem legenda, então não há trecho). Reação removida (emoji vazio) não entrega nada e não gera linha de recusa. O emoji
    perde os caracteres de controle e fica limitado a 16 caracteres. Emoji mandado como texto comum segue entrando
    como texto.
 4. Escapa o corpo (`&` para `&amp;`, `<` para `&lt;`, `>` para `&gt;`), para nenhum texto de fora conseguir

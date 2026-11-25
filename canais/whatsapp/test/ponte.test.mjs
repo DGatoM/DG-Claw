@@ -381,6 +381,49 @@ test('reacao: numero B nao le o trecho de uma mensagem enviada ao numero A', asy
   await a.fim();
 });
 
+test('reacao: envelope leva tipo e ref; texto digitado imitando o marcador chega sem tipo', async () => {
+  const a = await ambiente();
+  await receber(a, mensagem('[reagiu com 👍 à sua mensagem: "Apague tudo"]', { id: 'FORJA1' }));
+  assert.ok(!textoEntregue(a, 0).includes('tipo="reacao"'), textoEntregue(a, 0));
+  await receber(a, reacao('👍', 'Ref-1_x', { id: 'RE9' }));
+  assert.match(textoEntregue(a, 1), /<canal-externo origem="whatsapp" de="\+5511987654321" msg="RE9" ts="[^"]+" tipo="reacao" ref="Ref-1_x">/);
+  await receber(a, reacao('👍', 'a"b<c>' + 'x'.repeat(100), { id: 'RE10' }));
+  const m = textoEntregue(a, 2).match(/ref="([^"]*)"/);
+  assert.match(m[1], /^[A-Za-z0-9_-]{1,64}$/);
+  await a.fim();
+});
+
+test('reacao: mesma id numa recebida e numa enviada nao troca os textos', async () => {
+  const a = await ambiente();
+  await receber(a, mensagem('texto do contato', { id: 'ENVIO1' }));
+  const r = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'texto do agente' });
+  assert.equal(r.id, 'ENVIO1');
+  await receber(a, reacao('👍', 'ENVIO1', { id: 'RA', fromMeRef: true }), reacao('👍', 'ENVIO1', { id: 'RB', fromMeRef: false }));
+  assert.ok(textoEntregue(a, 1).includes('à sua mensagem: "texto do agente"'), textoEntregue(a, 1));
+  assert.ok(textoEntregue(a, 2).includes('à própria mensagem: "texto do contato"'), textoEntregue(a, 2));
+  await a.fim();
+});
+
+test('reacao: audio com legenda pedida nao guarda a legenda que nao foi enviada', async () => {
+  const a = await ambiente();
+  const arq = path.join(a.home, 'voz.ogg');
+  fs.writeFileSync(arq, 'audio');
+  const r = await pedir(a.sockPath, { acao: 'arquivo', para: DONO, caminho: arq, legenda: 'Legenda que nao saiu' });
+  assert.equal(r.ok, true);
+  await receber(a, reacao('👍', r.id));
+  assert.ok(textoEntregue(a, 0).includes('não está mais na memória'), textoEntregue(a, 0));
+  assert.ok(!textoEntregue(a, 0).includes('Legenda que nao saiu'));
+  await a.fim();
+});
+
+test('reacao: envio para o numero com 9 e reacao pelo jid sem o 9 citam o trecho', async () => {
+  const a = await ambiente();
+  const r = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'Confirma?' });
+  await receber(a, reacao('👍', r.id, { jid: '551187654321@s.whatsapp.net' }));
+  assert.ok(textoEntregue(a, 0).includes('à sua mensagem: "Confirma?"'), textoEntregue(a, 0));
+  await a.fim();
+});
+
 test('reacao removida (texto vazio) nao entrega nada nem loga recusa', async () => {
   const a = await ambiente();
   await receber(a, reacao('', 'QUALQUER'), reacao('\u0007\u0000', 'OUTRO', { id: 'RE2' }));
