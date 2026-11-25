@@ -43,6 +43,7 @@ for (const [nome, porque] of [
   ['RUNNER_PORT', 'reservado do provisionamento do runner'],
   ['CLAUDE_CONFIG_DIR', 'reservado: derrubou dois agentes em 28/08'],
   ['MINHA_COISA', 'não parece nome de credencial'],
+  ['CLOUDSDK_SPANNER_INSTANCE', 'só ZAPI_INSTANCE é liberado, não o sufixo _INSTANCE (mudaria o alvo do gcloud)'],
   ['1CHAVE_API_KEY', 'fora do formato: começa com número'],
   ['CHAVE-API-KEY', 'fora do formato: hífen'],
   ['../ESCAPE', 'fora do formato'],
@@ -59,7 +60,7 @@ console.log('\nNomes que precisam ser ACEITOS');
 for (const nome of [
   'OPENAI_API_KEY', 'HOTMART_CLIENT_ID', 'KIWIFY_ACCOUNT_ID', 'META_APP_ID',
   'DATABASE_URL', 'TWILIO_ACCOUNT_SID', 'TELNYX_SIP_USERNAME', 'AWS_ACCESS_KEY_ID',
-  'MEU_SERVICO_ESQUISITO',
+  'ZAPI_INSTANCE', 'MEU_SERVICO_ESQUISITO',
 ]) {
   const r = cofre.guardar({ envName: nome, valor: `chave-de-teste-${nome.toLowerCase()}`, provedor: 'outro' });
   ok(r.ok === true, `${nome} aceito${r.erro ? ` (recusou: ${r.erro})` : ''}`);
