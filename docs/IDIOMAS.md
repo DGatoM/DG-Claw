@@ -39,7 +39,7 @@ personalizada permanecem no idioma original. A frase e o slogan de fábrica do l
 têm tradução. Mudar a interface não muda os prompts, a identidade nem o idioma de
 resposta dos agentes. Esse último pertence à configuração de cada agente.
 
-Esta é uma primeira migração, com 530 entradas: templates das telas Web e painel,
+Esta é uma primeira migração, com 532 entradas: templates das telas Web e painel,
 navegação comum, rótulos, acessibilidade, autenticação Web e cartão Claude/Codex.
 Há mensagens dinâmicas, explicações extensas, tutoriais, erros do servidor e manuais
 ainda em português. Texto não catalogado aparece como está; esta versão não deve

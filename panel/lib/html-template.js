@@ -109,7 +109,7 @@ module.exports = function buildHtmlTemplate({ BASE, CONFIG, serverDir, getAuth }
     return (req, res) => {
       const html = carregarTemplate(filePath);
       if (html === null) return res.status(404).send('Nao encontrado.');
-      res.set('Cache-Control', 'no-store').type('html').send(renderizarIdioma(comVersao(html), req, process.env.DGCLAW_WEB_IDIOMA));
+      res.set('Cache-Control', 'no-store').type('html').send(renderizarIdioma(comVersao(html), req, process.env.DGCLAW_WEB_IDIOMA).split('{{MARCA_NOME}}').join('DG Claw'));
     };
   }
 
@@ -130,7 +130,7 @@ module.exports = function buildHtmlTemplate({ BASE, CONFIG, serverDir, getAuth }
     if (html === null) return res.status(404).send('Nao encontrado.');
     const modo = auth.trancado ? 'trancado' : (auth.usuarioObrigatorio ? 'usuario' : 'senha');
     const erro = o.erro === 'bloqueado' ? `bloqueado:${o.min || 1}` : '';
-    res.set('Cache-Control', 'no-store').status(o.status || 200).type('html').send(renderizarIdioma(comVersao(html), req, process.env.DGCLAW_WEB_IDIOMA)
+    res.set('Cache-Control', 'no-store').status(o.status || 200).type('html').send(renderizarIdioma(comVersao(html), req, process.env.DGCLAW_WEB_IDIOMA).split('{{MARCA_NOME}}').join('DG Claw')
       .split('{{LOGIN_MODO}}').join(modo)
       .split('{{LOGIN_MOTIVO}}').join(escHtml(auth.motivo || ''))
       .split('{{LOGIN_COMO}}').join(escHtml(COMO_RESOLVER))

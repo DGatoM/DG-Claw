@@ -58,6 +58,13 @@ test('templates e atributos usam chaves existentes e traduções preservam place
       const decode = s => s.replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
       for (const [, k, fallback] of html.matchAll(/<!--dg-i18n:([a-f0-9]{12})-->([^<]*)<!--\/dg-i18n-->/g)) assert.equal(decode(fallback), C[k]['pt-BR'], file + ': fallback desatualizado ' + k);
       for (const [, k, fallback] of html.matchAll(/<title data-dg-i18n="([a-f0-9]{12})">([^<]*)<\/title>/g)) assert.equal(decode(fallback), C[k]['pt-BR'], file + ': título desatualizado');
+      for (const [tag] of html.matchAll(/<[^!][^>]*\sdata-dg-i18n-(?:title|placeholder|aria-label|alt)="[a-f0-9]{12}"[^>]*>/g)) {
+        for (const [, attr, k] of tag.matchAll(/data-dg-i18n-(title|placeholder|aria-label|alt)="([a-f0-9]{12})"/g)) {
+          const valor = new RegExp('(?:^|\\s)' + attr + '="([^"]*)"').exec(tag);
+          assert.ok(valor, file + ': falta o fallback de ' + attr);
+          assert.equal(decode(valor[1]), C[k]['pt-BR'], file + ': atributo desatualizado ' + k);
+        }
+      }
       const en = I.html(html, 'en');
       assert.ok(en.includes('/ds/idioma.js'), file);
       assert.equal((en.match(/<!--dg-i18n:/g) || []).length, (en.match(/<!--\/dg-i18n-->/g) || []).length, file);

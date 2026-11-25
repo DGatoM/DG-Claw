@@ -13,6 +13,10 @@ if (typeof window.dsCarregando !== 'function') window.dsCarregando = function ()
   const PADRAO = 'DG Claw';
   function aplicar(nome) {
     if (nome === PADRAO) return;
+    // A camada de idioma relê o nome validado ao trocar o título; não deve
+    // restaurar "DG Claw" depois que a marca da instalação foi aplicada.
+    const meta = document.querySelector('meta[name="marca-nome"]');
+    if (meta) meta.content = nome;
     document.title = document.title.split(PADRAO).join(nome);
     document.querySelectorAll('[data-marca-nome]').forEach((el) => { el.textContent = nome; });
   }

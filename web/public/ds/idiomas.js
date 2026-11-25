@@ -2123,5 +2123,13 @@
   "8dfae0433dde": {
     "pt-BR": "Seus agentes, no seu servidor.",
     "en": "Your agents, on your server."
+  },
+  "c040d853fbf5": {
+    "pt-BR": "{{MARCA_NOME}} - Painel",
+    "en": "{{MARCA_NOME}} - Dashboard"
+  },
+  "45fc10ecf02e": {
+    "pt-BR": "{{MARCA_NOME}} - entrar no painel",
+    "en": "{{MARCA_NOME}} - sign in to dashboard"
   }
 });
