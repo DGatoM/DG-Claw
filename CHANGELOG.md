@@ -7,6 +7,20 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção no instalador: compressão com Caddyfile personalizado.** Quem editou o Caddyfile do site (por exemplo, para
+acrescentar um cabeçalho) ficava sem a compressão do painel, porque o instalador não mexia em arquivo personalizado e só
+mostrava um aviso. Agora, quando o site é simples (um único bloco, sem `handle`, `route` nem `import`, com um único
+`reverse_proxy` e nenhum `encode`), o instalador acrescenta apenas o bloco de compressão logo antes do `reverse_proxy` e
+mantém todo o resto como estava, inclusive o modo e o dono do arquivo. A cópia de antes fica em `/etc/dgclaw/caddy-copias`
+(pasta só do root), porque o Caddyfile pode ter chaves que outros usuários não devem ler. O arquivo é validado antes de recarregar e, se o Caddy
+recusar a validação, volta ao que era (a menos que o arquivo tenha sido editado nesse meio tempo: aí o instalador avisa e não apaga a sua edição). Arquivos com formato mais elaborado, ou que sejam links (simbólicos ou com mais de um nome), continuam
+intactos, com o aviso de como acrescentar à mão.
+
+**Correção: o cofre do agente aceita `ZAPI_INSTANCE`.** A Z-API identifica a conexão de WhatsApp por um ID de
+instância, e o nome de mercado dessa credencial é `ZAPI_INSTANCE`. O cofre recusava esse nome. Agora ele entra pelo nome
+exato, e não por qualquer nome terminado em `_INSTANCE`, porque outras variáveis com esse final mudam o alvo de
+ferramentas (a instância padrão do gcloud, por exemplo). Nada muda para quem já usa o cofre.
+
 **Correção no canal de WhatsApp: reações e emojis como resposta.** Quando o agente perguntava "Posso fazer X?" e você respondia com um 👍 como reação à mensagem (o toque longo, não o emoji digitado), o agente nunca ficava sabendo, porque a ponte descartava a reação. Agora a reação chega ao agente num envelope marcado pela ponte (`tipo="reacao"`), com uma linha como `[reagiu com 👍 à sua mensagem: "Posso fazer X?"]`. A ponte guarda só as mensagens que o próprio agente enviou, apenas na memória (nada em disco), separadas por conversa. Se a reação aponta para uma mensagem que a ponte não tem (antiga, anterior a um reinício, sua própria mensagem, de outra conversa, editada ou apagada), o agente recebe "uma mensagem que a ponte não conseguiu identificar" e não conta isso como confirmação. A reação segue as mesmas regras de qualquer mensagem: só números da lista de permitidos, nada de grupos, e reação removida não entrega nada. Um emoji digitado como texto já chegava e continua chegando. As instruções do agente ganharam a regra de leitura: só vale como "sim" a reação marcada pela ponte que cita uma pergunta de sim ou não do agente (👍 ✅ 👌 🙏); ❤️ 😂 e afins não confirmam nada e não recebem resposta; e em ação sensível (pagamento, envio a terceiros, algo destrutivo ou irreversível) uma reação nunca basta, o agente pergunta de novo, e ação irreversível continua só pelo chat do DG Claw. O Claude e o Codex recebem o mesmo texto.
 
 - **Novo: checklist de entrega de cliente e smoke test da VPS.** O `docs/ENTREGA-CLIENTE.md` reúne, para a equipe
@@ -15,6 +29,16 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
   `/opt/dgclaw/app/scripts/smoke-entrega.sh` roda no servidor, como root, e faz só leituras simples: versão
   instalada, resposta do painel, serviços do host e, para cada agente, se o container existe, está rodando e tem
   limite de memória. O resto do checklist fica à mão. Não muda o comportamento de quem já usa o DG Claw.
+
+**Correção do auto-compact que compactava em loop e gastava a sessão do plano.** Depois de compactar, o contexto não volta só
+ao resumo: volta ao resumo mais o que toda sessão carrega de base (instruções, ferramentas, memória), algo em torno de 70 mil a
+85 mil tokens nos transcritos reais. Se essa base ficava perto ou acima do teto (`DGCLAW_COMPACT_THRESHOLD`), o auto-compact
+achava a cada ciclo de 30 minutos que precisava compactar de novo, e cada compactação custa a leitura do contexto inteiro, sem
+baixar nada. Agora ele mede o tamanho da primeira resposta depois da última compactação e só compacta se o contexto de agora
+passar dessa base por pelo menos `DGCLAW_COMPACT_MIN_GAIN` tokens (padrão 30000). Quando pula, o log do auto-compact explica o
+motivo. Vale só no Claude, o único motor em que o auto-compact funciona hoje (o Codex continua na exceção de
+`docs/PARIDADE-CODEX.md`). Quem vê o log dizer que pulou por base alta pode subir `DGCLAW_COMPACT_THRESHOLD` ou reduzir o que o
+agente carrega de base (memória e instruções longas).
 
 **Correção do agente que ficava "trabalhando" para sempre depois de um /compact recusado.** Quando o auto-compact enfileirava
 vários `/compact` seguidos e o Claude Code respondia "Not enough messages to compact.", ele avisava o início da compactação
@@ -116,6 +140,68 @@ você. O `dgclaw atualizar` padrão já recria os agentes com o comando novo. Se
 peça ao Admin para juntar a instrução nova a elas, sem apagar o que você escreveu. O `turnosAceitos` volta a zero quando o
 runner reinicia, então depois de uma reinicialização um card antigo e ocioso pode pedir `--forcar` para fechar, caso a
 conversa dele também esteja vazia.
+
+**Correção no download do YouTube: yt-dlp atualizado, conta dedicada declarada pelo dono e teste de verdade na saúde.** O agente
+não conseguia baixar vídeo do YouTube por três motivos. O `yt-dlp` da imagem estava velho e sem o `yt-dlp-ejs`, que resolve o
+desafio de JavaScript do YouTube; o comando `yt-dlp` não estava no PATH do serviço do runner; e o YouTube responde "Sign in to
+confirm you're not a bot" para quem não está logado, e a Tela nunca tinha entrado no YouTube. Agora a imagem traz `yt-dlp`
+2026.11.23 e `yt-dlp-ejs` 0.8.0 (os dois com versão e hash fixos, instalados num passo próprio, sem dependências e só como pacote
+pronto), um link em `/usr/local/bin/yt-dlp` e o arquivo de sistema `/etc/yt-dlp.conf` (root:root, 0644) com uma linha só,
+`--js-runtimes node`, para o node da imagem resolver o desafio. Nenhum cookie fica em configuração global, e o DG Claw não grava
+mais nada de `yt-dlp` na casa do agente.
+
+As instruções do agente (`templates/ambiente/agente.md`) dizem que ele tira do link só o ID do vídeo (11 caracteres, link de
+youtube.com ou youtu.be) e monta ele mesmo a URL, sem colar o link recebido no comando. A primeira tentativa é sempre sem cookies.
+Os cookies da Tela só podem ser usados quando o YouTube pedir a checagem anti-robô E o dono tiver declarado que a conta Google da
+Tela daquele agente é dedicada a ele. Essa declaração é um arquivo marcador, `config/youtube-conta-dedicada` na casa do agente (o
+agente o enxerga em `/run/dgclaw/config/youtube-conta-dedicada`, somente leitura), que o dono liga e desliga com
+`dgclaw agente youtube <nome> conta-dedicada sim|nao` (sem `sim|nao`, o comando mostra o estado). O padrão é desligado: quem
+atualiza não passa a usar cookies sem ligar. Vale na hora, sem reiniciar o agente. Sem o marcador, o agente não usa cookies e conta
+a quem pediu que o dono precisa ligar a conta dedicada. Com o marcador, ele usa a chamada isolada `yt-dlp --ignore-config
+--no-plugin-dirs --js-runtimes node --cookies-from-browser "chrome+basictext:/home/agente/.tela-chrome/Default" --no-playlist
+--match-filters "availability=public & age_limit=0 & !is_live"` (só para o YouTube, só para vídeo público, sem restrição de idade
+e que não seja transmissão ao vivo, nunca com `--cookies arquivo`) e, se continuar pedindo login, pede ao dono para entrar pela
+Tela. As duas chamadas baixam numa pasta nova e vazia por pedido, dão ao arquivo o nome do ID do vídeo e só imprimem o caminho do arquivo final (`--print
+after_move:filepath`, sem título nem texto do autor do vídeo), rejeitam transmissão ao vivo, usam `--max-filesize 2G` (recusa o arquivo maior quando o tamanho é
+conhecido antes do download) e `timeout 1800` (30 minutos); na chamada com cookies o agente não repete título nem mensagem do
+`yt-dlp`, só avisa que o vídeo não é público.
+
+O diagnóstico ganhou o item `agente.<slug>.youtube`: um download real e pequeno (vídeo de 19 s, o formato menor, teto de 5 MB,
+pasta temporária que é apagada) feito dentro do container como o usuário agente. A primeira tentativa é sempre sem cookies. Se o
+YouTube pedir a checagem anti-robô, o teste só usa os cookies da Tela quando o marcador existe; sem ele, o item fica "não medido"
+e diz que o uso de uma conta dedicada não está ligado, com o comando para ligar. A tela de diagnóstico só lê o último resultado,
+guardado com horário em `youtube-saude.json`, e nunca dispara o download; quem testa é um vigia que roda a primeira vez 2 minutos
+depois de o painel subir e depois a cada 6 horas. Enquanto não há resultado, o item fica "não medido" e diz que o teste roda
+sozinho a cada 6 horas. Com o marcador ligado, se o YouTube pedir login e os cookies não resolverem, ou o `yt-dlp` avisar que os
+cookies deixaram de valer (mesmo com o vídeo baixado), o item vira "atenção" e diz para abrir a Tela e entrar em youtube.com; se a
+pasta do Chrome da Tela ainda não existe (a Tela nunca foi aberta), o item também vira "atenção", e isso não conta como download
+ok. Quando a infraestrutura falha (podman ausente, container que não aceitou o comando, erro interno), a tentativa é guardada com
+horário como "não medido" e o último resultado concluído fica preservado à parte. Nada do texto de erro do `yt-dlp` vai para a
+tela, o log ou o arquivo: só o tipo do problema (login, conta dedicada desligada, Tela não aberta, ausente, tempo ou outro, este
+com o código de saída), e a saída lida é limitada a 8 KB antes de qualquer análise. A checagem roda no container e não depende do
+motor do agente: vale igual no Claude e no Codex. O resultado guardado leva a identidade da instância do agente: se o agente for
+removido e criado de novo com o mesmo nome, o resultado antigo é descartado. Ele vale por 13 horas (duas rodadas e uma margem);
+depois disso o item volta a "não medido" e diz o horário do último teste. O código 125 do podman (por exemplo, container parado)
+conta como falha de infraestrutura, não como problema do YouTube. As instruções do agente limitam a chamada com cookies à
+checagem anti-robô: vídeo privado, de membros, com restrição de idade ou ao vivo não é tentado com os cookies, e o agente avisa que
+o vídeo não é público.
+
+### Como atualizar (download do YouTube)
+
+1. **Atualize a imagem dos agentes.** A versão nova do `yt-dlp`, o link do comando e o arquivo `/etc/yt-dlp.conf` vêm na
+   imagem, então só entram depois que ela for reconstruída e os agentes recriados. O `dgclaw atualizar` padrão já faz isso.
+   Sem a imagem nova o `yt-dlp` do agente continua sem o runtime de JavaScript.
+2. **Se quiser que o agente baixe vídeos que o YouTube só libera com login, ligue a conta dedicada, agente por agente.** Por
+   padrão o uso dos cookies da Tela fica desligado, e o agente avisa que precisa disso quando o YouTube pede a checagem
+   anti-robô. Para ligar: abra a Tela do agente (menu do agente, grupo Conexões, "Navegador") e entre em youtube.com com uma conta
+   Google criada só para aquele agente, nunca a sua conta pessoal, porque o agente baixa com a sessão dessa conta. Depois peça ao
+   Admin: "liga a conta dedicada do YouTube do agente <nome>" (ou rode `dgclaw agente youtube <nome> conta-dedicada sim`). Para
+   desligar, o mesmo pedido com "desliga", ou `dgclaw agente youtube <nome> conta-dedicada nao`. Enquanto estiver ligado, a conta
+   dedicada fica no perfil principal da Tela, e nenhuma outra conta Google (nem a sua pessoal) entra em perfil nenhum da Tela
+   desse agente, porque o download usa a sessão do perfil principal. Desligar vale para os
+   próximos downloads: um que já começou vai até o fim, e o perfil da Tela continua na casa do agente. Se a Tela de um agente que vai ser
+   entregue a outra pessoa já tem a sua conta pessoal, peça ajuda ao Admin antes da entrega, porque o perfil do navegador guarda
+   senhas e sessões de outros sites.
 
 **Correção no runner: pedido digitado sem confirmação não some e nunca é reenviado sozinho.** Um pedido enviado a
 um agente podia sumir quando o Claude Code não abria o turno (por exemplo, com os hooks travados) e o runner era
