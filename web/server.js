@@ -247,6 +247,7 @@ function criarServidor(opcoes) {
   // Chave de suporte: lê só o diagnóstico (ver docs/interno/PLANO-DIAGNOSTICO-REMOTO.md).
   const chavesApi = criarChavesApi({ config, log, agora: opcoes.agora });
   const diagnostico = opcoes.diagnostico || montaDiagnostico({ config, registro, runner, log, agora: opcoes.agora });
+  const vigiaYoutube = diagnostico.vigiarYoutube ? diagnostico.vigiarYoutube({ intervaloMs: opcoes.youtubeIntervaloMs, primeiraMs: opcoes.youtubePrimeiraMs }) : null;
 
   let versaoJsCache = { ts: 0, valor: '0' };
   /** Versão da tela: mtime de conversa.js. A tela compara com a que carregou e se recarrega sozinha. */
@@ -1820,12 +1821,13 @@ function criarServidor(opcoes) {
           lembretes.iniciar();
           avisos.iniciar();
           vigiaAtencao.iniciar();
+          if (vigiaYoutube) vigiaYoutube.iniciar();
           if (opcoes.semSocketAdmin) return resolve(servidor.address());
           return abreSocketAdmin().then(() => resolve(servidor.address()));
         });
       });
     },
-    fechar() { return cadeado.aguardar().catch(() => {}).then(() => new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidorAdmin.closeAllConnections(); servidorAdmin.close(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); })); },
+    fechar() { return cadeado.aguardar().catch(() => {}).then(() => new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); if (vigiaYoutube) vigiaYoutube.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidorAdmin.closeAllConnections(); servidorAdmin.close(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); })); },
   };
 }
 

@@ -246,6 +246,22 @@ confere("rollout: entrada, tools de envio sem duplicata, dgchat continua via pla
 confere("rollout: quem e arquivo", (ev[0]["who"], ev[3]["tipo"], ev[3]["arquivo"]),
         ("+5511987654321", "arquivo", "/home/agente/out/r.pdf"))
 
+print("\n13. o aviso de atraso do runner, depois do fechamento, não é fala do dono")
+AVISO = ("\n\n[Aviso do sistema: a mensagem acima foi escrita às 14:32 e esperou cerca de 8 min na fila, enquanto você respondia "
+         "outras coisas. Ela pode ter sido escrita antes das suas últimas respostas. Uma resposta curta (ok, sim, pode, beleza) "
+         "não autoriza uma ação nova que você propôs depois disso: se for o caso, confirme com o dono antes de agir.]")
+p = escrever([user(CE % ("A1", "ok") + AVISO)])
+confere("claude: ok enfileirado vira só ok", texto_de(tl.build_thread_log(p)), [("owner", "whatsapp", "ok")])
+p = escrever([user(CE % ("A2", "ok" + AVISO.replace("\n\n", " ")))])
+confere("claude: texto igual ao aviso DENTRO do corpo do contato fica integral",
+        [e["text"] for e in tl.build_thread_log(p)], ["ok" + AVISO.replace("\n\n", " ")])
+rol2 = os.path.join(casa, "rollout-2026-10-17T15-00-00-0194aaaa-1111-7222-8333-444455556667.jsonl")
+with open(rol2, "w", encoding="utf-8") as fh:
+    for o in [r_ev({"type": "task_started"}, "2026-10-17T15:00:00.000Z"),
+              r_msg("user", CE % ("A3", "ok") + AVISO, "2026-10-17T15:00:01.000Z")]:
+        fh.write(json.dumps(o, separators=(",", ":")) + "\n")
+confere("codex: ok enfileirado vira só ok", [e["text"] for e in tl.build_thread_log(rol2)], ["ok"])
+
 print(f"\n{contados[0] - len(falhas)}/{contados[0]} verdes.")
 if falhas:
     print("REPROVADO: " + ", ".join(falhas))

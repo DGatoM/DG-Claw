@@ -123,6 +123,9 @@ export class Sessao extends EventEmitter {
   /** Quantos prompts o CLI já ACEITOU (hook UserPromptSubmit no Claude; `task_started` ou o
    *  nascimento do rollout no Codex). É o recibo do Enter; ver enviarComRecibo(). */
   promptsAceitos = 0;
+  /** Prompts aceitos DESDE que a sessão tem o sessionId atual: zera quando o sessionId troca (conversa nova).
+   *  É o que o estado expõe como `turnosAceitosSessao`; `promptsAceitos` segue monotônico por causa dos recibos. */
+  turnosDaSessao = 0;
   /** Codex: os turnos que o rollout mostrou (`n` é o `promptsAceitos` logo depois do `task_started` dele) e os textos do
    *  usuário gravados nesse turno. O recibo de um pedido só vale se o texto do turno for o do pedido (ver reciboDoTexto):
    *  dois cards do Codex no mesmo diretório podem ter o rollout trocado, e o `task_started` do vizinho não prova nada.
@@ -907,6 +910,9 @@ export class Sessao extends EventEmitter {
     // O Esc pendente é do turno: acaba quando ele termina (idle) e quando outro começa (working vindo de outro estado).
     if (campos.status === "idle" || (campos.status === "working" && this.estado.status !== "working")) this.ultimoEscReal = null;
     if (campos.status === "idle") this.compactando = null;
+    // Troca de uma conversa para OUTRA (id antigo conhecido e diferente): o contador da sessão recomeça.
+    // Descobrir o id pela primeira vez (null para um id) não zera: os turnos já são dessa conversa.
+    if ("sessionId" in campos && this.estado.sessionId && campos.sessionId !== this.estado.sessionId) this.turnosDaSessao = 0;
     Object.assign(this.estado, campos, { updatedAt: Date.now() });
     if ("sessionId" in campos || "previousSessionId" in campos || "status" in campos) {
       gravarEstado(
