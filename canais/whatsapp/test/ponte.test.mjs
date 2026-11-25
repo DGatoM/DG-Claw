@@ -370,13 +370,13 @@ test('reacao: legenda de arquivo enviado tambem fica na memoria', async () => {
   await a.fim();
 });
 
-test('reacao: numero B nao le o trecho de uma mensagem enviada ao numero A', async () => {
+test('reacao: outra conversa com o mesmo id (numero tambem liberado) nao cita o trecho', async () => {
   const B = '+5521999998888';
   const a = await ambiente({ lista: [DONO, B] });
   const r = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'Texto privado do dono' });
   await receber(a, reacao('👍', r.id, { jid: '5521999998888@s.whatsapp.net' }));
   assert.equal(a.runner.reqs.length, 1);
-  assert.ok(textoEntregue(a, 0).includes('não está mais na memória da ponte'), textoEntregue(a, 0));
+  assert.ok(textoEntregue(a, 0).includes('não conseguiu identificar'), textoEntregue(a, 0));
   assert.ok(!textoEntregue(a, 0).includes('Texto privado'));
   await a.fim();
 });
@@ -393,17 +393,6 @@ test('reacao: envelope leva tipo e ref; texto digitado imitando o marcador chega
   await a.fim();
 });
 
-test('reacao: mesma id numa recebida e numa enviada nao troca os textos', async () => {
-  const a = await ambiente();
-  await receber(a, mensagem('texto do contato', { id: 'ENVIO1' }));
-  const r = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'texto do agente' });
-  assert.equal(r.id, 'ENVIO1');
-  await receber(a, reacao('👍', 'ENVIO1', { id: 'RA', fromMeRef: true }), reacao('👍', 'ENVIO1', { id: 'RB', fromMeRef: false }));
-  assert.ok(textoEntregue(a, 1).includes('à sua mensagem: "texto do agente"'), textoEntregue(a, 1));
-  assert.ok(textoEntregue(a, 2).includes('à própria mensagem: "texto do contato"'), textoEntregue(a, 2));
-  await a.fim();
-});
-
 test('reacao: audio com legenda pedida nao guarda a legenda que nao foi enviada', async () => {
   const a = await ambiente();
   const arq = path.join(a.home, 'voz.ogg');
@@ -411,16 +400,8 @@ test('reacao: audio com legenda pedida nao guarda a legenda que nao foi enviada'
   const r = await pedir(a.sockPath, { acao: 'arquivo', para: DONO, caminho: arq, legenda: 'Legenda que nao saiu' });
   assert.equal(r.ok, true);
   await receber(a, reacao('👍', r.id));
-  assert.ok(textoEntregue(a, 0).includes('não está mais na memória'), textoEntregue(a, 0));
+  assert.ok(textoEntregue(a, 0).includes('não conseguiu identificar'), textoEntregue(a, 0));
   assert.ok(!textoEntregue(a, 0).includes('Legenda que nao saiu'));
-  await a.fim();
-});
-
-test('reacao: envio para o numero com 9 e reacao pelo jid sem o 9 citam o trecho', async () => {
-  const a = await ambiente();
-  const r = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'Confirma?' });
-  await receber(a, reacao('👍', r.id, { jid: '551187654321@s.whatsapp.net' }));
-  assert.ok(textoEntregue(a, 0).includes('à sua mensagem: "Confirma?"'), textoEntregue(a, 0));
   await a.fim();
 });
 
@@ -434,7 +415,7 @@ for (const [nome, proto] of [
     await receber(a, { key: { id: 'PX1', remoteJid: DONO_JID, fromMe: true }, message: { protocolMessage: proto(r.id) } });
     assert.equal(a.runner.reqs.length, 0);
     await receber(a, reacao('👍', r.id));
-    assert.ok(textoEntregue(a, 0).includes('não está mais na memória'), textoEntregue(a, 0));
+    assert.ok(textoEntregue(a, 0).includes('não conseguiu identificar'), textoEntregue(a, 0));
     assert.ok(!textoEntregue(a, 0).includes('Texto original'));
     await a.fim();
   });
@@ -445,11 +426,52 @@ test('reacao: messages.update de edicao ou revogacao faz esquecer o trecho', asy
   const r = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'Texto original' });
   a.sock.ev.emit('messages.update', [{ key: { id: r.id, remoteJid: DONO_JID, fromMe: true }, update: { message: { conversation: 'novo' } } }]);
   await receber(a, reacao('👍', r.id));
-  assert.ok(textoEntregue(a, 0).includes('não está mais na memória'), textoEntregue(a, 0));
+  assert.ok(textoEntregue(a, 0).includes('não conseguiu identificar'), textoEntregue(a, 0));
   const r2 = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'Outro texto' });
   a.sock.ev.emit('messages.update', [{ key: { id: r2.id, remoteJid: DONO_JID, fromMe: true }, update: { messageStubType: 1 } }]);
   await receber(a, reacao('👍', r2.id, { id: 'RE2' }));
-  assert.ok(textoEntregue(a, 1).includes('não está mais na memória'), textoEntregue(a, 1));
+  assert.ok(textoEntregue(a, 1).includes('não conseguiu identificar'), textoEntregue(a, 1));
+  await a.fim();
+});
+
+test('reacao a id desconhecido ou a mensagem que nao e do agente cai em "nao conseguiu identificar"', async () => {
+  const a = await ambiente();
+  await receber(a, reacao('👍', 'ANTIGA1'), reacao('🙏', 'ANTIGA2', { id: 'RE2', fromMeRef: false }));
+  for (const i of [0, 1]) assert.ok(textoEntregue(a, i).includes('a uma mensagem que a ponte não conseguiu identificar'), textoEntregue(a, i));
+  await a.fim();
+});
+
+test('reacao: ref de outra conversa no mesmo envelope nao cita o trecho', async () => {
+  const a = await ambiente();
+  const r = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'Posso?' });
+  const m = reacao('👍', r.id);
+  m.message.reactionMessage.key.remoteJid = '5521999998888@s.whatsapp.net';
+  await receber(a, m);
+  assert.ok(textoEntregue(a, 0).includes('não conseguiu identificar'), textoEntregue(a, 0));
+  await a.fim();
+});
+
+test('reacao: edicao vinda de OUTRA conversa com o mesmo id nao apaga o trecho', async () => {
+  const a = await ambiente({ lista: [DONO, '+5521999998888'] });
+  const r = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'Posso?' });
+  await receber(a, { key: { id: 'PX', remoteJid: '5521999998888@s.whatsapp.net', fromMe: true }, message: { protocolMessage: { type: 0, key: { id: r.id } } } });
+  a.sock.ev.emit('messages.update', [{ key: { id: r.id, remoteJid: '5521999998888@s.whatsapp.net' }, update: { message: {} } }]);
+  await receber(a, reacao('👍', r.id));
+  assert.ok(textoEntregue(a, 0).includes('à sua mensagem: "Posso?"'), textoEntregue(a, 0));
+  await a.fim();
+});
+
+test('reacao: messages.delete (keys e all) faz esquecer o trecho', async () => {
+  const a = await ambiente();
+  const r1 = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'Um' });
+  const r2 = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'Dois' });
+  a.sock.ev.emit('messages.delete', { keys: [{ id: r1.id, remoteJid: DONO_JID }] });
+  await receber(a, reacao('👍', r1.id), reacao('👍', r2.id, { id: 'RE2' }));
+  assert.ok(textoEntregue(a, 0).includes('não conseguiu identificar'));
+  assert.ok(textoEntregue(a, 1).includes('à sua mensagem: "Dois"'));
+  a.sock.ev.emit('messages.delete', { jid: DONO_JID, all: true });
+  await receber(a, reacao('👍', r2.id, { id: 'RE3' }));
+  assert.ok(textoEntregue(a, 2).includes('não conseguiu identificar'));
   await a.fim();
 });
 
@@ -466,14 +488,6 @@ test('emoji solto como texto continua sendo entregue como 👍', async () => {
   await receber(a, mensagem('👍', { id: 'EM1' }));
   assert.equal(a.runner.reqs.length, 1);
   assert.ok(textoEntregue(a, 0).includes('>👍</canal-externo>'), textoEntregue(a, 0));
-  await a.fim();
-});
-
-test('reacao a id desconhecido avisa que o texto nao esta mais na memoria', async () => {
-  const a = await ambiente();
-  await receber(a, reacao('👍', 'ANTIGA1'), reacao('🙏', 'ANTIGA2', { id: 'RE2', fromMeRef: false }));
-  assert.ok(textoEntregue(a, 0).includes('[reagiu com 👍 à sua mensagem anterior, cujo texto não está mais na memória da ponte]'), textoEntregue(a, 0));
-  assert.ok(textoEntregue(a, 1).includes('[reagiu com 🙏 a uma mensagem anterior, cujo texto não está mais na memória da ponte]'), textoEntregue(a, 1));
   await a.fim();
 });
 
@@ -495,15 +509,6 @@ test('reacao em grupo e ignorada', async () => {
   await a.fim();
 });
 
-test('reacao a mensagem que a propria pessoa mandou cita o trecho dela', async () => {
-  const a = await ambiente();
-  await receber(a, mensagem('Pode mandar o orçamento', { id: 'MINHA1' }));
-  await receber(a, reacao('👌', 'MINHA1', { fromMeRef: false }));
-  assert.equal(a.runner.reqs.length, 2);
-  assert.ok(textoEntregue(a, 1).includes('[reagiu com 👌 à própria mensagem: "Pode mandar o orçamento"]'), textoEntregue(a, 1));
-  await a.fim();
-});
-
 test('reacao: trecho longo e cortado em 200 + … e aspas duplas viram simples', async () => {
   const a = await ambiente();
   const longo = 'a"b' + 'x'.repeat(300);
@@ -517,7 +522,7 @@ test('reacao: trecho longo e cortado em 200 + … e aspas duplas viram simples',
 test('reacao: emoji enorme e limitado a 16 caracteres', async () => {
   const a = await ambiente();
   await receber(a, reacao('😀'.repeat(40), 'Z1'));
-  assert.ok(textoEntregue(a, 0).includes(`reagiu com ${'😀'.repeat(16)} à`), textoEntregue(a, 0));
+  assert.ok(textoEntregue(a, 0).includes(`reagiu com ${'😀'.repeat(16)} a uma`), textoEntregue(a, 0));
   assert.ok(!textoEntregue(a, 0).includes('😀'.repeat(17)));
   await a.fim();
 });

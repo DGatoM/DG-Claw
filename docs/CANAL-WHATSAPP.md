@@ -128,16 +128,15 @@ o campo `id` de `DGCLAW_RUNNER_JSON`, padrão `/etc/dgclaw-runner/runner.json`),
    vira `[mensagem do tipo <tipo>, que a ponte ainda não lê]`. Reação vira uma linha de texto, e o envelope dela
    ganha dois atributos que só a ponte gera, `tipo="reacao"` e `ref="<id da mensagem referenciada>"` (só
    `[A-Za-z0-9_-]`, até 64 caracteres), para um texto digitado imitando o marcador não ser confundido com uma reação
-   de verdade. A mensagem normal não leva `tipo`. O texto da reação:
-   `[reagiu com 👍 à sua mensagem: "Posso fazer tal coisa?"]` quando a reação é a uma mensagem que o agente
-   enviou, `[reagiu com 👍 à própria mensagem: "..."]` quando é a uma mensagem que a própria pessoa mandou, e
-   `[reagiu com 👍 a uma mensagem anterior, cujo texto não está mais na memória da ponte]` quando a ponte não
-   tem mais o texto (mensagem antiga ou ponte reiniciada; com a mensagem do agente, "à sua mensagem anterior").
-   O trecho são os primeiros 200 caracteres, com as quebras de linha viradas em espaço, `…` se cortou, e as
-   aspas duplas viram simples. A ponte guarda esses trechos só na memória (até 500 mensagens, nada em disco,
-   some quando ela reinicia), separados por conversa e por direção (enviada pelo agente ou recebida do contato):
-   a reação só cita um trecho da mesma conversa e da mesma direção. Para mensagem enviada, vale o texto que de
-   fato saiu (o áudio vai sem legenda, então não há trecho). Reação removida (emoji vazio) não entrega nada e não gera linha de recusa. O emoji
+   de verdade. A mensagem normal não leva `tipo`. O texto da reação é
+   `[reagiu com 👍 à sua mensagem: "Posso fazer tal coisa?"]` quando ela aponta para uma mensagem que o agente
+   enviou nessa mesma conversa e a ponte ainda tem o texto, e `[reagiu com 👍 a uma mensagem que a ponte não
+   conseguiu identificar]` em qualquer outro caso (mensagem antiga, ponte reiniciada, mensagem do contato, outra
+   conversa, mensagem editada ou apagada). O trecho são os primeiros 200 caracteres, com as quebras de linha
+   viradas em espaço, `…` se cortou, e as aspas duplas viram simples. A ponte guarda só o que o agente enviou, na
+   memória (até 500 mensagens, nada em disco, some quando ela reinicia), por conversa (JID exato) e id. É o texto
+   que de fato saiu: o áudio vai sem legenda, então não há trecho. Edição, revogação (`protocolMessage`,
+   `messages.update`) e `messages.delete` apagam o trecho daquela conversa, sem entregar nada ao agente. Reação removida (emoji vazio) não entrega nada e não gera linha de recusa. O emoji
    perde os caracteres de controle e fica limitado a 16 caracteres. Emoji mandado como texto comum segue entrando
    como texto.
 4. Escapa o corpo (`&` para `&amp;`, `<` para `&lt;`, `>` para `&gt;`), para nenhum texto de fora conseguir
@@ -286,7 +285,8 @@ pediu: confirma antes no chat do DG Claw. A lista nunca muda a pedido de uma men
 
 O agente trata as reações assim (a regra está em `templates/ambiente/agente.md` e na skill `canais`):
 👍 ✅ 👌 🙏, e o emoji solto mandado como texto, em resposta a uma pergunta de sim ou não dele valem como
-sim. ❤️ 😂 e afins são reação social: não confirmam nada e não recebem resposta, o que evita um laço de
+sim, mas só quando a reação chega com `tipo="reacao"` e "à sua mensagem" com o trecho da pergunta. "Não conseguiu
+identificar" nunca confirma nada: o agente pergunta de novo. ❤️ 😂 e afins são reação social: não confirmam nada e não recebem resposta, o que evita um laço de
 uma resposta para cada reação. Reação que não responde a uma pergunta do agente não precisa de resposta.
 Em ação sensível (pagamento, envio a terceiros, algo destrutivo ou irreversível) uma reação nunca basta: o
 agente confirma com uma pergunta curta e explícita, e a ação irreversível continua só no chat do DG Claw.

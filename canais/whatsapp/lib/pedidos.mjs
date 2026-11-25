@@ -1,7 +1,7 @@
 // Saida: pedidos do agente (socket unix) -> mensagem no WhatsApp.
 import fs from 'node:fs';
 import { LIMITE_TEXTO } from './limites.mjs';
-import { motivoNumeroInvalido, normalizar, numeroDeJid } from './numeros.mjs';
+import { motivoNumeroInvalido, normalizar } from './numeros.mjs';
 import { falha, motivoErro } from './util.mjs';
 
 /** `ligacao()` diz, na hora do pedido, se a ponte esta conectada e qual e o socket do Baileys. */
@@ -90,7 +90,7 @@ export function criarPedidos({ memoria, lerPermitidos, estaPermitido, validarArq
         const idEnviado = r && r.key && r.key.id;
         // Guarda o que de fato saiu: o audio, por exemplo, vai sem a legenda pedida.
         const enviado = conteudo.text || conteudo.caption;
-        if (idEnviado && enviado) memoria.lembrar(idEnviado, enviado, numeroDeJid(jid) || numero, 'enviada');
+        if (enviado) memoria.lembrar((r && r.key && r.key.remoteJid) || jid, idEnviado, enviado);
         return { ok: true, para: numero, id: (r && r.key && r.key.id) || null };
       } catch (e) {
         return falha('FALHA_ENVIO', `o WhatsApp recusou o envio para ${numero} (${motivoErro(e)}); tente de novo`);

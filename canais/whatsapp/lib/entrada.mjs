@@ -93,18 +93,16 @@ export function criarEntrada({ memoria, opcoes, registrar, agora, lids, aprender
     return String((ref && ref.id) || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
   }
 
-  // null = reacao removida (emoji vazio): nada a entregar.
-  function descreverReacao(reacao, numero) {
+  // null = reacao removida (emoji vazio): nada a entregar. So a pergunta que o agente enviou nesta
+  // mesma conversa e citada; qualquer outro caso vira "nao conseguiu identificar" e nunca confirma nada.
+  function descreverReacao(reacao, jid) {
     const emoji = Array.from(String(reacao && reacao.text || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, '')).slice(0, 16).join('');
     if (!emoji) return null;
     const ref = reacao.key || {};
-    const minha = ref.fromMe === true;
-    const trecho = memoria.trecho(ref.id, numero, minha ? 'enviada' : 'recebida');
-    if (!trecho) {
-      return `[reagiu com ${emoji} ${minha ? 'à sua mensagem anterior' : 'a uma mensagem anterior'}, cujo texto não está mais na memória da ponte]`;
-    }
-    const citado = trecho.replace(/"/g, "'");
-    return `[reagiu com ${emoji} ${minha ? 'à sua mensagem' : 'à própria mensagem'}: "${citado}"]`;
+    const mesmaConversa = !ref.remoteJid || ref.remoteJid === jid;
+    const trecho = ref.fromMe === true && mesmaConversa ? memoria.trecho(jid, ref.id) : null;
+    if (!trecho) return `[reagiu com ${emoji} a uma mensagem que a ponte não conseguiu identificar]`;
+    return `[reagiu com ${emoji} à sua mensagem: "${trecho.replace(/"/g, "'")}"]`;
   }
 
   async function processarMensagem(sock, msg) {
@@ -131,9 +129,8 @@ export function criarEntrada({ memoria, opcoes, registrar, agora, lids, aprender
     if (jaVisto(key.id)) return;
 
     const id = String(key.id || '').replace(/[^A-Za-z0-9_-]/g, '') || 'sem-id';
-    const corpo = tipo === 'reactionMessage' ? descreverReacao(conteudo.reactionMessage, numero) : await montarCorpo(msg, conteudo, tipo, id);
+    const corpo = tipo === 'reactionMessage' ? descreverReacao(conteudo.reactionMessage, jid) : await montarCorpo(msg, conteudo, tipo, id);
     if (corpo === null) return;
-    if (tipo !== 'reactionMessage') memoria.lembrar(key.id, corpo, numero, 'recebida');
     const seg = numeroDe(msg.messageTimestamp);
     const quando = Number.isFinite(seg) && seg > 0 ? new Date(seg * 1000) : agora();
     // tipo e ref so saem da ponte (valores limpos): o texto do contato nao consegue forja-los.
@@ -172,15 +169,24 @@ export function criarEntrada({ memoria, opcoes, registrar, agora, lids, aprender
   function esquecerSeEditadaOuApagada(msg) {
     const conteudo = msg && msg.message ? desembrulhar(msg.message) : null;
     const proto = conteudo && conteudo.protocolMessage;
-    if (!proto || !proto.key) return;
-    if (TIPOS_REVOGA_OU_EDICAO.has(proto.type) || proto.editedMessage) memoria.esquecer(proto.key.id);
+    if (!proto || !proto.key || !msg.key) return;
+    if (TIPOS_REVOGA_OU_EDICAO.has(proto.type) || proto.editedMessage) memoria.esquecer(msg.key.remoteJid, proto.key.id);
   }
 
   function aoAtualizar(atualizacoes) {
     if (!Array.isArray(atualizacoes)) return;
     for (const { key, update } of atualizacoes) {
       if (!key || !update) continue;
-      if (update.message || update.messageStubType === 1 || update.messageStubType === 'REVOKE') memoria.esquecer(key.id);
+      if (update.message || update.messageStubType === 1 || update.messageStubType === 'REVOKE') memoria.esquecer(key.remoteJid, key.id);
+    }
+  }
+
+  function aoApagar(info) {
+    if (!info) return;
+    if (Array.isArray(info.keys)) {
+      for (const k of info.keys) if (k) memoria.esquecer(k.remoteJid, k.id);
+    } else if (info.all && info.jid) {
+      memoria.esquecerConversa(info.jid);
     }
   }
 
@@ -196,5 +202,5 @@ export function criarEntrada({ memoria, opcoes, registrar, agora, lids, aprender
     }
   }
 
-  return { aoReceber, aoAtualizar };
+  return { aoReceber, aoAtualizar, aoApagar };
 }
