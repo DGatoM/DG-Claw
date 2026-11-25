@@ -7,6 +7,11 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+- **Correção de segurança: Bun 1.4.5 na imagem dos agentes.** A imagem passa do Bun 1.4.3 para o 1.4.5. A 1.4.4,
+  pedida por alunos, ainda era afetada pelo aviso GHSA-p268-p2w7-qr8x (falha no HTTP/3 do servidor do Bun); a 1.4.5
+  corrige esse aviso e os anteriores. O `dgclaw atualizar` padrão já reconstrói a imagem e recria os containers com a
+  versão nova.
+
 **Correção: falha de pacote do sistema que já tem correção no apt deixa de aparecer como crítica.** Numa VPS Ubuntu recém
 instalada, o aviso "Seu ambiente está em risco" e a tela Segurança mostravam como crítica uma falha do kernel Linux que o Ubuntu
 já corrige pela atualização automática (por exemplo, a CVE-2024-52560, do `ntfs3`, que só acontece ao montar um disco NTFS
