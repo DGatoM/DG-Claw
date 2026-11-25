@@ -256,6 +256,9 @@ COPY --from=runner-build /build/runner/package.json /opt/dgclaw/app/runner/packa
 # Sem isto o OpenCode 1.19.6 instala sozinho o @opencode-ai/plugin a cada card (64 MB, precisa de rede e do
 # registro npm no ar). O runner liga esta pasta (somente leitura, de root) na configuração de cada card.
 # A versão do pacote tem que ser a do CLI: se alguém atualizar uma e esquecer a outra, a imagem não sai.
+# O ARG é declarado de novo porque este estágio não herda os do estágio base (sem isso a variável vem vazia
+# e a conferência abaixo reprova a imagem), com o MESMO valor do topo.
+ARG OPENCODE_VERSAO=1.19.6
 RUN mkdir -p /opt/dgclaw/opencode-deps \
  && cp /opt/dgclaw/app/providers/opencode-deps/package.json /opt/dgclaw/app/providers/opencode-deps/package-lock.json /opt/dgclaw/opencode-deps/ \
  && cd /opt/dgclaw/opencode-deps \
