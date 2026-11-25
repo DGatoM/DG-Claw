@@ -32,21 +32,63 @@ function pastaDeProjetos(configDir?: string | null): string {
  * calculado custa uma janela de conversa vazia sem nenhum erro no caminho.
  */
 export function acharArquivoDaSessao(sessionId: string, configDir?: string | null): string | null {
-  const raiz = pastaDeProjetos(configDir);
-  try {
-    if (!fs.existsSync(raiz)) return null;
-    for (const dir of fs.readdirSync(raiz)) {
-      const alvo = path.join(raiz, dir, `${sessionId}.jsonl`);
-      if (fs.existsSync(alvo)) return alvo;
-    }
-    // Algumas instalações gravam o jsonl solto na raiz.
-    const solto = path.join(raiz, `${sessionId}.jsonl`);
-    if (fs.existsSync(solto)) return solto;
-    return null;
-  } catch (err) {
-    log.aviso("conversa", `não consegui varrer ${raiz}: ${err instanceof Error ? err.message : err}`);
-    return null;
+  const r = inspecionarArquivoDaSessao(sessionId, configDir);
+  if (r.estado === "inconclusivo") {
+    log.aviso("conversa", `não consegui varrer ${pastaDeProjetos(configDir)}: ${r.motivo}`);
   }
+  return r.estado === "achou" ? r.arquivo : null;
+}
+
+export type InspecaoDoTranscript =
+  | { estado: "achou"; arquivo: string }
+  | { estado: "nao-existe" }
+  | { estado: "inconclusivo"; motivo: string };
+
+/** O arquivo existe? Só ENOENT e ENOTDIR (ausência comprovada) dão false; qualquer outro erro (permissão, I/O) sobe,
+ *  porque "não consegui olhar" não é "não existe". */
+function existe(caminho: string): boolean {
+  try {
+    fs.statSync(caminho);
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw err;
+  }
+}
+
+/** Como acharArquivoDaSessao, mas separa "não existe" (a pasta foi varrida e o id não está nela) de "não deu para
+ *  saber" (erro ao ler o disco). Quem decide algo grave com base na ausência precisa dessa diferença. */
+export function inspecionarArquivoDaSessao(sessionId: string, configDir?: string | null): InspecaoDoTranscript {
+  const raiz = pastaDeProjetos(configDir);
+  let entradas: string[];
+  try {
+    entradas = fs.readdirSync(raiz);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { estado: "nao-existe" };
+    return { estado: "inconclusivo", motivo: err instanceof Error ? err.message : String(err) };
+  }
+  // Um erro numa pasta de projeto (EACCES, ELOOP...) não interrompe a busca: o arquivo pode estar na pasta
+  // seguinte. O erro é guardado, a varredura continua, e só se não achar em nenhuma é que o resultado é
+  // "inconclusivo" (não deu para olhar tudo), nunca "não existe".
+  const erros: string[] = [];
+  const olhar = (alvo: string): boolean => {
+    try {
+      return existe(alvo);
+    } catch (err) {
+      erros.push(`${alvo}: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
+  };
+  for (const dir of entradas) {
+    const alvo = path.join(raiz, dir, `${sessionId}.jsonl`);
+    if (olhar(alvo)) return { estado: "achou", arquivo: alvo };
+  }
+  // Algumas instalações gravam o jsonl solto na raiz.
+  const solto = path.join(raiz, `${sessionId}.jsonl`);
+  if (olhar(solto)) return { estado: "achou", arquivo: solto };
+  if (erros.length) return { estado: "inconclusivo", motivo: `não consegui olhar ${erros.length} lugar(es): ${erros.slice(0, 3).join("; ")}` };
+  return { estado: "nao-existe" };
 }
 
 function textoDoConteudo(conteudo: unknown): string {

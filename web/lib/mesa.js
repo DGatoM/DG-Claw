@@ -327,6 +327,7 @@ function criarMesa(opcoes) {
     const p = Promise.resolve()
       .then(() => runner.input(ag, { text: texto, submit: true, injectWhenIdle: true }))
       .then((r) => {
+        if (r && r.ok && r.entregaIncerta) log('aviso', `O recado [Mesa] da tarefa #${tarefaId} para ${agente} tem entrega incerta: ${r.aviso} Confira a conversa antes de reenviar.`);
         if (!r || !r.ok) log('aviso', `O recado [Mesa] da tarefa #${tarefaId} para ${agente} falhou: ${r && r.erro ? String(r.erro).replace(/\.+$/, '') : 'sem resposta do runner'}. A tarefa foi gravada; o agente vê a mudança ao consultar a mesa.`);
       })
       .catch((e) => log('aviso', `O recado [Mesa] da tarefa #${tarefaId} para ${agente} falhou (${e.message}). A tarefa foi gravada; o agente vê a mudança ao consultar a mesa.`))

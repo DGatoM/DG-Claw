@@ -21,6 +21,7 @@
 #   RUNNER_TOKEN_FILE   arquivo com o Bearer do runner (obrigatorio; o token NUNCA vem por argumento)
 #   RUNNER_PORT         porta do runner em 127.0.0.1 (padrao 4300; tem de ser numero)
 #   DGCLAW_CARD_INTERVALO  so para testes: segundos entre olhadas do "esperar" (padrao 5)
+#   DGCLAW_CARD_TEMPO_BASE so para testes: segundos de espera de cada chamada ao runner, antes do acrescimo da colagem (padrao 60)
 #
 # O endereco do runner e FIXO: http://127.0.0.1:$RUNNER_PORT. Nenhuma URL vinda de argumento,
 # de variavel ou de arquivo e usada: um e-mail ou pagina nao consegue apontar este comando para fora.
@@ -43,6 +44,12 @@
 #      Se o card abriu mas o "dgclaw-monitor add" falhou, a saida e 8: o card esta aberto e SEM monitor,
 #      e a mensagem traz o comando para ligar o monitor a mao.
 #   8  (so no "abrir --monitor") o card abriu e o pedido foi entregue, mas o monitor nao ligou
+#   9  envios demais esperando para o card (429 ENVIOS_DEMAIS): o texto nao foi enviado; espere e tente de novo
+#   10 texto grande demais para um envio (413 TEXTO_GRANDE_DEMAIS): o texto nao foi enviado; reduza o texto
+#      (repetir o mesmo texto nao resolve) ou guarde-o num arquivo e peca ao card para le-lo
+#   11 ("mandar" e "abrir") a conexao caiu ou o tempo do curl esgotou DEPOIS de o texto sair, ou o runner respondeu que a
+#      entrega e incerta (202 com entregaIncerta): a entrega e INCERTA, o runner pode ainda estar colando ou ja ter
+#      enviado. NAO reenvie ja: confira com 'dgclaw-card estado <id>' (se aparecer 'na fila', o pedido esta guardado e sera entregue quando o card ficar ocioso) e com 'dgclaw-card ler <id> --n 20'; so reenvie se o card estiver ocioso, sem nada na fila, e o pedido nao aparecer na conversa (na duvida, pergunte ao dono). No "abrir" o card fica aberto e o id sai no stdout.
 set -euo pipefail
 umask 077
 
@@ -72,15 +79,36 @@ carregar_token() {
 # --- chamada ao runner ----------------------------------------------------
 # chamar METODO CAMINHO [CORPO_JSON]  ->  preenche HTTP (codigo) e RESP (corpo). Retorna 2 se o runner nao respondeu.
 HTTP=""; RESP=""
+# Tempo maximo de cada chamada ao runner, em segundos (o max-time do curl), e o codigo de saida do curl da ultima chamada (28 = tempo
+# esgotado, 7 = conexao recusada). So o envio de texto aumenta o tempo (max_time_do_texto).
+TEMPO_BASE="${DGCLAW_CARD_TEMPO_BASE:-60}"
+[[ "$TEMPO_BASE" =~ ^[0-9]+$ ]] && [ "$TEMPO_BASE" -ge 1 ] || TEMPO_BASE=60
+MAX_TEMPO="$TEMPO_BASE"; CURL_RC=0; ENVIANDO_TEXTO=0; ENVIO_MANDAR=0; ID_DO_ENVIO=""
+
+# O runner cola um texto acima de 256 caracteres em pedacos de PEDACO (128) unidades, com INTERVALO_MS (25 ms) de pausa entre um
+# pedaco e o seguinte (runner/src/sessao/constantes.ts; a rotina esta em runner/src/sessao/digitacao.ts). Antes do Enter ainda
+# ha a espera do recibo, que cabe na base de 60 s. Conta: pedacos = bytes / 128 (arredondado para cima; bytes passam das
+# unidades UTF-16, entao a conta sobra); colagem = pedacos x 25 ms; tempo = base + 2 x colagem (folga de 100% para a leitura da
+# tela entre os pedacos e para um terminal lento). Como 2 x 25 ms = 50 ms, o acrescimo e pedacos / 20 segundos.
+# Exemplo: 512 KiB = 4096 pedacos = 102 s de pausas, e o tempo vai a 60 + 205 = 265 s. O teto de um envio e 1 MiB (470 s).
+PEDACO_DO_RUNNER=128
+max_time_do_texto() { # $1 = tamanho do texto em bytes
+  local bytes="$1" pedacos
+  pedacos=$(( (bytes + PEDACO_DO_RUNNER - 1) / PEDACO_DO_RUNNER ))
+  echo $(( TEMPO_BASE + (pedacos + 19) / 20 ))
+}
+
 chamar() {
   local metodo="$1" caminho="$2" corpo="${3:-}" cfg saida
-  cfg="$(printf 'url = "%s%s"\nrequest = "%s"\nheader = "Authorization: Bearer %s"\nmax-time = 60\nwrite-out = "\\n%%{http_code}"\n' "$BASE" "$caminho" "$metodo" "$TOKEN")"
+  cfg="$(printf 'url = "%s%s"\nrequest = "%s"\nheader = "Authorization: Bearer %s"\nmax-time = %s\nwrite-out = "\\n%%{http_code}"\n' "$BASE" "$caminho" "$metodo" "$TOKEN" "$MAX_TEMPO")"
   if [ -n "$corpo" ]; then
     corpo="${corpo//\\/\\\\}"; corpo="${corpo//\"/\\\"}"
     cfg+="$(printf '\nheader = "Content-Type: application/json"\ndata = "%s"' "$corpo")"
   fi
   # stderr do curl suprimido: a mensagem pode citar o Bearer. A falha vira HTTP=000 e falha_geral explica o que fazer.
-  if ! saida="$(printf '%s\n' "$cfg" | curl -sS -K - 2>/dev/null)"; then
+  CURL_RC=0
+  saida="$(printf '%s\n' "$cfg" | curl -sS -K - 2>/dev/null)" || CURL_RC=$?
+  if [ "$CURL_RC" != 0 ]; then
     HTTP="000"; RESP=""
     return 2
   fi
@@ -109,6 +137,15 @@ nome_do_provedor() { # $1 = codex|claude|vazio
 # Fala do jeito que o agente pode repassar ao dono, e sai com o codigo certo.
 falha_geral() {
   local code err fix prov
+  # Falha de transporte durante o envio do texto do "mandar": so 5, 6 e 7 (proxy ou host nao resolvido, conexao recusada) provam que nada
+  # foi transmitido e deixam repetir. Qualquer outro codigo do curl (28 tempo esgotado, 52 resposta vazia, 56 falha ao receber, 55 falha
+  # ao enviar, 18 transferencia parcial...) pode ter acontecido DEPOIS de o pedido chegar, e repetir duplicaria a tarefa.
+  if [ "$HTTP" = "000" ] && [ "${CURL_RC:-0}" != 0 ] && [ "${ENVIANDO_TEXTO:-0}" = 1 ] && [ "${ENVIO_MANDAR:-0}" = 1 ]; then
+    case "$CURL_RC" in
+      5|6|7) ;;
+      *) CODIGO=11 die "a conexao com o runner caiu ou demorou depois de o texto ser enviado (curl $CURL_RC), e a entrega ao card e INCERTA: ele pode ainda estar colando o texto ou ja ter enviado. Nao reenvie ja. Confira com 'dgclaw-card estado ${ID_DO_ENVIO:-<id>}' (se aparecer 'na fila', o pedido esta guardado e sera entregue quando o card ficar ocioso) e com 'dgclaw-card ler ${ID_DO_ENVIO:-<id>} --n 20'. So reenvie se o card estiver ocioso, sem nada na fila, e o pedido nao aparecer na conversa; na duvida, pergunte ao dono." ;;
+    esac
+  fi
   if [ "$HTTP" = "000" ]; then
     CODIGO=2 die "o runner deste agente nao respondeu em 127.0.0.1:$PORTA. Ele pode estar reiniciando: espere cerca de um minuto e tente de novo. Se continuar assim, peca ao dono para tocar em Reiniciar no painel."
   fi
@@ -116,6 +153,10 @@ falha_geral() {
   case "$HTTP:$code" in
     401:*|403:*)
       CODIGO=3 die "o runner recusou o acesso (token invalido). Isso e um problema de instalacao, nao do pedido. Peca ao dono para reiniciar o agente pelo painel; se continuar, o instalador precisa ser rodado de novo." ;;
+    *:ENVIOS_DEMAIS)
+      CODIGO=9 die "ha envios demais esperando para este card: o runner so aceita alguns pedidos de cada vez e recusou este para nao se enrolar. Espere os envios anteriores a este card terminarem e tente de novo em alguns segundos. O texto NAO foi enviado." ;;
+    *:TEXTO_GRANDE_DEMAIS)
+      CODIGO=10 die "o texto do pedido e grande demais para um envio so: o runner recusou e nao escreveu nada. Repetir o mesmo texto nao resolve. Reduza o texto, ou guarde o conteudo num arquivo e mande ao card apenas o pedido para ler esse arquivo. O texto NAO foi enviado." ;;
     429:*|*:LIMITE_DE_SESSOES)
       CODIGO=4 die "${err:-Ja ha cards demais abertos.} Para liberar uma vaga, feche um card que nao precisa mais: veja com 'dgclaw-card listar' e feche com 'dgclaw-card fechar <id>'. Se o dono quiser mais vagas, o limite sobe em RUNNER_MAX_SESSOES_EXTRAS na unidade do runner." ;;
     *:SEM_LOGIN|*:SEM_CHAVE)
@@ -155,7 +196,11 @@ ler_texto() { # $1 = texto|"" ; $2 = arquivo|"" ; $3 = rotulo para a mensagem
 enviar_texto() { # $1 id ; texto em TEXTO
   local corpo
   corpo="$(printf '%s' "$TEXTO" | jq -Rsc '{text: ., submit: true}')"
+  MAX_TEMPO="$(max_time_do_texto "$(printf '%s' "$corpo" | wc -c)")"
+  # Texto enviado e tempo esgotado (curl 28): o runner pode estar colando ou ja ter enviado. Nao e "runner fora do ar" e nao se reenvia.
+  ENVIANDO_TEXTO=1
   chamar_ou_sair POST "/api/agents/$1/input" "$corpo"
+  ENVIANDO_TEXTO=0; MAX_TEMPO="$TEMPO_BASE"
 }
 
 # --- subcomandos ----------------------------------------------------------
@@ -197,9 +242,27 @@ cmd_abrir() {
 
   # O /input pode falhar depois do card existir. Sem login, o card nao serve para nada: fecha para nao ocupar vaga.
   # Se a chamada falhar, HTTP fica 000 e o case abaixo cai no ramo de erro, que avisa e sai.
-  chamar POST "/api/agents/$id/input" "$(printf '%s' "$TEXTO" | jq -Rsc '{text: ., submit: true}')" || true
+  # O pedido do abrir leva o mesmo tempo do mandar: cresce com o tamanho do texto (colagem em pedacos).
+  local corpo_input
+  corpo_input="$(printf '%s' "$TEXTO" | jq -Rsc '{text: ., submit: true}')"
+  MAX_TEMPO="$(max_time_do_texto "$(printf '%s' "$corpo_input" | wc -c)")"
+  chamar POST "/api/agents/$id/input" "$corpo_input" || true
+  MAX_TEMPO="$TEMPO_BASE"
   case "$HTTP" in
     2??) ;;
+    000)
+      # Falha de transporte. Com curl 5, 6 ou 7 nada foi transmitido: segue como antes (avisa e sai com 2). Qualquer outro codigo
+      # (28, 52, 55, 56, 18...) pode ter acontecido DEPOIS de o pedido chegar: o card fica aberto e a entrega e incerta, para
+      # nao duplicar a tarefa com um reenvio.
+      case "${CURL_RC:-0}" in
+        5|6|7) erro "o card $id foi criado, mas o pedido nao foi entregue. Reenvie com: dgclaw-card mandar $id --arquivo <arquivo do pedido>, ou feche com: dgclaw-card fechar $id."
+               falha_geral ;;
+        *)
+          echo "$id"
+          local sem_monitor=""
+          [ "$monitor" = 0 ] || sem_monitor=" O monitor NAO foi ligado: depois de conferir, ligue com: dgclaw-monitor add $id --entregue \"<criterio de entregue>\" [--cada MIN]."
+          CODIGO=11 die "o card $id foi criado, mas a conexao com o runner caiu ou demorou depois de o pedido ser enviado (curl $CURL_RC), e a entrega do pedido e INCERTA. Nao reenvie ja. Confira com 'dgclaw-card estado $id' (se aparecer 'na fila', o pedido esta guardado e sera entregue quando o card ficar ocioso) e com 'dgclaw-card ler $id --n 20'. So reenvie se o card estiver ocioso, sem nada na fila, e o pedido nao aparecer na conversa; na duvida, pergunte ao dono. Para reenviar, use: dgclaw-card mandar $id --arquivo <arquivo do pedido>.$sem_monitor" ;;
+      esac ;;
     *)
       # Guarda a resposta do /input: o DELETE logo abaixo sobrescreve HTTP e RESP.
       local http_input="$HTTP" resp_input="$RESP" code
@@ -213,6 +276,14 @@ cmd_abrir() {
       falha_geral ;;
   esac
   echo "$id"
+  # 202 com entregaIncerta: o runner nao sabe se o pedido chegou. Texto FIXO (nada da resposta dele), sem monitor e sem reenviar.
+  if [ "$(campo .data.entregaIncerta)" = "true" ]; then
+    echo "ATENCAO: a entrega ao card $id e INCERTA, o texto pode ou nao ter chegado."
+    echo "Nao reenvie ja. Confira com 'dgclaw-card estado $id' (se aparecer 'na fila', o pedido esta guardado e sera entregue quando o card ficar ocioso) e com 'dgclaw-card ler $id --n 20'. So reenvie se o card estiver ocioso, sem nada na fila, e o pedido nao aparecer na conversa; na duvida, pergunte ao dono."
+    # Sai com 11, como a falha de transporte: quem encadeia "abrir && esperar" nao pode seguir como se o pedido tivesse chegado.
+    [ "$monitor" = 0 ] || erro "o card $id esta aberto, mas a entrega do pedido e incerta, por isso o monitor NAO foi ligado. Depois de conferir com 'dgclaw-card estado $id' e 'dgclaw-card ler $id --n 20' que o pedido chegou, ligue com: dgclaw-monitor add $id --entregue \"<criterio de entregue>\" [--cada MIN]"
+    exit 11
+  fi
   echo "Card aberto em $(nome_do_provedor "$provedor"). Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
   [ "$monitor" = 0 ] || ligar_monitor "$id" "$entregue" "$cada"
 }
@@ -244,7 +315,16 @@ cmd_mandar() {
   done
   ler_texto "$texto" "$arquivo" "texto a mandar"
   QUEM="$(provedor_do "$id")"
+  ENVIO_MANDAR=1; ID_DO_ENVIO="$id"
   enviar_texto "$id"
+  # 202 com entregaIncerta: o runner nao sabe se o texto chegou. Nao e "enviado" e nao se reenvia sozinho (duplicaria o pedido).
+  if [ "$(campo .data.entregaIncerta)" = "true" ]; then
+    # Texto FIXO, escrito aqui: nada da resposta do runner (o "aviso" dele) e repassado, para a saida nao carregar instrucao alheia.
+    echo "ATENCAO: a entrega ao card $id e INCERTA, o texto pode ou nao ter chegado."
+    echo "Nao reenvie ja. Confira com 'dgclaw-card estado $id' (se aparecer 'na fila', o pedido esta guardado e sera entregue quando o card ficar ocioso) e com 'dgclaw-card ler $id --n 20'. So reenvie se o card estiver ocioso, sem nada na fila, e o pedido nao aparecer na conversa; na duvida, pergunte ao dono."
+    # Sai com 11, como a falha de transporte: quem encadeia "mandar && esperar" nao pode seguir como se o texto tivesse chegado.
+    exit 11
+  fi
   echo "Texto enviado ao card $id. Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
 }
 
