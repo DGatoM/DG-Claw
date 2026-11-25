@@ -33,6 +33,8 @@
 
   const FRASE_AGUARDANDO = 'Estas falhas ainda não têm correção publicada pelo fornecedor. Nada a fazer agora: a ronda confere a cada rodada e avisa quando a correção sair.';
   const VAZIO_AGUARDANDO = 'Nenhuma falha esperando a correção do fornecedor.';
+  const FRASE_ATUALIZACOES = 'Estas falhas já têm correção pelo canal normal de atualização do Ubuntu e não são alarme. Com a atualização automática ligada (o padrão do Ubuntu), ela entra sozinha; se não estiver, use o botão para pedir ao Admin.';
+  const VAZIO_ATUALIZACOES = 'Nenhuma atualização do sistema na fila.';
 
   /* ── avisos de segurança do DG Claw (boletins) ──────────────────────────── */
   function botoesBoletimHtml(b) {
@@ -156,9 +158,47 @@
 
   function tituloAguardando(n) { return 'Aguardando correção oficial (' + n + ')'; }
 
+  /* Pacote do sistema com correção no apt: card neutro, sem etiqueta de gravidade. O kernel sozinho junta dezenas de falhas,
+     então cada componente vira UMA linha recolhida; abrir mostra cada falha. */
+  function cardAtualizacaoHtml(a) {
+    const pede = R.podePedirAtualizacao(a)
+      ? '<div class="rp-acoes"><button type="button" class="rp-btn rp-pri" data-rp="pedir-admin">Pedir ao Admin</button></div>' : '';
+    return '<article class="rp-card rp-aguarda" data-id="' + esc(a.id) + '"><h3>' + esc(a.nome_simples) + ' <span class="rp-tag">' +
+      esc(R.estadoRotulo(a.estado)) + '</span></h3>' +
+      '<p class="rp-texto">' + esc(a.como_corrigir || FRASE_ATUALIZACOES) + '</p>' + pede +
+      '<details class="rp-detalhe"><summary>Ver detalhes da falha</summary>' + R.fatosHtml(a) + '</details>' +
+      '<p class="rp-msg" role="status" hidden></p></article>';
+  }
+
+  function plural(n, um, varios) { return n + ' ' + (n === 1 ? um : varios); }
+
+  function agrupaPorComponente(achados) {
+    const grupos = new Map();
+    for (const a of achados) {
+      const nome = (a.componente && String(a.componente).trim()) || 'Outros componentes';
+      if (!grupos.has(nome)) grupos.set(nome, []);
+      grupos.get(nome).push(a);
+    }
+    return Array.from(grupos, ([nome, itens]) => ({ nome, itens })).sort((x, y) => y.itens.length - x.itens.length || x.nome.localeCompare(y.nome, 'pt-BR'));
+  }
+
+  function resumoGrupoAtualizacoes(g) {
+    const n = g.itens.length;
+    return g.nome.charAt(0).toUpperCase() + g.nome.slice(1) + ': ' + plural(n, 'correção', 'correções') + ' na fila da atualização do sistema';
+  }
+
+  function listaAtualizacoesHtml(achados) {
+    if (!achados || !achados.length) return '<p class="rp-vazio">' + esc(VAZIO_ATUALIZACOES) + '</p>';
+    return '<p class="rp-texto" id="rpAtualizacoesFrase">' + esc(FRASE_ATUALIZACOES) + '</p>' +
+      agrupaPorComponente(achados).map(g => '<details class="rp-detalhe rp-grupo-aguarda" data-componente="' + esc(g.nome) + '"><summary>' +
+        esc(resumoGrupoAtualizacoes(g)) + '</summary>' + g.itens.map(cardAtualizacaoHtml).join('') + '</details>').join('');
+  }
+
+  function tituloAtualizacoes(n) { return 'Atualizações do sistema (' + n + ')'; }
+
   /* Os níveis 2 e 3 só mostram o que pede alguma coisa de alguém; o resto vai para a seção informativa. */
   function listaNivelHtml(achados, nivel, agora) {
-    const lista = (achados || []).filter(a => !R.aguardaCorrecao(a));
+    const lista = (achados || []).filter(a => !R.segundoPlano(a));
     if (!lista.length) return '<p class="rp-vazio">' + esc(VAZIO[nivel]) + '</p>';
     const f = nivel === 1 ? cardAplicadoHtml : nivel === 2 ? cardAcaoHtml : cardSemPressaHtml;
     return lista.map(a => f(a, agora)).join('');
@@ -287,6 +327,12 @@
         como: 'A cada rodada a ronda pergunta ao apt deste servidor se a versão corrigida já pode ser instalada, e confere de verdade se a proteção provisória continua ligada. Se a correção chegar, a falha sai desta lista e aparece em Ação necessária. Se a proteção cair, ela também volta para lá.',
         porque: 'Você não precisa decidir nada sobre elas hoje, então elas não entram no aviso de risco. Ficam aqui, à vista, para você saber que a ronda está de olho.' },
     ],
+    atualizacoes: [
+      { alvo: '#secAtualizacoes', titulo: 'Atualizações do sistema',
+        oque: 'As falhas de pacotes do Ubuntu (o kernel Linux, por exemplo) que já têm correção pronta. Ficam numa linha por componente, como "Kernel Linux: 12 correções na fila da atualização do sistema". Toque na linha para ver cada falha.',
+        como: 'A cada rodada a ronda pergunta ao apt deste servidor se a versão corrigida já pode ser instalada. Se pode para todos os pacotes da falha, ela não constava no catálogo de falhas exploradas da CISA na última consulta válida, ela entra aqui, e o número da linha é a quantidade de falhas desse componente nessa situação. Quando o pacote é atualizado, a falha some sozinha.',
+        porque: 'Com a atualização automática do Ubuntu ligada (o padrão), a correção entra sozinha e você não precisa decidir nada. Se ela não estiver ligada, o botão Pedir ao Admin abre a conversa com o pedido já escrito. O Admin também recebe um recado sobre elas e confere isso. Por isso elas não entram no aviso de risco nem no selo, e ficam recolhidas aqui, à vista.' },
+    ],
     tratadas: [
       { alvo: '#secTratadas', titulo: 'Já tratadas',
         oque: 'As falhas de rondas anteriores que já foram resolvidas.',
@@ -303,11 +349,11 @@
 
   function passosPagina(doc) {
     const tem = sel => !doc || !!doc.querySelector(sel);
-    return [].concat(PASSOS.topo, PASSOS.boletins, PASSOS.aplicado, PASSOS.acao, PASSOS.sempressa, PASSOS.aguardando, PASSOS.emergencia, PASSOS.tratadas, PASSOS.inventario).filter(p => tem(p.alvo));
+    return [].concat(PASSOS.topo, PASSOS.boletins, PASSOS.aplicado, PASSOS.acao, PASSOS.sempressa, PASSOS.aguardando, PASSOS.atualizacoes, PASSOS.emergencia, PASSOS.tratadas, PASSOS.inventario).filter(p => tem(p.alvo));
   }
 
   if (!raiz.document) {
-    return { cardBoletimHtml, listaBoletinsHtml, cardAplicadoHtml, cardAcaoHtml, cardSemPressaHtml, cardAguardandoHtml, listaAguardandoHtml, tituloAguardando, listaNivelHtml, tratadasHtml, inventarioHtml, planoHtml, emergenciaHtml, fraseConfere, passosPagina, PASSOS, VAZIO, VAZIO_BOLETINS, VAZIO_AGUARDANDO, FRASE_AGUARDANDO, TEXTO_EMERGENCIA };
+    return { cardBoletimHtml, listaBoletinsHtml, cardAplicadoHtml, cardAcaoHtml, cardSemPressaHtml, cardAguardandoHtml, listaAguardandoHtml, tituloAguardando, cardAtualizacaoHtml, listaAtualizacoesHtml, agrupaPorComponente, resumoGrupoAtualizacoes, tituloAtualizacoes, FRASE_ATUALIZACOES, VAZIO_ATUALIZACOES, listaNivelHtml, tratadasHtml, inventarioHtml, planoHtml, emergenciaHtml, fraseConfere, passosPagina, PASSOS, VAZIO, VAZIO_BOLETINS, VAZIO_AGUARDANDO, FRASE_AGUARDANDO, TEXTO_EMERGENCIA };
   }
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
@@ -362,6 +408,9 @@
       $('tituloAguardando').textContent = tituloAguardando(espera.length);
       $('listaAguardando').innerHTML = r ? listaAguardandoHtml(espera, agora) : '<p class="rp-vazio">' + esc(est.erro ? 'Sem dados da ronda.' : 'Ainda sem ronda.') + '</p>';
     }
+    const fila = r ? [].concat(r.niveis['1'], r.niveis['2'], r.niveis['3']).filter(R.ehAtualizacaoSistema) : [];
+    $('tituloAtualizacoes').textContent = tituloAtualizacoes(fila.length);
+    $('listaAtualizacoes').innerHTML = r ? listaAtualizacoesHtml(fila) : '<p class="rp-vazio">' + esc(est.erro ? 'Sem dados da ronda.' : 'Ainda sem ronda.') + '</p>';
     $('listaTratadas').innerHTML = tratadasHtml(r && r.ja_tratadas);
     $('listaInventario').innerHTML = inventarioHtml(r && r.inventario);
   }
@@ -551,5 +600,5 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', inicia);
   else inicia();
 
-  return { cardAplicadoHtml, cardAcaoHtml, cardSemPressaHtml, cardAguardandoHtml, listaAguardandoHtml, tituloAguardando, listaNivelHtml, tratadasHtml, inventarioHtml, planoHtml, emergenciaHtml, fraseConfere, passosPagina, PASSOS, VAZIO, VAZIO_BOLETINS, VAZIO_AGUARDANDO, FRASE_AGUARDANDO, TEXTO_EMERGENCIA, tutorial, carrega };
+  return { cardAplicadoHtml, cardAcaoHtml, cardSemPressaHtml, cardAguardandoHtml, listaAguardandoHtml, tituloAguardando, cardAtualizacaoHtml, listaAtualizacoesHtml, agrupaPorComponente, resumoGrupoAtualizacoes, tituloAtualizacoes, FRASE_ATUALIZACOES, VAZIO_ATUALIZACOES, listaNivelHtml, tratadasHtml, inventarioHtml, planoHtml, emergenciaHtml, fraseConfere, passosPagina, PASSOS, VAZIO, VAZIO_BOLETINS, VAZIO_AGUARDANDO, FRASE_AGUARDANDO, TEXTO_EMERGENCIA, tutorial, carrega };
 });

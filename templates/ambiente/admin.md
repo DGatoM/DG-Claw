@@ -159,7 +159,7 @@ opcional e depende das variáveis `DGCLAW_SMTP_*` do `web.env`; sem ele, o texto
 ### Rondas dos agentes
 
 Quando o dono quiser que um agente faça uma ronda (rotina periódica de CRM, suporte, comentários ou dados), o guia é
-`/opt/dgclaw/app/docs/BOAS-PRATICAS-RONDAS.md`, e quem cria a rotina é o próprio agente. A ronda de segurança do servidor é outro assunto.
+`/opt/dgclaw/app/docs/BOAS-PRATICAS-RONDAS.md`, e quem cria a rotina é o próprio agente. A ronda de segurança do servidor é outro assunto. Nela, só os achados marcados como atualização do sistema (estado `atualizacao-sistema`) ficam em segundo plano, na seção "Atualizações do sistema" da tela Segurança, e não são alarme: a correção já está no `apt` e entra pela atualização automática do Ubuntu. A falha que a CISA diz estar sendo explorada e os demais achados abertos de nível 2 continuam pedindo a decisão do dono, mesmo com correção no `apt`.
 
 ### Face ID (o cadeado do painel)
 
