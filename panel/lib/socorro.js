@@ -72,6 +72,26 @@ function resumoDaFerramenta(nome, entrada) {
   return `usou ${nome}`;
 }
 
+/** O `.claude.json` que o Claude do socorro vai usar: dentro do CLAUDE_CONFIG_DIR quando há um, senão `$HOME/.claude.json`. */
+function arquivoClaudeJson(env) {
+  const dir = String(env.CLAUDE_CONFIG_DIR || '').trim();
+  return dir ? path.join(dir, '.claude.json') : path.join(String(env.HOME || '').trim() || os.homedir(), '.claude.json');
+}
+
+/** Marca as pastas como confiáveis no `.claude.json`, ANTES de o `claude` subir: o Claude Code 2.1.326
+ *  abre "Is this a directory you created or one you trust?" para o cwd e cada `--add-dir` ainda não
+ *  marcado. Quem grava é o mesmo helper dos crons e do launch.sh (`_lib/confiar-pastas.py`), com a trava
+ *  compartilhada com o runner: um escritor só, sem um apagar o que o outro acabou de gravar. Caminhos vão
+ *  como argumento. Devolve null quando deu certo, ou o motivo (o stderr do helper, que nunca cita o
+ *  conteúdo do arquivo). */
+function confiarNasPastas(lib, arquivo, pastas) {
+  if (!lib) return 'os scripts do plugin não foram encontrados (confiar-pastas.py)';
+  const r = spawnSync('python3', ['-I', path.join(lib, 'confiar-pastas.py'), arquivo, ...pastas], { encoding: 'utf8', timeout: 15000 });
+  if (r.error) return `não consegui rodar o python3 (${r.error.code || 'erro'})`;
+  if (r.status !== 0) return String(r.stderr || '').trim().slice(0, 500) || `o helper saiu com código ${r.status}`;
+  return null;
+}
+
 function buildSocorro(CONFIG, serverDir) {
   const LIGADO = CONFIG.socorro !== false;
   const MODELO = CONFIG.socorroModelo || 'sonnet';
@@ -245,6 +265,14 @@ function buildSocorro(CONFIG, serverDir) {
     if (!sessao.iniciadaEm) sessao.iniciadaEm = new Date().toISOString();
     evento('voce', limpo);
 
+    // Cwd e --add-dir precisam estar marcados como confiáveis, senão o claude para no diálogo de confiança.
+    // Falha aqui não impede a tentativa: registra o que houve e segue.
+    const arqClaude = arquivoClaudeJson(ambiente());
+    const falhaConfianca = confiarNasPastas(LIB, arqClaude, [SALA, WS]);
+    if (falhaConfianca) {
+      console.error(`[socorro] nao consegui marcar ${SALA} e ${WS} como confiaveis no .claude.json do Claude do socorro: ${falhaConfianca}. Se o claude abrir o dialogo de confianca o socorro nao responde.`);
+    }
+
     const minha = sessao; // se "encerrar" trocar a sessão no meio, os eventos tardios não vazam para a nova
     let proc;
     try {
@@ -326,4 +354,4 @@ function buildSocorro(CONFIG, serverDir) {
   return { estado, mensagem, encerrar, LIGADO, _prompt: promptDoSistema };
 }
 
-module.exports = { buildSocorro, resumoDaFerramenta };
+module.exports = { buildSocorro, resumoDaFerramenta, confiarNasPastas, arquivoClaudeJson };

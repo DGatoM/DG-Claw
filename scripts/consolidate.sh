@@ -47,6 +47,10 @@ fi
 # shellcheck disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/_lib/restricoes-rotina.sh"
 restricoes_conferir_rotina "consolidacao" "$LOG" || exit 1
+# O cwd e o --add-dir precisam estar marcados como confiaveis (Claude Code 2.1.326); falha so avisa no log.
+# shellcheck disable=SC1091
+. "$(dirname "${BASH_SOURCE[0]}")/_lib/confiar-pastas.sh"
+confiar_pastas "$DGCLAW_WORKSPACE" >> "$LOG" 2>&1 || true
 "$CLAUDE_BIN" --print \
     --no-session-persistence \
     --permission-mode bypassPermissions \

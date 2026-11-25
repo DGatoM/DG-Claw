@@ -21,7 +21,7 @@ ExecStartPre=/usr/bin/rm -f /home/agente/.tela-chrome/SingletonLock /home/agente
 ExecStart=/usr/local/bin/dgclaw-tela-navegador
 # 78 = nenhum navegador na imagem: reiniciar de 5 em 5 segundos nao resolve.
 RestartPreventExitStatus=78
-# O systemd limita cada servico a 15% dos pids do container (153 com --pids-limit 1024), e o
+# O systemd limita cada servico a 15% dos pids do container (614 com --pids-limit 4096), e o
 # Chrome passa disso com duas abas: a aba nova morre com "pthread_create: Resource temporarily
 # unavailable" e no CDP aparece "Target crashed". O --no-zygote acima poupa mais alguns.
 TasksMax=600

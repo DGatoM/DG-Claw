@@ -39,23 +39,9 @@ fi
 
 echo "==> pre-gravando trust + skip-dangerous (evita dialogos que travam o boot)"
 # (a) trust do workspace + onboarding completo, no .claude.json do config dir
-python3 -I - "$CONFIG_JSON" "$DGCLAW_WORKSPACE" <<'PY'
-import json, os, sys
-path, ws = sys.argv[1], sys.argv[2]
-os.makedirs(os.path.dirname(path), exist_ok=True) if os.path.dirname(path) else None
-try:
-    d = json.load(open(path))
-except Exception:
-    d = {}
-d.setdefault("projects", {})
-proj = d["projects"].get(ws, {})
-proj["hasTrustDialogAccepted"] = True
-proj["hasCompletedProjectOnboarding"] = True
-d["projects"][ws] = proj
-d["hasCompletedOnboarding"] = True
-json.dump(d, open(path, "w"), indent=2)
-print(f"   trust ok em {path} (projeto {ws})")
-PY
+python3 -I "$(dirname "${BASH_SOURCE[0]}")/_lib/confiar-pastas.py" --onboarding "$CONFIG_JSON" "$DGCLAW_WORKSPACE" \
+    || { echo "ERRO: nao consegui marcar o workspace como confiavel em $CONFIG_JSON (motivo na linha acima)." >&2; exit 1; }
+echo "   trust ok em $CONFIG_JSON (projeto $DGCLAW_WORKSPACE)"
 
 # (b) skipDangerousModePermissionPrompt em LOCAL settings do workspace
 #     (NAO em project settings — o claude ignora la por protecao de CVE).

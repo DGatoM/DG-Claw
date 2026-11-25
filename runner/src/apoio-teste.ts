@@ -233,3 +233,23 @@ export async function portaLivre(): Promise<number> {
     });
   });
 }
+
+/** Grava o transcript de uma conversa do Claude no CLAUDE_CONFIG_DIR de teste. O runner só retoma (--resume) um id
+ *  cujo histórico existe no disco; o Claude falso não grava transcript, então o teste que espera uma retomada o faz aqui. */
+export function gravarTranscriptDoClaude(sessionId: string): string {
+  const pasta = path.join(process.env.CLAUDE_CONFIG_DIR as string, "projects", "proj-teste");
+  fs.mkdirSync(pasta, { recursive: true });
+  const arquivo = path.join(pasta, `${sessionId}.jsonl`);
+  fs.writeFileSync(arquivo, JSON.stringify({ type: "user", message: { role: "user", content: "oi" } }) + "\n");
+  return arquivo;
+}
+
+/** Escreve na tela como se o CLI tivesse desenhado e espera o emulador de terminal processar (a escrita nele é assíncrona).
+ *  Só depois disso `s.telaAtual()` mostra o que foi escrito. */
+export async function alimentarTela(
+  s: { guardarEEmitir(t: string): void; emulador: { write(d: string, cb: () => void): void } | null },
+  texto: string,
+): Promise<void> {
+  s.guardarEEmitir(texto);
+  await new Promise<void>((resolve) => (s.emulador ? s.emulador.write("", resolve) : resolve()));
+}

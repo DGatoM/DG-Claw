@@ -149,6 +149,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 cd "$DGCLAW_WORKSPACE" || exit 1
 
+# A confianca da pasta e marcada a CADA boot, nao so na instalacao: o Claude Code 2.1.326 passou a abrir
+# "Is this a directory you created or one you trust?" para o cwd (e para cada --add-dir) que nao tem
+# hasTrustDialogAccepted, e sob systemd ninguem esta no teclado para responder. Falha so avisa.
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/_lib/confiar-pastas.sh"
+confiar_pastas "$DGCLAW_WORKSPACE" || true
+
 # --- O canal do painel (DG Chat) -------------------------------------------
 # O servidor MCP que da ao agente as tools `reply` e `send_file`. Sem ele o
 # agente RECEBE a mensagem escrita no painel e nao tem como responder: o

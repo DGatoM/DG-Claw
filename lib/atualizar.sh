@@ -262,7 +262,7 @@ atualizar_aplicar() {
     done < <(agentes_ler | jq -r '.agentes[] | select(.tipo == "agente") | .slug')
     if [ -n "$falhou" ]; then
         ATU_PROBLEMAS=$((ATU_PROBLEMAS + 1))
-        printf '   FALHOU  nao consegui recriar:%s (leia as mensagens acima; a casa deles esta intacta). Para refazer cada um: dgclaw agente recriar <slug> --forcar\n' "$falhou" >&2
+        printf '   FALHOU  nao consegui recriar:%s (leia as mensagens acima; a casa deles esta intacta). Se a mensagem listou coisas que existem so dentro do container, confira se pode perde-las antes de usar --forcar. Para refazer cada um: dgclaw agente recriar <slug> --forcar\n' "$falhou" >&2
     fi
     atualizar_juntar_tela_sem_senha
 }
