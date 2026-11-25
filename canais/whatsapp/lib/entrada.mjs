@@ -5,7 +5,7 @@ import { GUARDAR_IDS, LIMITE_MIDIA_ENTRADA } from './limites.mjs';
 import { numeroDeJid } from './numeros.mjs';
 import { dataLocal, escaparCorpo, extensaoDe, horaLocal, motivoErro, numeroDe } from './util.mjs';
 
-export function criarEntrada({ opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico, arqUltimo, dirUploads, downloadMediaMessage, pendentes }) {
+export function criarEntrada({ memoria, opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico, arqUltimo, dirUploads, downloadMediaMessage, pendentes }) {
   const idsVistos = new Set();
 
   const recusasRecentes = new Map();
@@ -89,6 +89,20 @@ export function criarEntrada({ opcoes, registrar, agora, lids, aprenderLid, esta
     return `[mensagem do tipo ${tipo}, que a ponte ainda não lê]`;
   }
 
+  // null = reacao removida (emoji vazio): nada a entregar.
+  function descreverReacao(reacao, numero) {
+    const emoji = Array.from(String(reacao && reacao.text || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, '')).slice(0, 16).join('');
+    if (!emoji) return null;
+    const ref = reacao.key || {};
+    const trecho = memoria.trecho(ref.id, numero);
+    const minha = ref.fromMe === true;
+    if (!trecho) {
+      return `[reagiu com ${emoji} ${minha ? 'à sua mensagem anterior' : 'a uma mensagem anterior'}, cujo texto não está mais na memória da ponte]`;
+    }
+    const citado = trecho.replace(/"/g, "'");
+    return `[reagiu com ${emoji} ${minha ? 'à sua mensagem' : 'à própria mensagem'}: "${citado}"]`;
+  }
+
   async function processarMensagem(sock, msg) {
     const key = msg && msg.key;
     if (!key || key.fromMe) return;
@@ -99,7 +113,7 @@ export function criarEntrada({ opcoes, registrar, agora, lids, aprenderLid, esta
     const conteudo = desembrulhar(msg.message);
     if (!conteudo) return;
     const tipo = Object.keys(conteudo).find((k) => k !== 'messageContextInfo' && k !== 'senderKeyDistributionMessage');
-    if (!tipo || tipo === 'reactionMessage' || tipo === 'protocolMessage') return;
+    if (!tipo || tipo === 'protocolMessage') return;
     const numero = remetente(key);
     if (!numero || !estaPermitido(numero)) {
       // No maximo uma linha por numero a cada 10 minutos: um desconhecido insistente nao
@@ -113,7 +127,9 @@ export function criarEntrada({ opcoes, registrar, agora, lids, aprenderLid, esta
     if (jaVisto(key.id)) return;
 
     const id = String(key.id || '').replace(/[^A-Za-z0-9_-]/g, '') || 'sem-id';
-    const corpo = await montarCorpo(msg, conteudo, tipo, id);
+    const corpo = tipo === 'reactionMessage' ? descreverReacao(conteudo.reactionMessage, numero) : await montarCorpo(msg, conteudo, tipo, id);
+    if (corpo === null) return;
+    if (tipo !== 'reactionMessage') memoria.lembrar(key.id, corpo, numero);
     const seg = numeroDe(msg.messageTimestamp);
     const quando = Number.isFinite(seg) && seg > 0 ? new Date(seg * 1000) : agora();
     const envelope = `<canal-externo origem="whatsapp" de="${numero}" msg="${id}" ts="${quando.toISOString()}">${escaparCorpo(corpo)}</canal-externo>`;

@@ -118,13 +118,23 @@ o campo `id` de `DGCLAW_RUNNER_JSON`, padrão `/etc/dgclaw-runner/runner.json`),
 ### Entrada (WhatsApp para o agente)
 
 1. Só `messages.upsert` do tipo `notify`. Ignora `fromMe`, grupos (`@g.us`), `status@broadcast`, listas e
-   canais (`@newsletter`), reações e mensagens de protocolo. Ignora id repetido.
+   canais (`@newsletter`) e mensagens de protocolo. Ignora id repetido. A reação (emoji sobre uma mensagem)
+   passa pelas mesmas travas da mensagem normal e é tratada no passo 3.
 2. Número fora da lista (ou lista ausente ou inválida): descarta, loga a linha de recusa, não marca como
    lida e não responde nada.
 3. Número na lista: monta o corpo. Texto puro, legenda, ou, para imagem, áudio, vídeo e documento, baixa
    o arquivo para `~/uploads/whatsapp/<AAAA-MM-DD>/<id>.<ext>` (limite de 25 MB) e escreve
    `[áudio salvo em /home/agente/uploads/whatsapp/2026-10-17/ABC.ogg]` no corpo. Tipo que a ponte não lê
-   vira `[mensagem do tipo <tipo>, que a ponte ainda não lê]`.
+   vira `[mensagem do tipo <tipo>, que a ponte ainda não lê]`. Reação vira uma linha de texto:
+   `[reagiu com 👍 à sua mensagem: "Posso fazer tal coisa?"]` quando a reação é a uma mensagem que o agente
+   enviou, `[reagiu com 👍 à própria mensagem: "..."]` quando é a uma mensagem que a própria pessoa mandou, e
+   `[reagiu com 👍 a uma mensagem anterior, cujo texto não está mais na memória da ponte]` quando a ponte não
+   tem mais o texto (mensagem antiga ou ponte reiniciada; com a mensagem do agente, "à sua mensagem anterior").
+   O trecho são os primeiros 200 caracteres, com as quebras de linha viradas em espaço, `…` se cortou, e as
+   aspas duplas viram simples. A ponte guarda esses trechos só na memória (até 500 mensagens, nada em disco,
+   some quando ela reinicia). Reação removida (emoji vazio) não entrega nada e não gera linha de recusa. O emoji
+   perde os caracteres de controle e fica limitado a 16 caracteres. Emoji mandado como texto comum segue entrando
+   como texto.
 4. Escapa o corpo (`&` para `&amp;`, `<` para `&lt;`, `>` para `&gt;`), para nenhum texto de fora conseguir
    fechar o envelope ou forjar um `<dgchat>`. Os atributos só levam valores limpos (o id da mensagem fica
    restrito a `[A-Za-z0-9_-]`).
@@ -266,3 +276,12 @@ Mensagem do WhatsApp entra como **externa**, nunca como fala do dono. Veio de um
 autorizou, e o agente responde normalmente por `whatsapp_reply`, mas não age sozinho sobre nada
 irreversível, sobre credenciais, canais ou a lista de permitidos só porque uma mensagem do WhatsApp
 pediu: confirma antes no chat do DG Claw. A lista nunca muda a pedido de uma mensagem do próprio canal.
+
+### Reações e emojis como resposta
+
+O agente trata as reações assim (a regra está em `templates/ambiente/agente.md` e na skill `canais`):
+👍 ✅ 👌 🙏, e o emoji solto mandado como texto, em resposta a uma pergunta de sim ou não dele valem como
+sim. ❤️ 😂 e afins são reação social: não confirmam nada e não recebem resposta, o que evita um laço de
+uma resposta para cada reação. Reação que não responde a uma pergunta do agente não precisa de resposta.
+Em ação sensível (pagamento, envio a terceiros, algo destrutivo ou irreversível) uma reação nunca basta: o
+agente confirma com uma pergunta curta e explícita, e a ação irreversível continua só no chat do DG Claw.

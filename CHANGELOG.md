@@ -7,6 +7,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção no canal de WhatsApp: reações e emojis como resposta.** Quando o agente perguntava "Posso fazer X?" e você respondia com um 👍 como reação à mensagem (o toque longo, não o emoji digitado), o agente nunca ficava sabendo, porque a ponte descartava a reação. Agora a reação chega ao agente como uma linha de texto, `[reagiu com 👍 à sua mensagem: "Posso fazer X?"]`, com o trecho da mensagem a que ela se refere. A ponte guarda esses trechos só na memória (nada em disco), então uma reação a uma mensagem antiga, ou feita depois de a ponte reiniciar, chega dizendo que o texto original não está mais disponível. A reação segue as mesmas regras de qualquer mensagem: só números da lista de permitidos, nada de grupos, e reação removida não entrega nada. Um emoji digitado como texto já chegava e continua chegando. As instruções do agente ganharam a regra de leitura: 👍 ✅ 👌 🙏 em resposta a uma pergunta de sim ou não valem como "sim"; ❤️ 😂 e afins não confirmam nada e não recebem resposta; e em ação sensível (pagamento, envio a terceiros, algo destrutivo ou irreversível) uma reação nunca basta, o agente pergunta de novo, e ação irreversível continua só pelo chat do DG Claw. O Claude e o Codex recebem o mesmo texto.
+
 **Correção do agente que ficava "trabalhando" para sempre depois de um /compact recusado.** Quando o auto-compact enfileirava
 vários `/compact` seguidos e o Claude Code respondia "Not enough messages to compact.", ele avisava o início da compactação
 e nunca o fim: o agente ficava em "working" por horas com as mensagens presas na fila. Agora (1) o runner olha o transcript

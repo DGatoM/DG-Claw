@@ -320,19 +320,133 @@ test('entrada: LID com senderPn passa; sem senderPn e recusado como numero ocult
   await a.fim();
 });
 
-test('entrada: grupo, fromMe, status, newsletter, reacao e tipo diferente de notify sao ignorados', async () => {
+test('entrada: grupo, fromMe, status, newsletter, e tipo diferente de notify sao ignorados', async () => {
   const a = await ambiente();
   await receber(a,
     mensagem('g', { id: 'G1', jid: '120363@g.us', key: { participant: DONO_JID } }),
     mensagem('eu', { id: 'G2', key: { fromMe: true } }),
     mensagem('st', { id: 'G3', jid: 'status@broadcast' }),
     mensagem('nl', { id: 'G4', jid: '1203@newsletter' }),
-    { key: { id: 'G5', remoteJid: DONO_JID, fromMe: false }, message: { reactionMessage: { text: '+1' } } },
     { key: { id: 'G6', remoteJid: DONO_JID, fromMe: false }, message: { protocolMessage: { type: 0 } } });
   a.sock.ev.emit('messages.upsert', { type: 'append', messages: [mensagem('antiga', { id: 'G7' })] });
   await a.ponte.aguardarOciosa();
   assert.equal(a.runner.reqs.length, 0);
   assert.ok(!a.log().includes('recusado'), 'ignorar nao e recusar: nada de linha de recusa');
+  await a.fim();
+});
+
+// ---------------------------------------------------------------------------
+// Reacoes
+// ---------------------------------------------------------------------------
+function reacao(emoji, refId, { id = 'RE1', jid = DONO_JID, fromMeRef = true } = {}) {
+  return {
+    key: { id, remoteJid: jid, fromMe: false },
+    message: { reactionMessage: { key: { id: refId, remoteJid: jid, fromMe: fromMeRef }, text: emoji, senderTimestampMs: AGORA.getTime() } },
+    messageTimestamp: Math.floor(AGORA.getTime() / 1000),
+  };
+}
+const textoEntregue = (a, i) => JSON.parse(a.runner.reqs[i].corpo).text;
+
+test('reacao: 👍 a uma mensagem que o agente enviou chega com o trecho dela', async () => {
+  const a = await ambiente();
+  const r = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'Posso fazer tal coisa?' });
+  assert.equal(r.ok, true);
+  await receber(a, reacao('👍', r.id));
+  assert.equal(a.runner.reqs.length, 1);
+  assert.match(textoEntregue(a, 0), /de="\+5511987654321"/);
+  assert.ok(textoEntregue(a, 0).includes('[reagiu com 👍 à sua mensagem: "Posso fazer tal coisa?"]'), textoEntregue(a, 0));
+  assert.equal(a.sock.lidas.length, 1);
+  await a.fim();
+});
+
+test('reacao: legenda de arquivo enviado tambem fica na memoria', async () => {
+  const a = await ambiente();
+  const arq = path.join(a.home, 'doc.txt');
+  fs.writeFileSync(arq, 'conteudo');
+  const r = await pedir(a.sockPath, { acao: 'arquivo', para: DONO, caminho: arq, legenda: 'Segue o documento' });
+  assert.equal(r.ok, true);
+  await receber(a, reacao('✅', r.id));
+  assert.ok(textoEntregue(a, 0).includes('[reagiu com ✅ à sua mensagem: "Segue o documento"]'), textoEntregue(a, 0));
+  await a.fim();
+});
+
+test('reacao: numero B nao le o trecho de uma mensagem enviada ao numero A', async () => {
+  const B = '+5521999998888';
+  const a = await ambiente({ lista: [DONO, B] });
+  const r = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'Texto privado do dono' });
+  await receber(a, reacao('👍', r.id, { jid: '5521999998888@s.whatsapp.net' }));
+  assert.equal(a.runner.reqs.length, 1);
+  assert.ok(textoEntregue(a, 0).includes('não está mais na memória da ponte'), textoEntregue(a, 0));
+  assert.ok(!textoEntregue(a, 0).includes('Texto privado'));
+  await a.fim();
+});
+
+test('reacao removida (texto vazio) nao entrega nada nem loga recusa', async () => {
+  const a = await ambiente();
+  await receber(a, reacao('', 'QUALQUER'), reacao('\u0007\u0000', 'OUTRO', { id: 'RE2' }));
+  assert.equal(a.runner.reqs.length, 0);
+  assert.ok(!a.log().includes('recusado'));
+  await a.fim();
+});
+
+test('emoji solto como texto continua sendo entregue como 👍', async () => {
+  const a = await ambiente();
+  await receber(a, mensagem('👍', { id: 'EM1' }));
+  assert.equal(a.runner.reqs.length, 1);
+  assert.ok(textoEntregue(a, 0).includes('>👍</canal-externo>'), textoEntregue(a, 0));
+  await a.fim();
+});
+
+test('reacao a id desconhecido avisa que o texto nao esta mais na memoria', async () => {
+  const a = await ambiente();
+  await receber(a, reacao('👍', 'ANTIGA1'), reacao('🙏', 'ANTIGA2', { id: 'RE2', fromMeRef: false }));
+  assert.ok(textoEntregue(a, 0).includes('[reagiu com 👍 à sua mensagem anterior, cujo texto não está mais na memória da ponte]'), textoEntregue(a, 0));
+  assert.ok(textoEntregue(a, 1).includes('[reagiu com 🙏 a uma mensagem anterior, cujo texto não está mais na memória da ponte]'), textoEntregue(a, 1));
+  await a.fim();
+});
+
+test('reacao de numero fora da lista e recusada como mensagem normal', async () => {
+  const a = await ambiente();
+  await receber(a, reacao('👍', 'X1', { jid: '5521999998888@s.whatsapp.net' }));
+  assert.equal(a.runner.reqs.length, 0);
+  assert.ok(a.log().includes('whatsapp: recusado +5521999998888 às 14:32\n'), a.log());
+  await a.fim();
+});
+
+test('reacao em grupo e ignorada', async () => {
+  const a = await ambiente();
+  const m = reacao('👍', 'X1', { jid: '120363@g.us' });
+  m.key.participant = DONO_JID;
+  await receber(a, m);
+  assert.equal(a.runner.reqs.length, 0);
+  assert.ok(!a.log().includes('recusado'));
+  await a.fim();
+});
+
+test('reacao a mensagem que a propria pessoa mandou cita o trecho dela', async () => {
+  const a = await ambiente();
+  await receber(a, mensagem('Pode mandar o orçamento', { id: 'MINHA1' }));
+  await receber(a, reacao('👌', 'MINHA1', { fromMeRef: false }));
+  assert.equal(a.runner.reqs.length, 2);
+  assert.ok(textoEntregue(a, 1).includes('[reagiu com 👌 à própria mensagem: "Pode mandar o orçamento"]'), textoEntregue(a, 1));
+  await a.fim();
+});
+
+test('reacao: trecho longo e cortado em 200 + … e aspas duplas viram simples', async () => {
+  const a = await ambiente();
+  const longo = 'a"b' + 'x'.repeat(300);
+  const r = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: longo });
+  await receber(a, reacao('👍', r.id));
+  const esperado = ('a\'b' + 'x'.repeat(300)).slice(0, 200) + '…';
+  assert.ok(textoEntregue(a, 0).includes(`[reagiu com 👍 à sua mensagem: "${esperado}"]`), textoEntregue(a, 0));
+  await a.fim();
+});
+
+test('reacao: emoji enorme e limitado a 16 caracteres', async () => {
+  const a = await ambiente();
+  await receber(a, reacao('😀'.repeat(40), 'Z1'));
+  assert.ok(textoEntregue(a, 0).includes(`reagiu com ${'😀'.repeat(16)} à`), textoEntregue(a, 0));
+  assert.ok(!textoEntregue(a, 0).includes('😀'.repeat(17)));
   await a.fim();
 });
 

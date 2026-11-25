@@ -27,6 +27,7 @@ import { pathToFileURL } from 'node:url';
 import { criarEntrada } from './lib/entrada.mjs';
 import { criarEntregaRunner } from './lib/entrega-runner.mjs';
 import { criarEnvioArquivo } from './lib/envio-arquivo.mjs';
+import { criarMemoriaMensagens } from './lib/memoria-mensagens.mjs';
 import { criarLids } from './lib/lids.mjs';
 import { motivoNumeroInvalido, normalizar, numeroDeJid } from './lib/numeros.mjs';
 import { criarPedidos } from './lib/pedidos.mjs';
@@ -290,13 +291,15 @@ export async function iniciar(opcoes = {}) {
   const { entregar } = criarEntregaRunner({
     opcoes, env, runnerUrl, tokenFile, runnerJson, esperasEntrega, dormir, estaEncerrando: () => encerrando,
   });
+  const memoria = criarMemoriaMensagens();
   const { aoReceber } = criarEntrada({
-    opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico,
+    memoria, opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico,
     arqUltimo, dirUploads, downloadMediaMessage, pendentes,
   });
   const raizesArquivo = opcoes.raizesArquivo || [home];
   const { validarArquivo, montarEnvioArquivo } = criarEnvioArquivo({ home, raizesArquivo });
   const { tratarPedido } = criarPedidos({
+    memoria,
     lerPermitidos,
     estaPermitido,
     validarArquivo,
