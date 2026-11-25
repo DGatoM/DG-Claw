@@ -116,11 +116,31 @@ aba Sessões do painel. Os comandos `dgclaw-card` e `dgclaw-monitor` já falam c
 (porta 4300, token em `/etc/dgclaw/runner/admin.token`): você não passa nem lê o token.
 
 ```bash
-id="$(dgclaw-card abrir --provedor claude --titulo "Atualização do servidor" --pedido-arquivo /tmp/pedido.md --monitor --entregue "atualização feita e dgclaw status sem falhas" | head -1)"
-dgclaw-card mandar|esperar|ler|listar|fechar ...
+cod=0; saida="$(dgclaw-card abrir --provedor claude --titulo "Atualização do servidor" --pedido-arquivo /tmp/pedido.md --monitor --entregue "atualização feita e dgclaw status sem falhas")" || cod=$?
+id="$(printf '%s\n' "$saida" | head -1)"
+# Se o abrir for interrompido no meio da espera, o card pode já existir: confira com dgclaw-card listar antes de abrir outro.
+if [ "$cod" != 0 ]; then
+  # Só consulte e avise. Não use mandar, esperar nem fechar neste ramo, e não repita o pedido.
+  echo "abrir saiu com $cod: não anuncie"; [ -z "$id" ] || dgclaw-card estado "$id"
+else
+  # Imprima a mensagem do abrir. Se ela disser que o card espera uma decisão do dono, repasse o aviso ao dono
+  # e PARE aqui: não use mandar nem esperar, porque um Enter pode confirmar a opção destacada antes de ele decidir.
+  printf '%s\n' "$saida"
+fi
 ```
 
-Card de tarefa longa nasce SEMPRE com `--monitor --entregue "<critério>"`, no mesmo turno. Quando
+Os outros subcomandos (`mandar`, `esperar` com código 7 para término não confirmado a tempo, `ler`, `listar`, `fechar`) são exemplos separados, só para depois e só quando o `abrir` não avisou decisão do dono.
+
+Card de tarefa longa nasce SEMPRE com `--monitor --entregue "<critério>"`, no mesmo turno. Só diga ao
+dono que o card está trabalhando depois que o `dgclaw-card abrir` sair com 0 (com `--espera-turno 0` o 0 não
+confere o aceite: confira com `dgclaw-card estado` antes). O id sai na primeira linha
+assim que o card é criado, mesmo com saída diferente de 0. Se sair com 12 (o runner não observou o primeiro turno; isso não prova que o card esteja parado), 11
+(não deu para confirmar) ou 14 (o turno falhou), ou se a mensagem disser "entrega incerta", o pedido pode
+ter sido entregue: não faça a tarefa pela conversa principal, não feche o card e não reenvie por conta
+própria (nos códigos 11 e 12 ele ainda pode entrar sozinho). A tarefa só passa para a conversa principal
+quando ficou confirmado que o pedido NÃO foi entregue (erro ao criar o card, ou o runner recusou o texto e a
+mensagem diz "o pedido nao foi entregue"). Confira com `dgclaw-card estado` e `dgclaw-card ler` depois de um tempo e,
+se continuar sem turno, avise o dono. Nunca feche um card que não respondeu sem avisar o dono. Quando
 chegar uma mensagem **MODO MONITOR**, avise o dono qual card parou, por quê e o que pediu, e
 pergunte se pode continuar. Com o "pode", responda no card com `dgclaw-card mandar`. Entregue
 de verdade: confira, avise e rode `dgclaw-monitor rm <id>`.

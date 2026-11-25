@@ -122,6 +122,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       // de que o texto virou turno em vez de ficar escrito na caixa. Quem espera
       // por ele é o enviarComRecibo().
       s.promptsAceitos += 1;
+      s.turnosDaSessao += 1;
       s.compactadoSemTurno = false;
       // Codex: o turno guarda os textos do usuário gravados nele; o recibo só vale com o texto do pedido (ver reciboDoTexto).
       if (s.motor.reciboPorRollout) {
