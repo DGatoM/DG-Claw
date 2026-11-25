@@ -43,6 +43,7 @@ const FRASES_SAUDE = {
   sem_resposta: ['A sessão recebeu mensagens e não respondeu.', 'reiniciar a sessão'],
   erro_api: ['A API do Claude devolveu erro para a sessão.', 'reiniciar a sessão se persistir'],
   sessao_caida: ['A sessão do Claude caiu.', 'reiniciar a sessão'],
+  fila_parada: ['Há mensagens esperando na fila e o agente não está andando. O DG Claw não reinicia sozinho nesse caso; se ele não responder, use o botão Reiniciar.', 'reiniciar a sessão se ele não responder'],
 };
 
 function tarefasDoAgente(ctx, ag) {

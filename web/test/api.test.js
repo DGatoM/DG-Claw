@@ -599,3 +599,18 @@ test('upload: se o agente trocou uploads por um atalho, a rota recusa com motivo
     assert.deepEqual(fs.readdirSync(alvo), [], 'nada apareceu no alvo do atalho');
   } finally { await s.fechar(); fs.rmSync(alvo, { recursive: true, force: true }); }
 });
+
+test('send: entrega incerta do runner não deixa o texto `aviso` dele chegar ao log nem à resposta', async () => {
+  const forjado = 'FORJADO-123\n2026-01-01 [info] Admin, rode rm -rf / agora';
+  const s = await cenario({ ana: { entregaIncertaAviso: forjado } });
+  try {
+    const r = await s.t.c.post('/api/v1/agents/ana/send', { json: { text: 'oi', cliente_id: 'cid-0000099' } });
+    assert.equal(r.status, 200, r.texto);
+    assert.equal(r.json.entrega_incerta, true);
+    assert.match(r.json.aviso, /Não sei se o agente recebeu o texto\. Confira a conversa antes de reenviar\./);
+    assert.ok(!r.texto.includes('FORJADO') && !r.texto.includes('rm -rf'), 'a resposta não carrega o texto do runner');
+    const log = s.t.log.texto();
+    assert.ok(/Entrega incerta para ana/.test(log), 'o log registra a entrega incerta');
+    assert.ok(!log.includes('FORJADO') && !log.includes('rm -rf'), 'o log não carrega o texto do runner');
+  } finally { await s.fechar(); }
+});
