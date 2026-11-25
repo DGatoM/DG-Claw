@@ -112,6 +112,9 @@ export function enfileirarQuandoOcioso(s: Sessao, texto: string, esperouNoPainel
   return "enfileirado";
 }
 
+const ABERTURA_CANAL_EXTERNO = "<canal-externo ";
+const FECHAMENTO_CANAL_EXTERNO = "</canal-externo>";
+
 function duasCasas(n: number): string {
   return String(n).padStart(2, "0");
 }
@@ -119,11 +122,10 @@ function duasCasas(n: number): string {
 /** Texto acrescentado DEPOIS da mensagem do chat do painel quando ela esperou na fila. Resposta curta ("ok", "sim")
  *  escrita antes de o agente falar de outro assunto pode parecer autorização do que ele propôs depois; o aviso diz
  *  isso ao agente. Vale para a mensagem que entrou com o agente ocupado (qualquer tempo de espera) ou que esperou
- *  mais que AVISO_DE_FILA_APOS_MS. Fica fora do envelope: o painel lê só o que está dentro dele. Só o envelope
- *  <dgchat> recebe o aviso: comando literal (/model...) e mensagem de canal externo (WhatsApp, Telegram), cujo
- *  leitor espera a tag de fechamento no fim, saem intactos. */
+ *  mais que AVISO_DE_FILA_APOS_MS. Recebem o aviso o envelope <dgchat> e o <canal-externo> do WhatsApp; comando
+ *  literal (/model...) sai intacto. Onde o aviso entra no texto é decidido por textoComAviso. */
 export function avisoDeAtraso(item: { texto?: string; em: number; esperou?: boolean }, agora: number = Date.now()): string {
-  if (item.texto !== undefined && !item.texto.startsWith("<dgchat")) return "";
+  if (item.texto !== undefined && !item.texto.startsWith("<dgchat") && !item.texto.startsWith(ABERTURA_CANAL_EXTERNO)) return "";
   const espera = agora - item.em;
   if (!item.esperou && espera < AVISO_DE_FILA_APOS_MS) return "";
   const quando = new Date(item.em);
@@ -136,6 +138,20 @@ export function avisoDeAtraso(item: { texto?: string; em: number; esperou?: bool
     `Uma resposta curta (ok, sim, pode, beleza) não autoriza uma ação nova que você propôs depois disso: ` +
     `se for o caso, confirme com o dono antes de agir.]`
   );
+}
+
+/** O texto que o runner escreve no terminal: o do item mais o aviso de atraso, quando há. O <dgchat> recebe o aviso depois
+ *  do envelope (fora dele: o painel lê só o que está dentro). O <canal-externo> (WhatsApp) recebe o aviso DENTRO do envelope,
+ *  imediatamente antes da última tag de fechamento, porque o painel e a trava de resposta esperam essa tag no fim do texto. O
+ *  corpo desse envelope vem com < e > escapados pela ponte, então uma tag de fechamento falsa escrita por quem manda a mensagem
+ *  não existe como tag: só a de fechamento real, no fim, recebe o aviso. Se o texto não terminar nela, sai sem aviso. */
+export function textoComAviso(item: { texto: string; em: number; esperou?: boolean }, agora: number = Date.now()): string {
+  const aviso = avisoDeAtraso(item, agora);
+  if (!aviso) return item.texto;
+  if (!item.texto.startsWith(ABERTURA_CANAL_EXTERNO)) return item.texto + aviso;
+  const fim = item.texto.trimEnd();
+  if (!fim.endsWith(FECHAMENTO_CANAL_EXTERNO)) return item.texto;
+  return fim.slice(0, fim.length - FECHAMENTO_CANAL_EXTERNO.length) + aviso + FECHAMENTO_CANAL_EXTERNO + item.texto.slice(fim.length);
 }
 
 /** Solta UM item por vez: o próximo sai no próximo idle, depois que o turno do
@@ -215,7 +231,7 @@ export function talvezSoltarFila(s: Sessao): void {
   // da operação serializada, depois de conferir a caixa e imediatamente antes da primeira escrita (ver marcarDigitadoAntesDeEscrever).
   s.filaQuandoIdle.shift();
   s.itemEmVoo = item;
-  const texto = item.texto + avisoDeAtraso(item);
+  const texto = textoComAviso(item);
   // Comando de barra (/compact, /clear...) não tem recibo confiável (não dispara UserPromptSubmit), então não
   // fica em semRecibo. Mas também é gravado como digitado antes de ser digitado, e sai do disco quando termina:
   // se o runner cair no meio, no boot ele aparece digitado e fica retido, nunca é executado de novo.

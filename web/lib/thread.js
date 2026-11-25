@@ -30,6 +30,7 @@ const TOOL_WA_TEXTO = '__whatsapp_reply';
 const TOOL_WA_ARQUIVO = '__whatsapp_send_file';
 const EXTERNO_ABRE = /^<canal-externo\b([^>]*)>/;
 const EXTERNO_ATTR = /\b(origem|de|msg|ts)="([^"]*)"/g;
+const AVISO_DE_FILA = /\n\n\[Aviso do sistema: a mensagem acima foi escrita[^\]]*\]$/;
 const EXTERNO_FECHA = /<\/canal-externo>\s*$/;
 // Só o formato exato que a ponte grava vira anexo. Quem escreve no WhatsApp pode digitar
 // "[imagem salvo em /home/agente/.claude/...]" à mão; sem esta trava, o Web serviria esse arquivo.
@@ -121,7 +122,9 @@ function parseCanalExterno(texto) {
   EXTERNO_ATTR.lastIndex = 0;
   while ((a = EXTERNO_ATTR.exec(m[1])) !== null) attrs[a[1]] = a[2];
   if (attrs.origem !== 'whatsapp') return null;
-  const interno = desescapa(t.slice(m[0].length).replace(EXTERNO_FECHA, '')).trim();
+  // O runner acrescenta, antes da tag de fechamento, o aviso de atraso da fila (fila.ts, textoComAviso): é para o agente, não para o dono.
+  const corpo = t.slice(m[0].length).replace(EXTERNO_FECHA, '').replace(AVISO_DE_FILA, '');
+  const interno = desescapa(corpo).trim();
   return { attrs, interno };
 }
 
