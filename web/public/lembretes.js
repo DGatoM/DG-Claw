@@ -1,4 +1,6 @@
 'use strict';
+const dgTexto_lembretes = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgHtml_lembretes = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* lembretes.js: a tela /lembretes. Lista, filtra, cria, pausa, retoma e apaga lembretes, mostra o
    histórico de cada um e liga os avisos neste aparelho (window.DGClawAvisos).
    Tudo passa pela API (web/docs/LEMBRETES.md); nenhuma informação vem de outro lugar.
@@ -82,19 +84,19 @@
 
   const PASSOS = {
     avisos: {
-      alvo: '#secAvisos', titulo: 'Avisos neste aparelho',
+      alvo: '#secAvisos', titulo: dgTexto_lembretes('Avisos neste aparelho'),
       oque: 'O botão que liga os avisos do ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' neste celular ou computador, e o botão que manda um aviso de teste.',
       como: 'O navegador guarda uma inscrição deste aparelho no servidor. Quando um lembrete toca, o servidor manda o aviso para todos os aparelhos inscritos, com os botões Feito e Adiar, mesmo com a tela fechada. Os dois interruptores abaixo controlam os avisos dos agentes: "precisar de mim" (pedem permissão, fazem uma pergunta ou perdem o login) e "terminar" (acabaram de responder). Eles não mandam aviso de uma conversa que você está olhando.',
       porque: 'Sem isso o lembrete só aparece na faixa dentro da conversa e no recado do agente. O teste confirma agora que o aviso chega.',
     },
     novo: {
-      alvo: '#secNovo', titulo: 'Novo lembrete',
+      alvo: '#secNovo', titulo: dgTexto_lembretes('Novo lembrete'),
       oque: 'O formulário para agendar um lembrete: o que lembrar, de qual agente, quando e com que insistência.',
       como: 'Daqui a N minutos é o jeito mais seguro: o ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' faz a conta da hora no fuso do servidor. As outras opções repetem o lembrete (todo dia, em certos dias da semana, a cada N dias). O aviso se repete a cada intervalo até você tocar Feito ou até o máximo de avisos.',
       porque: 'Para você agendar na própria tela. O agente também cria lembretes por conta própria quando você pede na conversa.',
     },
     lista: {
-      alvo: '#secLista', titulo: 'Seus lembretes',
+      alvo: '#secLista', titulo: dgTexto_lembretes('Seus lembretes'),
       oque: 'Todos os lembretes, com a regra em português, a próxima vez que tocam e o estado (ativo, pausado ou encerrado).',
       como: 'A próxima vez é calculada pelo servidor na regra e no fuso dele. Pausar não acumula nada: ao retomar, vale a próxima hora a partir de agora. O Histórico mostra cada vez que o lembrete tocou e como terminou.',
       porque: 'Para você ver o que está agendado, pausar o que não vale mais e conferir se algum aviso ficou sem resposta.',
@@ -190,7 +192,7 @@
     const guardado = filtro.value;
     const opts = lista.map(a => `<option value="${esc(a.id)}">${esc(a.nome)}</option>`).join('');
     sel.innerHTML = opts;
-    filtro.innerHTML = '<option value="">Todos os agentes</option>' + opts;
+    filtro.innerHTML = dgHtml_lembretes("<option value=\"\"><!--dg-i18n:e3c5c212401b-->Todos os agentes<!--/dg-i18n--></option>") + opts;
     filtro.value = guardado;
     const trabalho = lista.filter(a => a.tipo === 'agente');
     if (trabalho.length) sel.value = trabalho[0].id;
@@ -217,7 +219,7 @@
       $('lista').innerHTML = '<p class="lp-vazio">Nenhum lembrete por aqui. Crie o primeiro no formulário acima, ou peça ao agente na conversa.</p>';
       return;
     }
-    $('lista').innerHTML = '<table class="lp-tabela"><thead><tr><th>Lembrete</th><th>Agente</th><th>Próxima</th><th>Estado</th><th></th></tr></thead><tbody>' +
+    $('lista').innerHTML = dgHtml_lembretes("<table class=\"lp-tabela\"><thead><tr><th>Lembrete</th><th><!--dg-i18n:1e068f0819ee-->Agente<!--/dg-i18n--></th><th>Próxima</th><th>Estado</th><th></th></tr></thead><tbody>") +
       itens.map(linhaHtml).join('') + '</tbody></table>';
     for (const id of abertos) carregaHistorico(id);
   }
@@ -246,7 +248,7 @@
     const r = await chamar('GET', '/api/v1/lembretes' + (q.toString() ? '?' + q : ''));
     if (!r.ok) {
       msg('msgGeral', 'Não consegui ler os lembretes: ' + r.erro, 'erro');
-      if (!ultimaLista.length) $('lista').innerHTML = '<p class="lp-vazio">A lista não carregou. <button type="button" class="lp-btn" id="btnRecarrega">Tentar de novo</button></p>';
+      if (!ultimaLista.length) $('lista').innerHTML = dgHtml_lembretes("<p class=\"lp-vazio\">A lista não carregou. <button type=\"button\" class=\"lp-btn\" id=\"btnRecarrega\"><!--dg-i18n:6bb3150b9757-->Tentar de novo<!--/dg-i18n--></button></p>");
       const b = $('btnRecarrega'); if (b) b.onclick = carrega;
       return;
     }
@@ -331,7 +333,7 @@
     if (!window.DGTour) { msg('msgGeral', 'A visita guiada não carregou. Recarregue a página.', 'erro'); return; }
     window.DGTour.inicia({
       passos: [
-        { alvo: '#cabecalho', titulo: 'Lembretes', oque: 'A tela de todos os lembretes que insistem até você confirmar.', como: 'O ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' confere a cada 15 segundos. Na hora marcada, avisa na faixa da conversa, no aparelho e pelo agente, e repete até você tocar Feito ou Adiar.', porque: 'Para nada que você pediu para lembrar ficar esquecido.' },
+        { alvo: '#cabecalho', titulo: dgTexto_lembretes('Lembretes'), oque: 'A tela de todos os lembretes que insistem até você confirmar.', como: 'O ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' confere a cada 15 segundos. Na hora marcada, avisa na faixa da conversa, no aparelho e pelo agente, e repete até você tocar Feito ou Adiar.', porque: 'Para nada que você pediu para lembrar ficar esquecido.' },
         PASSOS.avisos, PASSOS.novo, PASSOS.lista,
       ],
     });

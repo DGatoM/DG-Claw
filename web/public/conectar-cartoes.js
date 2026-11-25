@@ -1,4 +1,5 @@
 'use strict';
+const dgTexto_conectar_cartoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* conectar-cartoes.js: os cartões de login (um por agente) e o fluxo de cada um, compartilhados pela página
    /conectar e pelo modal "Faça o login nos seus agentes" da conversa (modal-login.js).
 
@@ -158,7 +159,7 @@
         campo.dataset.tour = 'cn-codigo';
         campo.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); enviaCodigo(a); } });
         const linha = el('div', 'cn-linha');
-        linha.append(campo, botao(e.ocupado ? 'Enviando…' : 'Conectar', 'cn-principal', () => enviaCodigo(a), e.ocupado));
+        linha.append(campo, botao(e.ocupado ? dgTexto_conectar_cartoes('Enviando…') : dgTexto_conectar_cartoes('Conectar'), 'cn-principal', () => enviaCodigo(a), e.ocupado));
         corpo.push(rot, linha);
       }
       if (e.erro || e.erroPoll) { const p = el('p', 'cn-erro', e.erro || e.erroPoll); p.setAttribute('role', 'alert'); corpo.push(p); }
@@ -176,13 +177,13 @@
         if (e.confirmando) {
           pe.append(el('p', 'cn-texto', 'Isso troca a conta de ' + v.nome + '. Continuar?'));
           pe.append(botao('Sim, trocar a conta', 'cn-principal', () => { e.confirmando = false; comeca(a); }, e.ocupado));
-          pe.append(botao('Não', 'cn-leve', () => { e.confirmando = false; desenhaCartao(a); }));
+          pe.append(botao(dgTexto_conectar_cartoes('Não'), 'cn-leve', () => { e.confirmando = false; desenhaCartao(a); }));
         } else {
           pe.append(botao('Entrar com outra conta', 'cn-leve', () => { e.confirmando = true; desenhaCartao(a); }, e.ocupado));
         }
       }
       if (v.novoLink) pe.append(botao('Gerar novo link', 'cn-leve', () => novoLink(a), e.ocupado));
-      if (v.cancelar) pe.append(botao('Cancelar', 'cn-leve', () => cancela(a), e.ocupado));
+      if (v.cancelar) pe.append(botao(dgTexto_conectar_cartoes('Cancelar'), 'cn-leve', () => cancela(a), e.ocupado));
       if (pe.childElementCount) corpo.push(pe);
       const vivo = el('p', 'cn-vivo', v.aviso || '');
       vivo.setAttribute('aria-live', 'polite');

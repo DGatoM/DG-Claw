@@ -107,7 +107,7 @@ test('menu: item Conectar conta com o ícone de chave e o reconhecimento da pág
 });
 
 test('pop-up de login expirado tem o link discreto para a página', () => {
-  assert.match(lePub('conversa.html'), /<a href="\/conectar">Abrir a página Conectar conta<\/a>/);
+  assert.match(lePub('conversa.html'), /<a href="\/conectar"><!--dg-i18n:[a-f0-9]+-->Abrir a página Conectar conta<!--\/dg-i18n--><\/a>/);
   assert.match(lePub('conversa.js'), /\$\('leConectar'\)\.hidden = f === 'pronto'/);
   assert.match(lePub('login-expirado.css'), /\.le-conectar/);
 });

@@ -2,8 +2,11 @@
 <html lang="pt-BR" data-tema="{{MARCA_TEMA}}">
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/ds/idioma.css">
+<script src="/ds/idiomas.js"></script>
+<script src="/ds/idioma.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Segurança - {{MARCA_NOME}}</title>
+<title data-dg-i18n="8ab6ca70e8cd">Segurança - {{MARCA_NOME}}</title>
 <meta name="marca-nome" content="{{MARCA_NOME}}">
 <meta name="marca-logo-tem-nome" content="{{MARCA_LOGO_TEM_NOME}}">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -29,9 +32,9 @@
 <main class="rp-main">
   <p class="rp-msg erro" id="rpMsgGeral" role="alert" hidden></p>
 
-  <section class="rp-sec" id="rpTopo" aria-label="Estado da última ronda">
-    <h2><span>Ronda de segurança</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="topo" aria-label="Tutorial do estado da ronda">?</button></h2>
-    <p class="rp-resumo" id="rpResumo">Conferindo…</p>
+  <section class="rp-sec" id="rpTopo" aria-label="Estado da última ronda" data-dg-i18n-aria-label="83b17aa1b697">
+    <h2><span><!--dg-i18n:8af9068bc636-->Ronda de segurança<!--/dg-i18n--></span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="topo" aria-label="Tutorial do estado da ronda" data-dg-i18n-aria-label="55596e8c494d">?</button></h2>
+    <p class="rp-resumo" id="rpResumo"><!--dg-i18n:43bf08152a6e-->Conferindo…<!--/dg-i18n--></p>
     <div id="rpFaixas">
       <p class="rp-faixa rp-amarela" id="rpParcial" role="status" hidden></p>
       <p class="rp-faixa rp-vermelha" id="rpVigia" role="alert" hidden></p>
@@ -40,44 +43,44 @@
     <p class="rp-sem-novidade" id="rpSemNovidade" hidden></p>
   </section>
 
-  <section class="rp-sec" id="secBoletins" aria-label="Avisos de segurança do {{MARCA_NOME}}">
-    <h2><span>Avisos de segurança do {{MARCA_NOME}}</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="boletins" aria-label="Tutorial dos avisos de segurança do {{MARCA_NOME}}">?</button></h2>
-    <div id="listaBoletins"><p class="rp-vazio"><span data-carregando="Carregando" data-tam="p"></span> Carregando…</p></div>
+  <section class="rp-sec" id="secBoletins" aria-label="Avisos de segurança do {{MARCA_NOME}}" data-dg-i18n-aria-label="a5898020b90f">
+    <h2><span><!--dg-i18n:a5898020b90f-->Avisos de segurança do {{MARCA_NOME}}<!--/dg-i18n--></span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="boletins" aria-label="Tutorial dos avisos de segurança do {{MARCA_NOME}}" data-dg-i18n-aria-label="a2083fd973a8">?</button></h2>
+    <div id="listaBoletins"><p class="rp-vazio"><span data-carregando="Carregando" data-tam="p"></span> <!--dg-i18n:6cc1bbba0f84-->Carregando…<!--/dg-i18n--></p></div>
   </section>
 
-  <section class="rp-sec" id="secAcao" aria-label="Ação necessária">
-    <h2 class="rp-h-vermelho"><span>Ação necessária</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="acao" aria-label="Tutorial da ação necessária">?</button></h2>
-    <div id="listaAcao"><p class="rp-vazio"><span data-carregando="Carregando" data-tam="p"></span> Carregando…</p></div>
+  <section class="rp-sec" id="secAcao" aria-label="Ação necessária" data-dg-i18n-aria-label="3f0e764471a8">
+    <h2 class="rp-h-vermelho"><span><!--dg-i18n:3f0e764471a8-->Ação necessária<!--/dg-i18n--></span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="acao" aria-label="Tutorial da ação necessária" data-dg-i18n-aria-label="26face8b5dc6">?</button></h2>
+    <div id="listaAcao"><p class="rp-vazio"><span data-carregando="Carregando" data-tam="p"></span> <!--dg-i18n:6cc1bbba0f84-->Carregando…<!--/dg-i18n--></p></div>
   </section>
 
-  <section class="rp-sec" id="secSemPressa" aria-label="Para corrigir sem pressa">
-    <h2><span>Para corrigir sem pressa</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="sempressa" aria-label="Tutorial do que corrigir sem pressa">?</button></h2>
-    <div id="listaSemPressa"><p class="rp-vazio"><span data-carregando="Carregando" data-tam="p"></span> Carregando…</p></div>
+  <section class="rp-sec" id="secSemPressa" aria-label="Para corrigir sem pressa" data-dg-i18n-aria-label="352edf880e9f">
+    <h2><span><!--dg-i18n:352edf880e9f-->Para corrigir sem pressa<!--/dg-i18n--></span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="sempressa" aria-label="Tutorial do que corrigir sem pressa" data-dg-i18n-aria-label="60c5aea34e9b">?</button></h2>
+    <div id="listaSemPressa"><p class="rp-vazio"><span data-carregando="Carregando" data-tam="p"></span> <!--dg-i18n:6cc1bbba0f84-->Carregando…<!--/dg-i18n--></p></div>
   </section>
 
   <details class="rp-sec rp-recolhe" id="secAguardando">
-    <summary><span id="tituloAguardando">Aguardando correção oficial</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="aguardando" aria-label="Tutorial das falhas que aguardam a correção oficial">?</button></summary>
-    <div id="listaAguardando"><p class="rp-vazio"><span data-carregando="Carregando" data-tam="p"></span> Carregando…</p></div>
+    <summary><span id="tituloAguardando"><!--dg-i18n:bdc3a099f479-->Aguardando correção oficial<!--/dg-i18n--></span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="aguardando" aria-label="Tutorial das falhas que aguardam a correção oficial" data-dg-i18n-aria-label="7c72777e0dc4">?</button></summary>
+    <div id="listaAguardando"><p class="rp-vazio"><span data-carregando="Carregando" data-tam="p"></span> <!--dg-i18n:6cc1bbba0f84-->Carregando…<!--/dg-i18n--></p></div>
   </details>
 
-  <section class="rp-sec" id="secAplicado" aria-label="Aplicado sozinho">
-    <h2><span>Aplicado sozinho</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="aplicado" aria-label="Tutorial do que foi aplicado sozinho">?</button></h2>
-    <div id="listaAplicado"><p class="rp-vazio"><span data-carregando="Carregando" data-tam="p"></span> Carregando…</p></div>
+  <section class="rp-sec" id="secAplicado" aria-label="Aplicado sozinho" data-dg-i18n-aria-label="520fc60bb5b6">
+    <h2><span><!--dg-i18n:520fc60bb5b6-->Aplicado sozinho<!--/dg-i18n--></span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="aplicado" aria-label="Tutorial do que foi aplicado sozinho" data-dg-i18n-aria-label="a602b6ca2a8f">?</button></h2>
+    <div id="listaAplicado"><p class="rp-vazio"><span data-carregando="Carregando" data-tam="p"></span> <!--dg-i18n:6cc1bbba0f84-->Carregando…<!--/dg-i18n--></p></div>
   </section>
 
-  <section class="rp-sec rp-sec-emergencia" id="secEmergencia" aria-label="Botão de emergência">
-    <h2><span>Botão de emergência</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="emergencia" aria-label="Tutorial do botão de emergência">?</button></h2>
-    <div id="corpoEmergencia"><p class="rp-vazio"><span data-carregando="Carregando" data-tam="p"></span> Carregando…</p></div>
+  <section class="rp-sec rp-sec-emergencia" id="secEmergencia" aria-label="Botão de emergência" data-dg-i18n-aria-label="871b4100a90a">
+    <h2><span><!--dg-i18n:871b4100a90a-->Botão de emergência<!--/dg-i18n--></span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="emergencia" aria-label="Tutorial do botão de emergência" data-dg-i18n-aria-label="2130f5bac5cf">?</button></h2>
+    <div id="corpoEmergencia"><p class="rp-vazio"><span data-carregando="Carregando" data-tam="p"></span> <!--dg-i18n:6cc1bbba0f84-->Carregando…<!--/dg-i18n--></p></div>
     <p class="rp-msg" id="rpEmMsg" role="status" hidden></p>
   </section>
 
   <details class="rp-sec rp-recolhe" id="secTratadas">
-    <summary><span>Já tratadas nas rondas anteriores</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="tratadas" aria-label="Tutorial das falhas já tratadas">?</button></summary>
+    <summary><span><!--dg-i18n:efb41f87dc77-->Já tratadas nas rondas anteriores<!--/dg-i18n--></span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="tratadas" aria-label="Tutorial das falhas já tratadas" data-dg-i18n-aria-label="7cec903a4ae0">?</button></summary>
     <div id="listaTratadas"></div>
   </details>
 
   <details class="rp-sec rp-recolhe" id="secInventario">
-    <summary><span>O que a ronda olha</span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="inventario" aria-label="Tutorial do que a ronda olha">?</button></summary>
+    <summary><span><!--dg-i18n:b3bb72ce6e08-->O que a ronda olha<!--/dg-i18n--></span><button type="button" class="rp-ajuda" data-rp="ajuda" data-secao="inventario" aria-label="Tutorial do que a ronda olha" data-dg-i18n-aria-label="4bef0f4d97b4">?</button></summary>
     <div id="listaInventario"></div>
   </details>
 </main>

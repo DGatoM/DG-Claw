@@ -1,4 +1,5 @@
 'use strict';
+const dgTexto_conectar_puro = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* conectar-puro.js: a parte pura da página /conectar (conectar a conta do Claude ou do Codex de cada agente).
 
    Sem DOM e sem rede: decide a ordem e o texto dos cartões, o selo de estado de cada um, o que o cartão
@@ -177,7 +178,7 @@
     const p = papel(agente, !!ctx.principal, !!ctx.colaborador);
     const base = {
       id: agente.id, nome, rotulo: p.rotulo, papel: p.papel, subtitulo: p.subtitulo, provedor: prov, selo: sel,
-      fase: 'inicio', texto: '', passos: [], gerar: false, gerarRotulo: 'Gerar link de login', gerarBloqueio: '',
+      fase: 'inicio', texto: '', passos: [], gerar: false, gerarRotulo: dgTexto_conectar_puro('Gerar link de login'), gerarBloqueio: '',
       link: null, campoCodigo: false, codigoDispositivo: null, cancelar: false, novoLink: false, entrarOutra: false, aviso: '',
       ia: escolhaDeIA(d && d.provedor ? Object.assign({}, agente, { provedor: d.provedor }) : agente),
     };
@@ -257,7 +258,7 @@
     // Colaborador conversa com um agente só: nada de Admin nem de "pedir ao Admin".
     if (ctx.colaborador) {
       return {
-        titulo: 'Tudo pronto! Agora é só usar',
+        titulo: dgTexto_conectar_puro('Tudo pronto! Agora é só usar'),
         passo1: '1. Acesse o seu agente:',
         endereco: String(ctx.endereco || ''),
         passo2: '2. Entre com o seu e-mail' + (usuario ? ' (' + usuario + ')' : '') + ' e a senha que você criou.',
@@ -269,7 +270,7 @@
     const itens = ['Admin: para administrar (atualizar o DG Claw, criar agentes e configurar).'];
     if (ctx.principalNome) itens.push(ctx.principalNome + ': o seu agente do dia a dia. Você pode trocar o nome dele depois, é só pedir ao Admin.');
     return {
-      titulo: 'Tudo pronto! Agora é só usar',
+      titulo: dgTexto_conectar_puro('Tudo pronto! Agora é só usar'),
       passo1: '1. Acesse o seu painel:',
       endereco: String(ctx.endereco || ''),
       passo2: '2. Entre com o usuário ' + (usuario || 'que você escolheu') + ' e a mesma senha que você usou para entrar aqui.',

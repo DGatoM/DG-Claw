@@ -2,8 +2,11 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
+<link rel="stylesheet" href="/ds/idioma.css">
+<script src="/ds/idiomas.js"></script>
+<script src="/ds/idioma.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>DG Claw - entrar no painel</title>
+  <title data-dg-i18n="a4e14d8b7cea">DG Claw - entrar no painel</title>
   <link rel="icon" href="/marca/favicon">
   <link rel="stylesheet" href="/ds/tokens.css">
   <link rel="stylesheet" href="/ds/componentes.css">
@@ -58,16 +61,16 @@
 <body data-modo="{{LOGIN_MODO}}" data-erro="{{LOGIN_ERRO}}">
   <div class="caixa">
     <div class="moldura"><img src="{{BASE}}/assets/sprites/avatar.jpg" alt="" class="avatar"></div>
-    <h1>Painel do agente</h1>
-    <p class="sub">só quem tem a senha entra aqui</p>
+    <h1><!--dg-i18n:3504a82b8b29-->Painel do agente<!--/dg-i18n--></h1>
+    <p class="sub"><!--dg-i18n:3d150ea66291-->só quem tem a senha entra aqui<!--/dg-i18n--></p>
     <form method="POST" action="{{BASE}}/login">
       <div id="erro" class="erro" style="display:none"></div>
-      <input type="text" id="campo-usuario" name="user" placeholder="usuário" autocomplete="username" title="O usuário que quem administra a máquina definiu para este painel.">
-      <input type="password" name="password" placeholder="senha do painel" autofocus autocomplete="current-password">
-      <button type="submit">Entrar</button>
+      <input type="text" id="campo-usuario" name="user" placeholder="usuário" autocomplete="username" title="O usuário que quem administra a máquina definiu para este painel." data-dg-i18n-placeholder="c4197364c8d5" data-dg-i18n-title="1fc8081a3f7e">
+      <input type="password" name="password" placeholder="senha do painel" autofocus autocomplete="current-password" data-dg-i18n-placeholder="b320710fbdcc">
+      <button type="submit"><!--dg-i18n:4105811890ae-->Entrar<!--/dg-i18n--></button>
     </form>
     <div class="trancado">
-      <p><strong>Este painel está trancado.</strong></p>
+      <p><strong><!--dg-i18n:53e0a534ae33-->Este painel está trancado.<!--/dg-i18n--></strong></p>
       <p>{{LOGIN_MOTIVO}}</p>
       <p>Para destrancar: {{LOGIN_COMO}}</p>
     </div>

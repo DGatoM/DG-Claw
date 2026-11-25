@@ -2,8 +2,11 @@
 <html lang="pt-BR" data-tema="{{MARCA_TEMA}}">
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/ds/idioma.css">
+<script src="/ds/idiomas.js"></script>
+<script src="/ds/idioma.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Lembretes - {{MARCA_NOME}}</title>
+<title data-dg-i18n="15896372cc83">Lembretes - {{MARCA_NOME}}</title>
 <meta name="marca-nome" content="{{MARCA_NOME}}">
 <meta name="marca-logo-tem-nome" content="{{MARCA_LOGO_TEM_NOME}}">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -29,87 +32,87 @@
 <main class="lp-main">
   <p class="lp-msg erro" id="msgGeral" role="alert" hidden></p>
 
-  <section class="lp-sec" id="secAvisos" data-tour="avisos" aria-label="Avisos neste aparelho">
-    <h2><span>Avisos neste aparelho</span><button type="button" class="lp-ajuda" data-ajuda="avisos" aria-label="Tutorial dos avisos no aparelho">?</button></h2>
-    <p class="lp-fraco" id="avisosEstado">Conferindo…</p>
+  <section class="lp-sec" id="secAvisos" data-tour="avisos" aria-label="Avisos neste aparelho" data-dg-i18n-aria-label="053cbb5b16d8">
+    <h2><span><!--dg-i18n:053cbb5b16d8-->Avisos neste aparelho<!--/dg-i18n--></span><button type="button" class="lp-ajuda" data-ajuda="avisos" aria-label="Tutorial dos avisos no aparelho" data-dg-i18n-aria-label="ac97ac9ad9f4">?</button></h2>
+    <p class="lp-fraco" id="avisosEstado"><!--dg-i18n:43bf08152a6e-->Conferindo…<!--/dg-i18n--></p>
     <div class="lp-linha">
-      <button type="button" class="lp-btn pri" id="btnAtivar">Ativar avisos neste aparelho</button>
-      <button type="button" class="lp-btn" id="btnDesativar" hidden>Desativar neste aparelho</button>
-      <button type="button" class="lp-btn" id="btnTeste">Mandar aviso de teste</button>
+      <button type="button" class="lp-btn pri" id="btnAtivar"><!--dg-i18n:6782b8638a23-->Ativar avisos neste aparelho<!--/dg-i18n--></button>
+      <button type="button" class="lp-btn" id="btnDesativar" hidden><!--dg-i18n:34c257d2e0ae-->Desativar neste aparelho<!--/dg-i18n--></button>
+      <button type="button" class="lp-btn" id="btnTeste"><!--dg-i18n:933e447eba56-->Mandar aviso de teste<!--/dg-i18n--></button>
     </div>
-    <div class="lp-prefs" id="avisosPrefs" role="group" aria-label="Quando avisar sobre os agentes">
-      <label class="lp-check"><input type="checkbox" id="prefPrecisa" disabled> Avisar quando um agente precisar de mim</label>
-      <label class="lp-check"><input type="checkbox" id="prefTerminou" disabled> Avisar quando um agente terminar</label>
+    <div class="lp-prefs" id="avisosPrefs" role="group" aria-label="Quando avisar sobre os agentes" data-dg-i18n-aria-label="ecd4d6e09809">
+      <label class="lp-check"><input type="checkbox" id="prefPrecisa" disabled> <!--dg-i18n:0236f4fb033f-->Avisar quando um agente precisar de mim<!--/dg-i18n--></label>
+      <label class="lp-check"><input type="checkbox" id="prefTerminou" disabled> <!--dg-i18n:fbd4af639cd2-->Avisar quando um agente terminar<!--/dg-i18n--></label>
     </div>
     <p class="lp-msg" id="avisosMsg" role="status" hidden></p>
   </section>
 
-  <section class="lp-sec" id="secNovo" data-tour="novo" aria-label="Novo lembrete">
-    <h2><span>Novo lembrete</span><button type="button" class="lp-ajuda" data-ajuda="novo" aria-label="Tutorial do novo lembrete">?</button></h2>
+  <section class="lp-sec" id="secNovo" data-tour="novo" aria-label="Novo lembrete" data-dg-i18n-aria-label="d1c3307dc683">
+    <h2><span><!--dg-i18n:d1c3307dc683-->Novo lembrete<!--/dg-i18n--></span><button type="button" class="lp-ajuda" data-ajuda="novo" aria-label="Tutorial do novo lembrete" data-dg-i18n-aria-label="04fa5f586a81">?</button></h2>
     <form class="lp-form" id="formNovo" novalidate>
-      <label class="larga">O que lembrar
-        <textarea id="fTexto" maxlength="500" required placeholder="ex.: ligar pro contador"></textarea>
+      <label class="larga"><!--dg-i18n:ee39a22b12ba-->O que lembrar<!--/dg-i18n-->
+        <textarea id="fTexto" maxlength="500" required placeholder="ex.: ligar pro contador" data-dg-i18n-placeholder="ea27b6376d74"></textarea>
       </label>
-      <label>De qual agente
+      <label><!--dg-i18n:35b2db4e6645-->De qual agente<!--/dg-i18n-->
         <select id="fAgente"></select>
       </label>
-      <label>Quando
+      <label><!--dg-i18n:9f8f7fa3a50f-->Quando<!--/dg-i18n-->
         <select id="fQuando">
-          <option value="daqui">Daqui a N minutos</option>
-          <option value="unico">Uma vez, numa data e hora</option>
-          <option value="diario">Todo dia</option>
-          <option value="semanal">Toda semana, em certos dias</option>
-          <option value="a_cada_n_dias">A cada N dias</option>
+          <option value="daqui"><!--dg-i18n:6ee5a665a0b8-->Daqui a N minutos<!--/dg-i18n--></option>
+          <option value="unico"><!--dg-i18n:ea587090af37-->Uma vez, numa data e hora<!--/dg-i18n--></option>
+          <option value="diario"><!--dg-i18n:3a444097869f-->Todo dia<!--/dg-i18n--></option>
+          <option value="semanal"><!--dg-i18n:0948e8760852-->Toda semana, em certos dias<!--/dg-i18n--></option>
+          <option value="a_cada_n_dias"><!--dg-i18n:b3c6c9a1537a-->A cada N dias<!--/dg-i18n--></option>
         </select>
       </label>
-      <label data-so="daqui">Daqui a quantos minutos
+      <label data-so="daqui"><!--dg-i18n:a871da5cf3f8-->Daqui a quantos minutos<!--/dg-i18n-->
         <input id="fDaqui" type="number" min="1" max="10080" value="30" inputmode="numeric">
       </label>
-      <label data-so="unico">Data
+      <label data-so="unico"><!--dg-i18n:cec3a9b89b2e-->Data<!--/dg-i18n-->
         <input id="fData" type="date">
       </label>
-      <label data-so="unico diario semanal a_cada_n_dias">Hora
+      <label data-so="unico diario semanal a_cada_n_dias"><!--dg-i18n:503f312cde03-->Hora<!--/dg-i18n-->
         <input id="fHora" type="time" value="09:00">
       </label>
       <div class="larga dias" data-so="semanal" id="fDias">
-        <label><input type="checkbox" value="seg">seg</label><label><input type="checkbox" value="ter">ter</label>
-        <label><input type="checkbox" value="qua">qua</label><label><input type="checkbox" value="qui">qui</label>
-        <label><input type="checkbox" value="sex">sex</label><label><input type="checkbox" value="sab">sáb</label>
-        <label><input type="checkbox" value="dom">dom</label>
+        <label><input type="checkbox" value="seg"><!--dg-i18n:ea42cfa102bd-->seg<!--/dg-i18n--></label><label><input type="checkbox" value="ter"><!--dg-i18n:2669dd54b1ab-->ter<!--/dg-i18n--></label>
+        <label><input type="checkbox" value="qua"><!--dg-i18n:f16b49f38336-->qua<!--/dg-i18n--></label><label><input type="checkbox" value="qui"><!--dg-i18n:760176194068-->qui<!--/dg-i18n--></label>
+        <label><input type="checkbox" value="sex"><!--dg-i18n:98d44e13f455-->sex<!--/dg-i18n--></label><label><input type="checkbox" value="sab"><!--dg-i18n:1e243a29bd67-->sáb<!--/dg-i18n--></label>
+        <label><input type="checkbox" value="dom"><!--dg-i18n:7e6e9877fff0-->dom<!--/dg-i18n--></label>
       </div>
-      <label data-so="a_cada_n_dias">De quantos em quantos dias
+      <label data-so="a_cada_n_dias"><!--dg-i18n:caeab94463f5-->De quantos em quantos dias<!--/dg-i18n-->
         <input id="fN" type="number" min="1" max="365" value="3" inputmode="numeric">
       </label>
-      <label data-so="a_cada_n_dias">Contando a partir de
+      <label data-so="a_cada_n_dias"><!--dg-i18n:9f6cb162fc69-->Contando a partir de<!--/dg-i18n-->
         <input id="fInicio" type="date">
       </label>
-      <label data-so="diario semanal a_cada_n_dias">Último dia (opcional)
+      <label data-so="diario semanal a_cada_n_dias"><!--dg-i18n:99d4227204c2-->Último dia (opcional)<!--/dg-i18n-->
         <input id="fFim" type="date">
       </label>
-      <label>Insistir de quantos em quantos minutos
+      <label><!--dg-i18n:5b6c3a92a9ef-->Insistir de quantos em quantos minutos<!--/dg-i18n-->
         <input id="fIntervalo" type="number" min="1" max="120" value="5" inputmode="numeric">
       </label>
-      <label>Máximo de avisos por vez
+      <label><!--dg-i18n:4fe23d2fa647-->Máximo de avisos por vez<!--/dg-i18n-->
         <input id="fTeto" type="number" min="1" max="60" value="12" inputmode="numeric">
       </label>
-      <label class="marca larga"><input id="fPeloAgente" type="checkbox" checked>Também avisar pelo agente (Telegram, WhatsApp)</label>
+      <label class="marca larga"><input id="fPeloAgente" type="checkbox" checked><!--dg-i18n:2ec44e130f4b-->Também avisar pelo agente (Telegram, WhatsApp)<!--/dg-i18n--></label>
       <div class="larga lp-linha">
-        <button type="submit" class="lp-btn pri" id="btnCriar">Criar lembrete</button>
+        <button type="submit" class="lp-btn pri" id="btnCriar"><!--dg-i18n:279e71a66f70-->Criar lembrete<!--/dg-i18n--></button>
       </div>
     </form>
     <p class="lp-msg" id="novoMsg" role="status" hidden></p>
   </section>
 
-  <section class="lp-sec" id="secLista" data-tour="lista" aria-label="Seus lembretes">
-    <h2><span>Seus lembretes</span><button type="button" class="lp-ajuda" data-ajuda="lista" aria-label="Tutorial da lista de lembretes">?</button></h2>
+  <section class="lp-sec" id="secLista" data-tour="lista" aria-label="Seus lembretes" data-dg-i18n-aria-label="02ae7d583f62">
+    <h2><span><!--dg-i18n:02ae7d583f62-->Seus lembretes<!--/dg-i18n--></span><button type="button" class="lp-ajuda" data-ajuda="lista" aria-label="Tutorial da lista de lembretes" data-dg-i18n-aria-label="633a7a83204e">?</button></h2>
     <div class="lp-filtros">
-      <select id="filtroAgente" aria-label="Filtrar por agente"><option value="">Todos os agentes</option></select>
-      <select id="filtroEstado" aria-label="Filtrar por estado">
-        <option value="">Todos os estados</option><option value="ativo">Ativos</option>
-        <option value="pausado">Pausados</option><option value="encerrado">Encerrados</option>
+      <select id="filtroAgente" aria-label="Filtrar por agente" data-dg-i18n-aria-label="97308c18c7a2"><option value=""><!--dg-i18n:e3c5c212401b-->Todos os agentes<!--/dg-i18n--></option></select>
+      <select id="filtroEstado" aria-label="Filtrar por estado" data-dg-i18n-aria-label="74580843ea91">
+        <option value=""><!--dg-i18n:4908ebca119c-->Todos os estados<!--/dg-i18n--></option><option value="ativo"><!--dg-i18n:46e6638c8237-->Ativos<!--/dg-i18n--></option>
+        <option value="pausado"><!--dg-i18n:ab664d76cef2-->Pausados<!--/dg-i18n--></option><option value="encerrado"><!--dg-i18n:0960431106ec-->Encerrados<!--/dg-i18n--></option>
       </select>
     </div>
-    <div id="lista"><p class="lp-vazio"><span data-carregando="Carregando" data-tam="p"></span> Carregando…</p></div>
+    <div id="lista"><p class="lp-vazio"><span data-carregando="Carregando" data-tam="p"></span> <!--dg-i18n:6cc1bbba0f84-->Carregando…<!--/dg-i18n--></p></div>
     <p class="lp-agendador" id="agendador"></p>
   </section>
 </main>

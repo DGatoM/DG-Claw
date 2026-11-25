@@ -1,4 +1,5 @@
 'use strict';
+const dgTexto_logs = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* logs.js: a tela "Logs" (/logs): o histórico do que cada agente fez, só para o dono. Lê GET /api/v1/logs/agentes,
    /agentes/:slug/sessoes e /agentes/:slug/eventos. Contrato: web/docs/LOGS.md.
 
@@ -11,11 +12,11 @@
   if (typeof module === 'object' && module.exports) module.exports = m;
   else raiz.DGLogsTela = m;
 })(this, function (raiz) {
-  const TIPOS = [['mensagem', 'Mensagens'], ['comando', 'Comandos'], ['arquivo', 'Arquivos'], ['ferramenta', 'Ferramentas'], ['sistema', 'Sistema']];
-  const ROTULO_TIPO = { mensagem: 'Mensagem', comando: 'Comando', arquivo: 'Arquivo', ferramenta: 'Ferramenta', sistema: 'Sistema' };
+  const TIPOS = [['mensagem', 'Mensagens'], ['comando', 'Comandos'], ['arquivo', dgTexto_logs('Arquivos')], ['ferramenta', dgTexto_logs('Ferramentas')], ['sistema', 'Sistema']];
+  const ROTULO_TIPO = { mensagem: 'Mensagem', comando: 'Comando', arquivo: dgTexto_logs('Arquivo'), ferramenta: 'Ferramenta', sistema: 'Sistema' };
   const ROTULO_MOTOR = { claude: 'Claude', codex: 'Codex' };
   const ROTULO_ESTADO = { ok: 'Lida', parcial: 'Parcial', vazia: 'Vazia', ausente: 'Ausente', ilegivel: 'Ilegível', nao_verificada: 'Não verificada' };
-  const ROTULO_PAPEL = { pessoa: 'Pessoa', agente: 'Agente', sistema: 'Sistema' };
+  const ROTULO_PAPEL = { pessoa: 'Pessoa', agente: dgTexto_logs('Agente'), sistema: 'Sistema' };
   const TIPOS_COM_RESULTADO = ['comando', 'arquivo', 'ferramenta'];
 
   /* ── textos e contas puras ──────────────────────────────────────────────── */
@@ -36,8 +37,8 @@
   function quando(ms) {
     if (typeof ms !== 'number' || !isFinite(ms)) return '';
     const d = new Date(ms);
-    const dia = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const dia = d.toLocaleDateString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const hora = d.toLocaleTimeString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     return dia + ' ' + hora;
   }
 
@@ -105,7 +106,7 @@
         porque: 'Uma lista vazia pode querer dizer "o agente não fez nada" ou "o servidor não conseguiu ler". Os cartões separam as duas coisas.' },
     ],
     filtros: [
-      { alvo: '#secFiltros', titulo: 'Filtros',
+      { alvo: '#secFiltros', titulo: dgTexto_logs('Filtros'),
         oque: 'Período, tipo de ação, uma palavra para buscar e a sessão.',
         como: 'Os filtros viram parâmetros do pedido ao servidor. A busca por palavra olha o texto já mascarado (segredos aparecem como [segredo oculto]) e não diferencia maiúsculas nem acentos.',
         porque: 'Um agente pode ter milhares de registros. Filtrar leva você direto ao dia, ao comando ou à frase que procura.' },
@@ -213,8 +214,8 @@
       const dl = el('dl');
       linhaDetalhe(dl, 'Comando', d.comando, true);
       linhaDetalhe(dl, 'Descrição', d.descricao);
-      linhaDetalhe(dl, 'Operação', d.operacao);
-      linhaDetalhe(dl, 'Arquivo', d.caminho);
+      linhaDetalhe(dl, dgTexto_logs('Operação'), d.operacao);
+      linhaDetalhe(dl, dgTexto_logs('Arquivo'), d.caminho);
       linhaDetalhe(dl, 'Ferramenta', d.ferramenta);
       linhaDetalhe(dl, 'Entrada', d.entrada, true);
       if (temResultado) {
@@ -245,7 +246,7 @@
     const r = $('lgRodape');
     const b = $('lgMais');
     r.hidden = !est.proximo;
-    b.textContent = est.parcial ? 'Continuar procurando' : 'Carregar mais';
+    b.textContent = est.parcial ? 'Continuar procurando' : dgTexto_logs('Carregar mais');
     b.disabled = est.carregando;
   }
 
@@ -261,7 +262,7 @@
     const gen = maisUma ? est.gen : ++est.gen;
     est.carregando = true;
     msgGeral('');
-    if (!maisUma) { limpar($('lgLista')); est.proximo = null; est.parcial = false; pintaEstado('Carregando…'); }
+    if (!maisUma) { limpar($('lgLista')); est.proximo = null; est.parcial = false; pintaEstado(dgTexto_logs('Carregando…')); }
     pintaRodape();
     const f = filtros();
     try {
@@ -292,7 +293,7 @@
   async function carregaSessoes() {
     const sel = $('lgSessao');
     limpar(sel);
-    sel.appendChild(el('option', null, 'Todas as sessões')).value = '';
+    sel.appendChild(el('option', null, dgTexto_logs('Todas as sessões'))).value = '';
     if (!est.agente) return;
     try {
       const r = await pedir('/api/v1/logs/agentes/' + encodeURIComponent(est.agente) + '/sessoes?limite=100');

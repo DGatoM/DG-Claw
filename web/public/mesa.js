@@ -1,4 +1,6 @@
 'use strict';
+const dgTexto_mesa = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgHtml_mesa = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* mesa.js: a tela da Mesa de tarefas (/mesa). Contrato da API em web/docs/MESA.md.
 
    As partes puras (rótulos, texto do progresso, "há X min", agrupamento, texto da origem, HTML do
@@ -170,7 +172,7 @@
       campos = `<label>Motivo (opcional)<input name="motivo" type="text" maxlength="300" value="${esc(v.motivo != null ? v.motivo : '')}"></label>`;
     } else {
       titulo = 'Editar a tarefa';
-      ok = 'Salvar';
+      ok = dgTexto_mesa('Salvar');
       const prog = v.progresso != null ? v.progresso : (t.progresso_origem === 'informado' && t.progresso != null ? t.progresso : '');
       campos = `<label>Título<input name="titulo" type="text" maxlength="120" value="${esc(v.titulo != null ? v.titulo : t.titulo)}"></label>` +
         `<label>Nota<input name="nota" type="text" maxlength="200" value="${esc(v.nota != null ? v.nota : (t.nota || ''))}"></label>` +
@@ -366,7 +368,7 @@
   function setErroCarga(texto) {
     els.erro.innerHTML = texto
       ? `<div class="mz-erro mz-erro-carga" role="alert"><p>${esc(texto)}</p>` +
-        '<button type="button" class="mz-btn pri" data-acao="recarregar">Tentar de novo</button></div>'
+        dgHtml_mesa("<button type=\"button\" class=\"mz-btn pri\" data-acao=\"recarregar\"><!--dg-i18n:6bb3150b9757-->Tentar de novo<!--/dg-i18n--></button></div>")
       : '';
   }
 
@@ -495,7 +497,7 @@
     els.filtros.innerHTML =
       '<div class="mz-busca-lin"><input type="search" id="mzBusca" class="mz-busca" maxlength="80" autocomplete="off" ' +
       'placeholder="Buscar em título, pedido, nota e motivo" aria-label="Buscar nas tarefas">' +
-      '<button type="button" class="mz-limpa" data-acao="limpar-filtros" hidden>Limpar filtros</button></div>' +
+      dgHtml_mesa("<button type=\"button\" class=\"mz-limpa\" data-acao=\"limpar-filtros\" hidden><!--dg-i18n:fade927f9c61-->Limpar filtros<!--/dg-i18n--></button></div>") +
       '<div id="mzChips" class="mz-chips"></div>';
     els.busca = $('mzBusca'); els.chips = $('mzChips'); els.limpa = els.filtros.querySelector('[data-acao="limpar-filtros"]');
     els.busca.value = E.busca;
@@ -519,7 +521,7 @@
     const dia = `<button type="button" class="mz-chip${E.dia === 'hoje' ? ' on' : ''}" data-acao="dia" data-dia="hoje">Hoje</button>` +
       `<button type="button" class="mz-chip${E.dia === 'todos' ? ' on' : ''}" data-acao="dia" data-dia="todos">Todos</button>` +
       `<input type="date" class="mz-data${ehData ? ' on' : ''}" id="mzData" aria-label="Escolher um dia" value="${ehData ? esc(E.dia) : ''}">`;
-    const html = grupo('Filtrar por estado', estados) + grupo('Filtrar por agente', agentes) +
+    const html = grupo(dgTexto_mesa('Filtrar por estado'), estados) + grupo(dgTexto_mesa('Filtrar por agente'), agentes) +
       (tiposHtml ? grupo('Filtrar por tipo', tiposHtml) : '') + grupo('Filtrar por dia', dia);
     if (els.chips.__html !== html) { els.chips.innerHTML = html; els.chips.__html = html; }
     els.limpa.hidden = !filtroAtivo(f);
@@ -628,10 +630,10 @@
       `<label>Agente<select name="agente">${opAg}</select></label>` +
       '<label>Título<input name="titulo" type="text" maxlength="120" required></label>' +
       `<label>Origem (o pedido, com a data)<input name="origem" type="text" maxlength="300" required value="${esc(textoOrigem(new Date()))}"></label>` +
-      '<label>Tipo<select name="tipo"><option value="outro">outro</option><option value="conteudo">conteúdo</option><option value="desenvolvimento">desenvolvimento</option><option value="projeto">projeto</option></select></label>' +
+      dgHtml_mesa("<label><!--dg-i18n:3868d2843d59-->Tipo<!--/dg-i18n--><select name=\"tipo\"><option value=\"outro\">outro</option><option value=\"conteudo\">conteúdo</option><option value=\"desenvolvimento\">desenvolvimento</option><option value=\"projeto\">projeto</option></select></label>") +
       '<label>Passos (um por linha, opcional)<textarea name="passos" rows="3"></textarea></label>' +
       '<div id="mzNovaErro"></div>' +
-      '<div class="mz-linha"><button type="submit" class="mz-btn pri">Criar tarefa</button><button type="button" class="mz-btn" data-acao="fechar-nova">Voltar</button></div></form>';
+      dgHtml_mesa("<div class=\"mz-linha\"><button type=\"submit\" class=\"mz-btn pri\">Criar tarefa</button><button type=\"button\" class=\"mz-btn\" data-acao=\"fechar-nova\"><!--dg-i18n:59dc926760d0-->Voltar<!--/dg-i18n--></button></div></form>");
     els.novaBtn.setAttribute('aria-expanded', 'true');
     els.nova.querySelector('[name=titulo]').focus();
   }

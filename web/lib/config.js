@@ -46,8 +46,11 @@ function carregaConfig(opcoes, log) {
     env = Object.assign({}, r.vars, process.env);
   }
   const num = (v, pad) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : pad; };
+  const idiomaConfigurado = env.DGCLAW_WEB_IDIOMA || 'pt-BR';
+  if (!['pt-BR', 'en'].includes(idiomaConfigurado)) log('aviso', 'DGCLAW_WEB_IDIOMA inválido. Use pt-BR ou en no web.env; a interface segue em pt-BR.');
   return {
     env,
+    idioma: idiomaConfigurado === 'en' ? 'en' : 'pt-BR',
     host: opcoes.host || env.DGCLAW_WEB_HOST || '127.0.0.1',
     porta: opcoes.porta != null ? opcoes.porta : num(env.DGCLAW_WEB_PORT, 8300),
     agentesPath: opcoes.agentesPath || env.DGCLAW_AGENTES || '/etc/dgclaw/agentes.json',

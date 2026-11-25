@@ -2,6 +2,9 @@
 <html lang="pt-BR" data-tema="{{MARCA_TEMA}}">
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/ds/idioma.css">
+<script src="/ds/idiomas.js"></script>
+<script src="/ds/idioma.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Logs - {{MARCA_NOME}}</title>
 <meta name="marca-nome" content="{{MARCA_NOME}}">
@@ -28,42 +31,42 @@
 <main class="lg-main">
   <p class="lg-msg erro" id="lgMsgGeral" role="alert" hidden></p>
 
-  <section class="lg-sec" id="secAgente" aria-label="Agente">
-    <h2><span>Agente</span><button type="button" class="lg-ajuda" data-lg="ajuda" data-secao="agente" aria-label="Tutorial do seletor de agente">?</button></h2>
-    <label class="lg-rotulo" for="lgAgente">Ver o histórico de</label>
-    <select id="lgAgente" class="lg-campo" disabled><option>Carregando…</option></select>
-    <p class="lg-fraco">O texto de um log nasceu do que o agente leu e escreveu. Não cole trechos na conversa de um agente sem conferir antes.</p>
+  <section class="lg-sec" id="secAgente" aria-label="Agente" data-dg-i18n-aria-label="1e068f0819ee">
+    <h2><span><!--dg-i18n:1e068f0819ee-->Agente<!--/dg-i18n--></span><button type="button" class="lg-ajuda" data-lg="ajuda" data-secao="agente" aria-label="Tutorial do seletor de agente" data-dg-i18n-aria-label="f475024882ca">?</button></h2>
+    <label class="lg-rotulo" for="lgAgente"><!--dg-i18n:8b81239e0e5e-->Ver o histórico de<!--/dg-i18n--></label>
+    <select id="lgAgente" class="lg-campo" disabled><option><!--dg-i18n:6cc1bbba0f84-->Carregando…<!--/dg-i18n--></option></select>
+    <p class="lg-fraco"><!--dg-i18n:223b7e3b3683-->O texto de um log nasceu do que o agente leu e escreveu. Não cole trechos na conversa de um agente sem conferir antes.<!--/dg-i18n--></p>
   </section>
 
-  <section class="lg-sec" id="secFontes" aria-label="Fontes">
-    <h2><span>Fontes</span><button type="button" class="lg-ajuda" data-lg="ajuda" data-secao="fontes" aria-label="Tutorial das fontes">?</button></h2>
-    <div id="lgFontes"><p class="lg-fraco">Carregando…</p></div>
+  <section class="lg-sec" id="secFontes" aria-label="Fontes" data-dg-i18n-aria-label="ebddcc6f04e1">
+    <h2><span><!--dg-i18n:ebddcc6f04e1-->Fontes<!--/dg-i18n--></span><button type="button" class="lg-ajuda" data-lg="ajuda" data-secao="fontes" aria-label="Tutorial das fontes" data-dg-i18n-aria-label="6cf0125e3728">?</button></h2>
+    <div id="lgFontes"><p class="lg-fraco"><!--dg-i18n:6cc1bbba0f84-->Carregando…<!--/dg-i18n--></p></div>
   </section>
 
-  <section class="lg-sec" id="secFiltros" aria-label="Filtros">
-    <h2><span>Filtros</span><button type="button" class="lg-ajuda" data-lg="ajuda" data-secao="filtros" aria-label="Tutorial dos filtros">?</button></h2>
+  <section class="lg-sec" id="secFiltros" aria-label="Filtros" data-dg-i18n-aria-label="57ac13ce3d5b">
+    <h2><span><!--dg-i18n:57ac13ce3d5b-->Filtros<!--/dg-i18n--></span><button type="button" class="lg-ajuda" data-lg="ajuda" data-secao="filtros" aria-label="Tutorial dos filtros" data-dg-i18n-aria-label="29354743f7eb">?</button></h2>
     <form id="lgForm" class="lg-form" autocomplete="off">
       <div class="lg-linha">
-        <label class="lg-rotulo" for="lgDesde">Desde<input type="date" id="lgDesde" class="lg-campo"></label>
-        <label class="lg-rotulo" for="lgAte">Até<input type="date" id="lgAte" class="lg-campo"></label>
+        <label class="lg-rotulo" for="lgDesde"><!--dg-i18n:8b4e93e928df-->Desde<!--/dg-i18n--><input type="date" id="lgDesde" class="lg-campo"></label>
+        <label class="lg-rotulo" for="lgAte"><!--dg-i18n:3325b04628db-->Até<!--/dg-i18n--><input type="date" id="lgAte" class="lg-campo"></label>
       </div>
-      <div class="lg-chips" id="lgChips" role="group" aria-label="Tipos de ação"></div>
-      <label class="lg-rotulo" for="lgBusca">Buscar no texto<input type="search" id="lgBusca" class="lg-campo" maxlength="200" placeholder="uma palavra ou frase"></label>
-      <label class="lg-rotulo" for="lgSessao">Sessão<select id="lgSessao" class="lg-campo"><option value="">Todas as sessões</option></select></label>
+      <div class="lg-chips" id="lgChips" role="group" aria-label="Tipos de ação" data-dg-i18n-aria-label="6dc04df79b23"></div>
+      <label class="lg-rotulo" for="lgBusca"><!--dg-i18n:243ddbe3e08b-->Buscar no texto<!--/dg-i18n--><input type="search" id="lgBusca" class="lg-campo" maxlength="200" placeholder="uma palavra ou frase" data-dg-i18n-placeholder="e623abbbd947"></label>
+      <label class="lg-rotulo" for="lgSessao"><!--dg-i18n:e6f5e060790e-->Sessão<!--/dg-i18n--><select id="lgSessao" class="lg-campo"><option value=""><!--dg-i18n:47d1f6841560-->Todas as sessões<!--/dg-i18n--></option></select></label>
       <div class="lg-acoes">
-        <button type="submit" class="lg-btn lg-pri">Aplicar</button>
-        <button type="button" class="lg-btn" id="lgLimpar">Limpar filtros</button>
+        <button type="submit" class="lg-btn lg-pri"><!--dg-i18n:3a04898a6b8b-->Aplicar<!--/dg-i18n--></button>
+        <button type="button" class="lg-btn" id="lgLimpar"><!--dg-i18n:fade927f9c61-->Limpar filtros<!--/dg-i18n--></button>
       </div>
     </form>
   </section>
 
-  <section class="lg-sec" id="secLista" aria-label="Linha do tempo">
-    <h2><span>Linha do tempo</span><button type="button" class="lg-ajuda" data-lg="ajuda" data-secao="lista" aria-label="Tutorial da linha do tempo">?</button></h2>
+  <section class="lg-sec" id="secLista" aria-label="Linha do tempo" data-dg-i18n-aria-label="2bbefc50bb2f">
+    <h2><span><!--dg-i18n:2bbefc50bb2f-->Linha do tempo<!--/dg-i18n--></span><button type="button" class="lg-ajuda" data-lg="ajuda" data-secao="lista" aria-label="Tutorial da linha do tempo" data-dg-i18n-aria-label="bb29c4ffa5a0">?</button></h2>
     <div id="lgAvisos"></div>
-    <div id="lgEstado" role="status"><p class="lg-fraco">Carregando…</p></div>
+    <div id="lgEstado" role="status"><p class="lg-fraco"><!--dg-i18n:6cc1bbba0f84-->Carregando…<!--/dg-i18n--></p></div>
     <div id="lgLista" class="lg-lista"></div>
     <div class="lg-acoes" id="lgRodape" hidden>
-      <button type="button" class="lg-btn lg-pri" id="lgMais">Carregar mais</button>
+      <button type="button" class="lg-btn lg-pri" id="lgMais"><!--dg-i18n:368d58ebc90b-->Carregar mais<!--/dg-i18n--></button>
     </div>
   </section>
 </main>

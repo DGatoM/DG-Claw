@@ -1,4 +1,5 @@
 'use strict';
+const dgTexto_pedidos = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* pedidos.js: a aba "Pedidos" da Mesa (/mesa). Contrato da API em web/docs/PEDIDOS.md.
 
    Parte pura (sem DOM, com teste em web/test/pedidos-tela.test.js): rótulos, "há X min", link da
@@ -145,7 +146,7 @@
     if (!texto) return;
     const caixa = no('div', 'mz-erro mz-erro-carga', null, { role: 'alert' });
     caixa.append(no('p', null, texto));
-    const b = no('button', 'mz-btn pri', 'Tentar de novo', { type: 'button', 'data-pd-acao': 'recarregar' });
+    const b = no('button', 'mz-btn pri', dgTexto_pedidos('Tentar de novo'), { type: 'button', 'data-pd-acao': 'recarregar' });
     caixa.append(b);
     el.append(caixa);
   }
@@ -244,14 +245,14 @@
       f.append(rot);
       const lin = no('div', 'mz-linha');
       lin.append(no('button', 'mz-btn pri', 'Cancelar o pedido', { type: 'submit' }),
-        no('button', 'mz-btn', 'Voltar', { type: 'button', 'data-pd-acao': 'fechar-form' }));
+        no('button', 'mz-btn', dgTexto_pedidos('Voltar'), { type: 'button', 'data-pd-acao': 'fechar-form' }));
       f.append(lin);
       art.append(f);
     } else if (!fechado) {
       const ac = no('div', 'mz-acoes', null, { role: 'group', 'aria-label': 'Ações do dono' });
       const ocupado = E.ocupados.has(p.id);
       const feito = no('button', 'mz-btn' + (p.estado === 'entregue' ? ' pri' : ''), 'Marcar como feito', { type: 'button', 'data-pd-acao': 'feito', 'data-id': String(p.id) });
-      const canc = no('button', 'mz-btn', 'Cancelar', { type: 'button', 'data-pd-acao': 'cancelar', 'data-id': String(p.id) });
+      const canc = no('button', 'mz-btn', dgTexto_pedidos('Cancelar'), { type: 'button', 'data-pd-acao': 'cancelar', 'data-id': String(p.id) });
       feito.disabled = ocupado; canc.disabled = ocupado;
       ac.append(feito, canc);
       art.append(ac);

@@ -1,4 +1,6 @@
 'use strict';
+const dgTexto_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* anonimizar.js: a tela "Anonimizar documentos" (/anonimizar): liga e desliga por agente, instala o detector de
    nomes, testa um texto, lista e apaga os documentos anonimizados e mostra a tabela (só para o dono conferir).
 
@@ -116,7 +118,7 @@
       lista.map(([v, t]) => '<option value="' + v + '"' + (c && c[campo] === v ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select></label>';
     return '<article class="an-card" data-slug="' + esc(a.slug) + '">' +
       '<div class="an-topo"><h3>' + esc(a.nome) + '</h3>' +
-      '<label class="an-chave"><input type="checkbox" data-an="ligado"' + (ligado ? ' checked' : '') + '><span>Anonimizar documentos</span></label></div>' +
+      '<label class="an-chave"><input type="checkbox" data-an="ligado"' + (ligado ? ' checked' : '') + dgHtml_anonimizar("><span><!--dg-i18n:f2a70b9715ac-->Anonimizar documentos<!--/dg-i18n--></span></label></div>") +
       '<p class="an-fraco">' + (a.documentos === 1 ? '1 documento anonimizado' : (a.documentos || 0) + ' documentos anonimizados') + '</p>' +
       '<details class="an-op"><summary>Opções</summary><div class="an-opcoes">' + linhas +
       sel('sem_detector', SEM_DETECTOR, 'Sem o detector de nomes', 'O que fazer quando o detector completo não está instalado.') +
@@ -128,7 +130,7 @@
     if (!docs.length) return '<p class="an-vazio">Nenhum documento anonimizado para este agente.</p>';
     return docs.map(d => '<div class="an-doc" data-id="' + esc(d.id) + '"><div class="an-doc-nome">' + esc(d.nome_original) +
       '<small>' + esc(dataCurta(d.criado_em)) + ' · ' + esc(textoContagem(d.total)) + ' · código ' + esc(d.id) + '</small></div>' +
-      '<button type="button" class="an-btn an-perigo" data-an="apagar" data-id="' + esc(d.id) + '">Apagar</button></div>').join('');
+      '<button type="button" class="an-btn an-perigo" data-an="apagar" data-id="' + esc(d.id) + dgHtml_anonimizar("\"><!--dg-i18n:7d2434081ba5-->Apagar<!--/dg-i18n--></button></div>")).join('');
   }
 
   function tabelaHtml(entradas) {
@@ -152,11 +154,11 @@
       oque: 'Um cartão por agente, com o interruptor e as opções dele.',
       como: 'O interruptor liga e desliga na hora. Em Opções você escolhe o que mais trocar (valores, datas, empresas), se o que você digita também é trocado e o que fazer quando não dá para anonimizar um arquivo. Cada mudança é salva sozinha.',
       porque: 'Cada agente trabalha com dados diferentes: o que é sensível para um pode ser público para outro.' },
-    teste: { alvo: '#secTeste', titulo: 'Testar com um texto',
+    teste: { alvo: '#secTeste', titulo: dgTexto_anonimizar('Testar com um texto'),
       oque: 'Uma caixa para ver o filtro funcionando sem enviar nada a ninguém.',
       como: 'Cole um texto e toque em Testar. Os marcadores aparecem destacados. Nada é gravado: a tabela do teste é temporária.',
       porque: 'Você confere, antes de confiar, se o filtro acha os dados do seu tipo de documento.' },
-    docs: { alvo: '#secDocs', titulo: 'Documentos anonimizados',
+    docs: { alvo: '#secDocs', titulo: dgTexto_anonimizar('Documentos anonimizados'),
       oque: 'A lista do que já passou pelo filtro, por agente: nome original, data e quantos dados foram trocados.',
       como: 'Apagar um documento tira da tabela os marcadores que nenhum outro documento usa. Ver tabela mostra os dados reais, só para você conferir. Os valores nunca aparecem na lista.',
       porque: 'Dá para limpar o que não precisa mais ficar guardado. Atenção: sem a tabela, não há como voltar os dados reais de um arquivo antigo.' },
@@ -249,7 +251,7 @@
     const slug = $('anDocsAgente').value;
     est.docsSlug = slug;
     $('anTabela').hidden = true; $('anTabela').innerHTML = '';
-    if (!slug) { $('anDocs').innerHTML = '<p class="an-vazio">Escolha um agente.</p>'; $('anDocsAcoes').hidden = true; return; }
+    if (!slug) { $('anDocs').innerHTML = dgHtml_anonimizar("<p class=\"an-vazio\"><!--dg-i18n:29c7978fbe7e-->Escolha um agente.<!--/dg-i18n--></p>"); $('anDocsAcoes').hidden = true; return; }
     try {
       const d = await api('GET', '/' + encodeURIComponent(slug) + '/documentos');
       $('anDocs').innerHTML = documentosHtml(d.documentos);

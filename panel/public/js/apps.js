@@ -1,3 +1,5 @@
+
+const dgHtml_apps = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 // apps.js — a tela da aba Apps.
 //
 // O QUE ELA MOSTRA: os aplicativos que o agente opera e, dentro do primeiro deles
@@ -225,7 +227,7 @@
   async function carregar() {
     const el = raiz();
     if (!el) return;
-    el.innerHTML = '<div class="app-carregando">Carregando...</div>';
+    el.innerHTML = dgHtml_apps("<div class=\"app-carregando\"><!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>");
 
     const r = await pegar('/api/apps');
     if (!r.ok) { el.innerHTML = erro(r.corpo.error || `O painel respondeu ${r.status}.`); return; }
@@ -449,7 +451,7 @@
   async function desenharEtapa(slug, etapaKey) {
     const alvo = document.getElementById(`etapa-${slug}`);
     if (!alvo) return;
-    alvo.innerHTML = '<div class="app-carregando">Carregando...</div>';
+    alvo.innerHTML = dgHtml_apps("<div class=\"app-carregando\"><!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>");
 
     const r = await pegar(`/api/apps/${encodeURIComponent(appAtual)}/conteudos/${encodeURIComponent(slug)}`);
     if (!r.ok) { alvo.innerHTML = erro(r.corpo.error || `O painel respondeu ${r.status}.`); return; }
@@ -501,7 +503,7 @@
   async function abrirExtra(alvo, slug, arquivo) {
     const caixa = document.createElement('div');
     caixa.className = 'app-markdown app-extra-corpo';
-    caixa.innerHTML = '<div class="app-carregando">Carregando...</div>';
+    caixa.innerHTML = dgHtml_apps("<div class=\"app-carregando\"><!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>");
     alvo.appendChild(caixa);
     const a = await pegar(`/api/apps/${encodeURIComponent(appAtual)}/conteudos/${encodeURIComponent(slug)}/arquivo/${encodeURIComponent(arquivo)}`);
     caixa.innerHTML = a.ok

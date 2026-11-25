@@ -2,9 +2,12 @@
 <html lang="pt-BR" data-tema="{{MARCA_TEMA}}">
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/ds/idioma.css">
+<script src="/ds/idiomas.js"></script>
+<script src="/ds/idioma.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
-<title>Primeiro acesso - {{MARCA_NOME}}</title>
+<title data-dg-i18n="362d98227f03">Primeiro acesso - {{MARCA_NOME}}</title>
 <meta name="marca-nome" content="{{MARCA_NOME}}">
 <meta name="marca-logo-tem-nome" content="{{MARCA_LOGO_TEM_NOME}}">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -26,16 +29,16 @@
 <body>
 <main class="cartao">
   <div class="marca"><img class="marca-logo" src="/marca/logo" alt="" width="56" height="56"><span class="marca-nome">{{MARCA_NOME}}</span></div>
-  <h1>Primeiro acesso</h1>
-  <p class="sub">Cadastre sua senha</p>
+  <h1><!--dg-i18n:229b92a981fd-->Primeiro acesso<!--/dg-i18n--></h1>
+  <p class="sub"><!--dg-i18n:721f0e0ba2ad-->Cadastre sua senha<!--/dg-i18n--></p>
   <div id="erro" class="erro" role="alert" hidden></div>
   <form id="form" autocomplete="off">
-    <p class="sub" id="quem">Usuário: o que você escolheu na instalação</p>
-    <label for="senha">Senha</label>
+    <p class="sub" id="quem"><!--dg-i18n:c09f6f232dfc-->Usuário: o que você escolheu na instalação<!--/dg-i18n--></p>
+    <label for="senha"><!--dg-i18n:d482c10b3d4d-->Senha<!--/dg-i18n--></label>
     <input id="senha" name="senha" type="password" autocomplete="new-password" minlength="12" required autofocus>
-    <label for="confirmacao">Repita a senha</label>
+    <label for="confirmacao"><!--dg-i18n:d6df2bac4deb-->Repita a senha<!--/dg-i18n--></label>
     <input id="confirmacao" name="confirmacao" type="password" autocomplete="new-password" minlength="12" required>
-    <button type="submit" id="salvar">Salvar e entrar</button>
+    <button type="submit" id="salvar"><!--dg-i18n:0edf11e9ca2d-->Salvar e entrar<!--/dg-i18n--></button>
   </form>
 </main>
 <script src="/primeiro-acesso.js"></script>

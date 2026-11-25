@@ -1,0 +1,111 @@
+# Idiomas da interface
+
+O Web e o painel compartilham o catálogo Português (Brasil) / English. O seletor
+**Idioma / Language** aparece no login e no cabeçalho das telas. A escolha vale
+para este navegador e esta origem e fica em um cookie de apresentação por um ano.
+Outro navegador pode escolher outro idioma. O cookie não autentica nem autoriza
+ninguém.
+
+## Padrão por instalação
+
+O padrão continua sendo português. Para iniciar uma instalação em inglês,
+acrescente **somente** esta linha ao `/etc/dgclaw/web.env` existente:
+
+```dotenv
+DGCLAW_WEB_IDIOMA=en
+```
+
+Depois, reinicie somente o serviço Web conforme o procedimento de administração
+da instalação. Não substitua o arquivo inteiro: ele contém outras configurações.
+`pt-BR` e `en` são os únicos valores aceitos. Valor inválido gera aviso no log e
+mantém português. Uma escolha explícita no seletor prevalece sobre esse padrão.
+Apagar o cookie `dgclaw_idioma` volta ao padrão da instalação.
+
+Atrás do Web, o proxy envia ao painel o idioma efetivo como preferência de
+apresentação. No painel independente, a mesma variável pode ser configurada no
+ambiente do processo. Os HTMLs localizados não são guardados em cache compartilhado.
+
+## Conteúdo e limites
+
+A troca é feita na página, sem recarregar: campos digitados, senha em preenchimento,
+conversa aberta, grupos do menu, foco e contagens não são reiniciados. Se o navegador
+recusar o cookie, o seletor avisa e a alteração vale apenas para a página atual.
+Datas e números apresentados usam o locale escolhido; o fuso horário e os valores
+enviados às APIs continuam sendo os mesmos.
+
+Somente textos do produto entram no catálogo. Nomes de pessoas e agentes, conversas,
+arquivos, memória, conteúdo dos aplicativos, mensagens vindas do provedor e a marca
+personalizada permanecem no idioma original. A frase e o slogan de fábrica do login
+têm tradução. Mudar a interface não muda os prompts, a identidade nem o idioma de
+resposta dos agentes. Esse último pertence à configuração de cada agente.
+
+Esta é uma primeira migração, com 530 entradas: templates das telas Web e painel,
+navegação comum, rótulos, acessibilidade, autenticação Web e cartão Claude/Codex.
+Há mensagens dinâmicas, explicações extensas, tutoriais, erros do servidor e manuais
+ainda em português. Texto não catalogado aparece como está; esta versão não deve
+ser apresentada como tradução integral do produto. O inventário e a finalização
+desses textos são condição para oferecer uma instalação integralmente em inglês.
+
+## Atualizações e contribuição
+
+O catálogo e o código de renderização acompanham a versão do projeto. Preferências
+e o padrão ficam fora do código; nenhum comando desta mudança regrava o `web.env`.
+Até a contribuição ser incorporada pelo mantenedor, o commit precisa ser mantido
+na branch de personalizações e reconciliado com as atualizações do projeto.
+Não há garantia de ausência de conflitos antes da incorporação no projeto original.
+
+### Acrescentar ou corrigir uma tradução
+
+```sh
+node scripts/idiomas.mjs --adicionar "Texto em português" "English text"
+node scripts/idiomas.mjs --verificar
+node --test web/test/idioma.test.js
+```
+
+O comando devolve a chave e o marcador. No HTML próprio do produto, marque o texto
+com `<!--dg-i18n:chave-->Texto em português<!--/dg-i18n-->`. Para atributos use
+`data-dg-i18n-title`, `data-dg-i18n-aria-label`, `data-dg-i18n-placeholder` ou
+`data-dg-i18n-alt`, mantendo o atributo português como fallback. O título usa
+`<title data-dg-i18n="chave">...</title>`. O teste detecta referência inexistente,
+hash incompatível e fallback HTML desatualizado; não troque só o texto mantendo
+a chave antiga.
+
+No JavaScript de interface, use `DGI18n.t(fonte)` na renderização e
+`DGI18n.frase(fonte, { valor })` para interpolação nomeada. Escape normalmente
+qualquer valor que vá para HTML. Para rótulos que já existem e precisam mudar
+sem reconstruir seus elementos, use `DGI18n.rotulo(elemento, fonte, atributo)`
+ou `DGI18n.fragmento(fonte)`. Este último gera somente um trecho de texto escapado.
+Nunca passe mensagens, documentos ou outros dados da pessoa como fonte de tradução.
+Não localize constantes de protocolo, nomes de rotas, slugs, chaves JSON ou comandos.
+
+Elementos com `data-dg-i18n-ignore`, histórico `#wrap`, campos editáveis e blocos de
+código não são percorridos. Não há varredura por palavras, MutationObserver global,
+tradução automática externa, `eval`, escrita de prompt ou alteração de autenticação.
+Os dados da marca são interpolados depois de traduzir o template de fábrica.
+
+### Provas
+
+`web/test/idioma.test.js` cobre configuração, cookie, catálogo, placeholders,
+renderização, tamanho HTTP, assets públicos e ausência de liberação de API.
+`web/test/proxy.test.js` cobre a passagem da preferência sem passar o cookie de
+sessão do Web. `qa/idiomas.cjs` exercita o DOM e o cartão de conta com Claude e Codex,
+sem conectar uma conta nem iniciar inferência. Ele usa jsdom 26.1.0 como ferramenta
+opcional de QA; não adiciona dependência de produção:
+
+```sh
+npm install --prefix /tmp/dgclaw-i18n-qa --ignore-scripts jsdom@26.1.0
+NODE_PATH=/tmp/dgclaw-i18n-qa/node_modules node qa/idiomas.cjs
+```
+
+Uma prova visual no navegador e uma conferência dos fluxos restantes continuam
+necessárias antes da publicação para clientes. HTML renderizado e teste de DOM
+não provam login real, conta conectada nem resposta de agente.
+
+## Conexões da configuração
+
+Entrada: `DGCLAW_WEB_IDIOMA` e cookie validado em `web/lib/idioma.js`.
+Saída: renderização Web, proxy do painel e rótulos em `web/public/ds/idioma.js`.
+A superfície é o seletor; falha de persistência aparece nele e idioma de ambiente
+inválido aparece no log. A próxima navegação relê a preferência persistida.
+Não há demanda comercial nem decisão automática nova: idioma é apresentação;
+o fluxo IA e humano continua usando o conteúdo e as permissões existentes.

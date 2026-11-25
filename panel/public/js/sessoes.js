@@ -1,3 +1,5 @@
+
+const dgTexto_sessoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 // sessoes.js — a aba Sessões: os cards de trabalho do agente, dentro do painel (12/10/2026).
 //
 // O QUE ELA É: o desenho da aba "Sessões" do DG Telegram (o mini-Bunker), trazido para cá.
@@ -400,10 +402,10 @@
       : 'Os cards do Bunker, as conversas de Claude que trabalham em pastas. Veja o que cada um faz, mande recado e crie sessões novas.';
     return el('div', { class: 'app-cabeca' },
       el('div', { class: 'app-cabeca-linha' },
-        el('h2', { title: texto }, 'Sessões'),
+        el('h2', { title: texto }, dgTexto_sessoes('Sessões')),
         soLeitura() ? el('span', { class: 'sx-selo', id: 'sx-selo', title: textoSoLeitura(), tabindex: '0' }, 'só leitura') : null,
         soLeitura() ? ajuda('so-leitura', 'Por que esta aba é só para ler') : null,
-        el('button', { type: 'button', class: 'app-tutorial-abrir', id: 'sessoes-tutorial-abrir', title: 'Uma visita guiada por esta tela, passo a passo.', onclick: () => abrirTutorial(0) }, 'Tutorial'),
+        el('button', { type: 'button', class: 'app-tutorial-abrir', id: 'sessoes-tutorial-abrir', title: dgTexto_sessoes('Uma visita guiada por esta tela, passo a passo.'), onclick: () => abrirTutorial(0) }, 'Tutorial'),
         ajuda('tela', 'O que é a aba Sessões')),
       el('p', null, texto));
   }
@@ -451,7 +453,7 @@
     a.hidden = !texto;
     if (!texto) return;
     a.append(texto);
-    if (comRetry) a.append(el('button', { type: 'button', onclick: () => carregaLista(true) }, 'Tentar de novo'));
+    if (comRetry) a.append(el('button', { type: 'button', onclick: () => carregaLista(true) }, dgTexto_sessoes('Tentar de novo')));
   }
 
   // ─── Lista ────────────────────────────────────────────────────
@@ -561,7 +563,7 @@
       box.append(el('div', { class: 'app-erro' },
         el('strong', null, 'Não consegui carregar as sessões'),
         el('p', null, erroLista),
-        el('button', { type: 'button', class: 'sx-btn sec', onclick: () => carregaLista(true) }, 'Tentar de novo')));
+        el('button', { type: 'button', class: 'sx-btn sec', onclick: () => carregaLista(true) }, dgTexto_sessoes('Tentar de novo'))));
     } else if (!dados) {
       box.append(el('div', { class: 'sx-vazio' }, 'Carregando as sessões...'));
     } else if (!itens.length) {
@@ -646,7 +648,7 @@
     perm.value = n.permissao;
     const erro = el('p', { class: 'sx-erro', role: 'alert', hidden: true });
     const cria = el('button', { type: 'button', class: 'sx-btn prim' }, 'Criar sessão');
-    const cancela = el('button', { type: 'button', class: 'sx-btn sec' }, 'Cancelar');
+    const cancela = el('button', { type: 'button', class: 'sx-btn sec' }, dgTexto_sessoes('Cancelar'));
     // Claude ou Codex: só aparece quando o agente tem os dois disponíveis (GET /api/sessoes/provedores). Com um só, o
     // card usa o da conversa principal e nada é mostrado. O motor da principal vem pré-selecionado.
     const prov = el('select', { id: 'sx-n-prov', title: 'O programa que vai trabalhar neste card. O da conversa principal vem marcado.' });
@@ -748,7 +750,7 @@
     r.texto.value = rasc.texto;
     r.livre = el('input', { type: 'checkbox', id: 'sx-livre' });
     r.livre.checked = rasc.livre;
-    r.enviar = el('button', { type: 'button', class: 'sx-btn prim', onclick: () => envia(false) }, 'Enviar');
+    r.enviar = el('button', { type: 'button', class: 'sx-btn prim', onclick: () => envia(false) }, dgTexto_sessoes('Enviar'));
     r.anexar = el('button', { type: 'button', class: 'sx-btn sec sx-mini', hidden: true, title: 'Anexa uma foto ou arquivo: o caminho dele entra no recado para o card ler.', 'aria-label': 'Anexar uma foto ou arquivo' }, ico('paperclip'));
     r.arquivo = el('input', { type: 'file', hidden: true });
     r.anexar.addEventListener('click', () => { if (!r.anexar.disabled) r.arquivo.click(); });
@@ -770,7 +772,7 @@
         r.acoes, r.msg),
       r.docs,
       el('div', { class: 'cartao sx-conv-sec' },
-        el('div', { class: 'section-title' }, 'Conversa', ajuda('conversa', 'Como ler a conversa do card')),
+        el('div', { class: 'section-title' }, dgTexto_sessoes('Conversa'), ajuda('conversa', 'Como ler a conversa do card')),
         r.mais, r.convEstado, r.conv),
       el('div', { class: 'cartao sx-recado', hidden: soLeitura() },
         el('div', { class: 'section-title' }, 'Recado para o card', ajuda('recado', 'Como funciona o recado')),
@@ -819,8 +821,8 @@
       campo.value = nomeAtual;
       campo.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') salvaNome(d); if (ev.key === 'Escape') cancelaNome(d); });
       linha = el('span', { class: 'sx-nome-edit' }, campo,
-        el('button', { type: 'button', class: 'sx-btn prim sx-mini', disabled: d.salvandoNome, onclick: () => salvaNome(d) }, d.salvandoNome ? 'Salvando...' : 'Salvar'),
-        el('button', { type: 'button', class: 'sx-btn sec sx-mini', onclick: () => cancelaNome(d) }, 'Cancelar'));
+        el('button', { type: 'button', class: 'sx-btn prim sx-mini', disabled: d.salvandoNome, onclick: () => salvaNome(d) }, d.salvandoNome ? 'Salvando...' : dgTexto_sessoes('Salvar')),
+        el('button', { type: 'button', class: 'sx-btn sec sx-mini', onclick: () => cancelaNome(d) }, dgTexto_sessoes('Cancelar')));
       setTimeout(() => { if (campo.isConnected) { campo.focus(); campo.select(); } }, 0);
     } else {
       const botoes = [];
@@ -902,7 +904,7 @@
         title: 'Traz o card de volta para a lista de ativas.' }, 'Desarquivar'));
       if (recOn('apagar') && !fixa) {
         botoes.push(el('button', { type: 'button', class: 'sx-btn perigo', disabled: off, onclick: () => acaoSimples(d, 'apagar'),
-          title: 'Tira a sessão da lista de vez e libera a vaga. A conversa continua guardada no disco.' }, 'Apagar'));
+          title: 'Tira a sessão da lista de vez e libera a vaga. A conversa continua guardada no disco.' }, dgTexto_sessoes('Apagar')));
       }
     } else if (rec('parar') && !fixa) {
       botoes.push(el('button', { type: 'button', class: 'sx-btn perigo', disabled: off, onclick: () => acaoSimples(d, 'arquivar'),
@@ -933,7 +935,7 @@
     r.texto.disabled = bloqueio;
     r.livre.disabled = bloqueio;
     r.enviar.disabled = bloqueio || d.enviando;
-    r.enviar.textContent = d.enviando ? 'Enviando...' : 'Enviar';
+    r.enviar.textContent = d.enviando ? 'Enviando...' : dgTexto_sessoes('Enviar');
     r.nota.textContent = nota;
     r.nota.classList.toggle('erro', !bloqueio && !!d.notaEnvio && d.notaEnvio.tom === 'erro');
     r.anexar.hidden = !recOn('anexo');
@@ -1036,7 +1038,7 @@
     if (!retomar && precisaRetomar(d.item)) {
       const sim = await escolhe({
         titulo: 'Retomar o card?', texto: 'Esse card está fechado, sem terminal. Para entregar o recado eu preciso retomar a sessão dele. Retomo e envio?',
-        opcoes: [{ rotulo: 'Retomar e enviar', valor: true, prim: true }, { rotulo: 'Cancelar', valor: null }],
+        opcoes: [{ rotulo: 'Retomar e enviar', valor: true, prim: true }, { rotulo: dgTexto_sessoes('Cancelar'), valor: null }],
       });
       if (!sim || det !== d) return;
       retomar = true;
@@ -1134,7 +1136,7 @@
       const v = await escolhe({
         titulo: 'Arquivar essa sessão?',
         texto: 'Arquivar para o terminal da sessão (ela continua podendo ser retomada depois) e esconde a sessão da lista de ativas. Dá para desarquivar quando quiser.',
-        opcoes: [{ rotulo: 'Arquivar', valor: 'sim', prim: true }, { rotulo: 'Cancelar', valor: null }],
+        opcoes: [{ rotulo: 'Arquivar', valor: 'sim', prim: true }, { rotulo: dgTexto_sessoes('Cancelar'), valor: null }],
       });
       if (v !== 'sim' || det !== d) return;
       const res = await postAcao(d, '/arquivar', {}, 'Sessão arquivada.');
@@ -1149,7 +1151,7 @@
       const v = await escolhe({
         titulo: 'Apagar essa sessão?',
         texto: 'A sessão sai da lista de vez e a vaga dela é liberada. A conversa continua guardada no disco, mas a sessão não volta pela tela.',
-        opcoes: [{ rotulo: 'Apagar', valor: 'sim', prim: true }, { rotulo: 'Cancelar', valor: null }],
+        opcoes: [{ rotulo: dgTexto_sessoes('Apagar'), valor: 'sim', prim: true }, { rotulo: dgTexto_sessoes('Cancelar'), valor: null }],
       });
       if (v !== 'sim' || det !== d) return;
       const res = await postAcao(d, '/apagar', {}, 'Sessão apagada.');
@@ -1180,7 +1182,7 @@
       return;
     }
     mensagemAcao('');
-    const cancelar = { rotulo: 'Cancelar', valor: null };
+    const cancelar = { rotulo: dgTexto_sessoes('Cancelar'), valor: null };
     let usar;
     if (h.modo === 'compact-no-lugar') {
       usar = await escolhe({
@@ -1284,7 +1286,7 @@
       corpo.append(el('p', { class: 'sx-vazio' }, 'Procurando os documentos citados...'));
     } else if (d.docsErro) {
       corpo.append(el('p', { class: 'sx-msg erro', role: 'alert' }, d.docsErro),
-        el('button', { type: 'button', class: 'sx-mais', onclick: () => carregaDocs(d) }, 'Tentar de novo'));
+        el('button', { type: 'button', class: 'sx-mais', onclick: () => carregaDocs(d) }, dgTexto_sessoes('Tentar de novo')));
     } else if (!d.docs) {
       corpo.append(el('p', { class: 'sx-vazio' }, 'Abra esta seção para ver os arquivos que o card citou.'));
     } else if (!d.docs.length) {
@@ -1338,7 +1340,7 @@
     await escolhe({
       titulo: res.corpo.nome || doc.nome, grande: true, pre: res.corpo.texto,
       texto: res.corpo.cortado ? 'O arquivo é maior que o limite de leitura: aparece só o começo.' : '',
-      opcoes: [{ rotulo: 'Fechar', valor: null, prim: true }],
+      opcoes: [{ rotulo: dgTexto_sessoes('Fechar'), valor: null, prim: true }],
     });
   }
 

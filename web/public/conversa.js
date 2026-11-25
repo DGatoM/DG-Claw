@@ -1,4 +1,6 @@
 'use strict';
+const dgTexto_conversa = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgHtml_conversa = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* conversa.js: a tela de conversa do DG Claw Web.
 
    O que o servidor entrega por rota (nada mais é chamado daqui):
@@ -326,7 +328,7 @@ function atvDuracao(ms) {
 function atvHora(iso) {
   const t = Date.parse(iso || '');
   if (!isFinite(t)) return '';
-  return new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit',
+  return new Date(t).toLocaleTimeString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { hour: '2-digit', minute: '2-digit',
     timeZone: 'America/Sao_Paulo' }).replace(':', 'h');
 }
 /* {nome, acao, classe, titulo}: as duas metades da linha e o estilo */
@@ -532,7 +534,7 @@ function lcDesenha() {
   if (v.codigoDispositivo) {
     const linha = lcEl_('div', 'lc-disp');
     linha.append(lcEl_('code', 'lc-disp-cod', v.codigoDispositivo));
-    linha.append(lcBotao(lc.copiado ? 'Copiado' : 'Copiar', 'lc-leve', () => lcCopia(v.codigoDispositivo)));
+    linha.append(lcBotao(lc.copiado ? dgTexto_conversa('Copiado') : dgTexto_conversa('Copiar'), 'lc-leve', () => lcCopia(v.codigoDispositivo)));
     corpo.push(linha);
   }
   if (v.campoCodigo) {
@@ -554,10 +556,10 @@ function lcDesenha() {
     corpo.push(e);
   }
   const pe = lcEl_('div', 'lc-pe');
-  if (v.botao) pe.append(lcBotao(lc.ocupado && v.fase === 'inicio' ? 'Conectando…' : v.botao, 'lc-principal', lcComeca));
+  if (v.botao) pe.append(lcBotao(lc.ocupado && v.fase === 'inicio' ? dgTexto_conversa('Conectando…') : v.botao, 'lc-principal', lcComeca));
   if (v.entrarDeNovo) pe.append(lcBotao('Entrar de novo', 'lc-leve', lcComeca));
-  if (v.cancelar) pe.append(lcBotao('Cancelar', 'lc-leve', lcCancela));
-  if (v.fechar) pe.append(lcBotao('Fechar', 'lc-leve', () => lcFecha(true)));
+  if (v.cancelar) pe.append(lcBotao(dgTexto_conversa('Cancelar'), 'lc-leve', lcCancela));
+  if (v.fechar) pe.append(lcBotao(dgTexto_conversa('Fechar'), 'lc-leve', () => lcFecha(true)));
   if (pe.childElementCount) corpo.push(pe);
   const vivo = lcEl_('p', 'lc-vivo', v.aviso || '');
   vivo.setAttribute('aria-live', 'polite');
@@ -801,7 +803,7 @@ function leDesenha() {
   prim.hidden = f !== 'aviso';
   sec.hidden = !(f === 'aviso' || f === 'nao_voltou');
   nao.hidden = f === 'pronto';
-  nao.textContent = f === 'aviso' || f === 'cartao' ? t.agoraNao : 'Fechar';
+  nao.textContent = f === 'aviso' || f === 'cartao' ? t.agoraNao : dgTexto_conversa('Fechar');
   $('leConectar').hidden = f === 'pronto';
 }
 
@@ -1220,7 +1222,7 @@ function filaSincroniza() {
       pendentes.push({
         n: ++seqPendente, texto: x.texto || ('Mensagem enviada às ' + horaItem + ' ainda na fila. O texto não está disponível nesta tela agora.'), estado: 'enviada', erro: null, cid: novoClienteId(),
         criadoEm: x.em, epLocal: x.em / 1000, ep: x.em / 1000 - 2, tentativa: 1,
-        hhmm: quando.toTimeString().slice(0, 5), dia: quando.toLocaleDateString('pt-BR'),
+        hhmm: quando.toTimeString().slice(0, 5), dia: quando.toLocaleDateString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR')),
         fila: 'resposta', filaEm: x.em, msgId: x.msg, daFila: true,
       });
       mudou = true;
@@ -1251,9 +1253,9 @@ let filaReavalia = null;
 
 /* O estado de descanso da tela depende do stream: sem ele as mensagens novas
    não chegam sozinhas, e a pessoa precisa ler isso (sem animação nenhuma). */
-const ESTADOS_CONEXAO = ['pronto', 'conectando…', 'reconectando…', 'conferindo agente…', 'agente sem sinal', 'esperando a sua permissão', 'esperando a sua resposta'];
+const ESTADOS_CONEXAO = ['pronto', dgTexto_conversa('conectando…'), 'reconectando…', 'conferindo agente…', 'agente sem sinal', 'esperando a sua permissão', 'esperando a sua resposta'];
 function estadoOcioso() {
-  if (!streamAberto) return setEstado(jaConectou ? 'reconectando…' : 'conectando…');
+  if (!streamAberto) return setEstado(jaConectou ? 'reconectando…' : dgTexto_conversa('conectando…'));
   const est = window.atividadeFoto?.agentes?.[AGENTE.id];
   if (!est) return setEstado('conferindo agente…');
   if (est.alerta === 'permissao') return setEstado('esperando a sua permissão');
@@ -1648,7 +1650,7 @@ function metaPendente(p) {
   if (p.estado === 'fila') {
     return '<span class="meta" title="sai assim que a parte anterior chegar">na fila…</span>';
   }
-  return '<span class="meta">enviando…</span>';
+  return dgHtml_conversa("<span class=\"meta\"><!--dg-i18n:b63dd292e4b3-->enviando…<!--/dg-i18n--></span>");
 }
 
 /* A legenda que só repete o tipo (a antiga "foto" com ícone, embaixo da foto) não aparece. */
@@ -1697,7 +1699,7 @@ function htmlCorpo(m) {
   }
   // a marca de áudio transcrito é para o agente: na tela vira um ícone de microfone no rodapé do balão
   const citaDono = !!m.cita && ehDono({ origin: m.cita.origin });
-  const cita = m.cita ? `<div class="cita"><b>${citaDono ? 'Você' :
+  const cita = m.cita ? `<div class="cita"><b>${citaDono ? dgTexto_conversa('Você') :
       esc(AGENTE.nome)}</b>${esc(citaDono ? PURO.separaAudio(m.cita.texto).texto : m.cita.texto)}</div>` : '';
   let leg = legendaUtil(m);
   let viaAudio = false;
@@ -2253,13 +2255,13 @@ function abreBarra(est, lim, id, texto) {
   const ok = document.createElement('button');
   ok.type = 'button';
   ok.className = 'vispede-ok';
-  ok.textContent = 'Enviar';
+  ok.textContent = dgTexto_conversa('Enviar');
   ok.disabled = true;
   const nao = document.createElement('button');
   nao.type = 'button';
   nao.className = 'vispede-nao';
   nao.innerHTML = dsIcone('x');
-  nao.setAttribute('aria-label', 'Cancelar');
+  nao.setAttribute('aria-label', dgTexto_conversa('Cancelar'));
   bts.append(ok, nao);
   el.append(rot, tx, bts);
   const b = { el, est, id, texto, relogio: setTimeout(() => { ok.disabled = false; }, VIS_PERG_ARMA_MS) };
@@ -2409,7 +2411,7 @@ function montaTelaVisual() {
   visTelaEl.setAttribute('aria-label', 'Visual em tela cheia');
   visTelaEl.innerHTML = '<div class="vtctopo"><span class="vtcnome" id="visTelaNome"></span>' +
     '<span id="visTelaBaixa"></span>' +
-    '<button type="button" class="vtcfecha" id="visTelaFecha" aria-label="Fechar">' + dsIcone('x') + '</button></div>' +
+    dgHtml_conversa("<button type=\"button\" class=\"vtcfecha\" id=\"visTelaFecha\" aria-label=\"Fechar\" data-dg-i18n-aria-label=\"0f2bd88ef0ac\">") + dsIcone('x') + '</button></div>' +
     '<div class="vtccorpo" id="visTelaCorpo"></div>';
   document.body.appendChild(visTelaEl);
   visTelaCorpo = document.getElementById('visTelaCorpo');
@@ -3602,7 +3604,7 @@ function pintaBolinhaMenu() {
   let partes = [];
   if (precisam) partes.push(precisam + (precisam === 1 ? ' agente precisa de você' : ' agentes precisam de você'));
   if (total) partes.push(total + (total === 1 ? ' mensagem não lida' : ' mensagens não lidas') + ' em outros agentes');
-  if (!total && !precisam) { if (b) b.remove(); btn.setAttribute('aria-label', 'Abrir o menu'); return; }
+  if (!total && !precisam) { if (b) b.remove(); btn.setAttribute('aria-label', dgTexto_conversa('Abrir o menu')); return; }
   if (!b) { b = document.createElement('span'); b.className = 'bolinha-menu'; b.setAttribute('aria-hidden', 'true'); btn.appendChild(b); }
   b.textContent = precisam ? '!' : '';
   btn.setAttribute('aria-label', 'Abrir o menu, ' + partes.join(', '));
@@ -3779,9 +3781,9 @@ function pintaMic() {
   btnMic.innerHTML = gravando ? dsIcone('stop') : dsIcone('mic');
   btnMic.setAttribute('aria-label', gravando
     ? (continua ? 'Parar e enviar' : 'Parar e escrever no campo')
-    : 'Gravar áudio');
+    : dgTexto_conversa('Gravar áudio'));
   btnEnviar.classList.toggle('direto', gravando);
-  btnEnviar.setAttribute('aria-label', gravando ? 'Parar e enviar direto' : 'Enviar');
+  btnEnviar.setAttribute('aria-label', gravando ? 'Parar e enviar direto' : dgTexto_conversa('Enviar'));
   /* O estado vai dentro do campo (#micTxt) e o clipe vira um X que cancela a gravação. */
   if (micAbrindo) micTxt.textContent = 'abrindo o microfone…';
   else if (gravando) micTxt.textContent = '● ' + tempoGravando();
@@ -3790,9 +3792,9 @@ function pintaMic() {
   btnAnexo.classList.toggle('cancela', gravando);
   btnAnexo.innerHTML = gravando ? dsIcone('x') : dsIcone('paperclip');
   btnAnexo.setAttribute('aria-label', gravando ? 'Cancelar a gravação'
-    : 'Anexar fotos, vídeos, áudios ou PDFs');
+    : dgTexto_conversa('Anexar fotos, vídeos, áudios ou PDFs'));
   btnAnexo.title = gravando ? 'Cancelar a gravação (nada é enviado)'
-    : 'Anexar fotos, vídeos, áudios ou PDFs (vários de uma vez)';
+    : dgTexto_conversa('Anexar fotos, vídeos, áudios ou PDFs (vários de uma vez)');
   clearInterval(timerGravando);
   timerGravando = gravando && !micAbrindo ? setInterval(pintaMic, 500) : null;
 }
@@ -3888,7 +3890,7 @@ async function comecaGravar() {
     if (gravacao !== g) return;
     micAbrindo = false;
     pintaMic();
-    setEstado('gravando…');
+    setEstado(dgTexto_conversa('gravando…'));
   };
   try {
     r.start(1000);
@@ -4055,7 +4057,7 @@ function faixaComAcoes(el, txt, acoes) {
 
 function erroComTentarDeNovo(msg, item) {
   faixaComAcoes(fErro, msg, [{
-    rotulo: 'Tentar de novo', id: 'audioTentar',
+    rotulo: dgTexto_conversa('Tentar de novo'), id: 'audioTentar',
     fn: () => { if (!transcrevendo && !gravando) transcreveEEntrega(item); },
   }]);
 }
@@ -4076,7 +4078,7 @@ function novoPendente(texto) {
     n: ++seqPendente, texto: texto, estado: 'enviando', erro: null, cid: novoClienteId(),
     criadoEm: Date.now(), epLocal: Date.now() / 1000, tentativa: 0,
     hhmm: agora.toTimeString().slice(0, 5),
-    dia: agora.toLocaleDateString('pt-BR'),
+    dia: agora.toLocaleDateString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR')),
   };
 }
 
@@ -4151,7 +4153,7 @@ function avisaEntrega(pend, ok, motivo) {
 async function mandaTexto(pend, semEsperar) {
   const tentativa = comecaTentativa(pend);
   render();
-  setEstado('enviando…');
+  setEstado(dgTexto_conversa('enviando…'));
   btnEnviar.disabled = true;
   let d;
   // com anexos o servidor pode mandar mais de uma mensagem (marcador não se corta)
@@ -4990,7 +4992,7 @@ function atualizaSeta() {
   fimNovas.hidden = !novasAbaixo;
   const rot = novasAbaixo
     ? 'Ir para o fim: ' + novasAbaixo + (novasAbaixo === 1 ? ' resposta nova' : ' respostas novas')
-    : 'Ir para a mensagem mais nova';
+    : dgTexto_conversa('Ir para a mensagem mais nova');
   if (btnFim.getAttribute('aria-label') !== rot) btnFim.setAttribute('aria-label', rot);
   if (apareceu) posicionaSeta();
 }
@@ -5084,7 +5086,7 @@ function passosTutorial() {
       porque: 'A conversa serve para pedir coisas; as páginas do painel servem para acompanhar e ajustar o agente.' });
   }
   if (!$('mlConfig').hidden) {
-    passos.push({ alvo: '#mlConfig', antes: abreM, titulo: 'Configurações',
+    passos.push({ alvo: '#mlConfig', antes: abreM, titulo: dgTexto_conversa('Configurações'),
       oque: 'Hoje tem um item: Instalar o app, que coloca o ' + dsMarca.nome + ' como aplicativo na tela inicial do aparelho.',
       como: 'No Android e no computador, com Chrome ou Edge, o toque abre o pedido de instalação do navegador. No iPhone e no iPad, o item mostra o caminho: Compartilhar e depois Adicionar à Tela de Início. O item some sozinho quando o app já está instalado.',
       porque: 'O app instalado abre sem a barra do navegador e fica a um toque, como qualquer outro aplicativo.' });
@@ -5096,7 +5098,7 @@ function passosTutorial() {
       porque: 'Quando o agente para de responder, reiniciar costuma resolver, e aqui é um toque.' });
   }
   // O cartão de login da conversa é do dono; o colaborador conecta pela página Conectar conta (ver conectar.js).
-  if (!COLAB) passos.push({ alvo: '#loginCartao', titulo: 'Conectar a sua conta',
+  if (!COLAB) passos.push({ alvo: '#loginCartao', titulo: dgTexto_conversa('Conectar a sua conta'),
     antes: () => {
       if (lc.aberto) return;
       lc.demo = true; lc.aberto = true; lc.manual = true; lc.carregando = false; lc.iniciado = false;
@@ -5127,7 +5129,7 @@ function passosTutorial() {
     como: 'Toque nele e a lista abre na mesma janela. Lá você cria, confirma e apaga lembretes.',
     porque: 'Lembrete que insiste até você confirmar só ajuda se for fácil de achar, por isso fica no topo.' });
   }
-  if ($('btnAnon') && !$('btnAnon').hidden) passos.push({ alvo: '#btnAnon', titulo: 'Documentos anonimizados',
+  if ($('btnAnon') && !$('btnAnon').hidden) passos.push({ alvo: '#btnAnon', titulo: dgTexto_conversa('Documentos anonimizados'),
     oque: 'Um selo que aparece só quando a anonimização de documentos está ligada para ' + nome + '. Ele leva à tela Anonimizar.',
     como: 'Os documentos que você manda pelo clipe passam por um filtro que troca nomes, CPF, telefone e outros dados por marcadores como [PESSOA_1]. O agente só vê os marcadores. Nas respostas dele, o botão "Ver com dados reais" mostra o texto de verdade e "Baixar versão final" entrega o arquivo com os dados reais.',
     porque: 'O agente e o modelo na nuvem trabalham sem receber os dados pessoais dos seus clientes, e você continua lendo tudo completo.' });
@@ -5201,7 +5203,7 @@ function pintaAcervo() {
   }
   if (acAba === 'midias') html += '</div>';
   if (d.erro && cacheMidias) html += '<button class="acmais" data-tentar>Atualizar novamente</button>';
-  if (d.proximo) html += `<button class="acmais" data-mais ${d.carregando ? 'disabled' : ''}>${d.carregando ? 'Carregando…' : 'Carregar anteriores'}</button>`;
+  if (d.proximo) html += `<button class="acmais" data-mais ${d.carregando ? 'disabled' : ''}>${d.carregando ? dgTexto_conversa('Carregando…') : 'Carregar anteriores'}</button>`;
   else if (cacheMidias && d.carregou && !d.itens.length) html += '<p>Nenhum item deste tipo na conversa disponível.</p>';
   acLista.innerHTML = html;
 }
@@ -5237,7 +5239,7 @@ acLista.onclick = async e => {
   } catch (err) { mostraErro(err.message); }
 };
 function passoAcervo() {
-  return { alvo: '#acervoLista', antes: () => abreAcervo(), titulo: 'Mídias, links e arquivos',
+  return { alvo: '#acervoLista', antes: () => abreAcervo(), titulo: dgTexto_conversa('Mídias, links e arquivos'),
     oque: 'Tudo o que foi compartilhado na conversa disponível, separado por tipo.',
     como: 'O aparelho mostra o que já guardou e busca novidades em segundo plano. Carrega 20 por vez, até 60 itens ou 30 dias; role para buscar os anteriores. Só miniaturas aparecem na grade.',
     porque: 'Reabrir o painel fica rápido e economiza dados. O arquivo completo só abre quando você toca nele.' };
@@ -5377,7 +5379,7 @@ window.addEventListener('resize', posicionaAlertas);
   }
   const esconde = () => { clearTimeout(sumir); clearTimeout(tempo); faixaR.hidden = true; faixaR.className = ''; };
   const falha = causa => mostra('erro', 'Não consegui reiniciar a sessão de ' + AGENTE.nome + ': ' + causa, [
-    { rotulo: 'Fechar', fn: esconde }, { rotulo: 'Tentar de novo', fn: dispara }]);
+    { rotulo: dgTexto_conversa('Fechar'), fn: esconde }, { rotulo: dgTexto_conversa('Tentar de novo'), fn: dispara }]);
 
   function acompanha(textoInicial) {
     clearTimeout(tempo);

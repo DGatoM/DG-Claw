@@ -7,6 +7,19 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Primeira etapa de idiomas Português / English.** O login, a navegação e as telas
+passam a compartilhar um catálogo e um seletor de idioma por navegador. A troca
+preserva campos preenchidos e a conversa aberta. Mensagens dinâmicas e manuais
+ainda não catalogados continuam no idioma original; não é tradução integral.
+O [guia de idiomas](docs/IDIOMAS.md) explica a cobertura e as pendências.
+
+### Como atualizar
+
+Português continua sendo o padrão. Para iniciar uma instalação em inglês, acrescente
+`DGCLAW_WEB_IDIOMA=en` ao `web.env` existente, preservando suas outras linhas, e
+reinicie somente o Web conforme o procedimento da instalação. Uma preferência já
+salva no seletor continua valendo. Não substitua o arquivo de configuração inteiro.
+
 **Correção do agente que ficava "trabalhando" para sempre depois de um /compact recusado.** Quando o auto-compact enfileirava
 vários `/compact` seguidos e o Claude Code respondia "Not enough messages to compact.", ele avisava o início da compactação
 e nunca o fim: o agente ficava em "working" por horas com as mensagens presas na fila. Agora (1) o runner olha o transcript

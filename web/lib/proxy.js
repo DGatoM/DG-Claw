@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const { erroJson, paginaErro, ipDoPedido, esquemaDoPedido, hostDoPedido, lerCorpo } = require('./http');
 const { NOME_COOKIE } = require('./auth');
+const { idiomaDoPedido } = require('./idioma');
 
 const HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'proxy-connection']);
 const PROIBIDOS_DO_NAVEGADOR = new Set(['x-dgclaw-proxy', 'x-dgclaw-usuario', 'x-dgclaw-papel', 'x-dgclaw-colaborador']);
@@ -84,7 +85,10 @@ function criarProxy({ config, registro, log, cofreRotas }) {
       h[nome] = v;
     }
     const ck = limpaCookie(req.headers.cookie);
-    if (ck) h.cookie = ck;
+    // Preferência de apresentação, sem autoridade: o painel recebe o idioma efetivo
+    // da instalação mesmo quando a pessoa abre /p/<slug> diretamente pela primeira vez.
+    const outros = (ck || '').split(';').map(s => s.trim()).filter(s => s && !s.startsWith('dgclaw_idioma='));
+    h.cookie = [...outros, 'dgclaw_idioma=' + idiomaDoPedido(req, config.idioma)].join('; ');
     h['x-forwarded-for'] = ipDoPedido(req, config.proxiesConfiaveis);
     h['x-forwarded-proto'] = esquemaDoPedido(req, config.proxiesConfiaveis);
     h['x-forwarded-host'] = hostDoPedido(req, config.proxiesConfiaveis);

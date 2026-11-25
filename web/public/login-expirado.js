@@ -21,7 +21,7 @@
   function hora(iso, fuso) {
     const t = Date.parse(iso || '');
     if (!isFinite(t)) return '';
-    return new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: fuso || 'America/Sao_Paulo' });
+    return new Date(t).toLocaleTimeString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { hour: '2-digit', minute: '2-digit', timeZone: fuso || 'America/Sao_Paulo' });
   }
 
   /** Um incidente = um agente + o instante em que o login morreu. Sem instante, o `desde` da foto faz o papel. */

@@ -2,8 +2,11 @@
 <html lang="pt-BR" data-tema="{{MARCA_TEMA}}">
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/ds/idioma.css">
+<script src="/ds/idiomas.js"></script>
+<script src="/ds/idioma.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Criar senha - {{MARCA_NOME}}</title>
+<title data-dg-i18n="c6328c1a88ec">Criar senha - {{MARCA_NOME}}</title>
 <meta name="marca-nome" content="{{MARCA_NOME}}">
 <meta name="marca-logo-tem-nome" content="{{MARCA_LOGO_TEM_NOME}}">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -26,27 +29,27 @@
 <body>
 <main class="cartao" id="tsCartao" data-tour="ts-cartao">
     <div class="marca"><img class="marca-logo" src="/marca/logo" alt="" width="56" height="56"><span class="marca-nome">{{MARCA_NOME}}</span></div>
-  <h1>Criar sua senha</h1>
-  <p class="sub" id="tsSub">Você entrou com a senha temporária. Escolha a sua para continuar.</p>
-  <button type="button" class="ts-tutorial" id="tsTutorial" title="Visita guiada desta tela: o que é cada parte e por que está aqui">Tutorial</button>
+  <h1><!--dg-i18n:2cbb2d241b6c-->Criar sua senha<!--/dg-i18n--></h1>
+  <p class="sub" id="tsSub"><!--dg-i18n:bfc7c5e7f7a9-->Você entrou com a senha temporária. Escolha a sua para continuar.<!--/dg-i18n--></p>
+  <button type="button" class="ts-tutorial" id="tsTutorial" title="Visita guiada desta tela: o que é cada parte e por que está aqui" data-dg-i18n-title="1fc19b1d3b71">Tutorial</button>
   <div id="erro" class="erro" role="alert" hidden></div>
   <form id="tsForm" autocomplete="on">
     <div id="tsAtualBloco" hidden data-tour="ts-atual">
-      <label for="tsAtual">Senha atual</label>
+      <label for="tsAtual"><!--dg-i18n:070b4b3394f4-->Senha atual<!--/dg-i18n--></label>
       <input id="tsAtual" type="password" autocomplete="current-password">
     </div>
     <div data-tour="ts-nova">
-      <label for="tsNova">Senha nova</label>
+      <label for="tsNova"><!--dg-i18n:74ec64361ef1-->Senha nova<!--/dg-i18n--></label>
       <input id="tsNova" type="password" autocomplete="new-password" minlength="10" maxlength="128" required>
-      <p class="ts-dica" id="tsDica">De 10 a 128 caracteres. Uma frase longa funciona bem.</p>
+      <p class="ts-dica" id="tsDica"><!--dg-i18n:0f518829eae3-->De 10 a 128 caracteres. Uma frase longa funciona bem.<!--/dg-i18n--></p>
     </div>
     <div data-tour="ts-conf">
-      <label for="tsConf">Repita a senha nova</label>
+      <label for="tsConf"><!--dg-i18n:1fcd14bf3aee-->Repita a senha nova<!--/dg-i18n--></label>
       <input id="tsConf" type="password" autocomplete="new-password" maxlength="128" required>
     </div>
-    <button type="submit" id="tsEnviar" data-tour="ts-enviar">Salvar e entrar</button>
+    <button type="submit" id="tsEnviar" data-tour="ts-enviar"><!--dg-i18n:0edf11e9ca2d-->Salvar e entrar<!--/dg-i18n--></button>
   </form>
-  <form method="post" action="/sair" class="ts-sair"><button type="submit" class="ts-link">Sair</button></form>
+  <form method="post" action="/sair" class="ts-sair"><button type="submit" class="ts-link"><!--dg-i18n:2d023dea2a9d-->Sair<!--/dg-i18n--></button></form>
 </main>
 <script src="/tour.js"></script>
 <script src="/trocar-senha.js"></script>

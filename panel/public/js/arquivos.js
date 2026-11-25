@@ -1,3 +1,5 @@
+
+const dgHtml_arquivos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 // arquivos.js — a tela da aba Pasta.
 //
 // O QUE ELA MOSTRA: a pasta de trabalho do agente. O que ele guardou enquanto
@@ -162,7 +164,7 @@
     el.innerHTML = cabecalho();
     ligarCabecalho();
     const corpoInicial = document.getElementById('arq-corpo');
-    if (corpoInicial) corpoInicial.innerHTML = '<div class="app-carregando">Carregando...</div>';
+    if (corpoInicial) corpoInicial.innerHTML = dgHtml_arquivos("<div class=\"app-carregando\"><!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>");
 
     const r = await pegar(`/api/arquivos?path=${encodeURIComponent(caminhoAtual)}`);
     const alvo = document.getElementById('arq-corpo');
@@ -422,7 +424,7 @@
   async function mostrarTexto(rel) {
     const caixa = document.getElementById('arq-aberto');
     if (!caixa) return;
-    caixa.innerHTML = '<div class="app-carregando">Carregando...</div>';
+    caixa.innerHTML = dgHtml_arquivos("<div class=\"app-carregando\"><!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>");
     const r = await pegar(`/api/arquivos/conteudo?path=${encodeURIComponent(rel)}`);
     if (!r.ok) { caixa.innerHTML = erro(motivoDoErro(r)); return; }
     const c = r.corpo;
@@ -449,7 +451,7 @@
   async function mostrarEditor(rel) {
     const caixa = document.getElementById('arq-aberto');
     if (!caixa) return;
-    caixa.innerHTML = '<div class="app-carregando">Carregando...</div>';
+    caixa.innerHTML = dgHtml_arquivos("<div class=\"app-carregando\"><!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>");
     const r = await pegar(`/api/arquivos/conteudo?path=${encodeURIComponent(rel)}`);
     if (!r.ok) { caixa.innerHTML = erro(motivoDoErro(r)); return; }
     const c = r.corpo;

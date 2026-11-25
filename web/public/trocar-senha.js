@@ -1,4 +1,5 @@
 'use strict';
+const dgTexto_trocar_senha = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* trocar-senha.js: a tela em que o colaborador troca a senha temporária pela dele (POST /api/v1/eu/senha).
    Sem a senha temporária pendente, a mesma tela troca a senha comum e pede também a atual. */
 (function () {
@@ -65,7 +66,7 @@
       location.href = d.destino || '/';
     } catch (e) {
       mostraErro(e.message);
-      b.disabled = false; b.textContent = 'Salvar e entrar';
+      b.disabled = false; b.textContent = dgTexto_trocar_senha('Salvar e entrar');
     }
   });
 
@@ -82,7 +83,7 @@
       oque: 'O mesmo texto da senha nova, escrito de novo.',
       como: 'Se as duas não forem iguais, a tela avisa antes de enviar e nada é salvo.',
       porque: 'Senha digitada errada trancaria você do lado de fora sem você perceber.' },
-    { alvo: '[data-tour="ts-enviar"]', titulo: 'Salvar e entrar',
+    { alvo: '[data-tour="ts-enviar"]', titulo: dgTexto_trocar_senha('Salvar e entrar'),
       oque: 'O botão que grava a senha nova.',
       como: 'Se tudo estiver certo, você é levado para a conversa com o seu agente. Se algo estiver errado, o motivo aparece em vermelho acima dos campos.',
       porque: 'É o último passo antes de começar a usar.' },

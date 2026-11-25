@@ -6,6 +6,7 @@
    confirma e envia é o app, com um toque do dono fora do iframe. */
 (function () {
   'use strict';
+const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
   var W = window, D = document, ROOT = D.documentElement;
   // O código da agente roda depois e pode sujar globais: guardo o que uso.
   var JS = JSON, M = Math, Num = Number, Str = String, Arr = Array.prototype;
@@ -149,11 +150,11 @@
     if (o.casas != null && o.casas !== '') { opt.minimumFractionDigits = opt.maximumFractionDigits = Num(o.casas); }
     else if (!o.moeda) { opt.minimumFractionDigits = 0; opt.maximumFractionDigits = 2; }
     var txt;
-    try { txt = new Intl.NumberFormat('pt-BR', opt).format(n); } catch (e) { txt = Str(n); }
+    try { txt = new Intl.NumberFormat((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), opt).format(n); } catch (e) { txt = Str(n); }
     return (o.prefixo || '') + txt + (o.sufixo || '');
   }
   function compacto(n) {
-    try { return new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(n); } catch (e) { return Str(n); }
+    try { return new Intl.NumberFormat((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { notation: 'compact', maximumFractionDigits: 1 }).format(n); } catch (e) { return Str(n); }
   }
   function esc(s) { return Str(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function casasDe(raw) { var p = Str(raw).split(/[.,]/); return p.length > 1 ? p[1].length : 0; }
@@ -512,7 +513,7 @@
     manda({ tipo: 'pergunta', texto: texto.slice(0, 2000), id: id });
     if (el) {
       el._dvPedido = id;
-      pEstado(el, 'espera', 'enviando…');
+      pEstado(el, 'espera', dgTexto_dgvis('enviando…'));
       // app antigo ou sem resposta: não deixa o botão preso em "enviando"
       el._dvT = setT(function () {
         el._dvT = 0;

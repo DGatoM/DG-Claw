@@ -1,4 +1,5 @@
 'use strict';
+const dgHtml_casca = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* casca.js: o cabeçalho e o menu do agente (os mesmos da tela de Conversa) para as outras telas:
    Mesa, Lembretes, Avisos e o painel do agente (/p/<slug>/).
 
@@ -42,43 +43,43 @@
 
   const MARCACAO_CABECALHO =
     '<header data-tour="casca-cabecalho" id="cabecalho">' +
-    '<button class="btn ghost" id="btnMenu" type="button" aria-label="Abrir o menu" data-tour="casca-menu">' + ico('menu') + '</button>' +
+    dgHtml_casca("<button class=\"btn ghost\" id=\"btnMenu\" type=\"button\" aria-label=\"Abrir o menu\" data-dg-i18n-aria-label=\"3723e68815c2\" data-tour=\"casca-menu\">") + ico('menu') + '</button>' +
     '<div class="av" id="av" aria-hidden="true"></div>' +
     '<div class="who" id="who" data-tour="casca-titulo"><b id="nomeAgente">' + esc(NOME) + '</b><span id="estado"></span></div>' +
-    '<a class="btn" id="btnSessoes" href="#" hidden data-tour="casca-sessoes" aria-label="Abrir as Sessões deste agente" title="Sessões de trabalho deste agente">' + ico('monitor') + ' <span class="lbl">Sessões</span></a>' +
-    '<button class="btn" id="btnTutorial" type="button" title="Visita guiada desta tela: o que é cada parte e por que está aqui">Tutorial</button>' +
+    dgHtml_casca("<a class=\"btn\" id=\"btnSessoes\" href=\"#\" hidden data-tour=\"casca-sessoes\" aria-label=\"Abrir as Sessões deste agente\" data-dg-i18n-aria-label=\"630516b72d73\" title=\"Sessões de trabalho deste agente\" data-dg-i18n-title=\"e1e9e5bbb44a\">") + ico('monitor') + dgHtml_casca(" <span class=\"lbl\"><!--dg-i18n:549a96da6ff6-->Sessões<!--/dg-i18n--></span></a>") +
+    dgHtml_casca("<button class=\"btn\" id=\"btnTutorial\" type=\"button\" title=\"Visita guiada desta tela: o que é cada parte e por que está aqui\" data-dg-i18n-title=\"1fc19b1d3b71\">Tutorial</button>") +
     '</header>';
 
   /* O seletor de agentes do menu. Colaborador não recebe: o elemento nem entra na página (MARCACAO_MENU_COLAB). */
   const MARCACAO_TROCA =
     '<div class="ml-troca" id="mlTroca" data-tour="agentes" hidden>' +
-    '<button type="button" id="mlTrocaBtn" aria-haspopup="true" aria-expanded="false"><span>trocar de agente</span><span class="ml-seta" aria-hidden="true">' + ico('chevron-down') + '</span></button>' +
+    dgHtml_casca("<button type=\"button\" id=\"mlTrocaBtn\" aria-haspopup=\"true\" aria-expanded=\"false\"><span><!--dg-i18n:a9d725b2d564-->trocar de agente<!--/dg-i18n--></span><span class=\"ml-seta\" aria-hidden=\"true\">") + ico('chevron-down') + '</span></button>' +
     '<div class="ml-lista" id="mlLista" role="menu"></div></div>';
 
 
   /* A única marcação do menu: a Conversa (conversa.html) e as outras telas (monta) usam esta (menu-lado.js mexe nestes ids). */
   const montaMenu = troca =>
     '<div id="overlayMenu"></div>' +
-    '<aside id="menu" aria-label="Menu do agente">' +
-    '<button class="fechar" id="btnFechaMenu" type="button" aria-label="Fechar o menu">' + ico('x') + '</button>' +
+    dgHtml_casca("<aside id=\"menu\" aria-label=\"Menu do agente\" data-dg-i18n-aria-label=\"985f0f080ae8\">") +
+    dgHtml_casca("<button class=\"fechar\" id=\"btnFechaMenu\" type=\"button\" aria-label=\"Fechar o menu\" data-dg-i18n-aria-label=\"7a5b4944e711\">") + ico('x') + '</button>' +
     '<div class="ml-marca" data-tour="gm-marca">' +
     '<div class="ml-moldura" id="mlMoldura" aria-hidden="true"></div>' +
     '<div class="ml-nome" id="mlNome">' + esc(NOME) + '</div>' +
     '<div class="ml-sub" id="mlSub"></div>' +
-    '<button type="button" class="gm-tut" id="gmTutorial" title="Visita guiada do menu: o que é cada parte e por que está aqui">Tutorial</button>' +
+    dgHtml_casca("<button type=\"button\" class=\"gm-tut\" id=\"gmTutorial\" title=\"Visita guiada do menu: o que é cada parte e por que está aqui\" data-dg-i18n-title=\"b724cbd4b22e\">Tutorial</button>") +
     troca +
     '</div>' +
-    '<nav class="ml-tabs" id="mlTabs" aria-label="Páginas do agente">' +
-    '<div data-tour="gm-conversa"><button type="button" class="ml-tab ativo" id="gmIrConversa" aria-current="page"><span class="ml-ico" aria-hidden="true">' + ico('message') + '</span>Conversa</button></div>' +
-    '<div data-tour="gm-mesa"><a class="ml-tab" href="/mesa"><span class="ml-ico" aria-hidden="true">' + ico('board') + '</span>Mesa de tarefas</a></div>' +
+    dgHtml_casca("<nav class=\"ml-tabs\" id=\"mlTabs\" aria-label=\"Páginas do agente\" data-dg-i18n-aria-label=\"481ff4713fd5\">") +
+    '<div data-tour="gm-conversa"><button type="button" class="ml-tab ativo" id="gmIrConversa" aria-current="page"><span class="ml-ico" aria-hidden="true">' + ico('message') + dgHtml_casca("</span><!--dg-i18n:2377f109281b-->Conversa<!--/dg-i18n--></button></div>") +
+    '<div data-tour="gm-mesa"><a class="ml-tab" href="/mesa"><span class="ml-ico" aria-hidden="true">' + ico('board') + dgHtml_casca("</span><!--dg-i18n:47869e458bfb-->Mesa de tarefas<!--/dg-i18n--></a></div>") +
     '<div id="mlPainel" data-tour="gm-painel" hidden></div></nav>' +
-    '<section class="ml-config" id="mlUso" aria-label="Uso das assinaturas"><details id="mlUsoDet"><summary class="ml-tab"><span class="ml-ico" aria-hidden="true">' + ico('gauge') + '</span>Uso das assinaturas<span class="ml-uso-seta" aria-hidden="true">' + ico('chevron-down') + '</span></summary><div class="ml-uso" id="mlUsoLista" aria-live="polite"></div></details></section>' +
-    '<section class="ml-config" id="mlConfig" data-tour="gm-config" aria-label="Configurações"><h3>Configurações</h3>' +
-    '<button type="button" class="ml-tab" id="mlInstalar"><span class="ml-ico" aria-hidden="true">' + ico('download') + '</span><span class="ml-tx">Instalar o app<small id="mlInstalarSub"></small></span></button>' +
+    dgHtml_casca("<section class=\"ml-config\" id=\"mlUso\" aria-label=\"Uso das assinaturas\" data-dg-i18n-aria-label=\"440dc8031eaf\"><details id=\"mlUsoDet\"><summary class=\"ml-tab\"><span class=\"ml-ico\" aria-hidden=\"true\">") + ico('gauge') + dgHtml_casca("</span><!--dg-i18n:440dc8031eaf-->Uso das assinaturas<!--/dg-i18n--><span class=\"ml-uso-seta\" aria-hidden=\"true\">") + ico('chevron-down') + '</span></summary><div class="ml-uso" id="mlUsoLista" aria-live="polite"></div></details></section>' +
+    dgHtml_casca("<section class=\"ml-config\" id=\"mlConfig\" data-tour=\"gm-config\" aria-label=\"Configurações\" data-dg-i18n-aria-label=\"76b0fb6ad189\"><h3><!--dg-i18n:76b0fb6ad189-->Configurações<!--/dg-i18n--></h3>") +
+    '<button type="button" class="ml-tab" id="mlInstalar"><span class="ml-ico" aria-hidden="true">' + ico('download') + dgHtml_casca("</span><span class=\"ml-tx\"><!--dg-i18n:57d2deb111a5-->Instalar o app<!--/dg-i18n--><small id=\"mlInstalarSub\"></small></span></button>") +
     '<p class="ml-ajuda" id="mlInstalarAjuda" role="status" hidden></p></section>' +
-    '<section class="ml-config" id="mlSessao" data-tour="gm-reiniciar" aria-label="Sessão do agente" hidden><h3>Sessão</h3>' +
-    '<button type="button" class="ml-tab" id="gmReiniciar" title="Reinicia o processo do agente quando ele trava. A conversa continua de onde estava."><span class="ml-ico" aria-hidden="true">' + ico('refresh') + '</span>Reiniciar sessão</button></section>' +
-    '<div class="pe"><div class="conta"><form method="post" action="/sair" id="formSair"><button type="submit" class="sair">Sair</button></form></div></div>' +
+    dgHtml_casca("<section class=\"ml-config\" id=\"mlSessao\" data-tour=\"gm-reiniciar\" aria-label=\"Sessão do agente\" data-dg-i18n-aria-label=\"7792ffbb90eb\" hidden><h3><!--dg-i18n:e6f5e060790e-->Sessão<!--/dg-i18n--></h3>") +
+    dgHtml_casca("<button type=\"button\" class=\"ml-tab\" id=\"gmReiniciar\" title=\"Reinicia o processo do agente quando ele trava. A conversa continua de onde estava.\" data-dg-i18n-title=\"5aaaf45f5876\"><span class=\"ml-ico\" aria-hidden=\"true\">") + ico('refresh') + dgHtml_casca("</span><!--dg-i18n:ae51e2a0419f-->Reiniciar sessão<!--/dg-i18n--></button></section>") +
+    dgHtml_casca("<div class=\"pe\"><div class=\"conta\"><form method=\"post\" action=\"/sair\" id=\"formSair\"><button type=\"submit\" class=\"sair\"><!--dg-i18n:2d023dea2a9d-->Sair<!--/dg-i18n--></button></form></div></div>") +
     '</aside>';
   const MARCACAO_MENU = montaMenu(MARCACAO_TROCA);
   const MARCACAO_MENU_COLAB = montaMenu('');
@@ -172,6 +173,7 @@
     const ponto = $(idPonto || 'menuPonto');
     if (!ponto) { console.error('casca: o conversa.html não tem o ponto de montagem do menu (#' + (idPonto || 'menuPonto') + '); o menu não foi criado.'); return; }
     ponto.insertAdjacentHTML('beforebegin', marcacaoMenu());
+    if (raiz.DGI18n) raiz.DGI18n.aplicar(document.getElementById('menu'));
     ponto.remove();
   }
 
@@ -218,6 +220,7 @@
     carregaTrava();
     document.documentElement.classList.add('casca');
     document.body.insertAdjacentHTML('afterbegin', MARCACAO_CABECALHO + marcacaoMenu());
+    if (raiz.DGI18n) { raiz.DGI18n.aplicar(); raiz.DGI18n.montar(); }
     pintaTitulo();
     // Faixa de versão e aviso de segurança são só do dono.
     if (!(raiz.DGPapel && raiz.DGPapel.colaborador)) {

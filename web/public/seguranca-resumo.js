@@ -1,4 +1,5 @@
 'use strict';
+const dgHtml_seguranca_resumo = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* seguranca-resumo.js: o AVISO ÚNICO de segurança do painel (uma janela e um selo), em todas as telas.
 
    Antes eram duas famílias de janelas (uma por boletim e uma por falha crítica) que voltavam a cada visita e obrigavam a
@@ -118,7 +119,7 @@
     return '<div class="sr-caixa" id="srCaixa">' +
       '<div class="sr-cab"><h2 id="srTitulo">Seu ambiente está em risco</h2>' +
       '<button type="button" class="sr-icone" data-sr="ajuda" aria-label="Tutorial do aviso de segurança" title="O que é este aviso">?</button>' +
-      '<button type="button" class="sr-icone" data-sr="fechar" aria-label="Fechar o aviso" title="Fechar">' + dsIcone('x') + '</button></div>' +
+      dgHtml_seguranca_resumo("<button type=\"button\" class=\"sr-icone\" data-sr=\"fechar\" aria-label=\"Fechar o aviso\" title=\"Fechar\" data-dg-i18n-title=\"0f2bd88ef0ac\">") + dsIcone('x') + '</button></div>' +
       '<p class="sr-texto" id="srTexto">' + esc(textoContagem(itens.length)) + '</p>' +
       '<ul class="sr-lista" id="srLista">' + mostrados.map(itemHtml).join('') +
       (resto ? '<li class="sr-resto">' + esc(textoResto(resto)) + '</li>' : '') + '</ul>' +

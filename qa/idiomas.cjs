@@ -1,0 +1,72 @@
+const { JSDOM } = require('jsdom');
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const { renderizarIdioma } = require('../web/lib/idioma');
+const root = path.join(__dirname, '../web/public');
+(async()=>{
+ const source = fs.readFileSync(path.join(root,'login.html'),'utf8').replaceAll('{{MARCA_NOME}}','Pilot');
+ const html = renderizarIdioma(source,{headers:{}},'en');
+ const dom = new JSDOM(html,{url:'https://pilot.example/login?erro=credenciais',runScripts:'outside-only'});
+ const w=dom.window,d=w.document;
+ w.fetch=async()=>({json:async()=>({sem_senha:false})});
+ for(const f of ['ds/idiomas.js','ds/idioma.js','login.js','menu-lado.js','login-cartao.js'])w.eval(fs.readFileSync(path.join(root,f),'utf8'));
+ await new Promise(r=>d.addEventListener('DOMContentLoaded',r,{once:true}));
+ assert.equal(d.documentElement.lang,'en');
+ assert.equal(d.querySelector('label[for=usuario]').textContent,'Username');
+ assert.equal(d.getElementById('erro').textContent,'Incorrect username or password. Check and try again.');
+ const user=d.getElementById('usuario'), password=d.getElementById('campoSenha');
+ user.value='demo';password.value='typed-but-not-submitted';
+ const selector=d.querySelector('[data-dg-idioma-select]');assert.ok(selector);
+ const menu=d.createElement('aside');menu.innerHTML=w.DGMenuLado.menuHtml(w.DGMenuLado.organizaMenu(w.DGMenuLado.montaItens({id:'demo',tem_painel:true},false)),{perfil:true});d.body.append(menu);
+ const grupo=menu.querySelector('[data-grupo="perfil"]');const grupoAntes=grupo.outerHTML;
+ assert.match(menu.textContent,/Reminders/);
+ const visto=w.DGLoginCartao.visao({estado:'nenhum',provedor:'claude',precisa_login:true},{agente:'Test agent'});
+ assert.equal(visto.titulo,'Connect your Claude');assert.equal(visto.texto,'Test agent needs your Claude account to reply. Connect here, without a terminal.');
+ for (const provedor of ['claude','codex']) {
+  const nome=provedor==='claude'?'Claude':'Codex';
+  const v=w.DGLoginCartao.visao({estado:'nenhum',provedor,precisa_login:true},{agente:'Test agent'});
+  assert.equal(v.titulo,'Connect your '+nome);
+  assert.equal(v.texto,'Test agent needs your '+nome+' account to reply. Connect here, without a terminal.');
+  const cod=w.DGLoginCartao.visao({estado:'aguardando_codigo',provedor,link:'https://example.com'},{iniciado:true});
+  assert.equal(cod.passos[0],'Open the login page and sign in to your account.');
+ }
+ d.getElementById('verSenha').click();assert.equal(password.type,'text');
+ selector.value='pt-BR';selector.dispatchEvent(new w.Event('change'));
+ assert.equal(d.documentElement.lang,'pt-BR');
+ assert.equal(d.querySelector('label[for=usuario]').textContent,'Usuário');
+ assert.equal(d.getElementById('erro').textContent,'Usuário ou senha incorretos. Confira e tente de novo.');
+ assert.equal(user.value,'demo');assert.equal(password.value,'typed-but-not-submitted');
+ assert.equal(password.type,'text');assert.equal(d.getElementById('verSenha').getAttribute('aria-label'),'Ocultar senha');
+ assert.equal(menu.querySelector('[data-grupo="perfil"]'),grupo);assert.equal(grupo.classList.contains('aberto'),true);
+ assert.match(menu.textContent,/Lembretes/);assert.ok(grupoAntes.includes('Identity'));
+ assert.match(d.cookie,/dgclaw_idioma=pt-BR/);
+ assert.equal(w.location.pathname,'/login');assert.equal(w.DGI18n.locale,'pt-BR');
+ selector.value='en';selector.dispatchEvent(new w.Event('change'));
+ assert.equal(d.querySelector('label[for=campoSenha]').textContent,'Password');
+ assert.equal(w.DGI18n.locale,'en-US');assert.equal(d.querySelectorAll('[data-dg-idioma-select]').length,1);
+ assert.equal(d.getElementById('verSenha').getAttribute('aria-label'),'Hide password');assert.equal(d.getElementById('verSenha').title,'Hide password');
+ assert.match(menu.textContent,/Reminders/);
+ // Histórico e dados arbitrários não são varridos à procura de palavras para traduzir.
+ const wrap=d.createElement('div');wrap.id='wrap';wrap.innerHTML='<!--dg-i18n:d482c10b3d4d-->Senha<!--/dg-i18n-->';
+ d.body.append(wrap);w.DGI18n.aplicar();assert.equal(wrap.textContent,'Senha');
+
+ dom.window.close();
+ const firstHtml=renderizarIdioma(fs.readFileSync(path.join(root,'primeiro-acesso.html'),'utf8'),{headers:{}},'en');
+ const first=new JSDOM(firstHtml,{url:'https://pilot.example/primeiro-acesso#test-first-access-token',runScripts:'outside-only'});
+ const f=first.window,fd=f.document;let recebido;
+ f.fetch=async(url,op)=>{
+  if(url==='/api/primeiro-acesso') { recebido=JSON.parse(op.body);return {json:async()=>({ok:false,erro:'test-only'})}; }
+  return {json:async()=>({sem_senha:true,usuario:'demo'})};
+ };
+ for(const file of ['ds/idiomas.js','ds/idioma.js','primeiro-acesso.js'])f.eval(fs.readFileSync(path.join(root,file),'utf8'));
+ await new Promise(r=>fd.addEventListener('DOMContentLoaded',r,{once:true}));
+ assert.equal(f.location.hash,'');
+ fd.getElementById('senha').value='a-long-test-password';fd.getElementById('confirmacao').value='a-long-test-password';
+ const idioma=fd.querySelector('[data-dg-idioma-select]');idioma.value='pt-BR';idioma.dispatchEvent(new f.Event('change'));
+ fd.getElementById('form').dispatchEvent(new f.Event('submit',{bubbles:true,cancelable:true}));
+ await new Promise(r=>setTimeout(r,0));
+ assert.equal(recebido.token,'test-first-access-token');assert.equal(recebido.senha,'a-long-test-password');
+ first.window.close();
+ console.log('DOM QA: seleção PT/EN, persistência, rascunho, senha, mensagem de erro, locale e isolamento de histórico OK');
+})().catch(e=>{console.error(e);process.exitCode=1;});

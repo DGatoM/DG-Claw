@@ -1,4 +1,5 @@
 'use strict';
+const dgTexto_ronda_comum = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* ronda-comum.js: o que a tela Segurança (seguranca.js) e o aviso único (seguranca-resumo.js) têm em comum.
 
    Só funções que montam texto e HTML, falam com a API e guardam a escolha do dono; nada aqui mexe na página.
@@ -31,7 +32,7 @@
     const t = Date.parse(iso);
     if (Number.isNaN(t)) return null;
     const o = {};
-    new Intl.DateTimeFormat('pt-BR', Object.assign({ timeZone: FUSO }, opcoes)).formatToParts(new Date(t)).forEach(p => { o[p.type] = p.value; });
+    new Intl.DateTimeFormat((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), Object.assign({ timeZone: FUSO }, opcoes)).formatToParts(new Date(t)).forEach(p => { o[p.type] = p.value; });
     return o;
   };
 
@@ -140,7 +141,7 @@
   }
 
   const ROTULO_ESTADO = {
-    'aplicado-sozinho': 'Aplicado sozinho', 'aplicado-pelo-dono': 'Aplicado por você', mitigado: 'Mitigado', agendado: 'Agendado', aberto: 'Aberto',
+    'aplicado-sozinho': dgTexto_ronda_comum('Aplicado sozinho'), 'aplicado-pelo-dono': 'Aplicado por você', mitigado: 'Mitigado', agendado: 'Agendado', aberto: 'Aberto',
     'protegido-aguardando': 'Protegido, aguardando correção oficial', 'aguardando-fornecedor': 'Aguardando correção do fornecedor',
   };
   /* Sem correção instalável: informativo, nunca entra na lista de pontos em risco nem pede decisão. */

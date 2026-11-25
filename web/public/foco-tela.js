@@ -1,4 +1,5 @@
 'use strict';
+const dgTexto_foco_tela = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* foco-tela.js: o "Modo foco" na conversa, a lista curta que o agente monta e o dono tica.
 
    Contrato em web/docs/MODO-FOCO.md. Consome GET /api/v1/foco/<agente> (carga inicial) e
@@ -85,7 +86,7 @@
     const okEl = h('div', 'foco-ok');
     okEl.hidden = true;
     okEl.appendChild(h('span', null, 'Tudo ticado'));
-    const btnConclui = h('button', 'foco-conclui', 'Concluir');
+    const btnConclui = h('button', 'foco-conclui', dgTexto_foco_tela('Concluir'));
     btnConclui.type = 'button';
     btnConclui.title = 'Limpa a lista e o modo foco some';
     okEl.appendChild(btnConclui);

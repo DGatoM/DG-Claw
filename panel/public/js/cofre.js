@@ -1,3 +1,5 @@
+
+const dgHtml_cofre = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 // cofre.js — a tela da aba Cofre.
 //
 // O QUE ELA MOSTRA: as chaves de serviço que o dono deste agente cadastrou, para
@@ -42,7 +44,7 @@
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '';
     // Fuso do navegador, como o resto do painel: o ISO do servidor vem em UTC.
-    return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
 
   /** Chamada que preserva o corpo do erro. Devolve {ok, status, corpo}. */
@@ -632,7 +634,7 @@
     el.innerHTML = cabecalho();
     ligarCabecalho();
     const corpo = document.getElementById('cofre-corpo');
-    if (corpo) corpo.innerHTML = '<div class="app-carregando">Carregando...</div>';
+    if (corpo) corpo.innerHTML = dgHtml_cofre("<div class=\"app-carregando\"><!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>");
 
     const r = await chamar('/api/cofre');
     if (!r.ok && r.status === 403) {

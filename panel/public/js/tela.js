@@ -1,3 +1,6 @@
+
+const dgTexto_tela = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgHtml_tela = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 // tela.js: a aba Tela.
 //
 // O QUE ELA É: o navegador do agente (um Chrome que roda dentro do container dele), aberto
@@ -213,7 +216,7 @@
           ${definida ? '<b>Trocar a senha desconecta quem estiver vendo a tela agora.</b>' : ''}</p>
         ${aviso_}
         <form id="tela-form-senha" autocomplete="off">
-          <div class="tela-campo"><label for="tela-senha-nova">${definida ? 'Senha nova' : 'Senha da tela'}</label>
+          <div class="tela-campo"><label for="tela-senha-nova">${definida ? dgTexto_tela('Senha nova') : 'Senha da tela'}</label>
             <input type="password" id="tela-senha-nova" autocomplete="new-password" minlength="6" required spellcheck="false"></div>
           <div class="tela-campo"><label for="tela-senha-repetir">Repita a senha</label>
             <input type="password" id="tela-senha-repetir" autocomplete="new-password" minlength="6" required spellcheck="false"></div>
@@ -421,7 +424,7 @@
     document.querySelectorAll('#tela-root .app-cabeca .app-ajuda-secao[data-tutorial]')
       .forEach((b) => b.addEventListener('click', () => abrirTutorial(b.dataset.tutorial)));
     const corpo = document.getElementById('tela-corpo');
-    if (corpo) corpo.innerHTML = '<div class="app-carregando">Carregando...</div>';
+    if (corpo) corpo.innerHTML = dgHtml_tela("<div class=\"app-carregando\"><!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>");
     await atualizar();
   }
 

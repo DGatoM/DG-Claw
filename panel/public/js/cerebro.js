@@ -1,3 +1,5 @@
+
+const dgTexto_cerebro = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 // cerebro.js — o raio-X do cérebro (aba Status) e a aba "Como funciona".
 //
 // O RAIO-X (01/10/2026): "eu conseguir ver todos os arquivos que ele está
@@ -55,7 +57,7 @@
         aria-label="${esc(`Abrir ${c.titulo}`)}">
       <header class="cb-topo">
         <h3 class="cb-titulo" title="${esc(c.explica)}">${esc(c.titulo)}</h3>
-        <span class="cb-meta" title="${esc([autor.frase, c.atualizadoEm ? `Última mudança: ${new Date(c.atualizadoEm).toLocaleString('pt-BR')}` : ''].filter(Boolean).join('\n'))}">
+        <span class="cb-meta" title="${esc([autor.frase, c.atualizadoEm ? `Última mudança: ${new Date(c.atualizadoEm).toLocaleString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'))}` : ''].filter(Boolean).join('\n'))}">
           ${esc(haQuanto(c.atualizadoEm))}${quem ? ` · ${esc(quem)}` : ''}</span>
       </header>
       <div class="cb-corpo">${corpo}</div>
@@ -97,7 +99,7 @@
 
   const ESTADO_SESSAO = {
     ativo: { cor: 'ok', texto: 'de pé' },
-    atencao: { cor: 'atencao', texto: 'pede atenção' },
+    atencao: { cor: 'atencao', texto: dgTexto_cerebro('pede atenção') },
     inativo: { cor: 'falha', texto: 'fora do ar' },
     indeterminado: { cor: 'sem', texto: 'não consegui ver' },
   };

@@ -1,4 +1,5 @@
 'use strict';
+const dgTexto_colaboradores = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* colaboradores.js: a tela /colaboradores, só do dono. Convida, reenvia e revoga o colaborador de um agente.
    Consome só a API (GET/POST /api/v1/colaboradores, POST .../reenviar, DELETE .../<id>): contrato em
    web/docs/COLABORADORES.md. Todo texto que vem do servidor entra com textContent. */
@@ -19,7 +20,7 @@
     if (texto != null) e.textContent = texto;
     return e;
   }
-  const quando = ms => (ms ? new Date(ms).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '');
+  const quando = ms => (ms ? new Date(ms).toLocaleString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { dateStyle: 'short', timeStyle: 'short' }) : '');
   const nomeDoAgente = slug => { const a = est.agentes.find(x => x.id === slug); return a ? a.nome : slug; };
 
   function mostraErro(texto) {
@@ -76,7 +77,7 @@
   /* ── Seção do agente escolhido ──────────────────────────────────────────── */
   function desenhaAgente() {
     const corpo = $('coCorpoAgente');
-    $('coNomeAgente').textContent = est.agente ? nomeDoAgente(est.agente) : 'um agente';
+    $('coNomeAgente').textContent = est.agente ? nomeDoAgente(est.agente) : dgTexto_colaboradores('um agente');
     if (!est.agente) { corpo.replaceChildren(el('p', 'co-fraco', 'Ainda não há agente de trabalho para convidar alguém. Peça ao Admin para criar o primeiro.')); return; }
     const ativos = est.colabs.filter(c => c.agente === est.agente && c.estado !== 'revogado');
     const f = formulario(ativos.length);
@@ -165,7 +166,7 @@
   function confirmaRevogar(c, acoes, btn) {
     btn.textContent = 'Confirmar: revogar agora';
     btn.classList.add('co-confirma');
-    const cancela = el('button', 'co-btn', 'Cancelar');
+    const cancela = el('button', 'co-btn', dgTexto_colaboradores('Cancelar'));
     cancela.type = 'button';
     cancela.addEventListener('click', () => desenhaAgente());
     acoes.append(cancela);
@@ -190,7 +191,7 @@
       const h = el('h3', '', c.nome ? c.nome + ' (' + c.email + ')' : c.email);
       h.append(el('span', 'co-tag ' + cls, rot));
       const dl = el('dl', 'co-fatos');
-      fato(dl, 'Agente', nomeDoAgente(c.agente));
+      fato(dl, dgTexto_colaboradores('Agente'), nomeDoAgente(c.agente));
       fato(dl, 'Convidado em', quando(c.criado_em));
       fato(dl, 'Último acesso', c.ultimo_login ? quando(c.ultimo_login) : 'ainda não entrou');
       if (c.revogado_em) fato(dl, 'Revogado em', quando(c.revogado_em));
@@ -254,7 +255,7 @@
         porque: 'O servidor guarda só um resumo da senha, que não dá para ler de volta. Perdeu o texto? Use Mandar convite de novo.' },
     ],
     lista: [
-      { alvo: '#coLista', titulo: 'Todos os colaboradores',
+      { alvo: '#coLista', titulo: dgTexto_colaboradores('Todos os colaboradores'),
         oque: 'Todo mundo que já foi convidado, de todos os agentes, inclusive os acessos revogados.',
         como: 'Cada cartão mostra o agente, o estado, quando a pessoa foi convidada e entrou pela última vez, e a data da revogação, se houve.',
         porque: 'Fica o histórico de quem já teve acesso a quê, sem apagar nada.' },

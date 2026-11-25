@@ -1,3 +1,5 @@
+
+const dgHtml_socorro = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 // socorro.js — a tela da aba Socorro.
 //
 // O QUE ELA É: um técnico de plantão para quando o agente parece estar com problema.
@@ -42,7 +44,7 @@
     const m = String(iso || '').match(/T(\d{2}):(\d{2})/);
     if (!m) return '';
     try {
-      return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      return new Date(iso).toLocaleTimeString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { hour: '2-digit', minute: '2-digit' });
     } catch {
       return `${m[1]}:${m[2]}`;
     }
@@ -352,7 +354,7 @@
     el.innerHTML = cabecalho();
     ligarCabecalho();
     const corpo = document.getElementById('socorro-corpo');
-    if (corpo) corpo.innerHTML = '<div class="app-carregando">Carregando...</div>';
+    if (corpo) corpo.innerHTML = dgHtml_socorro("<div class=\"app-carregando\"><!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>");
     eventos = [];
     ultimo = 0;
     await atualizar();

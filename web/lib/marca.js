@@ -7,6 +7,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const contraste = require('../public/ds/contraste.js');
+const idiomaUI = require('../public/ds/idioma.js');
 
 const RX_COR = /^#[0-9a-fA-F]{6}$/;
 const RX_FAMILIA = /^[\p{L}0-9 -]{1,60}$/u;
@@ -196,8 +197,16 @@ function criarMarca(cfg) {
   const corTema = (d) => (d.cores['cor-fundo'] || (d.tema === 'escuro' ? '#0f141b' : '#f3f5f8'));
 
   /** Troca {{MARCA_*}} (com escape HTML) em uma página. */
-  function html(texto) {
+  function html(texto, idioma) {
     const d = obter();
+    const base = padrao();
+    // Somente os textos de fábrica recebem tradução. Uma marca personalizada
+    // continua sendo dado do dono, mesmo se o idioma da interface mudar.
+    for (const [campo, atributo, marcador] of [['titulo_login', 'titulo-login', 'MARCA_TITULO_LOGIN'], ['slogan', 'slogan', 'MARCA_SLOGAN']]) {
+      if (d[campo] !== base[campo]) continue;
+      const rx = new RegExp('(<[^>]+data-marca-' + atributo + '(?:="[^"]*")?[^>]*>)\\{\\{' + marcador + '\\}\\}');
+      texto = texto.replace(rx, (_, inicio) => inicio + idiomaUI.fragmento(d[campo], idioma));
+    }
     const mapa = {
       MARCA_NOME: d.nome, MARCA_SLOGAN: d.slogan, MARCA_TITULO_LOGIN: d.titulo_login,
       MARCA_TEMA: d.tema, MARCA_COR_TEMA: corTema(d),

@@ -1,3 +1,6 @@
+
+const dgTexto_operacoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgHtml_operacoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 // operacoes.js — a aba Operações: uma página de status das rotinas do sistema.
 //
 // POR QUE ESTA TELA É ASSIM (01/10/2026). Havia duas abas, "Operações" (o
@@ -29,16 +32,16 @@
   // Texto livre (12/10/2026): marcas viram negrito/código/link pelo renderizador único; sem ele, escape.
   const rl = (t) => (window.DGMarkdown && window.DGMarkdown.ricoLinha ? window.DGMarkdown.ricoLinha(t) : esc(t));
   const COR_TEXTO = {
-    verde: 'deu certo',
+    verde: dgTexto_operacoes('deu certo'),
     vermelho: 'falhou',
-    amarelo: 'pede atenção',
-    cinza: 'sem dado',
+    amarelo: dgTexto_operacoes('pede atenção'),
+    cinza: dgTexto_operacoes('sem dado'),
   };
 
   const ESTADO_TEXTO = {
     ok: 'funcionando',
     falha: 'falhou',
-    atencao: 'pede atenção',
+    atencao: dgTexto_operacoes('pede atenção'),
     'sem-dado': 'sem dado ainda',
   };
 
@@ -46,12 +49,12 @@
     if (!iso) return '';
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '';
-    return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   }
 
   function horaCurta(iso) {
     const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { hour: '2-digit', minute: '2-digit' });
   }
 
   /** O texto do balão de UM quadradinho: quando, o resultado e o detalhe. */
@@ -76,7 +79,7 @@
       return ruins ? `nas últimas 48 h: ${s.falhas || 0} hora(s) com queda, ${s.avisos || 0} com reinício` : 'nas últimas 48 h: de pé o tempo todo';
     }
     if (s.rodadas == null) return '';
-    const partes = [`${s.rodadas.toLocaleString('pt-BR')} ${s.rodadas === 1 ? 'vez' : 'vezes'}`];
+    const partes = [`${s.rodadas.toLocaleString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'))} ${s.rodadas === 1 ? 'vez' : 'vezes'}`];
     partes.push(s.falhas ? `${s.falhas} ${s.falhas === 1 ? 'falha' : 'falhas'}` : 'nenhuma falha');
     if (s.faltas) partes.push(`${s.faltas} ${s.faltas === 1 ? 'vez que não rodou' : 'vezes que não rodou'}`);
     if (s.avisos) partes.push(`${s.avisos} com aviso`);
@@ -231,7 +234,7 @@
     const resumo = document.getElementById('op-resumo');
     const grupos = document.getElementById('op-grupos');
     if (!resumo || !grupos) return;
-    if (!_ultima) grupos.innerHTML = '<div class="vazio-util">Lendo o diário do sistema...</div>';
+    if (!_ultima) grupos.innerHTML = dgHtml_operacoes("<div class=\"vazio-util\"><!--dg-i18n:b3b57683fe9f-->Lendo o diário do sistema...<!--/dg-i18n--></div>");
     const r = await API.operacoes(forcar);
     if (!r.ok) {
       const c = r.corpo || {};

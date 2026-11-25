@@ -1,3 +1,5 @@
+
+const dgHtml_uso = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 // uso.js: o cartão "Uso da assinatura" da aba Status.
 //
 // Os números vêm de GET /api/uso (lib/provedores.js), que repassa o que o runner mediu a partir
@@ -27,7 +29,7 @@
     return 'verde';
   }
 
-  const hhmm = (d) => d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const hhmm = (d) => d.toLocaleTimeString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { hour: '2-digit', minute: '2-digit' });
 
   /** "hoje 18:40", "amanhã 09:00", "qua 09:00" ou, depois de uma semana, "25/10 09:00". */
   function quandoZera(iso, agora = new Date()) {
@@ -37,8 +39,8 @@
     let rotulo;
     if (dias === 0) rotulo = 'hoje';
     else if (dias === 1) rotulo = 'amanhã';
-    else if (dias > 1 && dias < 7) rotulo = d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
-    else rotulo = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    else if (dias > 1 && dias < 7) rotulo = d.toLocaleDateString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { weekday: 'short' }).replace('.', '');
+    else rotulo = d.toLocaleDateString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { day: '2-digit', month: '2-digit' });
     return `${rotulo} ${hhmm(d)}`;
   }
 
@@ -80,7 +82,7 @@
       return;
     }
     if (!ultimo) {
-      el.innerHTML = '<p class="uso-fraco">Conferindo o uso...</p>';
+      el.innerHTML = dgHtml_uso("<p class=\"uso-fraco\"><!--dg-i18n:d8322e6d1869-->Conferindo o uso...<!--/dg-i18n--></p>");
       return;
     }
     if (ultimo.erro) {

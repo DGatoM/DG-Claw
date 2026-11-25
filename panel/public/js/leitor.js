@@ -1,3 +1,5 @@
+
+const dgTexto_leitor = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 // leitor.js — a janela que abre UM arquivo de memória, renderizado, e deixa editar.
 //
 // POR QUE ELE EXISTE (01/10/2026). Clicar num arquivo da aba Memória abria
@@ -45,7 +47,7 @@
     if (s < 86400) return `há ${Math.round(s / 3600)} h`;
     if (s < 2 * 86400) return 'ontem';
     if (s < 7 * 86400) return `há ${Math.round(s / 86400)} dias`;
-    return new Date(t).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    return new Date(t).toLocaleDateString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { day: '2-digit', month: '2-digit' });
   }
 
   const QUEM = { agente: 'ele', rotina: 'uma rotina automática', dono: 'você' };
@@ -101,7 +103,7 @@
     if (autor.voceFoiOUltimo) partes.push('a última mudança foi sua, pelo painel');
     else if (autor.quem) partes.push(`quem escreve: ${QUEM[autor.quem] || autor.quem}`);
     cab.textContent = partes.join(' · ');
-    cab.title = [autor.frase, a.atualizadoEm ? `Última mudança: ${new Date(a.atualizadoEm).toLocaleString('pt-BR')}` : '']
+    cab.title = [autor.frase, a.atualizadoEm ? `Última mudança: ${new Date(a.atualizadoEm).toLocaleString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'))}` : '']
       .filter(Boolean).join('\n');
     estado.fundo.querySelector('.dgl-titulo').textContent = estado.titulo || a.titulo || a.path;
     estado.fundo.querySelector('.dgl-caminho').textContent = a.path;
@@ -167,7 +169,7 @@
     recado(null);
     const texto = campo.value;
     const r = await API.memoriaSalvar(estado.arquivo.path, texto, estado.arquivo.versao);
-    if (botao) { botao.disabled = false; botao.textContent = 'Salvar'; }
+    if (botao) { botao.disabled = false; botao.textContent = dgTexto_leitor('Salvar'); }
 
     if (r.ok) {
       estado.arquivo = { ...estado.arquivo, conteudo: texto, versao: r.corpo.versao, atualizadoEm: r.corpo.atualizadoEm,

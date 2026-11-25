@@ -2,8 +2,11 @@
 <html lang="pt-BR" data-tema="{{MARCA_TEMA}}">
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/ds/idioma.css">
+<script src="/ds/idiomas.js"></script>
+<script src="/ds/idioma.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Suporte remoto - {{MARCA_NOME}}</title>
+<title data-dg-i18n="00e1e7cb4c1c">Suporte remoto - {{MARCA_NOME}}</title>
 <meta name="marca-nome" content="{{MARCA_NOME}}">
 <meta name="marca-logo-tem-nome" content="{{MARCA_LOGO_TEM_NOME}}">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -28,40 +31,40 @@
 <main class="sp-main">
   <p class="sp-msg erro" id="msgGeral" role="alert" hidden></p>
 
-  <section class="sp-sec" id="secExplica" data-tour="explica" aria-label="O que é o suporte remoto">
-    <h2><span>O que é o suporte remoto</span><button type="button" class="sp-ajuda" data-ajuda="explica" aria-label="Tutorial: o que é o suporte remoto">?</button></h2>
-    <p>Uma chave de suporte deixa quem dá suporte ao seu DG Claw ler só a saúde do sistema: quais serviços e rotinas estão funcionando e por que algo parou.</p>
-    <p>Ela não lê suas conversas, sua memória nem seus arquivos, e não consegue mudar nada. A máquina é sua: você pode revogar a chave quando quiser, e o acesso acaba na hora.</p>
+  <section class="sp-sec" id="secExplica" data-tour="explica" aria-label="O que é o suporte remoto" data-dg-i18n-aria-label="23f16566227f">
+    <h2><span><!--dg-i18n:23f16566227f-->O que é o suporte remoto<!--/dg-i18n--></span><button type="button" class="sp-ajuda" data-ajuda="explica" aria-label="Tutorial: o que é o suporte remoto" data-dg-i18n-aria-label="cd26c975d96c">?</button></h2>
+    <p><!--dg-i18n:d2d19203788d-->Uma chave de suporte deixa quem dá suporte ao seu DG Claw ler só a saúde do sistema: quais serviços e rotinas estão funcionando e por que algo parou.<!--/dg-i18n--></p>
+    <p><!--dg-i18n:6adc065c72f4-->Ela não lê suas conversas, sua memória nem seus arquivos, e não consegue mudar nada. A máquina é sua: você pode revogar a chave quando quiser, e o acesso acaba na hora.<!--/dg-i18n--></p>
   </section>
 
-  <section class="sp-sec" id="secChaves" data-tour="chaves" aria-label="Chaves de suporte">
-    <h2><span>Chaves de suporte</span><button type="button" class="sp-ajuda" data-ajuda="chaves" aria-label="Tutorial: lista de chaves">?</button></h2>
-    <p class="sp-fraco" id="chavesEstado">Carregando…</p>
+  <section class="sp-sec" id="secChaves" data-tour="chaves" aria-label="Chaves de suporte" data-dg-i18n-aria-label="887a8781297d">
+    <h2><span><!--dg-i18n:887a8781297d-->Chaves de suporte<!--/dg-i18n--></span><button type="button" class="sp-ajuda" data-ajuda="chaves" aria-label="Tutorial: lista de chaves" data-dg-i18n-aria-label="50e9469b9909">?</button></h2>
+    <p class="sp-fraco" id="chavesEstado"><!--dg-i18n:6cc1bbba0f84-->Carregando…<!--/dg-i18n--></p>
     <div id="chavesLista" class="sp-cartoes"></div>
   </section>
 
-  <section class="sp-sec" id="secCriar" data-tour="criar" aria-label="Criar chave">
-    <h2><span>Criar uma chave</span><button type="button" class="sp-ajuda" data-ajuda="criar" aria-label="Tutorial: criar chave">?</button></h2>
+  <section class="sp-sec" id="secCriar" data-tour="criar" aria-label="Criar chave" data-dg-i18n-aria-label="79d429e3ac70">
+    <h2><span><!--dg-i18n:259e52026951-->Criar uma chave<!--/dg-i18n--></span><button type="button" class="sp-ajuda" data-ajuda="criar" aria-label="Tutorial: criar chave" data-dg-i18n-aria-label="f63117010e66">?</button></h2>
     <form class="sp-form" id="formCriar" novalidate>
-      <label>Nome da chave
+      <label><!--dg-i18n:824ad4cdfb41-->Nome da chave<!--/dg-i18n-->
         <input id="fNome" type="text" maxlength="60" value="Suporte DG" autocomplete="off">
       </label>
-      <button type="submit" class="sp-btn pri" id="btnCriar">Criar chave</button>
+      <button type="submit" class="sp-btn pri" id="btnCriar"><!--dg-i18n:79d429e3ac70-->Criar chave<!--/dg-i18n--></button>
     </form>
     <p class="sp-msg" id="criarMsg" role="status" hidden></p>
     <div class="sp-token" id="tokenCaixa" hidden>
-      <p class="sp-aviso">Guarde agora, ela não aparece de novo.</p>
+      <p class="sp-aviso"><!--dg-i18n:3830cc9f9cd2-->Guarde agora, ela não aparece de novo.<!--/dg-i18n--></p>
       <div class="sp-copia">
         <code id="tokenTexto"></code>
-        <button type="button" class="sp-btn" id="btnCopiarToken">Copiar</button>
+        <button type="button" class="sp-btn" id="btnCopiarToken"><!--dg-i18n:39dcf1cbeb5a-->Copiar<!--/dg-i18n--></button>
       </div>
     </div>
   </section>
 
-  <section class="sp-sec" id="secVe" data-tour="ve" aria-label="O que o suporte vê agora">
-    <h2><span>O que o suporte vê agora</span><button type="button" class="sp-ajuda" data-ajuda="ve" aria-label="Tutorial: o que o suporte vê">?</button></h2>
+  <section class="sp-sec" id="secVe" data-tour="ve" aria-label="O que o suporte vê agora" data-dg-i18n-aria-label="423c5606c8c5">
+    <h2><span><!--dg-i18n:423c5606c8c5-->O que o suporte vê agora<!--/dg-i18n--></span><button type="button" class="sp-ajuda" data-ajuda="ve" aria-label="Tutorial: o que o suporte vê" data-dg-i18n-aria-label="1ee582f55f87">?</button></h2>
     <div class="sp-linha">
-      <button type="button" class="sp-btn" id="btnAtualizaDiag">Atualizar</button>
+      <button type="button" class="sp-btn" id="btnAtualizaDiag"><!--dg-i18n:dafb59613e12-->Atualizar<!--/dg-i18n--></button>
       <span class="sp-fraco" id="diagQuando"></span>
     </div>
     <p class="sp-msg" id="diagMsg" role="status" hidden></p>

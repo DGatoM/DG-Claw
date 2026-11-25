@@ -9,6 +9,7 @@ const http = require('node:http');
 
 const H = require('./lib/http');
 const { carregaConfig } = require('./lib/config');
+const { renderizarIdioma, idiomaDoPedido } = require('./lib/idioma');
 const { criarRegistro } = require('./lib/registro');
 const { criarRunner } = require('./lib/runner');
 const { criarAuth } = require('./lib/auth');
@@ -260,16 +261,16 @@ function criarServidor(opcoes) {
 
   // ── arquivos estáticos e páginas ─────────────────────────────────────────
   // Conversa do colaborador: o mesmo conversa.html sem a fileira de troca de agente. Devolve false se o arquivo não pôde ser lido.
-  function servirConversaColab(res, m) {
+  function servirConversaColab(req, res, m) {
     let html;
     try { html = fs.readFileSync(path.join(config.publicDir, 'conversa.html'), 'utf8'); } catch (_) { return false; }
     html = html.replace(/[ \t]*<nav id="trocaBaixo"[^>]*><\/nav>\n?/, '');
     // Mesma troca dos {{MARCA_*}} (com escape) que o servirArquivo faz para o dono.
-    try { html = marca.html(html); } catch (e) {
+    try { html = marca.html(renderizarIdioma(html, req, config.idioma), idiomaDoPedido(req, config.idioma)); } catch (e) {
       log('erro', `Falha aplicando a marca na conversa do colaborador (${e.code || e.message}).`); return false;
     }
     const corpoHtml = Buffer.from(html, 'utf8');
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': corpoHtml.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': corpoHtml.length, 'Cache-Control': 'no-store', 'Content-Language': idiomaDoPedido(req, config.idioma), 'X-Content-Type-Options': 'nosniff' });
     res.end(m === 'HEAD' ? undefined : corpoHtml);
     return true;
   }
@@ -285,10 +286,10 @@ function criarServidor(opcoes) {
     if (tipo.startsWith('text/html')) {
       // Páginas: troca os {{MARCA_*}} (nome, slogan, tema) com escape. Sempre sem cache: a marca pode mudar a qualquer hora.
       let corpoHtml;
-      try { corpoHtml = Buffer.from(marca.html(fs.readFileSync(caminho, 'utf8')), 'utf8'); } catch (e) {
+      try { corpoHtml = Buffer.from(marca.html(renderizarIdioma(fs.readFileSync(caminho, 'utf8'), req, config.idioma), idiomaDoPedido(req, config.idioma)), 'utf8'); } catch (e) {
         log('erro', `Falha lendo a página ${caminho} (${e.code || e.message}).`); res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Erro ao abrir a página.'); return true;
       }
-      res.writeHead(200, { 'Content-Type': tipo, 'Cache-Control': cache || 'no-cache', 'X-Content-Type-Options': 'nosniff', 'Content-Length': corpoHtml.length });
+      res.writeHead(200, { 'Content-Type': tipo, 'Cache-Control': 'no-store', 'Content-Language': idiomaDoPedido(req, config.idioma), 'X-Content-Type-Options': 'nosniff', 'Content-Length': corpoHtml.length });
       res.end(req.method === 'HEAD' ? undefined : corpoHtml);
       return true;
     }
@@ -1636,7 +1637,7 @@ function criarServidor(opcoes) {
         return H.paginaErro(res, 404, 'Agente não encontrado', `Não existe agente chamado "${H.escapaHtml(slug.slice(0, 40))}". Volte ao início para ver a lista.`);
       }
       // Colaborador: a fileira de troca de agente (#trocaBaixo) nem é enviada. Ele só tem este agente.
-      if (ehColab(sessao) && servirConversaColab(res, m)) return undefined;
+      if (ehColab(sessao) && servirConversaColab(req, res, m)) return undefined;
       if (!servirArquivo(req, res, path.join(config.publicDir, 'conversa.html'), 'no-store')) {
         log('erro', `A tela da conversa não está instalada: falta ${path.join(config.publicDir, 'conversa.html')}.`);
         H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela da conversa não foi encontrado no servidor. Reinstale o DG Claw Web.');

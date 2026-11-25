@@ -1,4 +1,6 @@
 'use strict';
+const dgTexto_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* menu-lado.js: o menu do agente na tela de conversa (gaveta no celular, barra fixa no computador).
 
    Mostra a foto do agente, o seletor para trocar de agente (cada item com a PRÓPRIA foto), a
@@ -13,6 +15,7 @@
 })(this, function (raiz) {
   const esc = s => String(s == null ? '' : s)
     .replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const fragmentoUI = fonte => raiz.DGI18n ? raiz.DGI18n.fragmento(fonte) : esc(fonte);
   /* Ícone de item: 'i-<nome>' vira o ícone do sprite (/ds/icones.svg); qualquer outro texto (os itens que o painel
      acrescenta trazem um símbolo) sai escapado, como antes. */
   const icoHtml = v => /^i-[a-z0-9-]+$/.test(String(v)) ? '<svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#' + v + '"/></svg>' : esc(v);
@@ -154,7 +157,7 @@
   function itemMenuHtml(it) {
     const a = `<a class="ml-tab"${it.id ? ` id="${esc(it.id)}"` : ''}${it.extra ? ' data-extra="1"' : ''} href="${esc(it.href)}"` +
       `${it.alvo ? ` target="${esc(it.alvo)}" rel="noopener"` : ''}>` +
-      `<span class="ml-ico" aria-hidden="true">${icoHtml(it.ico)}</span>${esc(it.nome)}</a>`;
+      `<span class="ml-ico" aria-hidden="true">${icoHtml(it.ico)}</span>${it.extra ? esc(it.nome) : fragmentoUI(it.nome)}</a>`;
     return it.tour ? `<div data-tour="${esc(it.tour)}">${a}</div>` : a;
   }
 
@@ -164,7 +167,7 @@
     const idLista = 'mlG-' + g.id;
     return `<div class="ml-grupo${aberto ? ' aberto' : ''}" data-grupo="${esc(g.id)}" data-tour="gm-grupo-${esc(g.id)}"${g.vazio ? ' hidden' : ''}>` +
       `<button type="button" class="ml-grupo-cab" id="${idLista}-b" aria-expanded="${aberto ? 'true' : 'false'}" aria-controls="${idLista}">` +
-      `<span class="ml-ico" aria-hidden="true">${icoHtml(g.ico)}</span><span class="ml-grupo-nome">${esc(g.nome)}</span>` +
+      `<span class="ml-ico" aria-hidden="true">${icoHtml(g.ico)}</span><span class="ml-grupo-nome">${fragmentoUI(g.nome)}</span>` +
       `<span class="ml-grupo-selos" data-selos></span>` +
       `<span class="ml-grupo-seta" aria-hidden="true">${icoHtml('i-chevron-down')}</span></button>` +
       `<div class="ml-grupo-itens" id="${idLista}" role="group" aria-labelledby="${idLista}-b"><div class="ml-grupo-lista" data-itens>` +
@@ -211,7 +214,7 @@
     }];
     if (o.comTroca) {
       passos.push({
-        alvo: '#mlTroca', antes: abre, titulo: 'Trocar de agente',
+        alvo: '#mlTroca', antes: abre, titulo: dgTexto_menu_lado('Trocar de agente'),
         oque: 'Um seletor com todos os agentes que trabalham para você, cada um com a sua foto. O Admin vem primeiro, com o selo "admin"; o agente em que você está aparece marcado com "aqui".',
         como: 'Toque em "trocar de agente" e escolha um da lista: a conversa e o menu passam a ser dele. Cada agente tem a própria conversa e a própria memória.',
         porque: 'Você escolhe com quem falar sem sair desta tela. O Admin cuida da instalação e dos ajustes; os outros fazem o trabalho do dia a dia.',
@@ -356,7 +359,7 @@
     const hora = p2(d.getHours()) + ':' + p2(d.getMinutes());
     if (dias === 0) return 'hoje ' + hora;
     if (dias === 1) return 'amanhã ' + hora;
-    if (dias > 1 && dias < 7) return ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][d.getDay()] + ' ' + hora;
+    if (dias > 1 && dias < 7) return ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', dgTexto_menu_lado('sáb')][d.getDay()] + ' ' + hora;
     return p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + ' ' + hora;
   }
 
@@ -525,7 +528,7 @@
   async function carregaUso() {
     const caixa = $('mlUsoLista');
     if (!caixa) return;
-    if (!caixa.innerHTML) caixa.innerHTML = '<div class="ml-vazio">Conferindo o uso...</div>';
+    if (!caixa.innerHTML) caixa.innerHTML = dgHtml_menu_lado("<div class=\"ml-vazio\"><!--dg-i18n:d8322e6d1869-->Conferindo o uso...<!--/dg-i18n--></div>");
     try {
       const r = await fetch('/api/v1/uso', { cache: 'no-store', credentials: 'same-origin' });
       const d = await r.json().catch(() => null);
@@ -597,7 +600,7 @@
       if (n > 0 && !b) { b = document.createElement('i'); b.className = 'sx-bol'; b.setAttribute('aria-hidden', 'true'); el.appendChild(b); }
       if (b) b.hidden = !(n > 0);
       if (el.id === 'mlSessoes') seloDoGrupo(el, n, n + (n === 1 ? ' pedido esperando você nas Sessões' : ' pedidos esperando você nas Sessões'));
-      el.title = n > 0 ? 'Sessões (' + n + (n === 1 ? ' pedido esperando você)' : ' pedidos esperando você)') : 'Sessões de trabalho deste agente';
+      el.title = n > 0 ? 'Sessões (' + n + (n === 1 ? ' pedido esperando você)' : ' pedidos esperando você)') : dgTexto_menu_lado('Sessões de trabalho deste agente');
     });
     let avisouPedidos = false;
     const atualiza = () => {

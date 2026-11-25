@@ -1,4 +1,5 @@
 'use strict';
+const dgTexto_conectar = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* conectar.js: a página /conectar. Um cartão por agente (o Admin primeiro) para o dono conectar sozinho a
    conta do Claude ou do Codex de cada um.
 
@@ -122,7 +123,7 @@
         porque: 'O link de login vale por poucos minutos. Por isso ele só nasce quando você toca em Gerar, e não antes.' },
     ],
     agentes: [
-      { alvo: '#cnAgentes', titulo: 'Os seus agentes',
+      { alvo: '#cnAgentes', titulo: dgTexto_conectar('Os seus agentes'),
         oque: 'Um cartão por agente, com o Admin primeiro. Cada um tem a própria conta.',
         como: 'A lista vem do painel e cada cartão pergunta ao programa do agente como está a conta dele.',
         porque: 'Cada agente precisa da conta conectada para responder. Assim você resolve todos num lugar só.' },
@@ -130,7 +131,7 @@
         oque: 'Diz se a conta do agente está conectada: Conectado, Falta conectar, Login expirou, Usa chave de API ou Não consegui conferir.',
         como: 'O selo vem do próprio programa do Claude, que o agente consulta na hora (o campo conferido), e não de uma anotação do painel. Se o programa do agente não responde, o selo diz isso em vez de chutar.',
         porque: 'Para você ver de relance quem precisa de atenção. Cinza não é problema: o agente usa chave de API e não tem conta para conectar.' },
-      { alvo: '[data-tour="cn-gerar"]', titulo: 'Gerar link de login',
+      { alvo: '[data-tour="cn-gerar"]', titulo: dgTexto_conectar('Gerar link de login'),
         oque: 'O botão que começa o login. É só aqui que o link nasce.',
         como: 'Ao tocar, o programa do agente pede um link ao Claude. Ele vale por poucos minutos e o prazo conta a partir deste toque; passados 15 minutos o login é cancelado sozinho.',
         porque: 'Gerar só na hora de usar evita o link vencido que ninguém abriu a tempo. Só um login por vez fica em andamento na página.' },
@@ -153,7 +154,7 @@
     window.DGTour.inicia({ passos: passos.filter(p => document.querySelector(p.alvo)) });
   }
   PASSOS.pronto = [
-    { alvo: '#cnPronto', titulo: 'Tudo pronto',
+    { alvo: '#cnPronto', titulo: dgTexto_conectar('Tudo pronto'),
       oque: 'Aparece quando todos os agentes que usam assinatura estão conectados. Diz onde acessar o painel e o que você vai ver.',
       como: 'O endereço é o deste mesmo painel. O usuário vem da sua sessão e a senha é a mesma que você usou para entrar aqui; ela nunca aparece na tela.',
       porque: 'Para você sair daqui sabendo o próximo passo e ver, em menos de 1 minuto, como o ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' funciona.' },

@@ -1,4 +1,6 @@
 'use strict';
+const dgTexto_seguranca = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgHtml_seguranca = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* seguranca.js: a tela "Segurança" (/seguranca): os avisos de segurança do DG Claw (boletins), a ronda de fábrica, o que
    foi aplicado sozinho, o que pede decisão, o que dá para corrigir sem pressa e o botão de emergência. É aqui que fica o
    detalhe de tudo o que o aviso único (seguranca-resumo.js) resume.
@@ -37,10 +39,10 @@
   /* ── avisos de segurança do DG Claw (boletins) ──────────────────────────── */
   function botoesBoletimHtml(b) {
     if (R.temCorrecaoParaAplicar(b)) {
-      return '<button type="button" class="rp-btn rp-pri" data-rp="b-atualizar">Atualizar</button>' +
+      return dgHtml_seguranca("<button type=\"button\" class=\"rp-btn rp-pri\" data-rp=\"b-atualizar\"><!--dg-i18n:dafb59613e12-->Atualizar<!--/dg-i18n--></button>") +
         '<button type="button" class="rp-btn" data-rp="b-lembrar">Lembrar depois</button>';
     }
-    return '<button type="button" class="rp-btn rp-pri" data-rp="b-entendi">Entendi</button>';
+    return dgHtml_seguranca("<button type=\"button\" class=\"rp-btn rp-pri\" data-rp=\"b-entendi\"><!--dg-i18n:9f93738a0362-->Entendi<!--/dg-i18n--></button>");
   }
 
   /* Boletim sem correção ainda: o detalhe fica à vista. Com correção: recolhido, para a decisão ficar no botão. */
@@ -228,7 +230,7 @@
         '<label class="rp-frase">Para continuar, digite <b>' + esc(frase) + '</b><input type="text" id="rpFrase" autocomplete="off" autocapitalize="characters" spellcheck="false" data-frase="' + esc(frase) + '"></label>' +
         '<div class="rp-acoes"><button type="button" class="rp-btn ' + (u.acao === 'religar' ? 'rp-pri' : 'rp-perigo') + '" data-rp="confirmar-emergencia" id="btnConfirmaEm" disabled>' +
         (u.acao === 'religar' ? 'Religar agora' : 'Tirar do ar agora') + '</button>' +
-        '<button type="button" class="rp-btn" data-rp="cancelar-emergencia">Cancelar</button></div></div>';
+        dgHtml_seguranca("<button type=\"button\" class=\"rp-btn\" data-rp=\"cancelar-emergencia\"><!--dg-i18n:bb9dbb406dcb-->Cancelar<!--/dg-i18n--></button></div></div>");
     }
     return h;
   }
@@ -258,31 +260,31 @@
         porque: 'Dia sem novidade também é uma resposta, e você merece vê-la escrita em vez de uma tela vazia.' },
     ],
     aplicado: [
-      { alvo: '#secAplicado', titulo: 'Aplicado sozinho',
+      { alvo: '#secAplicado', titulo: dgTexto_seguranca('Aplicado sozinho'),
         oque: 'As correções de baixo risco que a ronda já aplicou por conta própria, com o que mudou e quando.',
         como: 'Só entram aqui correções do catálogo aprovado, que não derrubam nada. A ronda guarda o valor de antes e o de depois e o caminho de volta.',
         porque: 'Para você não ser surpreendido: nada muda no seu servidor sem aparecer aqui. O botão Desfazer devolve o estado anterior.' },
     ],
     acao: [
-      { alvo: '#secAcao', titulo: 'Ação necessária',
+      { alvo: '#secAcao', titulo: dgTexto_seguranca('Ação necessária'),
         oque: 'Falhas críticas que pedem uma decisão sua. Cada uma mostra o que é, onde afeta, o que faz e como corrigir.',
         como: 'O nível é decidido pela ronda: crítico quando a falha é grave e atinge algo que está instalado e exposto aqui. Aplicar corrige agora e Agendar escolhe a hora (só para ações do catálogo aprovado). Quando a correção é uma atualização de pacote, o botão vira Pedir ao Admin, que abre a conversa com o pedido já escrito. Tirar do ar protege enquanto a correção não chega.',
         porque: 'Falha crítica não pode esperar sem ninguém decidir. Por isso o aviso único de segurança continua lembrando (o selo no alto das telas e uma janela por dia) até você escolher.' },
     ],
     sempressa: [
-      { alvo: '#secSemPressa', titulo: 'Para corrigir sem pressa',
+      { alvo: '#secSemPressa', titulo: dgTexto_seguranca('Para corrigir sem pressa'),
         oque: 'Falhas de impacto leve ou médio que já têm correção pronta, esperando o seu ok.',
         como: 'O botão Corrigir agora aplica a correção quando ela é uma ação do catálogo aprovado. Quando é uma atualização de pacote ou do próprio DG Claw, o botão vira Pedir ao Admin e leva você ao chat com o pedido já escrito.',
         porque: 'Não são urgentes, mas ficar sem corrigir cria acúmulo. Aqui você resolve com um toque, quando puder.' },
     ],
     emergencia: [
-      { alvo: '#secEmergencia', titulo: 'Botão de emergência',
+      { alvo: '#secEmergencia', titulo: dgTexto_seguranca('Botão de emergência'),
         oque: 'Tira o sistema da internet e mantém só o seu acesso de administração pelo Tailscale.',
         como: 'Simular mostra, passo a passo, o que vai ser feito, sem mudar nada. Tirar do ar pede um código de uso único e a frase TIRAR-DO-AR. Sem confirmação em 5 minutos, o servidor religa sozinho.',
         porque: 'Quando a falha está sendo explorada e a correção ainda não existe, tirar do ar é a única proteção. A dupla confirmação evita acidente, e o religar automático evita que você se tranque para fora.' },
     ],
     aguardando: [
-      { alvo: '#secAguardando', titulo: 'Aguardando correção oficial',
+      { alvo: '#secAguardando', titulo: dgTexto_seguranca('Aguardando correção oficial'),
         oque: 'As falhas que ainda não têm correção publicada pelo fornecedor para este servidor. Algumas já têm uma proteção provisória ativa, e o cartão diz qual é.',
         como: 'A cada rodada a ronda pergunta ao apt deste servidor se a versão corrigida já pode ser instalada, e confere de verdade se a proteção provisória continua ligada. Se a correção chegar, a falha sai desta lista e aparece em Ação necessária. Se a proteção cair, ela também volta para lá.',
         porque: 'Você não precisa decidir nada sobre elas hoje, então elas não entram no aviso de risco. Ficam aqui, à vista, para você saber que a ronda está de olho.' },
@@ -294,7 +296,7 @@
         porque: 'Para você ter o histórico e não ver a mesma falha de novo como se fosse novidade.' },
     ],
     inventario: [
-      { alvo: '#secInventario', titulo: 'O que a ronda olha',
+      { alvo: '#secInventario', titulo: dgTexto_seguranca('O que a ronda olha'),
         oque: 'O resumo do que foi conferido: o kernel, as portas abertas para a internet e os serviços externos conectados, como o Notion.',
         como: 'A ronda refaz essa lista sozinha e compara cada item com as fontes oficiais de falhas. Nada sai do servidor além do nome do componente e da versão.',
         porque: 'Uma falha só importa se atinge algo que você tem. Ver a lista mostra o tamanho da área vigiada.' },
@@ -332,7 +334,7 @@
 
   function pintaTopo() {
     const r = est.ronda;
-    $('rpResumo').textContent = r ? R.resumoTopo(r, Date.now()) : (est.erro ? 'Não consegui ler a ronda de segurança.' : 'Conferindo…');
+    $('rpResumo').textContent = r ? R.resumoTopo(r, Date.now()) : (est.erro ? 'Não consegui ler a ronda de segurança.' : dgTexto_seguranca('Conferindo…'));
     const parcial = R.textoParcial(r);
     const pa = $('rpParcial'); pa.textContent = parcial; pa.hidden = !parcial;
     const vigia = R.textoVigia(r);
@@ -347,7 +349,7 @@
     const el = $('listaBoletins');
     if (est.ocupados.size && el.querySelector('.rp-card.ocupado')) return;   // não apaga um pedido em andamento
     el.innerHTML = est.boletins ? listaBoletinsHtml(est.boletins, Date.now())
-      : '<p class="rp-vazio">' + esc(est.erroBoletins || 'Conferindo…') + '</p>';
+      : '<p class="rp-vazio">' + esc(est.erroBoletins || dgTexto_seguranca('Conferindo…')) + '</p>';
   }
 
   function pintaNiveis() {
@@ -369,7 +371,7 @@
   function pintaEmergencia() {
     if (est.ui.fase === 'codigo' && document.activeElement && document.activeElement.id === 'rpFrase') return;   // não tira o teclado da pessoa
     const e = est.emergencia;
-    $('corpoEmergencia').innerHTML = e ? emergenciaHtml(e, est.ui) : '<p class="rp-vazio">' + esc(est.erro || 'Conferindo…') + '</p>';
+    $('corpoEmergencia').innerHTML = e ? emergenciaHtml(e, est.ui) : '<p class="rp-vazio">' + esc(est.erro || dgTexto_seguranca('Conferindo…')) + '</p>';
   }
 
   async function carrega() {

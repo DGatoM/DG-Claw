@@ -1,3 +1,5 @@
+
+const dgTexto_app = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 // ═══════════════════════════════════════════════
 // DG ALIVE - Painel - Main Application
 // ═══════════════════════════════════════════════
@@ -36,7 +38,7 @@ function formatDate(d) {
   if (!d) return '--';
   try {
     const dt = new Date(d);
-    return dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    return dt.toLocaleDateString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   } catch { return d; }
 }
 
@@ -167,7 +169,7 @@ let MOOD_SPRITES = { ...DEFAULT_MOOD_SPRITES };
 // Nome das oito emocoes e das cinco necessidades, em portugues por extenso. O painel
 // antigo mostrava ANTCIP, SURPRS e DISGST: sigla cortada em ingles, que ninguem le.
 const EMOCAO_LABELS = {
-  joy: 'Alegria', trust: 'Confiança', anticipation: 'Expectativa', surprise: 'Surpresa',
+  joy: dgTexto_app('Alegria'), trust: 'Confiança', anticipation: 'Expectativa', surprise: 'Surpresa',
   sadness: 'Tristeza', fear: 'Medo', anger: 'Raiva', disgust: 'Aversão',
 };
 const NECESSIDADE_LABELS = {
@@ -211,7 +213,7 @@ let EXTENSIONS = [];
 
 // Mapa de poderes (id→enabled). Default: só core; resto travado.
 let POWERS_STATE = {};
-const POWER_LABELS = { instagram: 'Instagram', meetings: 'Reuniões', crm: 'CRM', secretary: 'Secretaria' };
+const POWER_LABELS = { instagram: 'Instagram', meetings: dgTexto_app('Reuniões'), crm: 'CRM', secretary: 'Secretaria' };
 
 function moodSpriteFor(mood) {
   const key = MOOD_SPRITES[(mood || '').toLowerCase()];
@@ -432,6 +434,7 @@ const SUBTITULO_ABA = {
   followers: 'quem conversa com ele',
   reunioes: 'o que foi dito e o que ficou',
 };
+const SUBTITULO_PADRAO = Object.assign({}, SUBTITULO_ABA);
 /**
  * O BALÃO DE CADA ABA. Fonte única: aqui, e não espalhado no index.html.
  *
@@ -542,9 +545,15 @@ function tituloDaAba(tab, botao) {
       .map((n) => n.textContent)
       .join('')
       .trim();
-    t.textContent = semIcone || (botao.textContent || tab).trim();
+    const titulo = semIcone || (botao.textContent || tab).trim();
+    if (window.DGI18n && Object.hasOwn(SUBTITULO_PADRAO, tab)) window.DGI18n.rotulo(t, titulo);
+    else t.textContent = titulo;
   }
-  if (sub) sub.textContent = SUBTITULO_ABA[tab] || '';
+  if (sub) {
+    const fonte = SUBTITULO_ABA[tab] || '';
+    if (window.DGI18n && fonte === SUBTITULO_PADRAO[tab]) window.DGI18n.rotulo(sub, fonte);
+    else sub.textContent = fonte;
+  }
   atualizarBotaoTutorial(tab);
 }
 
@@ -851,7 +860,7 @@ async function enviarDitado() {
   soltarMicrofone(d);
 
   const { botao, barra, frase, cancelar } = elDitado();
-  if (botao) { botao.classList.remove('gravando'); botao.title = 'falar em vez de escrever'; }
+  if (botao) { botao.classList.remove('gravando'); botao.title = dgTexto_app('falar em vez de escrever'); }
 
   if (d.descartado) {
     if (barra) barra.hidden = true;
@@ -986,7 +995,7 @@ function horaCurta(ts) {
   if (!ts) return '';
   const d = new Date(/[zZ]|[+-]\d\d:\d\d$/.test(ts) ? ts : ts + 'Z');
   if (isNaN(d.getTime())) return '';
-  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleTimeString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { hour: '2-digit', minute: '2-digit' });
 }
 
 /**
@@ -1036,7 +1045,7 @@ function desenharSinal(estado) {
   if (campo) {
     campo.disabled = !podeEscrever;
     campo.placeholder = podeEscrever
-      ? 'Escreva aqui...'
+      ? dgTexto_app('Escreva aqui...')
       : estado.podeReativar === true
         ? `A conversa está guardada. Toque em "acordar ${nome}" para continuar de onde vocês pararam.`
         : 'A conversa está guardada, mas ele não consegue receber mensagem agora.';
@@ -1183,7 +1192,7 @@ async function loadReunioes(query) {
     }
     listEl.innerHTML = data.items.map((m) => {
       const dt = m.date ? new Date(m.date) : null;
-      const dtStr = escapeHtml(dt ? dt.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : m.id);
+      const dtStr = escapeHtml(dt ? dt.toLocaleString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { dateStyle: 'short', timeStyle: 'short' }) : m.id);
       const dur = m.duration_min != null ? `${escapeHtml(m.duration_min)}min` : '?';
       const parts = escapeHtml((m.participants || []).join(', ') || 'sem participantes');
       const tldr = m.tldr ? m.tldr.slice(0, 200) + (m.tldr.length > 200 ? '...' : '') : '(sem resumo)';
@@ -1223,7 +1232,7 @@ async function openReuniaoDetail(id) {
     const m = await res.json();
     if (!res.ok) throw new Error(m.error || 'erro');
     const dt = m.date ? new Date(m.date) : null;
-    const dtStr = escapeHtml(dt ? dt.toLocaleString('pt-BR') : id);
+    const dtStr = escapeHtml(dt ? dt.toLocaleString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR')) : id);
     const dur = m.duration_min != null ? `${escapeHtml(m.duration_min)}min` : '?';
 
     // Cor por speaker (estável via hash simples)
@@ -1243,7 +1252,7 @@ async function openReuniaoDetail(id) {
         </div>`;
       }
       if (b.kind === 'agent-chat') {
-        const agent = escapeHTML(APP_CONFIG.agentName || 'Agente');
+        const agent = escapeHTML(APP_CONFIG.agentName || dgTexto_app('Agente'));
         return `<div class="tr-block tr-agent-chat">
           <div class="tr-spk">${dsIcone('heart')} ${agent} (chat) <span class="tr-ts">${escapeHtml(b.start_ts)}</span></div>
           <div class="tr-text">${escapeHTML(b.text)}</div>
@@ -1564,7 +1573,7 @@ function renderEmotions(data) {
   // Barras de emocao. Nome em portugues por extenso: o painel e pra ler, nao pra decifrar.
   const energyDelta = getDelta('mood.energy', mood.energy || 0);
   let barsHtml = `<div class="section-updated" style="grid-column:1/-1;margin:0 0 10px">${updatedTag(fileModified || lastUpdate, 'state.json')}</div>`;
-  barsHtml += makeBar('Energia', mood.energy || 0, 1, 'joy', energyDelta);
+  barsHtml += makeBar(dgTexto_app('Energia'), mood.energy || 0, 1, 'joy', energyDelta);
   setTracked('mood.energy', mood.energy || 0);
 
   for (const [key, val] of Object.entries(emotions)) {
@@ -1859,7 +1868,7 @@ async function loadPersonality() {
   document.getElementById('big-five').innerHTML = bigFiveHtml || '<span style="color:var(--text-dim)">Dados nao encontrados</span>';
 
   // Proactivity with deltas
-  const proLabels = { initiative: 'Iniciativa', humor: 'Humor', curiosity: 'Curiosidade', stubbornness: 'Teimosia' };
+  const proLabels = { initiative: 'Iniciativa', humor: dgTexto_app('Humor'), curiosity: 'Curiosidade', stubbornness: 'Teimosia' };
   const proColors = { initiative: 'trust', humor: 'joy', curiosity: 'trust', stubbornness: 'anger' };
   let proHtml = `<div class="section-updated">${updatedTag(data.proactivityModified, 'proactivity.json')}</div>`;
   for (const [key, val] of Object.entries(data.proactivity || {})) {
@@ -2007,7 +2016,7 @@ async function refreshOverview() {
   document.getElementById('ft-energy').textContent = pct(data.mood?.energy);
 
   // Update time
-  document.getElementById('header-time').textContent = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  document.getElementById('header-time').textContent = new Date().toLocaleTimeString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { hour: '2-digit', minute: '2-digit' });
 }
 
 // Refresh current panel
@@ -2190,7 +2199,7 @@ function desenharPopSaude(d) {
 }
 
 const ACAO_FAIXA = {
-  reiniciar: { rotulo: 'Reiniciar', modo: 'normal', explica: '' },
+  reiniciar: { rotulo: dgTexto_app('Reiniciar'), modo: 'normal', explica: '' },
   modo_seguro: {
     rotulo: 'Reiniciar em modo de segurança', modo: 'seguro',
     explica: 'Ele volta sem a última conversa na cabeça (ela fica guardada, nada se perde), para não travar de novo no mesmo ponto.',
@@ -2537,7 +2546,7 @@ function ligaExtrasDaCasca() {
 
   // Update clock
   setInterval(() => {
-    document.getElementById('header-time').textContent = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('header-time').textContent = new Date().toLocaleTimeString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { hour: '2-digit', minute: '2-digit' });
   }, 10000);
 
   // Costs panel listeners

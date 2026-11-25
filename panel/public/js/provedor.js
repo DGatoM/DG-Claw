@@ -1,3 +1,6 @@
+
+const dgTexto_provedor = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgHtml_provedor = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 // provedor.js: o cartão "Modelo e autenticação" da aba Status e a janela "Trocar".
 //
 // O que o cartão mostra vem de GET /api/provedor (lib/provedores.js): a escolha que o
@@ -151,7 +154,7 @@
     $('prov-trocar').hidden = false;
     const precisaEntrar = d.auth === 'assinatura' && d.conferido && d.conferido.ok === false;
     $('prov-entrar').hidden = !precisaEntrar;
-    $('prov-entrar').textContent = 'Conectar minha conta';
+    $('prov-entrar').textContent = dgTexto_provedor('Conectar minha conta');
     // Na página do Status, o aviso vermelho grande do topo cede lugar ao cartão do provedor.
     const painel = document.getElementById('panel-status');
     if (painel) painel.classList.toggle('prov-entrar-pendente', !!precisaEntrar);
@@ -234,7 +237,7 @@
         + '<p><b>2.</b> No fim, a página mostra um código. Cole ele aqui:</p>'
         + '<div class="prov-codigo-linha"><input type="password" id="prov-codigo" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Código que apareceu depois do login" placeholder="cole aqui o código que apareceu">'
         + '<button type="button" class="prov-btn leve prov-olho" id="prov-codigo-olho" aria-label="Mostrar código" aria-pressed="false" title="Mostrar ou ocultar o código. Fica oculto para não aparecer em tela compartilhada.">&#128065;</button>'
-        + '<button type="button" class="prov-btn" id="prov-codigo-enviar" title="Entrega o código ao agente para ele terminar o login.">Enviar</button></div>';
+        + dgHtml_provedor("<button type=\"button\" class=\"prov-btn\" id=\"prov-codigo-enviar\" title=\"Entrega o código ao agente para ele terminar o login.\"><!--dg-i18n:e1d12d1a29a7-->Enviar<!--/dg-i18n--></button></div>");
     } else if (l.estado === 'aguardando_navegador') {
       corpo = `<p><b>1.</b> ${linkHtml ? linkHtml + '.' : 'Abra o link de login que o agente gerou.'} Entre com a sua conta do ChatGPT.</p>`
         + `<p><b>2.</b> Quando a página pedir, digite este código:</p><div class="prov-codigo-grande" aria-live="polite">${esc(l.codigoDispositivo || '...')}</div>`
@@ -245,7 +248,7 @@
     } else {
       corpo = `<p>${esc(l.estado)}</p>`;
     }
-    const cancelar = (l.estado === 'falhou') ? '' : '<button type="button" class="prov-btn leve" id="prov-login-cancelar" title="Desiste do login. Nada muda no agente.">Cancelar</button>';
+    const cancelar = (l.estado === 'falhou') ? '' : dgHtml_provedor("<button type=\"button\" class=\"prov-btn leve\" id=\"prov-login-cancelar\" title=\"Desiste do login. Nada muda no agente.\"><!--dg-i18n:bb9dbb406dcb-->Cancelar<!--/dg-i18n--></button>");
     box.innerHTML = `${corpo}<div class="prov-login-pe">${cancelar}<button type="button" class="prov-btn leve" id="prov-login-fechar">Fechar</button></div>`;
     const env = $('prov-codigo-enviar');
     if (env) {

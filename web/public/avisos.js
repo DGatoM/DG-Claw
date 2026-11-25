@@ -1,4 +1,6 @@
 'use strict';
+const dgTexto_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* avisos.js: a tela do quadro de avisos entre agentes (rota /avisos e aba "Avisos" da Mesa de tarefas).
 
    Parte pura (sem DOM, com teste em web/test/avisos-tela.test.js): rótulos de dia, agrupamento,
@@ -22,7 +24,7 @@
   ];
   const ROTULO_TIPO = Object.fromEntries(TIPOS);
   const MAX_TEXTO = 280, MAX_LINHAS = 2, MAX_LINK = 500, MAX_ASSUNTO = 60;
-  const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+  const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', dgTexto_avisos('sáb')];
   const p2 = n => String(n).padStart(2, '0');
 
   function data(iso) {
@@ -42,8 +44,8 @@
     if (!d) return 'Sem data';
     const ref = agora ? new Date(agora) : new Date();
     const ontem = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - 1);
-    if (chaveDia(d) === chaveDia(ref)) return 'Hoje';
-    if (chaveDia(d) === chaveDia(ontem)) return 'Ontem';
+    if (chaveDia(d) === chaveDia(ref)) return dgTexto_avisos('Hoje');
+    if (chaveDia(d) === chaveDia(ontem)) return dgTexto_avisos('Ontem');
     return DIAS[d.getDay()] + ', ' + p2(d.getDate()) + '/' + p2(d.getMonth() + 1);
   }
 
@@ -65,7 +67,7 @@
   }
 
   function nomeDe(slug, agentes) {
-    if (slug === 'dono') return 'Você';
+    if (slug === 'dono') return dgTexto_avisos('Você');
     if (slug === 'todos') return 'todos';
     const a = (agentes || []).find(x => x.slug === slug || x.id === slug);
     return (a && a.nome) || slug;
@@ -110,7 +112,7 @@
     const inativo = a.ativo === false || !!a.retirado_em || !!a.substituido_por;
     const tipo = ROTULO_TIPO[a.tipo] ? a.tipo : 'outro';
     const rotulo = a.tipo_rotulo || ROTULO_TIPO[a.tipo] || a.tipo || 'aviso';
-    const autor = a.agente === 'dono' ? 'Você' : (a.agente_nome || nomeDe(a.agente, o.agentes));
+    const autor = a.agente === 'dono' ? dgTexto_avisos('Você') : (a.agente_nome || nomeDe(a.agente, o.agentes));
     const sit = motivoSituacao(a);
     const entregas = resumirEntregas(a);
     const tags = (Array.isArray(a.tags) ? a.tags : []).map(t => `<span class="av-tag">#${esc(t)}</span>`).join('');
@@ -223,7 +225,7 @@
         porque: 'O texto é injetado na conversa dos agentes. Curto, ele cabe sem gastar o contexto deles.' },
     ],
     filtros: [
-      { alvo: '[data-av-tour="filtros"]', titulo: 'Filtros',
+      { alvo: '[data-av-tour="filtros"]', titulo: dgTexto_avisos('Filtros'),
         oque: 'Escolhe quais avisos aparecem: de quem veio, de que tipo e se os retirados entram na lista.',
         como: 'Cada mudança busca de novo no servidor. Sem filtro, a tela mostra os últimos 7 dias.',
         porque: 'Com vários agentes postando, o filtro ajuda a achar, por exemplo, só as decisões ou só o que a Marina avisou.' },
@@ -312,7 +314,7 @@
         : '<span class="av-fraco">Nenhum agente de trabalho encontrado.</span>') + '</div>';
     const fa = q(r, '#avFAgente');
     const atual = fa.value;
-    fa.innerHTML = '<option value="">Todos os agentes</option><option value="dono">Você</option>' +
+    fa.innerHTML = dgHtml_avisos("<option value=\"\"><!--dg-i18n:e3c5c212401b-->Todos os agentes<!--/dg-i18n--></option><option value=\"dono\"><!--dg-i18n:b21e91730d18-->Você<!--/dg-i18n--></option>") +
       lista.map(a => `<option value="${esc(a.slug || a.id)}">${esc(a.nome || a.slug)}</option>`).join('');
     fa.value = atual || estado.filtro.agente;
   }
@@ -394,7 +396,7 @@
       status(motivo, 'erro');
       if (!carregou || manual) {
         q(raizEl, '#avLista').innerHTML = `<p class="av-vazio av-erro-bloco" role="alert">${esc(motivo)} ` +
-          '<button type="button" class="av-btn" data-av-recarrega>Tentar de novo</button></p>';
+          dgHtml_avisos("<button type=\"button\" class=\"av-btn\" data-av-recarrega><!--dg-i18n:6bb3150b9757-->Tentar de novo<!--/dg-i18n--></button></p>");
       }
     }
   }
@@ -527,7 +529,7 @@
   function registra() {
     const api_ = window.DGMesaAbas;
     if (api_ && typeof api_.registrar === 'function') {
-      api_.registrar({ id: 'avisos', titulo: 'Avisos', montar, bolinha });
+      api_.registrar({ id: 'avisos', titulo: dgTexto_avisos('Avisos'), montar, bolinha });
       espiar();
       espia = setInterval(() => { if (document.visibilityState === 'visible') espiar(); }, 60000);
       return;

@@ -46,7 +46,8 @@ ficar vermelho, a causa está no log do job que falhou.
 
 ## Convenções
 
-- Português do Brasil em todo texto voltado a pessoas. Os comentários no código explicam o porquê,
+- Português do Brasil como idioma padrão e fonte dos textos; traduções da interface
+  ficam no catálogo descrito em [Idiomas](docs/IDIOMAS.md). Os comentários no código explicam o porquê,
   não o que a linha faz.
 - Bash com `set -euo pipefail`, em funções, com `shellcheck` limpo.
 - Toda falha diz o que falhou, com que entrada e o que a pessoa deve fazer. Sem `|| true` mudo.

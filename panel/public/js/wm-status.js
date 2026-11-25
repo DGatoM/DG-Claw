@@ -43,7 +43,7 @@
     const r = D.tituloCaixaAlta(s);
     return r.titulo ? `<b class="wms-pend-assunto">${rl(r.titulo)}</b> ${rl(r.corpo)}` : rl(s);
   };
-  const num = (n) => (n == null ? null : Number(n).toLocaleString('pt-BR'));
+  const num = (n) => (n == null ? null : Number(n).toLocaleString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR')));
 
   const ESTADOS = {
     'em-dia': {

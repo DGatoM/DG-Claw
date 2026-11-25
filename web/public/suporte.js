@@ -1,4 +1,5 @@
 'use strict';
+const dgTexto_suporte = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* suporte.js: a tela /suporte (Suporte remoto).
 
    Fala com /api/v1/chaves-api (lista, cria, revoga) e com /api/v1/diagnostico (o mesmo que a chave de suporte lê).
@@ -166,7 +167,7 @@
         const sim = el('button', 'sp-btn perigo', 'Sim, revogar');
         sim.type = 'button';
         sim.onclick = () => revogar(c, sim);
-        const nao = el('button', 'sp-btn', 'Cancelar');
+        const nao = el('button', 'sp-btn', dgTexto_suporte('Cancelar'));
         nao.type = 'button';
         nao.onclick = () => { confirmando = null; pintaChaves(); };
         acoes.appendChild(sim);
@@ -260,7 +261,7 @@
     if (v.prompt_sugerido) {
       const caixa = el('div', 'sp-prompt');
       caixa.appendChild(el('pre', null, v.prompt_sugerido));
-      const b = el('button', 'sp-btn', 'Copiar');
+      const b = el('button', 'sp-btn', dgTexto_suporte('Copiar'));
       b.type = 'button';
       const idMsg = 'diagMsg';
       b.onclick = () => copiar(v.prompt_sugerido, idMsg);
@@ -326,13 +327,13 @@
       porque: 'Você confere quem está com acesso e quando usou, e corta quando quiser.',
     },
     criar: {
-      alvo: '[data-tour="criar"]', titulo: 'Criar uma chave',
+      alvo: '[data-tour="criar"]', titulo: dgTexto_suporte('Criar uma chave'),
       oque: 'Gera uma chave nova só de leitura do diagnóstico, com o nome que você escolher.',
       como: 'O sistema sorteia a chave e mostra uma vez só. Guardamos apenas uma marca dela, então nem nós conseguimos mostrá-la de novo. Se perder, revogue e crie outra.',
       porque: 'Assim, mesmo que alguém veja os dados do servidor, não consegue descobrir a chave.',
     },
     ve: {
-      alvo: '[data-tour="ve"]', titulo: 'O que o suporte vê agora',
+      alvo: '[data-tour="ve"]', titulo: dgTexto_suporte('O que o suporte vê agora'),
       oque: 'O diagnóstico completo, exatamente como a chave de suporte o recebe: um resumo e a lista de verificações da máquina, do Admin e de cada agente.',
       como: 'Cada item tem um estado (funcionando, atenção, quebrado ou não medido), o motivo, o que fazer e, quando existe, um texto pronto para colar numa conversa. "Não medido" quer dizer que o sistema não conseguiu checar, e isso não é o mesmo que estar funcionando.',
       porque: 'Você vê, antes de qualquer pessoa, o que está sendo compartilhado. Aqui não aparece conversa, memória nem arquivo, porque o diagnóstico não leva nada disso.',
