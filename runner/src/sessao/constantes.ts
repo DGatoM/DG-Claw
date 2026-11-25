@@ -44,6 +44,9 @@ export const RESUME_MORREU_CEDO_MS = 15_000;
 export const PRONTO_APOS_SPAWN_MS = 5_000;
 export const QUIETO_ANTES_DE_DIGITAR_MS = 1_200;
 export const JANELA_DE_PRONTIDAO_MS = 30_000;
+/** A escrita no emulador de tela é assíncrona: para levantar a suspensão por rascunho o terminal precisa estar quieto
+ *  por este tempo, senão a leitura pegaria uma tela de alguns milissegundos atrás. */
+export const QUIETO_PARA_LER_TELA_MS = 500;
 /** A máscara de segredo retém o final do que pode ser começo de segredo. Passado este silêncio
  *  ela é descarregada, senão o fim da linha ficaria preso na tela. */
 export const SILENCIO_DA_MASCARA_MS = 50;
@@ -51,6 +54,39 @@ export const SILENCIO_DA_MASCARA_MS = 50;
 export const QUIETO_DE_BOOT_MS = 1_500;
 /** Depois deste tempo sem rollout, o Codex provavelmente nem abriu a conversa. */
 export const ROLLOUT_AUSENTE_MS = 60_000;
+/** Claude: quando o boot-timer olha se o SessionStart chegou. Sem hook e sem a tela mostrar o prompt pronto, a
+ *  fila continua presa até TETO_BOOT_SEM_SINAL_MS (um Claude travado também parece "quieto"). */
+export const BOOT_TIMER_MS = 8_000;
+export const TETO_BOOT_SEM_SINAL_MS = 30_000;
+/** Claude: sem NENHUM hook na vida da sessão, só depois deste tempo desde o spawn ele é tratado como agente
+ *  sem hooks registrados (sem recibo possível). Antes disso, "ainda não chegou" não é "não existe": o recibo é
+ *  esperado e a vigia do Enter fica armada. */
+export const PRAZO_SEM_HOOKS_MS = 60_000;
 
 /** Mensagem que esperou na fila mais que isto chega ao agente com um aviso de atraso (ver avisoDeAtraso). */
 export const AVISO_DE_FILA_APOS_MS = 20_000;
+
+/** Um Enter vindo de fora (o dono, pelo terminal) segura a fila até o recibo dele chegar ou até este prazo. */
+export const ENTER_MANUAL_SEGURA_FILA_MS = 15_000;
+/** Quantos pedidos retidos (incertos) ficam guardados no arquivo; ao passar disso o mais antigo é descartado, com aviso. */
+export const MAX_RETIDOS = 20;
+
+/** Depois de uma escrita do dono no terminal, a tela só vale como prova de "caixa vazia" se o terminal desenhou algo depois
+ *  dela. Uma tecla que não redesenha nada (uma seta numa caixa vazia) não pode segurar a fila para sempre: passado este
+ *  tempo sem nenhum redesenho, a tela é aceita como está. */
+export const REDESENHO_DEPOIS_DA_TECLA_MS = 2_000;
+/** Codex: quantos turnos do rollout ficam guardados para conferir recibos. */
+export const TURNOS_DO_CODEX_GUARDADOS = 50;
+
+// Emulador de tela: quando a escrita nele lança (a fila interna do @xterm/headless passa de 50 milhões de unidades), ele é
+// recriado vazio e a tela daquela sessão NÃO serve de prova (a digitação automática fica suspensa) até uma limpeza de tela
+// INTEGRAL (ESC[2J ou ESC c, o RIS). Nem o ESC[3J (que no xterm limpa só o histórico de rolagem) nem uma quantidade de saída
+// nova bastam: uma atualização parcial pode redesenhar o marcador e o rodapé sem redesenhar um rascunho que continua no CLI.
+
+/** Envios diretos (POST /input com submit) que podem esperar a vez, por sessão, e a soma dos bytes deles. Acima disso a rota
+ *  responde 429 ENVIOS_DEMAIS sem escrever nada: cada pedido em espera segura texto e contexto HTTP em memória. */
+export const MAX_ENVIOS_DIRETOS_ESPERANDO = 8;
+export const MAX_BYTES_DIRETOS_ESPERANDO = 1024 * 1024;
+/** Controle de fluxo PTY -> emulador: acima de PENDENTE_PAUSA o PTY é pausado, e só volta a ler abaixo de PENDENTE_RETOMA. */
+export const EMULADOR_PENDENTE_PAUSA = 4 * 1024 * 1024;
+export const EMULADOR_PENDENTE_RETOMA = 1024 * 1024;
