@@ -7,6 +7,31 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+- **Correção de segurança: Bun 1.4.5 na imagem dos agentes.** A imagem passa do Bun 1.4.3 para o 1.4.5. A 1.4.4,
+  pedida por alunos, ainda era afetada pelo aviso GHSA-p268-p2w7-qr8x (falha no HTTP/3 do servidor do Bun); a 1.4.5
+  corrige esse aviso e os anteriores. O `dgclaw atualizar` padrão já reconstrói a imagem e recria os containers com a
+  versão nova.
+
+**Correção: falha de pacote do sistema que já tem correção no apt deixa de aparecer como crítica.** Numa VPS Ubuntu recém
+instalada, o aviso "Seu ambiente está em risco" e a tela Segurança mostravam como crítica uma falha do kernel Linux que o Ubuntu
+já corrige pela atualização automática (por exemplo, a CVE-2024-52560, do `ntfs3`, que só acontece ao montar um disco NTFS
+malicioso). Agora, quando o `apt` confirma que a correção de todos os pacotes de uma falha do sistema (kernel, openssl e afins) já pode
+ser instalada, a ronda a coloca num estado de segundo plano, "Atualização do sistema". Essas falhas aparecem só na seção recolhida
+"Atualizações do sistema" da tela Segurança, agrupadas por componente ("Kernel Linux: 12 correções na fila da atualização do sistema")
+e sem cor de alerta, e não entram no aviso de risco nem no selo. O texto diz que a correção entra pelo canal normal de atualização
+do Ubuntu (sozinha, se a atualização automática estiver ligada, que é o padrão) e que, se não estiver, dá para pedir ao Admin atualizar
+o sistema pelo botão do cartão. O Admin recebe essas falhas em um recado, uma vez, e confere a atualização automática.
+A ronda confere a cada rodada, e a falha some sozinha quando o pacote é atualizado. Continuam em destaque as falhas que a CISA diz
+estar sendo exploradas (a ronda só rebaixa uma falha com a CISA respondendo na rodada; sem a resposta, mantém o que já era) e as que dependem de uma ação sua. O `dgclaw seguranca estado` e o resumo para o Admin ganharam
+o grupo "Atualizações do sistema (correção já no apt)".
+
+### Como atualizar (atualizações do sistema em segundo plano)
+
+O `dgclaw atualizar` padrão basta. A classificação nova vale a partir da próxima ronda, e a ronda roda às 07:00, 13:00 e 19:00. O
+aviso antigo sobre o kernel, se estiver na tela, some sozinho nessa ronda. Para não esperar, peça ao Admin para rodar a ronda agora
+(`sudo dgclaw seguranca rodar`). O Admin ganhou uma instrução nova sobre esse grupo. Se você personalizou as instruções dele, peça ao
+Admin para juntar o item 7 da seção "Ronda de segurança" do modelo novo ao seu arquivo, sem apagar o que você escreveu.
+
 **Correção no instalador: compressão com Caddyfile personalizado.** Quem editou o Caddyfile do site (por exemplo, para
 acrescentar um cabeçalho) ficava sem a compressão do painel, porque o instalador não mexia em arquivo personalizado e só
 mostrava um aviso. Agora, quando o site é simples (um único bloco, sem `handle`, `route` nem `import`, com um único
