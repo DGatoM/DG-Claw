@@ -292,7 +292,7 @@ export async function iniciar(opcoes = {}) {
     opcoes, env, runnerUrl, tokenFile, runnerJson, esperasEntrega, dormir, estaEncerrando: () => encerrando,
   });
   const memoria = criarMemoriaMensagens();
-  const { aoReceber } = criarEntrada({
+  const { aoReceber, aoAtualizar } = criarEntrada({
     memoria, opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico,
     arqUltimo, dirUploads, downloadMediaMessage, pendentes,
   });
@@ -339,6 +339,7 @@ export async function iniciar(opcoes = {}) {
       sock.ev.on('chats.phoneNumberShare', (d) => {
         if (minha === geracao && modo === 'servico' && d) aprenderLid(d.lid, numeroDeJid(d.jid));
       });
+      sock.ev.on('messages.update', (u) => { if (minha === geracao && modo === 'servico') aoAtualizar(u); });
       sock.ev.on('messages.upsert', (u) => { if (minha === geracao && modo === 'servico') aoReceber(sock, u); });
       sock.ev.on('connection.update', async (u) => {
         if (minha !== geracao || encerrando) return;

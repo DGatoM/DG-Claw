@@ -165,8 +165,29 @@ export function criarEntrada({ memoria, opcoes, registrar, agora, lids, aprender
     }
   }
 
+  const TIPOS_REVOGA_OU_EDICAO = new Set([0, 14, 'REVOKE', 'MESSAGE_EDIT']);
+
+  // Edicao ou revogacao (vinda do contato ou do celular vinculado, em qualquer tipo de upsert):
+  // esquece o texto guardado, sem entregar nada ao agente.
+  function esquecerSeEditadaOuApagada(msg) {
+    const conteudo = msg && msg.message ? desembrulhar(msg.message) : null;
+    const proto = conteudo && conteudo.protocolMessage;
+    if (!proto || !proto.key) return;
+    if (TIPOS_REVOGA_OU_EDICAO.has(proto.type) || proto.editedMessage) memoria.esquecer(proto.key.id);
+  }
+
+  function aoAtualizar(atualizacoes) {
+    if (!Array.isArray(atualizacoes)) return;
+    for (const { key, update } of atualizacoes) {
+      if (!key || !update) continue;
+      if (update.message || update.messageStubType === 1 || update.messageStubType === 'REVOKE') memoria.esquecer(key.id);
+    }
+  }
+
   function aoReceber(sock, { messages, type }) {
-    if (type !== 'notify' || !Array.isArray(messages)) return;
+    if (!Array.isArray(messages)) return;
+    for (const msg of messages) esquecerSeEditadaOuApagada(msg);
+    if (type !== 'notify') return;
     for (const msg of messages) {
       const p = processarMensagem(sock, msg)
         .catch((e) => registrar(`erro ao tratar uma mensagem recebida: ${motivoErro(e)}`))
@@ -175,5 +196,5 @@ export function criarEntrada({ memoria, opcoes, registrar, agora, lids, aprender
     }
   }
 
-  return { aoReceber };
+  return { aoReceber, aoAtualizar };
 }

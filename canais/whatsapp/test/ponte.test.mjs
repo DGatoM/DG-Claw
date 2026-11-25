@@ -424,6 +424,35 @@ test('reacao: envio para o numero com 9 e reacao pelo jid sem o 9 citam o trecho
   await a.fim();
 });
 
+for (const [nome, proto] of [
+  ['edicao', (id) => ({ type: 14, key: { id }, editedMessage: { conversation: 'novo texto' } })],
+  ['revogacao', (id) => ({ type: 0, key: { id } })],
+]) {
+  test(`reacao: ${nome} da mensagem (fromMe, celular vinculado) faz esquecer o trecho`, async () => {
+    const a = await ambiente();
+    const r = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'Texto original' });
+    await receber(a, { key: { id: 'PX1', remoteJid: DONO_JID, fromMe: true }, message: { protocolMessage: proto(r.id) } });
+    assert.equal(a.runner.reqs.length, 0);
+    await receber(a, reacao('👍', r.id));
+    assert.ok(textoEntregue(a, 0).includes('não está mais na memória'), textoEntregue(a, 0));
+    assert.ok(!textoEntregue(a, 0).includes('Texto original'));
+    await a.fim();
+  });
+}
+
+test('reacao: messages.update de edicao ou revogacao faz esquecer o trecho', async () => {
+  const a = await ambiente();
+  const r = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'Texto original' });
+  a.sock.ev.emit('messages.update', [{ key: { id: r.id, remoteJid: DONO_JID, fromMe: true }, update: { message: { conversation: 'novo' } } }]);
+  await receber(a, reacao('👍', r.id));
+  assert.ok(textoEntregue(a, 0).includes('não está mais na memória'), textoEntregue(a, 0));
+  const r2 = await pedir(a.sockPath, { acao: 'enviar', para: DONO, texto: 'Outro texto' });
+  a.sock.ev.emit('messages.update', [{ key: { id: r2.id, remoteJid: DONO_JID, fromMe: true }, update: { messageStubType: 1 } }]);
+  await receber(a, reacao('👍', r2.id, { id: 'RE2' }));
+  assert.ok(textoEntregue(a, 1).includes('não está mais na memória'), textoEntregue(a, 1));
+  await a.fim();
+});
+
 test('reacao removida (texto vazio) nao entrega nada nem loga recusa', async () => {
   const a = await ambiente();
   await receber(a, reacao('', 'QUALQUER'), reacao('\u0007\u0000', 'OUTRO', { id: 'RE2' }));

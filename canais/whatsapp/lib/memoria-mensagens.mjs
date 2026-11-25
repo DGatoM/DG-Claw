@@ -33,5 +33,12 @@ export function criarMemoriaMensagens({ teto = GUARDAR_IDS } = {}) {
     return achado && mesmoNumero(achado.numero, numero) ? achado.trecho : null;
   }
 
-  return { lembrar, trecho };
+  // Mensagem editada ou apagada: nunca citar a versao original. So esquece, nao regrava.
+  function esquecer(id) {
+    if (typeof id !== 'string' || !id) return;
+    trechos.delete(chave('enviada', id));
+    trechos.delete(chave('recebida', id));
+  }
+
+  return { lembrar, trecho, esquecer };
 }
