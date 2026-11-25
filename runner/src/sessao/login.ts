@@ -157,7 +157,6 @@ export function encerrarIncidenteDeLogin(s: Sessao): void {
 export function entregarRecadoDeLogin(s: Sessao): void {
   const r = s.recadoDeLogin;
   if (!r) return;
-  s.recadoDeLogin = null;
   const texto =
     `<plataforma recado="login-reconectado" tipo="aviso" ts="${new Date().toISOString()}">` +
     `O login da sua conta expirou às ${horaDe(r.expirouEm)} e voltou às ${horaDe(r.voltouEm)}. ` +
@@ -165,5 +164,21 @@ export function entregarRecadoDeLogin(s: Sessao): void {
     "sem comentar o problema técnico se não for perguntado. " +
     "Este é um aviso da plataforma, não uma mensagem escrita pelo dono.</plataforma>";
   log.info(s.a("login"), "entregando ao agente o recado de login reconectado");
-  s.enfileirarQuandoOcioso(texto);
+  // O recado só deixa de existir depois de gravado na fila: se o disco falhou ("nao-gravado"), ele continua aqui e a entrega
+  // é tentada de novo daqui a pouco (uma nova tentativa por vez), para o aviso não se perder numa falha passageira.
+  if (s.enfileirarQuandoOcioso(texto) === "nao-gravado") {
+    log.aviso(
+      s.a("login"),
+      "não consegui gravar o recado de login reconectado no arquivo da fila; ele continua guardado e tento de novo em alguns segundos",
+    );
+    if (!s.reentregaDoRecado) {
+      s.reentregaDoRecado = setTimeout(() => {
+        s.reentregaDoRecado = null;
+        if (s.proc) entregarRecadoDeLogin(s);
+      }, s.reintentoTelaBloqueadaMs);
+      s.reentregaDoRecado.unref();
+    }
+    return;
+  }
+  s.recadoDeLogin = null;
 }

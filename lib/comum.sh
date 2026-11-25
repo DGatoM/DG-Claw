@@ -67,14 +67,15 @@ falha() {
 # $R/run/systemd/system) cai no podman direto. Nas duas chamadas o descritor 8 (a trava da faixa de
 # rede, ver trava_faixa_pegar) e fechado: e por aqui que todo container de agente nasce, e o conmon,
 # que vive ate o container parar, herdaria o descritor e seguraria a trava.
-# O 9>&- fecha a trava das restricoes (lib/restricoes.sh) pelo mesmo motivo.
+# O 9>&- fecha a trava das restricoes (lib/restricoes.sh) pelo mesmo motivo, e o 7>&- e o 6>&- fecham a trava dos limites
+# (lib/limites.sh) e a trava por agente do reparar e do recriar (trava_agente_pegar).
 podman_em_escopo() {
     local slug="$1"; shift
     if command -v systemd-run >/dev/null 2>&1 && [ -d "$R/run/systemd/system" ]; then
         executar systemd-run --scope --quiet --collect \
-            --unit "dgclaw-conteiner-$slug-$(date +%s)-$$-$RANDOM" podman "$@" 8>&- 9>&-
+            --unit "dgclaw-conteiner-$slug-$(date +%s)-$$-$RANDOM" podman "$@" 6>&- 7>&- 8>&- 9>&-
     else
-        executar podman "$@" 8>&- 9>&-
+        executar podman "$@" 6>&- 7>&- 8>&- 9>&-
     fi
 }
 
@@ -288,6 +289,44 @@ trava_faixa_pegar() {
 
 # trava_faixa_soltar: larga a trava (fecha o descritor 8).
 trava_faixa_soltar() { exec 8>&-; }
+
+# --- trava por agente (reparar e recriar) -------------------------------------------------
+# Reparar e recriar do MESMO agente nao podem rodar juntos: um troca o container enquanto o outro ajusta os limites
+# dele. Uma trava exclusiva por agente, em $DG_ETC/travas/agentes/<slug>.lock (pasta propria: um agente chamado "limites" nao pode colidir com a trava global), e o descritor 6 do processo (o podman roda com
+# ele fechado, pelo mesmo motivo do 8). O recriar chama o reparar por dentro: DG_TRAVA_AGENTE_COM guarda o slug que ESTE
+# processo ja segura, e quem o ve igual passa direto, sem esperar por si mesmo. Sair do processo solta a trava.
+# O slug vira nome de arquivo: quem chama passa antes por exigir_slug (bin/dgclaw); aqui so se confere de novo.
+DG_TRAVA_AGENTE_COM=""
+
+# trava_arquivo_preparar <arquivo>: garante a pasta das travas (modo 700) e o arquivo da trava (modo 600), so do root. O flock
+# so precisa de leitura: com a pasta ou o arquivo abertos, um usuario local sem privilegio seguraria a trava e travaria o
+# criar, o recriar e o reparar. Pasta e arquivo que ja existiam com modo aberto sao corrigidos no lugar (chmod), sem apagar
+# nem recriar o arquivo, para nao trocar o inode de uma trava que outro processo ja segura.
+trava_arquivo_preparar() {
+    local arq="$1" dir
+    dir="$(dirname "$arq")"
+    { mkdir -p "$dir" && chmod 700 "$dir"; } || falha "nao consegui preparar a pasta das travas ($dir)." \
+        "confira se voce e root e se $DG_ETC aceita gravar."
+    if [ ! -e "$arq" ]; then ( umask 077; : >>"$arq" ) || falha "nao consegui criar o arquivo de trava $arq." "confira se voce e root e se $dir aceita gravar."; fi
+    chmod 600 "$arq" || falha "nao consegui ajustar o modo do arquivo de trava $arq." "confira se voce e root e se o arquivo existe."
+}
+
+# trava_agente_pegar <slug>: espera ate DGCLAW_TRAVA_AGENTE_ESPERA segundos (padrao 900).
+trava_agente_pegar() {
+    local slug="$1" espera="${DGCLAW_TRAVA_AGENTE_ESPERA:-900}" arq
+    [ "$ENSAIO" = 1 ] && return 0
+    [ "$DG_TRAVA_AGENTE_COM" = "$slug" ] && return 0
+    [[ "$slug" =~ ^[a-z0-9][a-z0-9-]{1,30}$ ]] || falha "o nome curto '$slug' nao serve para a trava do agente." "isso e um erro do DG Claw; abra uma issue."
+    arq="$DG_ETC/travas/agentes/$slug.lock"
+    # A pasta mae das travas tambem fica 700 (a dos limites mora nela); a de agentes fica dentro dela.
+    { mkdir -p "$DG_ETC/travas" && chmod 700 "$DG_ETC/travas"; } || falha "nao consegui preparar a pasta das travas ($DG_ETC/travas)." "confira se voce e root e se $DG_ETC aceita gravar."
+    trava_arquivo_preparar "$arq"
+    exec 6>"$arq" || falha "nao consegui abrir a trava do agente $slug em $arq." \
+        "confira se voce e root e se a pasta $DG_ETC/travas/agentes existe e aceita gravar."
+    flock -x -w "$espera" 6 || falha "outro 'dgclaw agente reparar' ou 'dgclaw agente recriar' do agente $slug esta segurando $arq ha mais de ${espera}s: os dois nao rodam ao mesmo tempo no mesmo agente." \
+        "espere o outro comando terminar e rode de novo. Se nada estiver rodando, veja quem segura com: fuser -v $arq"
+    DG_TRAVA_AGENTE_COM="$slug"
+}
 
 # definir_linha_env <arquivo> <CHAVE> <valor> [modo]
 # Poe CHAVE=valor num arquivo de configuracao (dgclaw.env, web.env...) sem reescrever o resto:
