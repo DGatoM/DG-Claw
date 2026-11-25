@@ -17,7 +17,7 @@ export type AgentStatus =
   | "stopped"
   | "resumable";
 
-export type AgentProviderType = "claude-code" | "openclaw" | "local-cli" | "codex-cli";
+export type AgentProviderType = "claude-code" | "openclaw" | "local-cli" | "codex-cli" | "opencode-cli";
 
 export type UserLevel = "beginner" | "intermediate" | "advanced";
 

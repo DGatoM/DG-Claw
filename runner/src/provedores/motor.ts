@@ -23,7 +23,7 @@ export class ErroDeMotor extends Error {
  *  `chave` = o modo escolhido exige uma chave que não está no ambiente;
  *  `login-expirado` = a conta estava conectada e a credencial morreu (a sessão tem conversa e volta por retomada). */
 export interface Recusa {
-  tipo: "login" | "chave" | "login-expirado" | "restricao";
+  tipo: "login" | "chave" | "login-expirado" | "restricao" | "modelo" | "prontidao";
   mensagem: string;
   comoResolver: string;
 }
@@ -72,6 +72,13 @@ export interface Motor {
   binario: string;
   /** O CLI chama hooks por `--settings` (Claude). O Codex não: usa notify + rollout. */
   usaHooks: boolean;
+  /**
+   * O "pronto" vem de um aviso do próprio CLI (o plugin do OpenCode manda SessionStart quando a tela aceita
+   * texto), não do silêncio da tela. A partida do OpenCode pode levar mais de 10 s e a tela fica quieta no
+   * meio, então "quieto por um instante" digitaria o pedido antes da hora. O primeiro pedido espera na fila
+   * até o aviso; se ele não vier no prazo, a sessão vai para erro com o motivo.
+   */
+  prontidaoPorPlugin?: boolean;
   /** Pausa entre o fim do texto e o Enter. O Codex trata texto rápido como colagem. */
   pausaAntesDoEnterMs: number;
   /** Quanto esperar o recibo do Enter antes de bater de novo. */

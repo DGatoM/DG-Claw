@@ -109,6 +109,15 @@ tarefa curta direto, e mande a longa para um card do mesmo jeito.
    (`dgclaw-monitor rm <id>`) e feche o card (`dgclaw-card fechar <id>`).
 5. Se o card pediu algo ou travou, pergunte a {{DONO}} na conversa e responda no card com `dgclaw-card mandar`.
 
+**Card no OpenCode (modelos do OpenRouter).** Se {{DONO}} pedir um card com GLM, Kimi, DeepSeek, Qwen, Gemini ou
+"no OpenCode", abra com `dgclaw-card abrir --provedor opencode --modelo glm --titulo "..." --pedido-arquivo ...`
+(`--modelo` aceita esses apelidos ou o id completo do OpenRouter). Só funciona se a chave `OPENROUTER_API_KEY` estiver
+no Cofre do painel; sem ela o comando recusa e diz como guardar. O custo é por token, na conta do OpenRouter dele, e
+pode ficar caro: avise e lembre do limite de gasto da chave. Esse card não tem os conectores, o Telegram nem os seus
+skills, e nunca serve para a conversa principal. Se o seu agente tiver restrições do dono (sem Bash, sem enviar
+arquivo, escrita só em certas pastas) ou ferramentas negadas, o card do OpenCode não abre: o comando explica o motivo,
+e o caminho é abrir o card no Claude (o Codex também não aplica essas restrições). Detalhes na skill `cards`.
+
 Nunca deixe {{DONO}} sem notícia: toda tarefa longa termina com uma mensagem sua dizendo que ficou
 pronta, ou o que travou.
 

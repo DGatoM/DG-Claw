@@ -6,6 +6,7 @@ Provedor é o motor de IA por trás de um agente. O DG Claw usa dois programas o
 | --- | --- | --- |
 | `claude` | Pronto | Claude Code. Modelos Claude Opus 5.5, Claude Sonnet 5.5 e Claude Haiku 5.5 (apelidos `opus`, `sonnet` e `haiku`). O padrão é o Opus |
 | `codex` | Parcial | Codex CLI. Os modelos vêm da lista do próprio Codex, que muda toda semana. Faltam alguns recursos que o Claude tem (veja a tabela abaixo) |
+| `opencode` | Só cards | OpenCode, com modelos do OpenRouter (GLM, Kimi, DeepSeek, Qwen, Gemini e outros). Só abre cards, nunca a conversa principal, e só na API: a chave `OPENROUTER_API_KEY` fica no Cofre. A cobrança é por token, direto na sua conta do OpenRouter, e pode ficar caro: ao criar a chave, defina o limite de gasto. O card não tem hooks do Claude Code, skills do DG Claw, conectores nem Telegram (veja [../PARIDADE-CODEX.md](../PARIDADE-CODEX.md)) |
 | `gemini` | Em desenvolvimento | Gemini CLI. Está no catálogo, mas marcado como indisponível, e a janela de troca o mostra apagado com o motivo. Veja [em-desenvolvimento.md](em-desenvolvimento.md) |
 
 Não confunda o provedor `gemini` com a skill `gemini-gratuito`: a skill só conecta uma chave gratuita do Google AI Studio para o agente analisar vídeos, e funciona com qualquer motor.

@@ -12,9 +12,9 @@
 // lista do Codex na semana passada.
 import fs from "node:fs";
 import path from "node:path";
-import { carregar, catalogoDeEmergencia, validar, ErroCatalogo, type Catalogo } from "./catalogo.js";
+import { carregar, catalogoDeEmergencia, validar, validarProvedorEAuth, ErroCatalogo, type Catalogo } from "./catalogo.js";
 
-export type NomeProvedor = "claude" | "codex";
+export type NomeProvedor = "claude" | "codex" | "opencode";
 export type OrigemDaEscolha = "provedor.json" | "descritor" | "padrao";
 
 export interface Escolha {
@@ -51,13 +51,18 @@ export function provedorDoVocabulario(valor: string): NomeProvedor | null {
     case "codex":
     case "codex-cli":
       return "codex";
+    case "opencode":
+    case "opencode-cli":
+      return "opencode";
     default:
       return null;
   }
 }
 
-export function providerDoRunner(p: NomeProvedor): "local-cli" | "codex-cli" {
-  return p === "codex" ? "codex-cli" : "local-cli";
+export function providerDoRunner(p: NomeProvedor): "local-cli" | "codex-cli" | "opencode-cli" {
+  if (p === "codex") return "codex-cli";
+  if (p === "opencode") return "opencode-cli";
+  return "local-cli";
 }
 
 function texto(v: unknown): string | undefined {
@@ -119,6 +124,8 @@ export interface EntradaDaEscolha {
   /** Os campos do `config` do descritor (nível 3). */
   config?: CamposDeEscolha;
   codexHome?: string;
+  /** A sessão é paralela (card): só nela vale o provedor que abre apenas cards (OpenCode). */
+  paraCard?: boolean;
   /** Catálogo já carregado (os testes injetam); senão é lido do disco. */
   catalogo?: Catalogo;
 }
@@ -128,6 +135,12 @@ export interface SaidaDaEscolha {
   problemas: Problema[];
   /** O catálogo que valeu (o de emergência, se o arquivo não pôde ser lido). */
   catalogo: Catalogo;
+}
+
+/** Sem forma de pagar escolhida vale "assinatura"; um provedor com uma forma só (OpenCode, só na API) usa a única que tem. */
+function authPadraoDe(cat: Catalogo, nome: string): string {
+  const formas = Object.keys(cat.provedores[nome]?.auth ?? {});
+  return formas.length === 1 ? formas[0]! : "assinatura";
 }
 
 export function resolverEscolha(ent: EntradaDaEscolha): SaidaDaEscolha {
@@ -184,10 +197,32 @@ export function resolverEscolha(ent: EntradaDaEscolha): SaidaDaEscolha {
       continue;
     }
     try {
-      const v = validar(cat, nome, n.auth ?? "assinatura", n.model ?? "", { codexHome: ent.codexHome });
+      const v = validar(cat, nome, n.auth ?? authPadraoDe(cat, nome), n.model ?? "", { codexHome: ent.codexHome, paraCard: ent.paraCard === true });
       return { escolha: { provedor: nome, auth: v.auth, modelo: v.modelo, origem: n.origem }, problemas, catalogo: cat };
     } catch (err) {
       if (!(err instanceof ErroCatalogo)) throw err;
+      // O OpenCode (só cards) NUNCA cai para outro provedor: se o modelo saiu do catálogo ou do cache, o card
+      // mantém o provedor e o motor recusa o spawn pedindo outro modelo (senão o próximo texto sairia pela
+      // conta de outro serviço, sem o dono ter escolhido). Só vale quando o resto da escolha (provedor e forma
+      // de pagar) é válido: o que falha, então, é só o modelo.
+      if (nome === "opencode" && ent.paraCard === true) {
+        const auth = n.auth ?? authPadraoDe(cat, nome);
+        let soOModelo = false;
+        try {
+          validarProvedorEAuth(cat, nome, auth, { paraCard: true });
+          soOModelo = true;
+        } catch {
+          /* provedor ou forma de pagar também inválidos: segue o fluxo normal (próximo nível) */
+        }
+        if (soOModelo) {
+          problemas.push({
+            motivo: `${n.nome} tem uma escolha inválida: ${err.message}`,
+            comoResolver: "escolher outro modelo do OpenCode para este card; ele não troca de provedor sozinho",
+          });
+          const modeloGravado = n.model || cat.provedores[nome]?.modeloPadrao || "";
+          return { escolha: { provedor: nome, auth, modelo: modeloGravado, origem: n.origem }, problemas, catalogo: cat };
+        }
+      }
       problemas.push({
         motivo: `${n.nome} tem uma escolha inválida: ${err.message}`,
         comoResolver: "corrigir a escolha pelo painel (Provedor do agente); caindo para o próximo nível",

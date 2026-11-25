@@ -14,6 +14,7 @@ modelos ficam num lugar só.
 | --- | --- | --- | --- | --- |
 | Claude | disponível | `claude` | login claude.ai (Pro ou Max), conferido por `claude auth status --json` | `ANTHROPIC_API_KEY` |
 | Codex | disponível | `codex` | login ChatGPT, conferido por `codex login status` | `OPENAI_API_KEY` |
+| OpenCode | disponível, só para cards | `opencode` | (não existe) | `OPENROUTER_API_KEY` (OpenRouter, por token) |
 | Gemini CLI | desenhado, ainda recusado | `gemini` | (depois) | `GEMINI_API_KEY` |
 
 Cada provedor tem `auth.assinatura` e `auth.api` (o Claude tem também `auth.token`), cada um
@@ -214,7 +215,131 @@ na aba Sessões do painel. A 4ª recebe 429 `LIMITE_DE_SESSOES`, e o comando diz
    `deny` do Gmail em `.claude/settings.local.json`. O comando não tem opção de outro `cwd`.
 
 O card no Codex não tem os conectores do claude.ai (Gmail, Agenda, Drive) nem o Telegram: o que
-precisa deles fica na principal.
+precisa deles fica na principal. O mesmo vale para o card no OpenCode (seção abaixo).
+
+## OpenCode nos cards (modelos do OpenRouter)
+
+O OpenCode (https://opencode.ai) é o terceiro provedor, e só abre **cards**: o catálogo o marca como
+`soCard`, a conversa principal o recusa (`POST /api/provedor` e o descritor caem para o próximo nível
+com o motivo no log) e ele só tem a forma de pagar `api`, com a chave `OPENROUTER_API_KEY` guardada no
+Cofre. O modelo é escolhido na criação do card: `glm`, `kimi`, `deepseek`, `qwen`, `gemini` ou
+qualquer id do OpenRouter (por exemplo `z-ai/glm-5.3-prime`). A lista vem da API pública do OpenRouter,
+fica num cache em disco (`~/.cache/dgclaw/openrouter-models.json`, 12 horas, só modelos de texto que
+aceitam ferramentas) e, sem cache, vale a lista de reserva do catálogo. Código em
+`runner/src/provedores/opencode*.ts` e `openrouter-modelos.ts`.
+
+**Como abrir.** No painel, Sessões, Nova sessão, motor OpenCode (a tela mostra o aviso de custo e o
+campo de modelo). Pelo agente: `dgclaw-card abrir --provedor opencode --modelo glm --titulo "..." --pedido "..."`.
+Sem a chave no Cofre o card não sobe: o comando sai com código 5 e diz como guardá-la.
+
+### Achados medidos (opencode-ai 1.19.6)
+
+- **Versão fixada** na imagem (`OPENCODE_VERSAO` no `container/Containerfile`), como o Claude Code e o Codex.
+- **Plugin de status por `OPENCODE_CONFIG_DIR`.** O OpenCode não tem `--settings` nem `notify`. A cada
+  spawn o runner grava uma pasta própria (modo 700) com `opencode.json` e `plugins/dgclaw-status.js` (modo
+  600), aponta `OPENCODE_CONFIG_DIR` para ela, e a apaga quando o processo sai. O plugin traduz os eventos
+  do OpenCode para o mesmo `POST /api/agent-hook` do Claude: plugin carregado vira `SessionStart`,
+  `chat.message` vira `UserPromptSubmit`, `tool.execute.before` e `session.status busy` (batimento de 5 s)
+  viram `PreToolUse`, `permission.asked` vira `Notification`, `session.idle` vira `Stop` e `session.error`
+  vira `StopFailure` (só o nome do erro viaja). Nunca lança, envia em ordem e cada POST tem prazo de 1 s.
+  O nonce do spawn é apagado do `process.env` logo depois de lido.
+- **Config do spawn aceita pela 1.19.6:** `autoupdate: false`, `share: "disabled"` (a conversa nunca vai
+  para um link do opencode.ai), `instructions` com a identidade do agente e o `AGENTS.md` da pasta de
+  trabalho e, só no modo `default`, `permission: { edit: "ask", bash: "ask" }`.
+- **Isolamento da configuração (medido com plugins marcadores plantados nos quatro lugares).** O OpenCode SOMA
+  `OPENCODE_CONFIG_DIR` à config do usuário (`~/.config/opencode`, `~/.opencode`) e à da pasta do projeto
+  (`.opencode/`, `opencode.json`), e um plugin de qualquer uma delas roda antes de qualquer aprovação, com a chave
+  no processo. Como o agente escreve nesses lugares, o runner deixa o card enxergar só a pasta do spawn:
+  `XDG_CONFIG_HOME` aponta para uma pasta isolada (com links para o resto da config real, como a do `gh`, e SEM
+  a pasta `opencode`), `OPENCODE_TEST_HOME` aponta para uma pasta vazia (só muda onde ele procura `~/.opencode`;
+  as sessões e o login continuam em `~/.local/share`, então retomar com `-s` funciona), e
+  `OPENCODE_DISABLE_PROJECT_CONFIG=1`, `OPENCODE_DISABLE_DEFAULT_PLUGINS=1`, `OPENCODE_DISABLE_CLAUDE_CODE=1` e
+  `OPENCODE_DISABLE_EXTERNAL_SKILLS=1`. Como `OPENCODE_DISABLE_PROJECT_CONFIG` também desliga a leitura do
+  `AGENTS.md` da pasta, o runner o põe na lista `instructions`, como uma CÓPIA dos bytes conferidos (aberto sem
+  seguir link, arquivo comum, até 256 KiB) dentro da pasta do spawn: um link simbólico chamado `AGENTS.md` não entra.
+  A leitura da conversa (`opencode export`) roda sem NENHUMA credencial no ambiente (só PATH, HOME, idioma e pastas
+  de dados), com uma pasta de configuração nova, vazia e de uso único, apagada ao terminar.
+- **Variáveis de fora.** Qualquer `OPENCODE_*` e `OPENROUTER_*` (menos a chave) herdada do serviço, do Cofre ou do
+  descritor sai do ambiente do card (`limparPrefixos` do catálogo), porque `OPENCODE_MODELS_URL` e parecidas
+  desviariam o endereço para onde a chave é mandada. O Cofre do painel também recusa nomes que começam com
+  `OPENCODE_`. A chave `OPENROUTER_API_KEY` só vale se estiver no Cofre do agente (`soDoCofre`): uma chave que
+  só esteja no ambiente do serviço não abre card.
+- **O que impede o card.** O OpenCode não aplica `askTools`, `denyTools` nem as restrições do dono (`sem_bash`,
+  `sem_enviar_arquivo`, `escrita_so_em`). Com qualquer uma delas ativa o card não abre (e a mensagem enviada a ele
+  é recusada com 409 `RESTRICAO_CONTA`), com o motivo e o que fazer; ao CRIAR o card a recusa vem antes de gravar (409 `RESTRICAO_CONTA`), para não gastar
+  vaga. A saída indicada é o Claude: o Codex também não aplica essas restrições. Modelo que saiu do catálogo ou do
+  cache (inclusive o modelo padrão) mantém o provedor do card e o card para com 409 `MODELO_INDISPONIVEL`, pedindo outro modelo; ele nunca cai em
+  outro provedor.
+- **Credenciais salvas e restrições por flag.** O spawn e a leitura da conversa recebem `OPENCODE_AUTH_CONTENT={}`,
+  para que uma chave antiga guardada pelo próprio OpenCode (`auth.json`) não continue sendo cobrada depois de o dono
+  trocar a chave no Cofre. Proibições de ferramenta por flag do Claude em `extraArgs` (`--disallowedTools` e
+  parecidas) também impedem o card, como `askTools` e `denyTools`. `AGENTS.md` com mais de um nome (link físico)
+  não entra nas instruções. Depois de `runner:prontidao-expirou` o card recusa novos envios (409 `PRONTIDAO_EXPIROU`)
+  até ser fechado e aberto de novo.
+- **Sem `--auto`.** O padrão do OpenCode só pede permissão ao sair da pasta de trabalho, e aprovar tudo
+  sem olhar seria perigoso numa VPS de quem não é programador.
+- **Digitação:** pausa de 500 ms entre o texto e o Enter (a TUI trata texto e Enter colados como colagem).
+- **Id da sessão:** o plugin o descobre em `chat.message` (`ses_...`); não dá para fixá-lo antes. Retomar é
+  `opencode -s <ses_...> -m openrouter/<modelo>`.
+- **Conversa:** `opencode export <ses_...>` escreve o JSON no stdout (e "Exporting session:" no stderr).
+  Funciona com a TUI aberta e não chama modelo, então não gasta crédito. Só o texto entra na resposta, e
+  passa pela máscara de segredos (inclui o padrão `sk-or-v1-`).
+- **Partida lenta e o `SessionStart`.** O plugin carrega cerca de 2 s antes de a TUI aceitar texto (carga, uma
+  rajada de `plugin.added` e, no `catalog.updated`, a tela pronta). Por isso o plugin só avisa a partida no
+  primeiro `catalog.updated` (mais 0,8 s de folga) ou no primeiro `chat.message`; não há prazo de reserva no plugin.
+  Se a tela nunca ficar pronta, o runner espera 45 s e recusa o pedido (`runner:prontidao-expirou`), em vez de
+  digitar numa tela que não aceita texto. Na fila do plugin, os batimentos repetidos são agrupados e o fim de turno,
+  o pedido de permissão e a resposta a ele têm entrega reservada.
+- **Dependência pré-instalada na imagem.** A 1.19.6 instala o pacote `@opencode-ai/plugin` (versão igual à do
+  programa, 26 pacotes, 64 MB) em cada pasta de configuração que lhe falta `node_modules`, o que custava cerca de
+  4 s e exigia rede e o registro npm no ar a cada card. O código (`packages/core/src/npm.ts`) pula a instalação
+  quando existem `node_modules` e um `package-lock.json` que já traz o pacote declarado. Por isso a imagem instala
+  o pacote uma vez, com a trava revisada em `providers/opencode-deps/package-lock.json` (`npm ci --ignore-scripts`,
+  e o build falha se a versão do pacote for diferente da do `OPENCODE_VERSAO`), e o runner copia o `package.json` e a
+  trava e liga o `node_modules` (somente leitura, de root) na pasta do spawn e na `xdg/opencode`. Medido com a rede
+  bloqueada: o card abre e o plugin carrega. Sem a pasta, o card NÃO abre (`runner:dependencias-ausentes`, com o aviso de reconstruir a imagem): deixar o
+  OpenCode instalar pela internet, com a chave já no processo, perderia a garantia da trava. Em desenvolvimento,
+  `DGCLAW_OPENCODE_DEPS` aponta para uma pasta com `package.json`, `package-lock.json` e `node_modules`. Ao atualizar o `OPENCODE_VERSAO`, regerar a trava (`npm install --package-lock-only` na pasta
+  `providers/opencode-deps` com a versão nova). O runner também define `OPENCODE_DISABLE_LSP_DOWNLOAD=1` para o card
+  não baixar servidores de linguagem durante o trabalho.
+- **Pronto da tela vem do plugin.** Com a partida lenta (até ~11 s medidos), a tela fica muda no meio, então o
+  "silêncio vale como pronto" do Codex digitaria o pedido cedo demais. No OpenCode o primeiro pedido espera na fila
+  até o `SessionStart` do plugin e, se ele não vier em 45 s, o card vai para erro (`runner:prontidao-expirou`) em vez
+  de fingir que está ocioso.
+- **Subtarefas.** O plugin liga o card à sessão do primeiro `chat.message` e ignora `session.idle` e `session.error`
+  das sessões filhas (ferramenta `task`); só pedidos de permissão e batimentos delas seguem, sem o id da filha.
+  Trocar de conversa dentro da TUI (`/new`) com o card parado passa a seguir a conversa nova.
+- **Leitura da conversa.** Uma leitura por sessão por vez (as simultâneas compartilham o processo), cache de 2 s,
+  no máximo 2 `opencode export` ao mesmo tempo no runner, e falha ou conversa acima de 32 MiB responde 502
+  `CONVERSA_ILEGIVEL` com o motivo, nunca uma lista vazia.
+- **Lista de modelos.** O corpo da API é lido contando os bytes (teto de 8 MiB, a leitura é cancelada ao passar),
+  uma atualização por vez, no mínimo 5 minutos entre tentativas depois de uma falha. O cache é aberto sem seguir
+  link e sem bloquear (um FIFO no lugar dele não trava o runner), e a gravação usa temporário aleatório de abertura
+  exclusiva.
+
+### Por que a TUI, e não `opencode run` nem `opencode serve`
+
+A TUI dentro do PTY reaproveita tudo o que o mini-bunker já faz para o Claude e o Codex: terminal
+visível no painel, fila para quando o card fica ocioso, texto digitado, suspender e retomar, limite de
+cards e fechar. `opencode run` é um processo por mensagem, sem terminal, e exigiria um segundo modo
+de sessão. `opencode serve` exigiria um cliente HTTP/SSE, uma senha e uma porta por card, sem ganho
+para este uso.
+
+### Custo e limite de gasto
+
+O OpenCode cobra por token, direto na conta do OpenRouter do dono, com preço diferente por modelo.
+Não existe plano fixo: um card que trabalha muito pode gastar bastante. A API de chaves do OpenRouter
+tem o campo `limit` (em dólares) e `limit_reset` (`daily`, `weekly` ou `monthly`); o caminho exato da
+tela não foi confirmado, então o aviso diz apenas "ao criar a chave, defina o limite de gasto". O
+painel mostra esse aviso em destaque antes de criar o card.
+
+### O que o card OpenCode recebe e o que não recebe
+
+Recebe: o `AGENTS.md` da pasta de trabalho (o OpenCode o lê sozinho), a identidade do agente (por
+`instructions`), o plugin de status e as ferramentas nativas do OpenCode. Não recebe: os hooks do Claude
+Code (recall, trava de resposta), as regras `allow`/`ask`/`deny` por ferramenta, os skills do plugin do DG
+Claw, os conectores do claude.ai, o Telegram e o MCP do descritor. O runner avisa isso no log a cada spawn.
+Registro em [PARIDADE-CODEX.md](PARIDADE-CODEX.md).
 
 ## Em aberto
 

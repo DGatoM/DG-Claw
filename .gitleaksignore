@@ -39,3 +39,5 @@ c3bb26c79cfa1e9f2d95b3e97376b4b909389227:web/test/logs-comando-oculto.test.js:cu
 58513416913ff5f9528998dcaf02350171700366:web/test/diagnostico.test.js:generic-api-key:232
 b149c1e726043aa9f840b391ec6562f2872cce7e:web/test/logs-ambiguidade.test.js:curl-auth-user:36
 b149c1e726043aa9f840b391ec6562f2872cce7e:web/test/logs-comando-oculto.test.js:curl-auth-user:17
+# Valor fictício de teste (senha inventada num arquivo de cofre falso), não é credencial.
+a1069a18cafb9b7699ac1e41330c83166dc7f6c6:runner/src/sessao-opencode.test.ts:generic-api-key:156

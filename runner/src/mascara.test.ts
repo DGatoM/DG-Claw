@@ -194,3 +194,12 @@ describe("MascaraDeFluxo", () => {
     assert.equal(s + m.descarregar(), OCULTO);
   });
 });
+
+describe("chave do OpenRouter", () => {
+  it("sk-or-v1- é mascarada mesmo sem estar na lista de conhecidos", () => {
+    const chave = "sk-or-v1-" + "0a1b2c3d4e5f".repeat(5);
+    const saida = mascarar(`usei ${chave} no pedido`);
+    assert.equal(saida.includes(chave), false);
+    assert.ok(saida.includes(OCULTO));
+  });
+});

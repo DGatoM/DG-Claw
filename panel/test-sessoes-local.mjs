@@ -43,7 +43,7 @@ function portaLivre() {
 const agora = Date.now();
 const sessoes = new Map();
 const chamadas = [];
-const flags = { entregaIncerta: false, limite: false, semLogin: false, soClaude: false, runnerAntigo: false };
+const flags = { comOpenCode: false, entregaIncerta: false, limite: false, semLogin: false, soClaude: false, runnerAntigo: false };
 let proximoId = 1;
 
 function nova(id, over) {
@@ -88,7 +88,7 @@ async function subirRunner() {
       if (req.headers.authorization !== `Bearer ${SEGREDO_DO_RUNNER}`) return json(401, { success: false, error: 'sem token', code: 'NAO_AUTORIZADO' });
       const vista = (s) => { const { msgs, ...resto } = s; return resto; };
       if (caminho === '/api/agents' && url.searchParams.get('todas') === '1') return json(200, { success: true, data: [...sessoes.values()].map(vista) });
-      if (caminho === '/api/provedor') return json(200, { sessao: 'luna', provedor: 'claude', auth: 'assinatura', modelo: 'sonnet-teste', ...(flags.runnerAntigo ? {} : { disponiveis: flags.soClaude ? ['claude'] : ['claude', 'codex'] }) });
+      if (caminho === '/api/provedor') return json(200, { sessao: 'luna', provedor: 'claude', auth: 'assinatura', modelo: 'sonnet-teste', ...(flags.runnerAntigo ? {} : { disponiveis: flags.soClaude ? ['claude'] : ['claude', 'codex'] }), ...(flags.comOpenCode ? { cards: [{ id: 'opencode', nome: 'OpenCode', aviso: 'Cobrado por token na sua conta do OpenRouter. Defina o limite de gasto na chave.', modeloPadrao: 'z-ai/glm-5.3-prime', modelos: [{ id: 'z-ai/glm-5.3-prime', nome: 'GLM', apelidos: ['glm'] }], maisModelos: 3 }] } : {}) });
       if (caminho === '/api/sessoes' && req.method === 'POST') {
         if (flags.limite) return json(429, { success: false, error: 'Já existem 8 sessões criadas por API e o limite é 8. Não criei outra.', howToFix: 'fechar uma', code: 'LIMITE_DE_SESSOES' });
         const id = `card-n${proximoId++}`;
@@ -270,6 +270,26 @@ try {
     const pv2 = await lerJson(await p.pedir('/api/sessoes/provedores'));
     flags.runnerAntigo = false;
     ok(pv2.json.disponiveis.map((x) => x.id).join() === 'claude', 'runner antigo (sem "disponiveis"): só o provedor da principal');
+
+    // provedor que só abre card (OpenCode): lista própria, forma api e modelo repassados
+    flags.comOpenCode = true;
+    const pvOc = await lerJson(await p.pedir('/api/sessoes/provedores'));
+    ok(pvOc.json.disponiveis.some((x) => x.id === 'opencode' && x.so_card === true) && pvOc.json.disponiveis.find((x) => x.id === 'claude').so_card === undefined, 'GET /api/sessoes/provedores: o OpenCode vem marcado como so_card');
+    const oc = pvOc.json.cards[0];
+    ok(pvOc.json.cards.length === 1 && oc.id === 'opencode' && /limite de gasto/.test(oc.aviso) && oc.modelo_padrao === 'z-ai/glm-5.3-prime' && oc.modelos[0].apelidos[0] === 'glm' && oc.mais_modelos === 3, 'GET /api/sessoes/provedores: cards traz o aviso de custo, o modelo padrão e os modelos');
+    const a3 = chamadas.length;
+    const cOc = await lerJson(await p.json('/api/sessoes', { nome: 'No OpenCode', prompt: 'olá', provedor: 'opencode', modelo: 'glm' }));
+    const postOc = chamadas.slice(a3).find((c) => c.metodo === 'POST' && c.caminho === '/api/sessoes');
+    ok(cOc.status === 201 && postOc.corpo.provedor === 'opencode' && postOc.corpo.auth === 'api' && postOc.corpo.modelo === 'glm', 'provedor opencode: manda auth api e o modelo escolhido');
+    const a4 = chamadas.length;
+    await p.json('/api/sessoes', { nome: 'OpenCode sem modelo', prompt: 'olá', provedor: 'opencode' });
+    const postOc2 = chamadas.slice(a4).find((c) => c.metodo === 'POST' && c.caminho === '/api/sessoes');
+    ok(postOc2.corpo.auth === 'api' && !('modelo' in postOc2.corpo), 'opencode sem modelo: o runner usa o padrão do catálogo');
+    const mRuim = await lerJson(await p.json('/api/sessoes', { nome: 'x', prompt: 'y', provedor: 'opencode', modelo: 'a'.repeat(200) }));
+    ok(mRuim.status === 400 && mRuim.json.code === 'MODELO_INVALIDO', 'modelo grande demais: 400 em português');
+    flags.comOpenCode = false;
+    const semOc = await lerJson(await p.json('/api/sessoes', { nome: 'x', prompt: 'y', provedor: 'opencode' }));
+    ok(semOc.status === 400 && semOc.json.code === 'PROVEDOR_INVALIDO', 'sem o OpenCode instalado no agente, pedir opencode é recusado');
 
     flags.limite = true;
     const lim = await lerJson(await p.json('/api/sessoes', { nome: 'a', prompt: 'b' }));

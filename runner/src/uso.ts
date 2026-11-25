@@ -23,7 +23,7 @@ export interface JanelaDeUso {
 }
 export type Janela = JanelaDeUso | null;
 
-export type ProvedorDeUso = "claude" | "codex";
+export type ProvedorDeUso = "claude" | "codex" | "opencode";
 export type FonteDeUso = "statusline" | "rollout";
 
 export interface Uso {

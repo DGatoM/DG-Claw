@@ -1,0 +1,96 @@
+#!/usr/bin/env node
+// OpenCode FALSO, só para os testes do runner. Registra argv e o ambiente no FAKE_LOG, carrega de verdade
+// o plugin que o runner gravou em OPENCODE_CONFIG_DIR/plugins e, a cada linha digitada, dispara os mesmos
+// ganchos que o OpenCode real dispara (chat.message, session.status busy, session.idle). `export <ses_>`
+// escreve um JSON de conversa no stdout, como o comando real.
+const fs = require("fs");
+const path = require("path");
+
+const argv = process.argv.slice(2);
+const VALORES_SEGUROS = ["OPENCODE_CONFIG_DIR", "OPENCODE_DISABLE_AUTOUPDATE", "OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_DISABLE_DEFAULT_PLUGINS", "OPENCODE_TEST_HOME", "XDG_CONFIG_HOME", "DGCLAW_HOOK_AGENT", "DGCLAW_HOOK_PORT", "HOME"];
+
+function registrar(extra) {
+  if (!process.env.FAKE_LOG) return;
+  const valores = {};
+  for (const k of VALORES_SEGUROS) if (process.env[k] !== undefined) valores[k] = process.env[k];
+  fs.appendFileSync(
+    process.env.FAKE_LOG,
+    JSON.stringify({ bin: "opencode", argv, cwd: process.cwd(), env: Object.keys(process.env).sort(), valores, ...extra }) + "\n",
+  );
+}
+
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+
+(async () => {
+  if (argv[0] === "--version") {
+    process.stdout.write("1.19.6\n");
+    return;
+  }
+  if (argv[0] === "export") {
+    registrar({ modo: "export", sessao: argv[1] });
+    process.stderr.write(`Exporting session: ${argv[1]}\n`);
+    process.stdout.write(
+      JSON.stringify({
+        info: { id: argv[1] },
+        messages: [
+          { info: { role: "user" }, parts: [{ type: "text", text: "pergunta de teste" }] },
+          { info: { role: "assistant" }, parts: [{ type: "step-start" }, { type: "text", text: "resposta de teste" }] },
+        ],
+      }) + "\n",
+    );
+    return;
+  }
+
+  registrar({ modo: "interativo", depsLigadas: Boolean(process.env.OPENCODE_CONFIG_DIR && fs.existsSync(path.join(process.env.OPENCODE_CONFIG_DIR, "node_modules"))) });
+  const iS = argv.indexOf("-s");
+  const sessionID = iS >= 0 ? argv[iS + 1] : "ses_FakeOpenCode" + String(process.pid).padStart(6, "0");
+
+  let ganchos = {};
+  const dirConfig = process.env.OPENCODE_CONFIG_DIR;
+  if (dirConfig) {
+    const pastaPlugins = path.join(dirConfig, "plugins");
+    for (const f of fs.existsSync(pastaPlugins) ? fs.readdirSync(pastaPlugins) : []) {
+      const codigo = fs.readFileSync(path.join(pastaPlugins, f), "utf8");
+      const mod = await import("data:text/javascript;base64," + Buffer.from(codigo).toString("base64"));
+      for (const fabrica of Object.values(mod)) ganchos = Object.assign(ganchos, await fabrica({}));
+    }
+  }
+
+  async function turno(texto) {
+    registrar({ modo: "prompt", texto });
+    await ganchos["chat.message"]?.({ sessionID });
+    if (process.env.FAKE_OPENCODE_SUBTAREFA === "1") {
+      // Uma subtarefa (ferramenta task): sessão filha que pede, trabalha e termina ANTES de a principal acabar.
+      const filha = "ses_FilhaDaSubtarefa" + String(process.pid).padStart(6, "0");
+      await ganchos["chat.message"]?.({ sessionID: filha });
+      await ganchos["tool.execute.before"]?.({ sessionID: filha, tool: "read", callID: "call_filha" });
+      await ganchos.event?.({ event: { type: "session.idle", properties: { sessionID: filha } } });
+      await ganchos.event?.({ event: { type: "session.error", properties: { sessionID: filha, error: { name: "FalhaDaFilha" } } } });
+    }
+    await ganchos.event?.({ event: { type: "session.status", properties: { sessionID, status: { type: "busy" } } } });
+    await esperar(Number(process.env.FAKE_OPENCODE_TURNO_MS || 300));
+    process.stdout.write("resposta de teste para: " + texto + "\r\n");
+    await ganchos.event?.({ event: { type: "session.idle", properties: { sessionID } } });
+  }
+
+  // Partida lenta (medida no real: ~11 s): a tela fica muda e só depois aceita texto.
+  if (process.env.FAKE_OPENCODE_PARTIDA_MS) await esperar(Number(process.env.FAKE_OPENCODE_PARTIDA_MS));
+  process.stdout.write("fake opencode pronto\r\n");
+  // Como o OpenCode real: o catalog.updated chega quando a tela fica pronta, e o plugin avisa a partida a partir dele.
+  await ganchos.event?.({ event: { type: "catalog.updated", properties: {} } });
+  let linha = "";
+  if (process.stdin.isTTY) process.stdin.setRawMode(true);
+  process.stdin.on("data", (d) => {
+    for (const ch of d.toString()) {
+      if (ch === "\r" || ch === "\n") {
+        const texto = linha.trim();
+        linha = "";
+        if (texto) void turno(texto);
+      } else {
+        linha += ch;
+      }
+    }
+  });
+  process.on("SIGTERM", () => process.exit(0));
+  setInterval(() => {}, 1000);
+})();

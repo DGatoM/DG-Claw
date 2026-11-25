@@ -26,6 +26,7 @@ const PADROES_DE_CHAVE: RegExp[] = [
   /sk-ant-api03-[A-Za-z0-9_-]{90,}/g,
   /sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}/g,
   /sk-proj-[A-Za-z0-9_-]{40,}/g,
+  /sk-or-v1-[A-Za-z0-9]{40,}/g, // OpenRouter
   /AIza[A-Za-z0-9_-]{35}/g,
   /ghp_[A-Za-z0-9]{36}/g,
   /github_pat_[A-Za-z0-9_]{22,}/g,

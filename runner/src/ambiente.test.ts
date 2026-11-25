@@ -93,3 +93,89 @@ test("nomesDoCofre: arquivo inexistente é cofre vazio; erro de leitura não der
   // Um diretório no lugar do arquivo dá EISDIR (erro que não é ENOENT): não derruba, devolve vazio.
   assert.equal(nomesDoCofre(dir).size, 0);
 });
+
+// ─── OpenCode (só cards, chave do OpenRouter) ────────────────────
+
+const OPR = "sk-or-v1-" + "9f8e7d6c5b4a".repeat(5);
+
+test("opencode/api com a chave do cofre: recebe OPENROUTER_API_KEY e as de outros provedores não passam", () => {
+  const r = montar("opencode", "api", { OPENROUTER_API_KEY: OPR, ANTHROPIC_API_KEY: ANT, OPENAI_API_KEY: OAI }, ["OPENROUTER_API_KEY"]);
+  assert.equal(r.env.OPENROUTER_API_KEY, OPR);
+  assert.equal("ANTHROPIC_API_KEY" in r.env, false);
+  assert.equal("OPENAI_API_KEY" in r.env, false);
+});
+
+test("opencode/api: base, config e permissão vindos de fora saem do ambiente do card", () => {
+  const r = montar(
+    "opencode",
+    "api",
+    { OPENROUTER_API_KEY: OPR, OPENROUTER_BASE_URL: "http://desvio.invalido/v1", OPENCODE_CONFIG: "/x.json", OPENCODE_PERMISSION: "{}", OPENCODE_CONFIG_DIR: "/y" },
+    ["OPENROUTER_API_KEY", "OPENROUTER_BASE_URL", "OPENCODE_CONFIG", "OPENCODE_PERMISSION", "OPENCODE_CONFIG_DIR"],
+  );
+  for (const nome of ["OPENROUTER_BASE_URL", "OPENCODE_CONFIG", "OPENCODE_PERMISSION", "OPENCODE_CONFIG_DIR"]) {
+    assert.equal(nome in r.env, false, `${nome} deveria sair`);
+  }
+  assert.equal(r.env.OPENROUTER_API_KEY, OPR);
+});
+
+test("claude/assinatura: a chave do OpenRouter guardada no cofre continua disponível para o agente", () => {
+  const r = montar("claude", "assinatura", { OPENROUTER_API_KEY: OPR }, ["OPENROUTER_API_KEY"]);
+  assert.equal(r.env.OPENROUTER_API_KEY, OPR, "chave de outro provedor guardada no cofre continua disponível");
+});
+
+test("claude/assinatura: a chave do OpenRouter HERDADA (fora do cofre) não passa", () => {
+  const r = montar("claude", "assinatura", { OPENROUTER_API_KEY: OPR });
+  assert.equal("OPENROUTER_API_KEY" in r.env, false);
+});
+
+test("opencode/api: qualquer OPENCODE_* e OPENROUTER_* (menos a chave) sai, mesmo vindo do cofre ou do envExtra", () => {
+  const r = montar(
+    "opencode",
+    "api",
+    { OPENROUTER_API_KEY: OPR, OPENCODE_MODELS_URL: "http://desvio.invalido/m", OPENROUTER_HTTP_REFERER_URL: "http://x", OPENCODE_EXPERIMENTAL_X: "1", OUTRA_COISA: "fica" },
+    ["OPENROUTER_API_KEY", "OPENCODE_MODELS_URL"],
+    { OPENCODE_CONFIG_CONTENT: "{}" },
+  );
+  for (const nome of ["OPENCODE_MODELS_URL", "OPENROUTER_HTTP_REFERER_URL", "OPENCODE_EXPERIMENTAL_X", "OPENCODE_CONFIG_CONTENT"]) {
+    assert.equal(nome in r.env, false, `${nome} deveria sair`);
+  }
+  assert.equal(r.env.OPENROUTER_API_KEY, OPR);
+  assert.equal(r.env.OUTRA_COISA, "fica");
+});
+
+test("opencode/api: chave só herdada (fora do cofre) não vale, mesmo estando no ambiente", () => {
+  const r = montar("opencode", "api", { OPENROUTER_API_KEY: OPR }, []);
+  assert.equal("OPENROUTER_API_KEY" in r.env, false);
+  assert.equal(r.chaveDoModoPresente, false);
+  assert.deepEqual(r.removidas, [{ nome: "OPENROUTER_API_KEY", motivo: "herdada, não está no cofre" }]);
+});
+
+test("forma de pagar com nome herdado do protótipo ('constructor', '__proto__') é recusada como inexistente", () => {
+  for (const auth of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+    assert.throws(() => montar("opencode", auth, { OPENROUTER_API_KEY: OPR }, ["OPENROUTER_API_KEY"]), /não existe para o provedor/);
+  }
+});
+
+test("opencode/api: a chave do Cofre não é trocada pela sobreposição do descritor (envExtra)", () => {
+  const velha = "sk-or-v1-VELHA-FICTICIA";
+  const r = montarAmbiente({
+    base: { OPENROUTER_API_KEY: OPR },
+    envExtra: { OPENROUTER_API_KEY: velha, OUTRA: "ok" },
+    provedor: "opencode",
+    auth: "api",
+    catalogo: carregarCatalogoDeTeste(),
+    cofre: new Set(["OPENROUTER_API_KEY"]),
+  });
+  assert.equal(r.env.OPENROUTER_API_KEY, OPR, "vale o valor do Cofre, não o do descritor");
+  assert.ok(r.recusadas.includes("OPENROUTER_API_KEY"));
+  assert.equal(r.env.OUTRA, "ok");
+  const sem = montarAmbiente({
+    base: {},
+    envExtra: { OPENROUTER_API_KEY: velha },
+    provedor: "opencode",
+    auth: "api",
+    catalogo: carregarCatalogoDeTeste(),
+    cofre: new Set(),
+  });
+  assert.equal("OPENROUTER_API_KEY" in sem.env, false, "a chave só do descritor nunca vale");
+});

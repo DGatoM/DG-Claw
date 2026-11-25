@@ -118,6 +118,19 @@ agente (régua: feature de ~2 mil linhas leva 10 a 30 min).
 | Diálogo de confiança por `--add-dir` (Claude Code 2.1.326: marcação de `hasTrustDialogAccepted` antes do boot e erro `runner:tela-de-confianca`) | Sem equivalente a fazer: o Codex não pergunta por pasta extra, só tem o menu "Trust this folder?" do cwd, que já é tratado por `telaDeConfiancaDoCodex` e pelo `trust_level` gravado. A correção é específica do Claude porque a pergunta nasce no CLI dele |
 | Regras `allow`/`ask`/`deny` por ferramenta | `enabled_tools`/`disabled_tools` por servidor MCP e a política de aprovação do Codex |
 
+### OpenCode: provedor extra, só para cards (exceção registrada)
+
+O OpenCode (modelos do OpenRouter) é um provedor que só abre cards e nunca é o motor da conversa
+principal, então não entra na paridade completa dos dois motores principais. Não existem nele: os hooks
+e os skills do Claude Code, o Telegram, os conectores do claude.ai, o pedido de permissão pela conversa
+(o padrão dele só pergunta ao sair da pasta de trabalho), o custo por mensagem e o MCP do descritor. Também não
+aplica `askTools`, `denyTools` nem as restrições do dono: com qualquer uma ativa o card não abre (recusa com o
+motivo), para não deixar o card fazer o que o dono proibiu. O
+card recebe no lugar o `AGENTS.md` da pasta de trabalho, a identidade do agente por `instructions`, o
+plugin de status (`runner/src/provedores/opencode-plugin-source.ts`) e as ferramentas nativas. Detalhes e
+medições em [PROVEDORES.md](PROVEDORES.md). "Testado no Codex" não se aplica: o OpenCode é provedor novo, e
+o Codex continua coberto pelas suas próprias linhas acima.
+
 ## Total
 
 | Fase | O que entra | Horas de agente |

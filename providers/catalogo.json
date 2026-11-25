@@ -124,6 +124,75 @@
         }
       ]
     },
+    "opencode": {
+      "nome": "OpenCode",
+      "disponivel": true,
+      "soCard": true,
+      "motivoSoCard": "abre só cards (sessões paralelas do agente), nunca a conversa principal",
+      "binario": "opencode",
+      "instalar": "npm install -g opencode-ai",
+      "auth": {
+        "api": {
+          "nome": "na API (OpenRouter)",
+          "explica": "Você paga só pelo que usar, contado em tokens (pedaços de texto), direto na sua conta do OpenRouter, e cada modelo tem um preço diferente. Não existe plano fixo: um card que trabalha muito pode gastar bastante, então defina na chave um limite de gasto em dólares (o OpenRouter oferece isso ao criar a chave). Precisa de uma chave, que fica guardada no Cofre do painel.",
+          "variavel": "OPENROUTER_API_KEY",
+          "ondeCriar": "https://openrouter.ai/settings/keys",
+          "soDoCofre": true,
+          "limpar": [
+            "OPENROUTER_BASE_URL",
+            "OPENCODE_CONFIG",
+            "OPENCODE_CONFIG_CONTENT",
+            "OPENCODE_CONFIG_DIR",
+            "OPENCODE_PERMISSION",
+            "OPENCODE_SERVER_PASSWORD"
+          ],
+          "limparPrefixos": [
+            "OPENCODE_",
+            "OPENROUTER_"
+          ]
+        }
+      },
+      "canaisTelegram": false,
+      "modeloPadrao": "z-ai/glm-5.3-prime",
+      "modelosDe": "openrouter_api",
+      "modelos": [
+        {
+          "id": "z-ai/glm-5.3-prime",
+          "nome": "Z.ai: GLM 5.3 Prime",
+          "apelidos": [
+            "glm"
+          ]
+        },
+        {
+          "id": "moonshotai/kimi-k3.1-pro",
+          "nome": "MoonshotAI: Kimi K3.1 Pro",
+          "apelidos": [
+            "kimi"
+          ]
+        },
+        {
+          "id": "deepseek/deepseek-v4.1-flash-1017",
+          "nome": "DeepSeek: DeepSeek V4.1 Flash 1017",
+          "apelidos": [
+            "deepseek"
+          ]
+        },
+        {
+          "id": "qwen/qwen3.8-max-prime",
+          "nome": "Qwen: Qwen3.8 Max Prime",
+          "apelidos": [
+            "qwen"
+          ]
+        },
+        {
+          "id": "google/gemini-4-neon",
+          "nome": "Google: Gemini 4 Neon",
+          "apelidos": [
+            "gemini"
+          ]
+        }
+      ]
+    },
     "gemini": {
       "nome": "Gemini CLI",
       "disponivel": false,

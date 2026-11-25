@@ -3,7 +3,10 @@
 # e Claude), manda um pedido, espera, le a resposta e fecha. Roda DENTRO do container, como "agente".
 #
 # Uso:
-#   dgclaw-card abrir --provedor codex|claude [--auth assinatura|api|token] [--modelo M] --titulo "T"
+#   dgclaw-card abrir --provedor codex|claude|opencode [--auth assinatura|api|token] [--modelo M] --titulo "T"
+#                     opencode so existe em card, so na forma api (chave OPENROUTER_API_KEY no Cofre) e e
+#                     cobrado por token no OpenRouter; --modelo aceita um apelido (glm, kimi, deepseek, qwen,
+#                     gemini) ou qualquer id do OpenRouter (ex.: z-ai/glm-5.3-prime)
 #                     (--pedido "texto" | --pedido-arquivo F | pedido pelo stdin)
 #                     [--monitor --entregue "criterio de entregue" [--cada MIN]]
 #                     --monitor liga o MODO MONITOR neste card (docs/MODO-MONITOR.md): um vigia sem modelo
@@ -130,8 +133,8 @@ chamar_ou_sair() {
 # Campo ausente ou resposta sem JSON viram texto vazio; cada chamador ja trata o vazio (erro, valor padrao ou nova tentativa).
 campo() { printf '%s' "$RESP" | jq -r "$1 // empty" 2>/dev/null || true; }
 
-nome_do_provedor() { # $1 = codex|claude|vazio
-  case "$1" in codex) echo "Codex" ;; claude) echo "Claude" ;; *) echo "provedor" ;; esac
+nome_do_provedor() { # $1 = codex|claude|opencode|vazio
+  case "$1" in codex) echo "Codex" ;; claude) echo "Claude" ;; opencode) echo "OpenCode" ;; *) echo "provedor" ;; esac
 }
 
 # Fala do jeito que o agente pode repassar ao dono, e sai com o codigo certo.
@@ -161,6 +164,7 @@ falha_geral() {
       CODIGO=4 die "${err:-Ja ha cards demais abertos.} Para liberar uma vaga, feche um card que nao precisa mais: veja com 'dgclaw-card listar' e feche com 'dgclaw-card fechar <id>'. Se o dono quiser mais vagas, o limite sobe em RUNNER_MAX_SESSOES_EXTRAS na unidade do runner." ;;
     *:SEM_LOGIN|*:SEM_CHAVE)
       prov="$(nome_do_provedor "${QUEM:-}")"
+      [ "${QUEM:-}" != "opencode" ] || CODIGO=5 die "o OpenCode deste agente ainda nao tem a chave do OpenRouter. Peca ao dono para guardar a OPENROUTER_API_KEY no Cofre do painel (crie a chave em openrouter.ai/settings/keys e defina nela um limite de gasto). Depois que ele guardar, e so repetir o pedido."
       CODIGO=5 die "o $prov deste agente ainda nao esta conectado. Peca ao dono para abrir o painel, aba Status, cartao Modelo e autenticacao, e usar Entrar com a assinatura (ou colar a chave de API). Depois que ele conectar, e so repetir o pedido." ;;
   esac
   local msg="${err:-o runner respondeu HTTP $HTTP sem explicar}"
@@ -220,7 +224,11 @@ cmd_abrir() {
       *) die "opcao desconhecida em 'abrir': '$1'. Veja 'dgclaw-card ajuda'." ;;
     esac
   done
-  case "$provedor" in codex|claude) ;; *) die "--provedor precisa ser codex ou claude (recebido: '${provedor}')." ;; esac
+  case "$provedor" in codex|claude|opencode) ;; *) die "--provedor precisa ser codex, claude ou opencode (recebido: '${provedor}')." ;; esac
+  # OpenCode so tem uma forma de pagar (a chave do OpenRouter): sem --auth vale api.
+  if [ "$provedor" = "opencode" ]; then
+    case "$auth" in ""|api) auth="api" ;; *) die "o opencode so funciona com --auth api (a chave do OpenRouter); recebido: '$auth'." ;; esac
+  fi
   case "$auth" in ""|assinatura|api|token) ;; *) die "--auth precisa ser assinatura, api ou token (recebido: '$auth')." ;; esac
   # Confere o monitor ANTES de criar o card: erro de uso nao pode deixar card aberto para tras.
   if [ "$monitor" = 1 ]; then
@@ -328,7 +336,7 @@ cmd_mandar() {
   echo "Texto enviado ao card $id. Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
 }
 
-# Provedor de uma sessao (codex|claude|vazio), sem sair se falhar: so serve para a frase de erro.
+# Provedor de uma sessao (codex|claude|opencode|vazio), sem sair se falhar: so serve para a frase de erro.
 provedor_do() {
   local p=""
   if chamar GET "/api/provedor?sessao=$1"; then

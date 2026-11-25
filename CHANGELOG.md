@@ -61,6 +61,25 @@ comum nada muda. Relatado por aluno da mentoria.
 
 A versão nova do Codex só chega aos seus agentes depois que a imagem deles é reconstruída. O `dgclaw atualizar` já faz isso sozinho (a etapa "reconstruindo a imagem dos agentes", que leva de 10 a 20 minutos), então basta pedir ao Admin, no chat: "atualiza o DG Claw". Quem atualizou só o código e não reconstruiu a imagem continua com o Codex antigo: rode `dgclaw imagem construir --agora` e depois `dgclaw agente recriar <nome>` para cada agente, porque a imagem nova só vale quando o container é recriado. Suas chaves, logins, conversas e agentes continuam como estavam.
 
+- **Novo: o agente abre cards no OpenCode, com modelos do OpenRouter (GLM, Kimi, DeepSeek, Qwen, Gemini e outros).** É
+  um terceiro provedor, só para cards: nunca roda a conversa principal. Usa a chave `OPENROUTER_API_KEY`, guardada no
+  Cofre do painel, e a cobrança é por token, direto na sua conta do OpenRouter. No painel, em Sessões, "Nova sessão" ganha
+  o motor OpenCode (com o aviso de custo e a lista de modelos); pelo terminal, `dgclaw-card abrir --provedor opencode
+  --modelo glm`. O card do OpenCode não tem os hooks do Claude Code, os skills do DG Claw, os conectores do claude.ai
+  nem o Telegram (registro em `docs/PARIDADE-CODEX.md`). Por isso o card do OpenCode não abre em um agente que tenha
+  restrições do dono (sem Bash, sem enviar arquivo, escrita só em certas pastas) ou ferramentas negadas ou com
+  confirmação: nesses agentes o painel e o `dgclaw-card` explicam o motivo e pedem o Claude (o Codex também não aplica essas restrições). O card recusado nem chega a ser gravado, então não ocupa vaga. O card também
+  enxerga só a configuração que o DG Claw gera para ele (plugins deixados na casa ou na pasta do projeto não rodam).
+
+### Como atualizar (OpenCode)
+
+Esta versão traz um programa novo na imagem dos agentes, o OpenCode. Depois do `dgclaw atualizar`, reconstrua a imagem
+dos agentes para que ele exista dentro deles. Sem isso o painel simplesmente não mostra o OpenCode como opção de card, e
+nada mais muda. A imagem nova também traz, já instalado, o pacote que o OpenCode usaria para carregar o plugin de
+status, então o card abre sem baixar nada da internet; se a imagem não tiver essa pasta, o card não abre e o erro manda reconstruir a imagem. Para usar, guarde a chave `OPENROUTER_API_KEY` no Cofre do
+painel (uma chave que esteja só no ambiente do servidor não vale, de propósito). Ao criar a chave no OpenRouter, defina o
+limite de gasto dela, porque cada card cobra por token e pode ficar caro. Nenhuma configuração sua é apagada.
+
 **Correção no runner: pedido digitado sem confirmação não some e nunca é reenviado sozinho.** Um pedido enviado a
 um agente podia sumir quando o Claude Code não abria o turno (por exemplo, com os hooks travados) e o runner era
 reiniciado: o texto já tinha saído da fila, a conversa nunca tinha sido gravada e o agente subia vazio. Agora o runner só
