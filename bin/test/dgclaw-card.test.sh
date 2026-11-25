@@ -377,6 +377,7 @@ for modo in input-sem-capacidade input-nao-acordou; do
   ok "$modo sai com 6" $([ $c = 6 ] && echo 0 || echo 1)
   grep -q "o pedido nao foi entregue (" "$T/e" && grep -q "pode tentar de novo quando" "$T/e" && ! grep -q "entrega incerta" "$T/e"; ok "$modo diz 'nao foi entregue' e nao 'entrega incerta'" $?
   [ "$(head -1 "$T/o")" = "card-abc123" ]; ok "$modo: o id sai na primeira linha" $?
+  ! grep -qE "sem memoria para acordar|o terminal nao subiu|O que fazer|ver o log" "$T/o" "$T/e"; ok "$modo: o texto livre do runner (error/howToFix) nao chega a saida" $?
 done
 
 # --- --monitor com recusa anterior a fila: a mensagem traz o comando do monitor ------------------------------
