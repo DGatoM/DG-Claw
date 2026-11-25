@@ -32,6 +32,11 @@ Falhas reportadas por Renato Gracie (divulgação responsável).
    usa `--sem-baixar`, sabendo que nesse caso nada é conferido.
 4. **A atualização passa a instalar a versão (tag) assinada mais nova**, e não mais a ponta da `main`.
 
+**Correção: o cofre do agente aceita `ZAPI_INSTANCE`.** A Z-API identifica a conexão de WhatsApp por um ID de
+instância, e o nome de mercado dessa credencial é `ZAPI_INSTANCE`. O cofre recusava esse nome. Agora ele entra pelo nome
+exato, e não por qualquer nome terminado em `_INSTANCE`, porque outras variáveis com esse final mudam o alvo de
+ferramentas (a instância padrão do gcloud, por exemplo). Nada muda para quem já usa o cofre.
+
 **Correção no canal de WhatsApp: reações e emojis como resposta.** Quando o agente perguntava "Posso fazer X?" e você respondia com um 👍 como reação à mensagem (o toque longo, não o emoji digitado), o agente nunca ficava sabendo, porque a ponte descartava a reação. Agora a reação chega ao agente num envelope marcado pela ponte (`tipo="reacao"`), com uma linha como `[reagiu com 👍 à sua mensagem: "Posso fazer X?"]`. A ponte guarda só as mensagens que o próprio agente enviou, apenas na memória (nada em disco), separadas por conversa. Se a reação aponta para uma mensagem que a ponte não tem (antiga, anterior a um reinício, sua própria mensagem, de outra conversa, editada ou apagada), o agente recebe "uma mensagem que a ponte não conseguiu identificar" e não conta isso como confirmação. A reação segue as mesmas regras de qualquer mensagem: só números da lista de permitidos, nada de grupos, e reação removida não entrega nada. Um emoji digitado como texto já chegava e continua chegando. As instruções do agente ganharam a regra de leitura: só vale como "sim" a reação marcada pela ponte que cita uma pergunta de sim ou não do agente (👍 ✅ 👌 🙏); ❤️ 😂 e afins não confirmam nada e não recebem resposta; e em ação sensível (pagamento, envio a terceiros, algo destrutivo ou irreversível) uma reação nunca basta, o agente pergunta de novo, e ação irreversível continua só pelo chat do DG Claw. O Claude e o Codex recebem o mesmo texto.
 
 - **Novo: checklist de entrega de cliente e smoke test da VPS.** O `docs/ENTREGA-CLIENTE.md` reúne, para a equipe
@@ -40,6 +45,16 @@ Falhas reportadas por Renato Gracie (divulgação responsável).
   `/opt/dgclaw/app/scripts/smoke-entrega.sh` roda no servidor, como root, e faz só leituras simples: versão
   instalada, resposta do painel, serviços do host e, para cada agente, se o container existe, está rodando e tem
   limite de memória. O resto do checklist fica à mão. Não muda o comportamento de quem já usa o DG Claw.
+
+**Correção do auto-compact que compactava em loop e gastava a sessão do plano.** Depois de compactar, o contexto não volta só
+ao resumo: volta ao resumo mais o que toda sessão carrega de base (instruções, ferramentas, memória), algo em torno de 70 mil a
+85 mil tokens nos transcritos reais. Se essa base ficava perto ou acima do teto (`DGCLAW_COMPACT_THRESHOLD`), o auto-compact
+achava a cada ciclo de 30 minutos que precisava compactar de novo, e cada compactação custa a leitura do contexto inteiro, sem
+baixar nada. Agora ele mede o tamanho da primeira resposta depois da última compactação e só compacta se o contexto de agora
+passar dessa base por pelo menos `DGCLAW_COMPACT_MIN_GAIN` tokens (padrão 30000). Quando pula, o log do auto-compact explica o
+motivo. Vale só no Claude, o único motor em que o auto-compact funciona hoje (o Codex continua na exceção de
+`docs/PARIDADE-CODEX.md`). Quem vê o log dizer que pulou por base alta pode subir `DGCLAW_COMPACT_THRESHOLD` ou reduzir o que o
+agente carrega de base (memória e instruções longas).
 
 **Correção do agente que ficava "trabalhando" para sempre depois de um /compact recusado.** Quando o auto-compact enfileirava
 vários `/compact` seguidos e o Claude Code respondia "Not enough messages to compact.", ele avisava o início da compactação
