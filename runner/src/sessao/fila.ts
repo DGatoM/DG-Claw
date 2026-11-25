@@ -113,7 +113,6 @@ export function enfileirarQuandoOcioso(s: Sessao, texto: string, esperouNoPainel
 }
 
 const ABERTURA_CANAL_EXTERNO = "<canal-externo ";
-const FECHAMENTO_CANAL_EXTERNO = "</canal-externo>";
 
 function duasCasas(n: number): string {
   return String(n).padStart(2, "0");
@@ -123,35 +122,50 @@ function duasCasas(n: number): string {
  *  escrita antes de o agente falar de outro assunto pode parecer autorização do que ele propôs depois; o aviso diz
  *  isso ao agente. Vale para a mensagem que entrou com o agente ocupado (qualquer tempo de espera) ou que esperou
  *  mais que AVISO_DE_FILA_APOS_MS. Recebem o aviso o envelope <dgchat> e o <canal-externo> do WhatsApp; comando
- *  literal (/model...) sai intacto. Onde o aviso entra no texto é decidido por textoComAviso. */
+ *  literal (/model...) sai intacto. O aviso vai depois do envelope (ver textoComAviso). */
 export function avisoDeAtraso(item: { texto?: string; em: number; esperou?: boolean }, agora: number = Date.now()): string {
   if (item.texto !== undefined && !item.texto.startsWith("<dgchat") && !item.texto.startsWith(ABERTURA_CANAL_EXTERNO)) return "";
   const espera = agora - item.em;
   if (!item.esperou && espera < AVISO_DE_FILA_APOS_MS) return "";
-  const quando = new Date(item.em);
-  const hora = `${duasCasas(quando.getHours())}:${duasCasas(quando.getMinutes())}`;
   const minutos = Math.round(espera / 60_000);
   const duracao = minutos < 1 ? "alguns segundos" : `cerca de ${minutos} min`;
+  // No <dgchat> a hora de escrita é a da entrada na fila. No canal externo a hora de escrita é a do atributo `ts` do envelope
+  // (a hora da mensagem no WhatsApp), quando for uma data ISO válida; sem ela, o texto diz só que a mensagem entrou na fila.
+  let inicio: string;
+  const ts = item.texto?.startsWith(ABERTURA_CANAL_EXTERNO) ? horaDoEnvelope(item.texto) : null;
+  if (item.texto?.startsWith(ABERTURA_CANAL_EXTERNO)) {
+    inicio = ts !== null ? `foi escrita às ${ts}` : `entrou na fila às ${horaLocal(item.em)}`;
+  } else {
+    inicio = `foi escrita às ${horaLocal(item.em)}`;
+  }
   return (
-    `\n\n[Aviso do sistema: a mensagem acima foi escrita às ${hora} e esperou ${duracao} na fila, ` +
+    `\n\n[Aviso do sistema: a mensagem acima ${inicio} e esperou ${duracao} na fila, ` +
     `enquanto você respondia outras coisas. Ela pode ter sido escrita antes das suas últimas respostas. ` +
     `Uma resposta curta (ok, sim, pode, beleza) não autoriza uma ação nova que você propôs depois disso: ` +
     `se for o caso, confirme com o dono antes de agir.]`
   );
 }
 
-/** O texto que o runner escreve no terminal: o do item mais o aviso de atraso, quando há. O <dgchat> recebe o aviso depois
- *  do envelope (fora dele: o painel lê só o que está dentro). O <canal-externo> (WhatsApp) recebe o aviso DENTRO do envelope,
- *  imediatamente antes da última tag de fechamento, porque o painel e a trava de resposta esperam essa tag no fim do texto. O
- *  corpo desse envelope vem com < e > escapados pela ponte, então uma tag de fechamento falsa escrita por quem manda a mensagem
- *  não existe como tag: só a de fechamento real, no fim, recebe o aviso. Se o texto não terminar nela, sai sem aviso. */
+function horaLocal(epoch: number): string {
+  const q = new Date(epoch);
+  return `${duasCasas(q.getHours())}:${duasCasas(q.getMinutes())}`;
+}
+
+/** A hora local (HH:MM) do atributo `ts` da tag de abertura do <canal-externo>, ou null se ele não for uma data ISO válida. */
+function horaDoEnvelope(texto: string): string | null {
+  const abertura = /^<canal-externo\b([^>]*)>/.exec(texto);
+  if (!abertura) return null;
+  const m = /\bts="(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2}))"/.exec(abertura[1]);
+  if (!m) return null;
+  const t = Date.parse(m[1]);
+  return Number.isFinite(t) ? horaLocal(t) : null;
+}
+
+/** O texto que o runner escreve no terminal: o do item mais o aviso de atraso, quando há. O aviso vai SEMPRE depois do
+ *  envelope, fora dele (<dgchat> e <canal-externo>): o corpo do <canal-externo> vem com < e > escapados pela ponte, então
+ *  nenhuma tag de fechamento real pode vir de quem escreve; tudo depois da tag final é do runner. */
 export function textoComAviso(item: { texto: string; em: number; esperou?: boolean }, agora: number = Date.now()): string {
-  const aviso = avisoDeAtraso(item, agora);
-  if (!aviso) return item.texto;
-  if (!item.texto.startsWith(ABERTURA_CANAL_EXTERNO)) return item.texto + aviso;
-  const fim = item.texto.trimEnd();
-  if (!fim.endsWith(FECHAMENTO_CANAL_EXTERNO)) return item.texto;
-  return fim.slice(0, fim.length - FECHAMENTO_CANAL_EXTERNO.length) + aviso + FECHAMENTO_CANAL_EXTERNO + item.texto.slice(fim.length);
+  return item.texto + avisoDeAtraso(item, agora);
 }
 
 /** Solta UM item por vez: o próximo sai no próximo idle, depois que o turno do

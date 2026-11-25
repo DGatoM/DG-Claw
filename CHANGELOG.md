@@ -10,7 +10,7 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - **Correção na fila de mensagens: aviso de atraso também no WhatsApp.** Quando uma mensagem esperava na fila
   porque o agente ainda respondia outra coisa, só a do chat do painel chegava com o aviso de que ela foi escrita
   antes das últimas respostas e de que um "ok" ou "sim" não autoriza uma ação nova. Agora a mensagem do WhatsApp
-  também recebe esse aviso, dentro do envelope e antes do fechamento, e o painel não o mostra na conversa. A
+  também recebe esse aviso, logo depois da mensagem, com a hora em que ela foi escrita no WhatsApp, e o painel não o mostra na conversa. A
   mensagem do Telegram não passa por essa fila (ela chega ao agente pelo plugin do Telegram), então segue como estava.
   Não muda nada para quem já usa o DG Claw além disso.
 
