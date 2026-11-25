@@ -135,9 +135,15 @@ class MainDoAutoCompactNoRunner(unittest.TestCase):
             linhas = []
             if boundary_ts:
                 linhas.append(json.dumps({"type": "system", "subtype": "compact_boundary", "timestamp": boundary_ts}))
-            linhas.append(json.dumps({"type": "assistant", "message": {
-                "role": "assistant", "content": "ok",
-                "usage": {"input_tokens": 10, "cache_read_input_tokens": 900_000}}}))
+            def resposta(total):
+                return json.dumps({"type": "assistant", "message": {
+                    "role": "assistant", "content": "ok",
+                    "usage": {"input_tokens": 10, "cache_read_input_tokens": total}}})
+            if boundary_ts:
+                # base de 80k e crescimento acima do ganho minimo: so a guarda de compactacao recente segura
+                linhas += [resposta(80_000), resposta(900_000)]
+            else:
+                linhas.append(resposta(900_000))
             transcript.write_text("\n".join(linhas) + "\n")
             state_file = ws / "estado.json"
             if state is not None:
@@ -146,7 +152,12 @@ class MainDoAutoCompactNoRunner(unittest.TestCase):
                    "DGCLAW_COMPACT_NOTIFY": "0", "DGCLAW_AUTO_RECOVERY": "on"}
             from auto_compact import principal
             injetou = []
-            with mock.patch.dict(os.environ, amb), \
+            amb.update({"DGCLAW_COMPACT_MODE": "inject"})
+            limpo = {k: v for k, v in os.environ.items() if not k.startswith("DGCLAW_")}
+            limpo.update(amb)
+            with mock.patch.dict(os.environ, limpo, clear=True), \
+                 mock.patch.object(principal, "do_restart_compact",
+                                   side_effect=AssertionError("do_restart_compact nao devia ser chamado")), \
                  mock.patch.object(sys, "argv", ["auto-compact.py"]), \
                  mock.patch.object(principal.inj, "resolve_mode", return_value="bunker"), \
                  mock.patch.object(guardas.inj, "resolve_mode", return_value="bunker"), \
@@ -180,7 +191,16 @@ class MainDoAutoCompactNoRunner(unittest.TestCase):
 
     def test_compact_recente_no_transcript_vivo_sai_0_sem_injetar_nem_gravar(self):
         boundary = (datetime.now(timezone.utc) - timedelta(minutes=3)).isoformat()
-        rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0}, boundary_ts=boundary)
+        from auto_compact import principal
+        resultados = []
+
+        def espia(t):
+            r = guardas.acabou_de_compactar(t)
+            resultados.append(r)
+            return r
+        with mock.patch.object(principal, "acabou_de_compactar", side_effect=espia):
+            rc, injetou, gravado = self._rodar({"status": "idle", "naFilaTotal": 0}, boundary_ts=boundary)
+        self.assertEqual(resultados, [True])
         self.assertEqual(rc, 0)
         self.assertEqual(injetou, [])
         self.assertNotIn("last_compact_ts", gravado)
@@ -201,7 +221,7 @@ class CompactarNaoAdiantaQuandoABaseJaPassaDoTeto(unittest.TestCase):
 
     TETO = 140_000
 
-    def _rodar(self, base, depois, minutos_desde_o_compact=40):
+    def _rodar(self, base, depois, minutos_desde_o_compact=40, modo="inject", extra_env=None, args=None):
         def linha_assistant(total):
             return json.dumps({"type": "assistant", "message": {
                 "role": "assistant", "content": "ok",
@@ -224,11 +244,19 @@ class CompactarNaoAdiantaQuandoABaseJaPassaDoTeto(unittest.TestCase):
             state_file.write_text(json.dumps({"last_compact_ts": quando}))
             amb = {"DGCLAW_WORKSPACE": str(ws), "DGCLAW_SLUG": "teste", "DGCLAW_SESSION_DIR": str(ws),
                    "DGCLAW_COMPACT_NOTIFY": "0", "DGCLAW_AUTO_RECOVERY": "on",
-                   "DGCLAW_COMPACT_THRESHOLD": str(self.TETO)}
+                   "DGCLAW_COMPACT_THRESHOLD": str(self.TETO),
+                   "DGCLAW_COMPACT_MODE": modo, **(extra_env or {})}
+            # Isolado do host: sem nenhum DGCLAW_* herdado (modo restart, memoria de trabalho real).
+            limpo = {k: v for k, v in os.environ.items() if not k.startswith("DGCLAW_")}
+            limpo.update(amb)
+            restarts = []
             from auto_compact import principal
             injetou = []
-            with mock.patch.dict(os.environ, amb), \
-                 mock.patch.object(sys, "argv", ["auto-compact.py"]), \
+            with mock.patch.dict(os.environ, limpo, clear=True), \
+                 mock.patch.object(sys, "argv", ["auto-compact.py"] + (args or [])), \
+                 mock.patch.object(principal, "do_restart_compact",
+                                   side_effect=(lambda *a, **k: (restarts.append(a), 0)[1]) if modo == "restart"
+                                   else AssertionError("do_restart_compact nao devia ser chamado")), \
                  mock.patch.object(principal.inj, "resolve_mode", return_value="inject"), \
                  mock.patch.object(guardas.inj, "resolve_mode", return_value="inject"), \
                  mock.patch.object(principal.inj, "is_session_alive", return_value=True), \
@@ -240,6 +268,7 @@ class CompactarNaoAdiantaQuandoABaseJaPassaDoTeto(unittest.TestCase):
                  mock.patch.object(principal, "inject_compact",
                                    side_effect=lambda *a: (injetou.append(a), 0)[1]):
                 rc = principal.main()
+            self.restarts = restarts
             return rc, injetou
 
     def test_base_pos_compactacao_acima_do_teto_nao_compacta_de_novo(self):
@@ -254,6 +283,31 @@ class CompactarNaoAdiantaQuandoABaseJaPassaDoTeto(unittest.TestCase):
     def test_base_normal_com_muito_a_liberar_compacta(self):
         rc, injetou = self._rodar(base=80_000, depois=150_000)
         self.assertEqual(len(injetou), 1)
+
+    def test_nivel_critico_compacta_mesmo_com_base_alta(self):
+        # janela 200k, dono colou um documento grande: 1a resposta 180k, agora 190k (>= 185k critico)
+        rc, injetou = self._rodar(base=180_000, depois=190_000)
+        self.assertEqual(len(injetou), 1)
+        self.assertEqual(self.restarts, [])
+
+    def test_modo_restart_nao_e_barrado_pela_guarda(self):
+        rc, injetou = self._rodar(base=150_000, depois=155_000, modo="restart")
+        self.assertEqual(injetou, [])
+        self.assertEqual(len(self.restarts), 1)
+
+    def test_restart_com_ignore_cooldown_da_reflexao_nao_e_barrado(self):
+        rc, injetou = self._rodar(base=150_000, depois=155_000, modo="restart",
+                                  args=["--ignore-cooldown"])
+        self.assertEqual(len(self.restarts), 1)
+
+    def test_ganho_minimo_invalido_volta_ao_padrao(self):
+        from auto_compact.principal import _ganho_minimo
+        for v in ("1e309", "inf", "nan", "abc", "", "-5"):
+            with mock.patch.dict(os.environ, {"DGCLAW_COMPACT_MIN_GAIN": v}):
+                esperado = 0 if v == "-5" else 30000
+                self.assertEqual(_ganho_minimo(), esperado, v)
+        with mock.patch.dict(os.environ, {"DGCLAW_COMPACT_MIN_GAIN": "50000"}):
+            self.assertEqual(_ganho_minimo(), 50000)
 
     def test_sem_resposta_depois_do_compact_nao_ha_base_e_nada_muda(self):
         from auto_compact.transcript import base_pos_compactacao

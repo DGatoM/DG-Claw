@@ -19,8 +19,8 @@ from .transcript import base_pos_compactacao, context_tokens, had_compact_since,
 
 def _ganho_minimo() -> int:
     try:
-        return max(0, int(float(env("DGCLAW_COMPACT_MIN_GAIN", "30000"))))
-    except (TypeError, ValueError):
+        return max(0, int(env("DGCLAW_COMPACT_MIN_GAIN", "30000")))
+    except (TypeError, ValueError, OverflowError):
         return 30000
 
 
@@ -153,8 +153,11 @@ def main():
     # base da sessao (instrucoes, ferramentas, memoria), que a compactacao nao reduz. Se a primeira
     # resposta depois da ultima compactacao ja media quase o teto, cada ciclo do timer achava que
     # precisava compactar de novo e gastava a leitura do contexto inteiro a troco de nada (relato de
-    # 18/11/2026). O ganho possivel e o contexto de agora menos essa base. --force fura.
-    if not args.force:
+    # 18/11/2026). O ganho possivel e o contexto de agora menos essa base. So no modo inject: o
+    # restart abre sessao nova (sem resumo, base propria) e o reinicio noturno da reflexao o pede de
+    # proposito. No nivel critico a guarda nao vale: perto do limite duro, compacta mesmo assim. --force fura.
+    hot_at, crit_at = escalation_marks(threshold, limit)
+    if not args.force and resolve_compact_mode() != "restart" and ctx < crit_at:
         base = base_pos_compactacao(transcript)
         ganho_min = _ganho_minimo()
         if base is not None and ctx - base < ganho_min:
@@ -169,7 +172,6 @@ def main():
     # a espera encolhe conforme o excesso, e no nivel critico compacta mesmo com turno em
     # voo, porque o poke de retomada devolve a tarefa.
     snap = turn_snapshot(transcript)
-    hot_at, crit_at = escalation_marks(threshold, limit)
     if ctx >= crit_at:
         nivel, idle_eff = "CRITICO", 0
     elif ctx >= hot_at:
