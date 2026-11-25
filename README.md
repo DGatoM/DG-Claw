@@ -68,6 +68,7 @@ para `sudo dgclaw atualizar`. Quem já tem podman ou docker no servidor deve usa
 - **Saúde e modo seguro**: o painel confere se cada agente está respondendo, não só de pé ([docs/SAUDE-E-MODO-SEGURO.md](docs/SAUDE-E-MODO-SEGURO.md)).
 - **Emergência**: roteiro de socorro para quando um agente para ou fica estranho ([docs/EMERGENCIA.md](docs/EMERGENCIA.md)).
 - **Projeto de cliente**: o DG Claw oficial na VPS do cliente, com acesso temporário do suporte por chave SSH ([docs/PROJETO-DE-CLIENTE.md](docs/PROJETO-DE-CLIENTE.md)).
+- **Entrega de cliente**: checklist e smoke test (`/opt/dgclaw/app/scripts/smoke-entrega.sh`) para conferir a VPS antes de entregar ([docs/ENTREGA-CLIENTE.md](docs/ENTREGA-CLIENTE.md)).
 
 ## Como funciona
 

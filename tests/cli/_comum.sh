@@ -12,7 +12,7 @@ FALHAS=0
 TESTES=0
 
 preparar() {
-    TMP="$(mktemp -d)"
+    if ! TMP="$(mktemp -d)" || [ ! -d "$TMP" ]; then echo "preparar: o mktemp -d falhou" >&2; exit 1; fi
     export DGCLAW_RAIZ="$TMP/raiz"
     export STUB_ESTADO="$TMP/estado"
     export STUB_LOG="$TMP/podman.log"

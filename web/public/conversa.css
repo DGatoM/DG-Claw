@@ -296,6 +296,17 @@
   #atividade[hidden]{display:none}
   #atividade .atv-txt{display:block;min-width:0;flex:1 1 auto;white-space:nowrap;overflow:hidden;
                 text-overflow:ellipsis}
+  /* Botão Parar (um Esc na sessão): alvo de toque de 32px; em tela estreita fica só o ícone. */
+  #atividade .atv-parar{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 12px;
+                        border:1px solid var(--cor-perigo);border-radius:16px;background:var(--cor-fundo);
+                        color:var(--cor-perigo);font-size:13px;font-weight:700;cursor:pointer}
+  #atividade .atv-parar[hidden]{display:none}
+  #atividade .atv-parar:disabled{opacity:.55;cursor:default}
+  #atividade .atv-parar .ds-ico{width:14px;height:14px}
+  @media (max-width:480px){
+    #atividade .atv-parar{padding:0;min-width:32px;justify-content:center}
+    #atividade .atv-parar span{display:none}
+  }
   #atividade .atv-acao{transition:opacity .15s}
   #atividade .atv-acao.troca{opacity:0}
   /* "Está trabalhando" vivo (18/10/2026): três pontinhos em onda e um brilho

@@ -28,6 +28,7 @@ const PURO = window.DGConversaPuro || (() => {
     separaAudio: texto => ({ audio: false, texto: String(texto == null ? '' : texto) }),
     textoDaFala: texto => String(texto),
     avaliaVolta: () => ({ acao: 'indeterminado' }),
+    baixarNoPwaIos: async url => { window.open(url + (url.includes('?') ? '&' : '?') + 'baixar=1', '_blank', 'noopener'); return { via: 'aba' }; },
   };
 })();
 
@@ -216,7 +217,7 @@ const AQUI = location.pathname + location.search;
 const EH_ADMIN = AGENTE.tipo === 'admin';
 /* Colaborador: só este agente. Tira da tela o que é do dono (o servidor também barra; aqui é para não sobrar botão que não leva a lugar nenhum). */
 const COLAB = !!(window.DGPapel && window.DGPapel.colaborador);
-if (COLAB) for (const id of ['btnMesa', 'btnLembretes', 'btnNaoLida', 'trocaBaixo']) { const e = $(id); if (e) e.remove(); }
+if (COLAB) for (const id of ['btnMesa', 'btnLembretes', 'btnNaoLida', 'trocaBaixo', 'btnPararAgente']) { const e = $(id); if (e) e.remove(); }
 /* A Mesa e os Lembretes levam o agente junto (?a=), para o menu deles ser o deste agente. */
 (function () {
   // localStorage para a casca das outras telas; o cookie é o que o servidor lê na rota "/" (abre o último agente usado)
@@ -308,6 +309,7 @@ const atividadeEl = $('atividade');
 const atvNomeEl = atividadeEl && atividadeEl.querySelector('.atv-nome');
 const atvSepEl = atividadeEl && atividadeEl.querySelector('.atv-sep');
 const atvAcaoEl = atividadeEl && atividadeEl.querySelector('.atv-acao');
+const atvPararEl = $('btnPararAgente');
 window.atividadeFoto = null;
 let atvDeslocaMs = 0;          // relógio do servidor menos o do aparelho
 let atvDetalheAte = 0;         // até quando o toque mostra o detalhe no lugar do texto
@@ -380,8 +382,10 @@ function pintaAtividade() {
     // observador de rolagem (acima) mantém quem estava no fim no fim e quem lia lá em cima parado
     atividadeEl.hidden = !mostra;
   }
-  if (!mostra) { atvBase = null; return; }
+  if (!mostra) { atvBase = null; if (atvPararEl) atvPararEl.hidden = true; return; }
   const f = atvFrase(est);
+  // Parar só quando está trabalhando de verdade: com permissão ou pergunta abertas já há botões próprios
+  if (atvPararEl) atvPararEl.hidden = !(est.estado === 'trabalhando' && est.alerta !== 'permissao' && est.alerta !== 'pergunta');
   atividadeEl.className = f.classe;
   atividadeEl.title = f.titulo;
   if (Date.now() < atvDetalheAte) {
@@ -426,6 +430,33 @@ if (atividadeEl) {
     pintaAtividade();
     setTimeout(pintaAtividade, 4100);
   });
+  /* Botão Parar: um Esc na sessão do agente (POST /parar). Sem confirmação; reabilita depois de 3 s (a trava do runner). */
+  if (atvPararEl) {
+    atvPararEl.addEventListener('click', async ev => {
+      ev.stopPropagation();         // não abre o detalhe da faixa nem as mídias
+      if (atvPararEl.disabled || demoAtividade) return;
+      atvPararEl.disabled = true;
+      // Fica desabilitado até a resposta chegar E a trava de 3 s (ou a espera do 429) passar: nunca dois Esc em voo.
+      const inicio = Date.now();
+      let esperaMs = 3000;
+      try {
+        const d = await api(API + '/parar', { method: 'POST', body: {}, timeoutMs: 15000 });
+        if (d && d.ok === true) mostraSempre(fAviso, d.mensagem || ('Mandei um Esc para ' + AGENTE.nome + '.'));
+        else mostraSempre(fErro, 'A resposta do Parar de ' + AGENTE.nome + ' veio incompleta. Olhe a conversa antes de apertar de novo: dois Esc seguidos podem travar a sessão.');
+      } catch (e) {
+        const espere = e.dados && typeof e.dados.espere_s === 'number' ? e.dados.espere_s : null;
+        if (e.status === 429 && espere !== null) esperaMs = Math.ceil(espere * 1000) + 100;
+        // Sem status HTTP (rede, corte, prazo) ou 504 INCERTO: o Esc pode ter chegado; não diga que falhou.
+        const reconhecido = ['MUITO_RAPIDO', 'NO_PTY', 'NAO_TRABALHANDO', 'COMPACTANDO', 'ESPERANDO_DECISAO', 'RESPOSTA_EM_ANDAMENTO', 'SO_O_DONO', 'RUNNER_FORA', 'RUNNER_ANTIGO', 'AGENTE_DE_OUTRO_RUNNER', 'RECUSADO'].includes(e.codigo);
+        if (!e.status || (e.status === 504 && e.codigo === 'INCERTO') || (e.status >= 500 && !reconhecido)) mostraSempre(fErro, 'Não sei se o pedido de parar chegou a ' + AGENTE.nome + '. Olhe a conversa antes de apertar de novo.');
+        else mostraSempre(fErro, 'Não consegui parar ' + AGENTE.nome + ': ' + e.message);
+      } finally {
+        // A trava de 3 s conta desde o clique; a espera do 429 conta desde a resposta.
+        const atraso = esperaMs === 3000 ? Math.max(0, 3000 - (Date.now() - inicio)) : esperaMs;
+        setTimeout(() => { atvPararEl.disabled = false; }, atraso);
+      }
+    });
+  }
   /* "há 3 min" anda sozinho, sem evento: um timer local. */
   setInterval(() => {
     if (document.visibilityState !== 'visible' || !window.atividadeFoto) return;
@@ -1155,18 +1186,68 @@ async function pqEnvia(perg, cancelar) {
   }
 }
 
-/* Aviso de fila no balão: a mensagem foi entregue ao runner mas o agente ainda não a leu. */
+/* Aviso de fila no balão: a mensagem foi entregue ao runner mas o agente ainda não a leu. Quem manda é o runner
+   (lista `na_fila` da atividade): o aviso fica até a mensagem sair de lá, e uma mensagem que está na fila e não tem
+   balão nesta página (a página foi recarregada, ou o envio veio de outro aparelho) ganha um. Runner que não informa
+   a fila cai na regra antiga: o aviso some quando o agente fica ocioso. */
 function filaSincroniza() {
   let mudou = false;
   const est = window.atividadeFoto && window.atividadeFoto.agentes ? window.atividadeFoto.agentes[AGENTE.id] : null;
+  // lista cortada pelo servidor (muitas mensagens na fila): ausência nela não prova que a mensagem saiu
+  const lista = est && Array.isArray(est.na_fila) ? est.na_fila : null;
+  const completa = !(est && est.na_fila_parcial);   // lista parcial: presença vale, ausência não prova nada
+  if (lista) {
+    const ids = new Set(lista.map(x => x.msg).filter(Boolean));
+    for (const p of pendentes) {
+      // lista atrasada (o runner ainda não tinha a mensagem quando foi consultado) não apaga o aviso: 6 s de folga
+      if (completa && p.fila && p.msgId && !ids.has(p.msgId) && atvAgoraMs() - (p.filaEm || 0) > 6000) { p.fila = null; mudou = true; }
+      else if (!p.fila && p.msgId && ids.has(p.msgId) && p.estado === 'enviada') { p.fila = 'resposta'; mudou = true; }
+    }
+    // balão que só existia por causa da fila (reconstruído do servidor) sai quando a mensagem sai dela: a cópia
+    // de verdade já está chegando na thread
+    const antes = pendentes.length;
+    if (completa) pendentes = pendentes.filter(p => !(p.daFila && p.msgId && !ids.has(p.msgId) && atvAgoraMs() - (p.filaEm || 0) > 6000));
+    if (pendentes.length !== antes) mudou = true;
+    // o evento da fila chegou antes da resposta do envio: o balão reconstruído cede ao otimista
+    const ids2 = new Set(pendentes.filter(p => !p.daFila && p.msgId).map(p => p.msgId));
+    const antes2 = pendentes.length;
+    pendentes = pendentes.filter(p => !(p.daFila && ids2.has(p.msgId)));
+    if (pendentes.length !== antes2) mudou = true;
+    for (const x of lista) {
+      if (!x.msg || pendentes.some(p => p.msgId === x.msg)) continue;
+      const quando = new Date(x.em);
+      const horaItem = quando.toTimeString().slice(0, 5);
+      pendentes.push({
+        n: ++seqPendente, texto: x.texto || ('Mensagem enviada às ' + horaItem + ' ainda na fila. O texto não está disponível nesta tela agora.'), estado: 'enviada', erro: null, cid: novoClienteId(),
+        criadoEm: x.em, epLocal: x.em / 1000, ep: x.em / 1000 - 2, tentativa: 1,
+        hhmm: quando.toTimeString().slice(0, 5), dia: quando.toLocaleDateString('pt-BR'),
+        fila: 'resposta', filaEm: x.em, msgId: x.msg, daFila: true,
+      });
+      mudou = true;
+    }
+    // comando sem id (ex.: /context): com a fila vazia, o aviso sai depois da folga
+    if (completa && !lista.length) for (const p of pendentes) {
+      if (p.fila && !p.msgId && atvAgoraMs() - (p.filaEm || 0) > 6000) { p.fila = null; mudou = true; }
+    }
+    for (const p of pendentes) {
+      if (!p.fila || !p.msgId) continue;
+      const x = lista.find(y => y.msg === p.msgId);
+      if (x && p.filaEm !== x.em) { p.filaEm = x.em; mudou = true; }
+    }
+  }
   for (const p of pendentes) {
     if (!p.fila) continue;
-    // agente ocioso e a cópia ainda não apareceu: o aviso já não vale
-    if (est && est.estado === 'ocioso') { p.fila = null; mudou = true; }
-    else mudou = true;
+    // runner sem a lista: agente ocioso e a cópia ainda não apareceu, o aviso já não vale
+    if (!lista && est && est.estado === 'ocioso') { p.fila = null; mudou = true; }
+    else mudou = true;   // o tempo de espera no balão anda sozinho
+  }
+  // balão ainda dentro da folga: olha de novo quando ela acabar (o servidor não repete uma atividade idêntica)
+  if (!filaReavalia && pendentes.some(p => p.fila && p.msgId && atvAgoraMs() - (p.filaEm || 0) <= 6000)) {
+    filaReavalia = setTimeout(() => { filaReavalia = null; filaSincroniza(); }, 6500);
   }
   if (mudou) render();
 }
+let filaReavalia = null;
 
 /* O estado de descanso da tela depende do stream: sem ele as mensagens novas
    não chegam sozinhas, e a pessoa precisa ler isso (sem animação nenhuma). */
@@ -1244,6 +1325,8 @@ function fechaFaixaAviso() {
   }
   faixa(fAviso, '');
 }
+/* Resultado de uma ação do dono (ex.: Parar): sempre aparece, sem passar pelo histórico de avisos dispensados. */
+const mostraSempre = (el, t) => faixa(el, t);
 const mostraAviso = t => {
   if (t && PURO.avisoDescansando(avisosFechados(), t, Date.now())) return;
   faixa(fAviso, t);
@@ -1545,7 +1628,7 @@ function metaPendente(p) {
   if (p.estado === 'enviada') {
     if (p.fila && TR) {
       const est = window.atividadeFoto && window.atividadeFoto.agentes ? window.atividadeFoto.agentes[AGENTE.id] : null;
-      const t = TR.textoFila(p.fila, !!est && est.alerta === 'permissao');
+      const t = TR.textoFila(p.fila, !!est && est.alerta === 'permissao', p.filaEm, atvAgoraMs());
       if (t) return `<span class="meta fila" title="entregue ao agente, que ainda não chegou nela">${dsIcone('check')} ${esc(p.hhmm)} · ${esc(t)}</span>`;
     }
     return `<span class="meta" title="entregue">${dsIcone('check')} ${esc(p.hhmm)}</span>`;
@@ -2945,6 +3028,37 @@ document.addEventListener('click', ev => {
   location.href = 'x-safari-' + u.href;
 });
 
+/* Baixar no app instalado no iPhone: o link com `download` levava a janela do app para o arquivo, sem volta.
+   Aqui o app não navega (ver baixarNoPwaIos em conversa-puro.js). Fora do app instalado nada muda. */
+const baixaCache = {};
+function baixaNoPwaIos(url, nome) {
+  // modo escondido ligado: a folha do iPhone mostraria o nome e a prévia do arquivo, que a tela esconde
+  if (document.body.classList.contains('sigilo')) { mostraAviso('Desligue o modo escondido (o olho) para baixar o arquivo.'); return Promise.resolve({ via: 'bloqueado' }); }
+  return PURO.baixarNoPwaIos(url, nome, {
+    fetch: (u, o) => fetch(u, o), nav: navigator, cache: baixaCache,
+    criarArquivo: (blob, n, tipo) => new File([blob], n, { type: tipo }),
+    bloqueado: () => document.body.classList.contains('sigilo'),
+    semArquivoEmMemoria: /\/final\//.test(url),
+    abrir: u => window.open(u, '_blank', 'noopener'),
+  }).then(r => {
+    if (r.via === 'segundo-toque') mostraAviso('O arquivo está pronto. Toque em Baixar mais uma vez para salvar.');
+    else if (r.via === 'erro') mostraAviso('Não consegui baixar o arquivo (' + r.erro + ').');
+    else if (r.via === 'bloqueado') mostraAviso('O modo escondido foi ligado: o arquivo não foi aberto. Desligue o olho e baixe de novo.');
+    return r;
+  });
+}
+document.addEventListener('click', ev => {
+  if (!IOS || !document.documentElement.classList.contains('pwa')) return;
+  const a = ev.target.closest ? ev.target.closest('a[download][href]') : null;
+  if (!a) return;
+  let u;
+  try { u = new URL(a.getAttribute('href'), location.href); } catch (e) { return; }
+  if (u.origin !== location.origin) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  baixaNoPwaIos(u.href, a.getAttribute('download') || '');
+}, true);
+
 async function copiaTexto(t) {
   try {
     await navigator.clipboard.writeText(t);
@@ -4125,7 +4239,8 @@ async function mandaTexto(pend, semEsperar) {
     pend.casa = d.marca || null;   // o que vai aparecer na thread, para o balão otimista sumir
     pend.anexos = null;
   }
-  if (d && d.fila && d.fila.motivo) pend.fila = d.fila.motivo;
+  if (d && d.msg) pend.msgId = d.msg;
+  if (d && d.fila && d.fila.motivo) { pend.fila = d.fila.motivo; pend.msgId = d.fila.msg || pend.msgId || null; pend.filaEm = atvAgoraMs(); }
   const ficou = entregue(pend, d);
   avisaEntrega(pend, true);
   if (!ficou) return true;
@@ -4757,16 +4872,24 @@ wrap.addEventListener('click', async ev => {
       render({ semRolar: true });
       return;
     }
-    const r = await fetch(API_ANON + '/final/' + encodeURIComponent(fin.getAttribute('data-anon-final')), { credentials: 'same-origin', cache: 'no-store' });
+    const urlFinal = API_ANON + '/final/' + encodeURIComponent(fin.getAttribute('data-anon-final'));
+    if (IOS && document.documentElement.classList.contains('pwa')) {
+      // app instalado no iPhone: compartilha o arquivo em vez de navegar a janela do app
+      await baixaNoPwaIos(urlFinal, '');
+      return;
+    }
+    const r = await fetch(urlFinal, { credentials: 'same-origin', cache: 'no-store' });
     if (!r.ok) {
       const d = await r.json().catch(() => null);
       mostraAviso('Não consegui gerar a versão final: ' + ((d && d.erro) || ('o app respondeu ' + r.status)));
       return;
     }
     const nome = (/filename\*=UTF-8''([^;]+)/i.exec(r.headers.get('Content-Disposition') || '') || [])[1];
-    const url = URL.createObjectURL(await r.blob());
+    const blob = await r.blob();
+    const nomeFinal = nome ? decodeURIComponent(nome) : 'versao-final';
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = nome ? decodeURIComponent(nome) : 'versao-final';
+    a.href = url; a.download = nomeFinal;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 30000);
   } catch (e) {
@@ -5017,6 +5140,21 @@ function passosTutorial() {
     oque: 'Uma faixa que aparece sozinha quando o agente está trabalhando. O que você vê agora é só um exemplo.',
     como: 'Ela mostra o que ele está fazendo naquele momento. Fica amarela se ele estiver esperando uma autorização sua, e cinza se a conexão com ele cair ("sem sinal").',
     porque: 'Alguns pedidos demoram. Com a faixa você sabe que o agente não travou, e sabe quando precisa agir.' });
+  if (!COLAB) passos.push({ alvo: '#btnPararAgente', titulo: 'O botão Parar',
+    antes: () => {
+      demoAtividade = true;
+      const el = $('atividade');
+      el.hidden = false;
+      el.className = '';
+      el.querySelector('.atv-nome').textContent = nome + ' está trabalhando';
+      el.querySelector('.atv-sep').hidden = false;
+      el.querySelector('.atv-acao').textContent = 'lendo um arquivo (exemplo)';
+      $('btnPararAgente').hidden = false;
+    },
+    depois: () => { demoAtividade = false; pintaAtividade(); },
+    oque: 'Um botão que aparece na faixa de atividade enquanto o agente está trabalhando.',
+    como: 'Ao tocar, ele manda um Esc para a sessão do agente, igual ao teclado do terminal. Se o agente estava no meio de um turno, o turno costuma parar em instantes, mas um comando que estava rodando pode continuar executando. Espere 3 segundos entre um toque e outro.',
+    porque: 'Para cortar um trabalho que foi pelo caminho errado sem reiniciar o agente e sem perder a conversa.' });
   passos.push({ alvo: '#btnMenu', antes: fechaM, titulo: 'O botão do menu',
     oque: 'No celular, o botão de menu (as três linhas) abre o menu do agente. No computador ele não aparece, porque o menu já fica fixo à esquerda.',
     como: 'Toque nele quando quiser trocar de agente, abrir uma página do painel ou sair. Toque fora do menu, no X ou na tecla Esc para fechar.',

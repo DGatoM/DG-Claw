@@ -443,6 +443,13 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     const desde = ant && ant.chave === chave ? ant.desde : iso(agoraMs);
     atividadeAnterior.set(agente.slug, { chave, desde });
     est.desde = est.estado === 'ocioso' ? null : desde;
+    // Só quando o runner informa a fila (runner antigo não informa): a tela usa isto para manter o aviso "na fila".
+    if (r.ok && Array.isArray(r.estado.naFila)) {
+      const parcial = typeof r.estado.naFilaTotal === 'number' && r.estado.naFilaTotal > r.estado.naFila.length;
+      est.na_fila = filaParaTela(agente.slug, r.estado.naFila, parcial);
+      // fila maior que a lista devolvida: a tela não pode tratar ausência como "já saiu"
+      if (parcial) est.na_fila_parcial = true;
+    }
     return est;
   }
 
@@ -578,14 +585,52 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
 
   // ── enviar ───────────────────────────────────────────────────────────────
   let sequencia = 0;
+  // O texto das mensagens que entraram na fila do runner (slug -> msg -> { texto }; só falas do dono). O runner só diz
+  // QUAIS mensagens ainda esperam (id e hora, sem texto); o texto fica aqui, para a tela do dono mostrar o balão
+  // "na fila" de novo depois de recarregar. Memória apenas: some quando a mensagem sai da fila ou o Web reinicia.
+  const textosNaFila = new Map();
+  const MAX_NA_FILA = 50;
+  function guardaTextoNaFila(slug, msg, texto, colaboradorId) {
+    if (colaboradorId) return;   // fala de colaborador não volta para a tela do dono nem de outro colaborador
+    let m = textosNaFila.get(slug);
+    if (!m) { m = new Map(); textosNaFila.set(slug, m); }
+    m.set(msg, { texto, em: relogio() });
+    while (m.size > MAX_NA_FILA) m.delete(m.keys().next().value);
+  }
+  /** A fila do runner no formato da tela: [{ msg, em (ms), texto? }]. O texto só vai se este Web o guardou. */
+  function filaParaTela(slug, naFilaRunner, parcial) {
+    if (!Array.isArray(naFilaRunner)) return undefined;
+    const guardados = textosNaFila.get(slug);
+    // Defesa contra runner que devolve lista enorme ou repetida: só ids válidos, sem repetir, no máximo MAX_NA_FILA.
+    const vistos = new Set();
+    const validos = [];
+    for (const x of naFilaRunner) {
+      if (!x || typeof x.em !== 'number' || !Number.isFinite(x.em)) continue;
+      const id = typeof x.msg === 'string' && x.msg.length <= 80 ? x.msg : null;
+      if (id) { if (vistos.has(id)) continue; vistos.add(id); }
+      validos.push({ msg: id, em: x.em });
+      if (validos.length >= MAX_NA_FILA) break;
+    }
+    // Só esquece o texto de quem sumiu da lista E já tem mais que o cache do estado (TTL_RUNNER_MS) de vida:
+    // um retrato do runner anterior ao envio não pode apagar uma mensagem que ainda espera. Lista parcial (fila
+    // maior que o corte): ausência não prova que saiu, então nada é esquecido.
+    if (guardados && !parcial) for (const [k, g] of Array.from(guardados.entries())) if (!vistos.has(k) && relogio() - g.em > TTL_RUNNER_MS + 3000) guardados.delete(k);
+    return validos.map((x) => {
+      const g = x.msg && guardados ? guardados.get(x.msg) : null;
+      const item = { msg: x.msg || null, em: x.em };
+      if (g) item.texto = g.texto;
+      return item;
+    });
+  }
   const erro = (status, motivo, extra) => ({ status, corpo: Object.assign({ ok: false, erro: motivo }, extra || {}) });
 
   /** Entrega o texto (já com marcadores de anexo) ao agente. Devolve { status, corpo }. */
   async function entregar(agente, textoFinal, { cru, voz, from, colaboradorId }) {
     sequencia += 1;
+    const msgId = cru ? null : `w${relogio().toString(36)}${sequencia}`;
     const payload = cru
       ? textoFinal
-      : montarEnvelope({ from: from || 'pessoa', chat: agente.chat_id, msg: `w${relogio().toString(36)}${sequencia}`, ts: new Date(relogio()).toISOString(), text: textoFinal, voz, colaboradorId });
+      : montarEnvelope({ from: from || 'pessoa', chat: agente.chat_id, msg: msgId, ts: new Date(relogio()).toISOString(), text: textoFinal, voz, colaboradorId });
     const epEnviado = relogio() / 1000 - 2;
     // O runner responde 202 "enfileirado" sempre; quem sabe se vai esperar é o estado de AGORA (sem o cache de 2 s).
     const antes = await runner.estado(agente);
@@ -597,7 +642,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     }
     const motivoFila = antes.ok && antes.estado.status === 'waiting_input' ? (antes.estado.motivo === 'pergunta' ? 'pergunta' : 'permissao')
       : antes.ok && antes.estado.status === 'working' ? 'resposta' : null;
-    const r = await runner.input(agente, { text: payload, submit: true, injectWhenIdle: true });
+    const r = await runner.input(agente, { text: payload, submit: true, injectWhenIdle: true, ...(motivoFila ? { esperou: true } : {}) });
     if (!r.ok) {
       log('erro', `Envio para ${agente.slug} não entregue (${cru ? 'comando cru' : `${textoFinal.length} caracteres`}): ${r.erro}`);
       // O código do runner (LOGIN_EXPIRADO) segue até a tela, que abre o pop-up de reconectar em vez de só dar erro.
@@ -605,7 +650,19 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     }
     log('info', `Mensagem entregue a ${agente.slug} (${cru ? 'comando cru' : `${textoFinal.length} caracteres`}).`);
     const corpo = { ok: true, ep_enviado: epEnviado, agente: agente.slug };
-    if (motivoFila) corpo.fila = { motivo: motivoFila };
+    if (r.entregaIncerta) {
+      log('aviso', `Entrega incerta para ${agente.slug}: ${r.aviso}`);
+      corpo.entrega_incerta = true;
+      corpo.aviso = `${r.aviso} Confira a conversa antes de reenviar.`;
+    }
+    // O texto é guardado sempre (não só quando o painel viu o agente ocupado): outro aparelho pode ter enviado
+    // com o agente ocioso, e a mensagem mesmo assim ficar atrás de outra no runner.
+    if (msgId) guardaTextoNaFila(agente.slug, msgId, textoFinal, colaboradorId);
+    if (msgId) corpo.msg = msgId;   // a tela usa o id para casar a resposta HTTP com a lista da fila, em qualquer ordem
+    if (motivoFila) {
+      corpo.fila = { motivo: motivoFila };
+      if (msgId) corpo.fila.msg = msgId;
+    }
     return { status: 200, corpo };
   }
 
@@ -648,6 +705,10 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       if (r.status === 409 && r.corpo && r.corpo.code === 'PERGUNTA_JA_RESPONDIDA') {
         return erro(409, `A resposta desta pergunta de ${agente.nome} já foi enviada (por esta ou outra aba). Nada foi digitado agora.`,
           { howToFix: 'Atualize a conversa. Se o terminal ficou no meio da resposta, termine pela aba Sessões.', codigo: 'PERGUNTA_JA_RESPONDIDA' });
+      }
+      if (r.status === 429 && r.corpo && r.corpo.code === 'MUITO_RAPIDO') {
+        const espere = typeof r.corpo.espereS === 'number' ? r.corpo.espereS : null;
+        return erro(429, `Espere${espere !== null ? ` ${espere} s` : ' um pouco'} para negar de novo: dois Esc seguidos travam a sessão. A decisão não foi enviada.`, { codigo: 'MUITO_RAPIDO', espere_s: espere });
       }
       return erro(r.status === 409 ? 409 : 502, `O runner de ${agente.nome} não aplicou a decisão: ${motivo}`);
     }
@@ -715,6 +776,10 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
         return erro(409, `A pergunta de ${agente.nome} já recebeu teclas pelo terminal desde que abriu; a resposta pelo chat poderia cair na etapa errada. Nada foi enviado.`,
           { howToFix: 'Termine a resposta pelo terminal, na aba Sessões.', codigo: 'PERGUNTA_JA_MEXIDA' });
       }
+      if (r.status === 429 && r.corpo && r.corpo.code === 'MUITO_RAPIDO') {
+        const espere = typeof r.corpo.espereS === 'number' ? r.corpo.espereS : null;
+        return erro(429, `Espere${espere !== null ? ` ${espere} s` : ' um pouco'} para cancelar a pergunta. ${motivo}`, { codigo: 'MUITO_RAPIDO', espere_s: espere });
+      }
       return erro(r.status === 409 ? 409 : 502, `O runner de ${agente.nome} não aplicou a resposta: ${motivo}`);
     }
     const tamanhoTexto = c.cancelar === true ? 0 : c.respostas.reduce((t, r) => t + (typeof r.texto === 'string' ? r.texto.length : 0), 0);
@@ -749,6 +814,82 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     const dados = r.corpo || {};
     log('info', `Reinício de ${agente.slug}: pedido pela tela (sessão ${dados.sessao || '?'}, modo ${dados.modo || '?'}).`);
     return { status: 202, corpo: { ok: true, agente: agente.slug, sessao: dados.sessao || null, modo: dados.modo || null } };
+  }
+
+  /** Texto vindo do runner que entra no log: sem caracteres de controle nem quebra de linha, e curto. */
+  const STATUS_CONHECIDOS = new Set(['spawning', 'working', 'waiting_input', 'idle', 'completed', 'errored', 'stopped', 'resumable']);
+
+  /**
+   * O botão Parar: pede ao runner um Esc na sessão do agente (o mesmo que apertar Esc no terminal). Sem corpo:
+   * nada do pedido chega ao terminal. `quem` é a identidade de quem apertou, só para o registro.
+   * Devolve { status, corpo } com motivo e o que fazer em toda falha.
+   */
+  async function parar(agente, quem) {
+    // Nada do texto do cliente HTTP (r.erro, que pode trazer a URL do runner) entra no log nem na resposta.
+    const incerto = (porque) => {
+      log('erro', `Parar ${agente.slug} (por ${quem}): não sei se o pedido chegou (${porque}).`);
+      return erro(504, `Não sei se o pedido de parar chegou ao runner de ${agente.nome} (${porque}). Olhe a conversa antes de apertar de novo: dois Esc seguidos podem travar a sessão.`, { codigo: 'INCERTO' });
+    };
+    const r = await runner.pedir(agente, 'POST', `/api/agents/${encodeURIComponent(agente.agente_id)}/interromper`, null, 10000, { maxBytes: 16 * 1024, prazoMs: 10000 });
+    if (r.erro) {
+      if (!r.antesDoEnvio) return incerto('a conexão caiu, a resposta foi cortada ou passou do prazo');
+      log('erro', `Parar ${agente.slug} (por ${quem}): não consegui falar com o runner; o pedido não foi enviado.`);
+      return erro(503, `Não consegui falar com o runner de ${agente.nome}. O pedido de parar não foi enviado. Tente de novo.`, { codigo: 'RUNNER_FORA' });
+    }
+    const c = r.corpo && typeof r.corpo === 'object' ? r.corpo : {};
+    // Diagnóstico só com o formato conhecido do runner: corpo JSON success:false e code de lista fechada. Tudo o mais
+    // (404 sem corpo, 500 com code, HTML de proxy) deixa em aberto se o Esc foi escrito: entrega incerta.
+    if (r.status === 404 && c.success === false && c.code === 'AGENTE_DE_OUTRO_RUNNER') {
+      const msg = `O runner registrado para ${agente.nome} não serve este agente. Confira o registro do agente: peça ao Admin para reparar o agente.`;
+      log('erro', `Parar ${agente.slug} (por ${quem}): o runner respondeu AGENTE_DE_OUTRO_RUNNER.`);
+      return erro(502, msg, { codigo: 'AGENTE_DE_OUTRO_RUNNER' });
+    }
+    if (r.status === 404 && c.success === false && c.code === 'ROTA_INEXISTENTE') {
+      const msg = `O runner de ${agente.nome} é de uma versão antiga e não tem a rota de parar (POST /api/agents/${agente.agente_id}/interromper). Atualize o agente pelo Admin.`;
+      log('erro', `Parar ${agente.slug} (por ${quem}): ${msg}`);
+      return erro(501, msg, { codigo: 'RUNNER_ANTIGO' });
+    }
+    if (!r.ok) {
+      // Nada de texto livre do runner (error, howToFix) no log nem na resposta: só o status HTTP e um `code` de lista fechada.
+      const CONHECIDOS = ['NO_PTY', 'ESPERANDO_DECISAO', 'NAO_TRABALHANDO', 'COMPACTANDO', 'MUITO_RAPIDO', 'RESPOSTA_EM_ANDAMENTO'];
+      const code = typeof c.code === 'string' && CONHECIDOS.includes(c.code) ? c.code : null;
+      const codeLog = code || 'código desconhecido';
+      // Só vale como recusa antes da escrita um corpo success:false com code conhecido; qualquer outra coisa (5xx, HTML de
+      // proxy, code estranho) deixa em aberto se o Esc foi escrito.
+      if (c.success !== false || !code) return incerto(`HTTP ${r.status}, ${codeLog}`);
+      log('aviso', `Parar ${agente.slug} (por ${quem}) recusado pelo runner (HTTP ${r.status}, ${codeLog}).`);
+      if (r.status === 409 && code === 'NO_PTY') {
+        return erro(409, `${agente.nome} não tem sessão aberta agora, então não há o que parar.`, { codigo: 'NO_PTY' });
+      }
+      if (r.status === 409 && code === 'NAO_TRABALHANDO') {
+        return erro(409, `${agente.nome} não está trabalhando agora, então não mandei nada.`, { codigo: 'NAO_TRABALHANDO' });
+      }
+      if (r.status === 409 && code === 'ESPERANDO_DECISAO') {
+        return erro(409, `${agente.nome} está esperando uma decisão sua. Responda no cartão da permissão ou da pergunta; o Parar não vale nesse momento.`, { codigo: 'ESPERANDO_DECISAO' });
+      }
+      if (r.status === 409 && code === 'COMPACTANDO') {
+        return erro(409, `${agente.nome} está compactando a conversa. Espere terminar e aperte Parar de novo.`, { codigo: 'COMPACTANDO' });
+      }
+      if (r.status === 409 && code === 'RESPOSTA_EM_ANDAMENTO') {
+        return erro(409, `${agente.nome} está recebendo a resposta de uma pergunta. Espere alguns segundos e tente de novo.`, { codigo: 'RESPOSTA_EM_ANDAMENTO' });
+      }
+      if (r.status === 429 && code === 'MUITO_RAPIDO') {
+        const espere = typeof c.espereS === 'number' && Number.isFinite(c.espereS) && c.espereS >= 0 && c.espereS <= 10 ? c.espereS : null;
+        return erro(429, `Espere${espere !== null ? ` ${espere} s` : ' um pouco'} para apertar Parar de novo: dois Esc seguidos travam a sessão.`, { codigo: 'MUITO_RAPIDO', espere_s: espere });
+      }
+      return incerto(`HTTP ${r.status}, ${codeLog} fora do status esperado`);
+    }
+    // Só vale como entregue um 200 com success:true e data.enviado:true; qualquer outro 2xx é entrega incerta.
+    const d = c.data && typeof c.data === 'object' ? c.data : null;
+    if (r.status !== 200 || c.success !== true || !d || d.enviado !== true) {
+      return incerto(`o runner respondeu HTTP ${r.status} sem confirmar o envio`);
+    }
+    // O horário e o estado são medidos/validados aqui: nada que o runner mande entra no log sem passar por este filtro.
+    const enviadoEm = new Date().toISOString();
+    const statusAntes = STATUS_CONHECIDOS.has(d.statusAntes) ? d.statusAntes : '?';
+    log('info', `Parar ${agente.slug}: Esc enviado por ${quem} em ${enviadoEm} (estado antes: ${statusAntes}).`);
+    const mensagem = `Mandei um Esc para ${agente.nome} (o mesmo que apertar Esc no terminal). Se ele estava no meio de um turno, o turno costuma parar em instantes; um comando que estava rodando pode continuar executando (no Codex, até o que estava em primeiro plano). Confira antes de mexer nos mesmos arquivos.`;
+    return { status: 200, corpo: { ok: true, agente: agente.slug, enviado_em: enviadoEm, trabalhando: true, mensagem } };
   }
 
   /** `ator` (opcional) é quem fala: { from } para o envelope e { colaborador:true } para travar o que é do dono. */
@@ -851,7 +992,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
   }
 
   return {
-    montarEnvelope, validaControle, autoriaDaPendencia, estado, thread, threadCompartilhada, atividade, rotuloProvedor, ultimaMensagemTs, umaVez, enviar, comando, comandos, entregar, permissao, responderPergunta, reiniciar,
+    montarEnvelope, validaControle, autoriaDaPendencia, estado, thread, threadCompartilhada, atividade, rotuloProvedor, ultimaMensagemTs, umaVez, enviar, comando, comandos, entregar, permissao, responderPergunta, reiniciar, parar,
     RX_CLIENTE_ID,
   };
 }
