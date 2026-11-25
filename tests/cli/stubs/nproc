@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# nproc de mentira: estado/nproc define quantos nucleos a "maquina" tem; sem o arquivo, responde o numero real.
+if [ -n "${STUB_ESTADO:-}" ] && [ -f "$STUB_ESTADO/nproc" ]; then cat "$STUB_ESTADO/nproc"; exit 0; fi
+exec /usr/bin/nproc "$@"

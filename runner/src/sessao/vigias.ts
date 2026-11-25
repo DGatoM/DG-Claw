@@ -2,10 +2,10 @@ import pty from "node-pty";
 import type { Sessao } from "../sessao.js";
 import { log } from "../logger.js";
 import { mascarar } from "../mascara.js";
-import { type EventoInterno, acharRolloutPorId, erroDeLoginDoCodex, descobrirRollout, vigiarRollout } from "../provedores/codex-rollout.js";
+import { type EventoInterno, acharRolloutPorId, erroDeLoginDoCodex, descobrirRollout, lerMetaDoRollout, vigiarRollout } from "../provedores/codex-rollout.js";
 import { codexHomeDe } from "../provedores/codex.js";
 import type { CtxMotor } from "../provedores/motor.js";
-import { turnoEncerradoNoTranscript } from "../transcript.js";
+import { compactRecusadoNoTranscript, turnoEncerradoNoTranscript } from "../transcript.js";
 import { CONFERE_TRANSCRIPT_A_CADA_MS, ROLLOUT_AUSENTE_MS } from "./constantes.js";
 import { aplicarEvento, cancelarStopPendente } from "./eventos.js";
 import { talvezSoltarFila } from "./fila.js";
@@ -25,8 +25,12 @@ export function vigiarStopPerdido(s: Sessao, esteProc: pty.IPty): void {
       return;
     }
     if (s.estado.status !== "working" || s.ultimaSaidaEm === null) return;
-    if (s.estado.statusReason === "hook:PreCompact" || !s.estado.sessionId) return;
     const quietoHa = Date.now() - s.ultimaSaidaEm;
+    if (s.estado.statusReason === "hook:PreCompact") {
+      conferirCompactSemFim(s, quietoHa);
+      return;
+    }
+    if (!s.estado.sessionId) return;
     if (quietoHa < s.quietoParaOlharTranscriptMs) return;
     // O turno que morreu por login expirado não grava turn_duration nem dispara Stop: sem esta
     // checagem ele ficaria "working" para sempre.
@@ -60,6 +64,29 @@ export function vigiarStopPerdido(s: Sessao, esteProc: pty.IPty): void {
   s.vigiaDoStopPerdido.unref();
 }
 
+/** Claude: o agente está em "hook:PreCompact" e o terminal calou. O compact de verdade termina em SessionStart
+ *  source=compact; se isso não vem, só a recusa CONFIRMADA no transcript devolve o agente a idle e solta a fila.
+ *  Sem prova (nenhuma recusa no transcript) nada muda por tempo: o aviso de fila parada do watchdog cobre esse caso.
+ *  O Codex não tem PreCompact e nunca chega aqui. */
+function conferirCompactSemFim(s: Sessao, quietoHa: number): void {
+  const desde = s.compactComecouEm;
+  // Qualquer hook depois do PreCompact zera compactComecouEm (eventos.ts), e o PTY do PreCompact tem que ser o de agora:
+  // sem isso, uma ferramenta que começou logo depois de um compact bom seria tomada por compact sem fim.
+  if (desde <= 0 || s.compactando === null || s.compactando !== s.proc) return;
+  if (quietoHa < s.quietoParaOlharTranscriptMs || !s.estado.sessionId) return;
+  const r = compactRecusadoNoTranscript(s.estado.sessionId, desde, s.estado.config.envExtra?.CLAUDE_CONFIG_DIR);
+  if (!r.recusado) return;
+  log.aviso(
+    s.a("estado"),
+    `compact recusado: poucas mensagens. O hook PreCompact chegou, mas o transcript ` +
+      `tem a recusa e nada depois dela, então não virá SessionStart nem Stop. ` +
+      `Marquei como idle e vou soltar a fila; se repetir, o auto-compact está enfileirando /compact em excesso`,
+  );
+  cancelarStopPendente(s);
+  s.mudar({ status: "idle", hookLatched: true, currentTool: null, statusReason: "transcript:compact recusado pelo CLI" });
+  talvezSoltarFila(s);
+}
+
 export function pararVigiaDoStopPerdido(s: Sessao): void {
   if (s.vigiaDoStopPerdido) {
     clearInterval(s.vigiaDoStopPerdido);
@@ -68,27 +95,39 @@ export function pararVigiaDoStopPerdido(s: Sessao): void {
 }
 
 /** Codex: status e id da sessão vêm do rollout. Devolve a função que para o vigia. */
-export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMotor): () => void {
+export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMotor, rolloutConhecido: string | null = null): () => void {
   const home = ctx.env.CODEX_HOME ?? codexHomeDe({ auth: ctx.escolha.auth, env: ctx.env, cwd: ctx.cwd, id: ctx.id });
   const desde = s.spawnEm;
   let arquivo: string | null = null;
   let avisouAusencia = false;
+  // Sessão NOVA (o spawn não é uma retomada): o rollout é recém-criado por este spawn e é lido desde o início, quer o id chegue
+  // pela varredura, quer pelo Stop do notify antes dela (o id vindo primeiro não faz do rollout novo uma conversa antiga). O de
+  // uma retomada de conversa existente é antigo e continua saltando para o último MiB.
+  const sessaoNova = s.spawnSemRetomada;
+  // Arquivo que ESTE spawn acabou de descobrir (rollout novo) também é lido desde o início.
+  let descobertoAgora: string | null = null;
   return vigiarRollout({
     desdeMs: desde,
+    // Na sessão nova, só o rollout que nasceu depois deste spawn (o mesmo critério de descobrirRollout): um `/resume` digitado no TUI
+    // antes da primeira varredura traria pelo Stop o id de uma conversa antiga, que não pode ser relida desde o início.
+    lerDesdeOInicio: (a) => a === descobertoAgora || (sessaoNova && nasceuDepoisDoSpawn(a, desde)),
     resolverArquivo: () => {
       if (s.proc !== esteProc) return null;
       if (arquivo) return arquivo;
       const conhecido = s.estado.sessionId;
       if (conhecido) {
-        arquivo = acharRolloutPorId(conhecido, home);
+        arquivo = rolloutConhecido ?? acharRolloutPorId(conhecido, home);
       } else {
         const achado = descobrirRollout(ctx.cwd, desde, home, s.idsEmUso());
         if (achado) {
           arquivo = achado.arquivo;
+          descobertoAgora = achado.arquivo;
           log.info(s.a("codex"), `id da sessão descoberto no rollout: ${achado.id}`);
           s.mudar({ sessionId: achado.id });
-          // O rollout nascer é o recibo do primeiro Enter (ele só existe depois do primeiro turno).
-          s.promptsAceitos += 1;
+          // A descoberta só localiza e vincula o arquivo. O recibo do primeiro Enter é o `task_started` que o vigia lê DEPOIS
+          // de vincular (o arquivo é lido desde o começo): dar baixa aqui, antes de ler qualquer evento, deixaria uma sessão
+          // vizinha (outro rollout sem dono, mesmo diretório e hora) confirmar o pedido errado, e o `task_started` contaria
+          // o mesmo turno uma segunda vez.
         }
       }
       if (!arquivo && !avisouAusencia && Date.now() - desde > ROLLOUT_AUSENTE_MS) {
@@ -104,7 +143,7 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
     },
     aoEvento: (e) => {
       if (s.proc !== esteProc) return;
-      aplicarEvento(s, { event: e.evento satisfies EventoInterno, toolName: e.ferramenta ?? null });
+      aplicarEvento(s, { event: e.evento satisfies EventoInterno, toolName: e.ferramenta ?? null, ...(e.texto !== undefined ? { texto: e.texto } : {}) });
     },
     aoErroDeTurno: (erro) => {
       if (s.proc !== esteProc || !erroDeLoginDoCodex(erro)) return;
@@ -120,4 +159,10 @@ export function vigiarRolloutDoCodex(s: Sessao, esteProc: pty.IPty, ctx: CtxMoto
       s.uso.registrar("codex", u.leitura, "rollout", u.em);
     },
   });
+}
+
+/** O rollout começou depois do spawn (com a mesma folga de 2 s de descobrirRollout)? Sem a data no cabeçalho, não. */
+function nasceuDepoisDoSpawn(arquivo: string, desdeMs: number): boolean {
+  const criadoEm = lerMetaDoRollout(arquivo)?.criadoEm ?? null;
+  return criadoEm !== null && criadoEm >= desdeMs - 2_000;
 }
