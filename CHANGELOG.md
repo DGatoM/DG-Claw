@@ -7,6 +7,10 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+- **Correção de segurança: Bun 1.4.4 na imagem dos agentes.** A imagem passa do Bun 1.4.3 para o 1.4.4, versão que
+  corrige o aviso de segurança publicado para a 1.4.3. O `dgclaw atualizar` padrão já reconstrói a imagem e recria os
+  containers com a versão nova.
+
 - **Novo: checklist de entrega de cliente e smoke test da VPS.** O `docs/ENTREGA-CLIENTE.md` reúne, para a equipe
   que entrega uma VPS pronta, os doze passos a conferir antes de passar o servidor ao cliente (limites do
   container, cofre, YouTube, Chrome headless, ffmpeg, login pelo celular e outros). O

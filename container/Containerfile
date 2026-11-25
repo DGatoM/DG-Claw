@@ -45,7 +45,7 @@ ARG NODE_MAJOR=22
 # Versões fixadas: a imagem tem que sair igual hoje e daqui a seis meses.
 ARG CLAUDE_CODE_VERSAO=2.1.296
 ARG CODEX_VERSAO=0.167.1
-ARG BUN_VERSAO=1.4.3
+ARG BUN_VERSAO=1.4.4
 
 LABEL org.opencontainers.image.title="DG Claw agente" \
       org.opencontainers.image.version="${DGCLAW_VERSAO}" \
