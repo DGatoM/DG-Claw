@@ -1,0 +1,55 @@
+# Termo de contribuição (CLA.md): pede o aceite no primeiro pull request de cada pessoa e guarda a lista
+# de quem aceitou num arquivo da branch `cla-assinaturas` (assinaturas/cla.json), no próprio repositório.
+#
+# Por que `pull_request_target`: o PR vem de um fork, e o token de um PR de fork não consegue gravar
+# comentário nem status. Esse gatilho roda o workflow da `main`, com o token do repositório. É seguro aqui
+# porque o job NÃO faz checkout do código do PR e não executa nada que venha dele: a ação só lê quem é a
+# pessoa que abriu o PR e o comentário de aceite. Nunca acrescente um passo que faça checkout do PR.
+#
+# A ação está fixada pelo SHA completo do commit (o comentário diz a versão). Para trocar de versão:
+# gh api repos/contributor-assistant/github-action/commits/<tag> --jq .sha. O dependabot propõe as atualizações.
+name: Termo de contribuição
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, closed, synchronize]
+
+# Sem permissão por padrão; o job pede só o que precisa.
+permissions: {}
+
+jobs:
+  cla:
+    name: cla-assistant
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # Só reage ao comentário de aceite, ao pedido de nova conferência ("recheck") ou a evento de PR.
+    if: >-
+      github.event_name == 'pull_request_target'
+      || (github.event.issue.pull_request
+          && (github.event.comment.body == 'Li e aceito o Termo de Contribuição do DG Claw.'
+              || github.event.comment.body == 'recheck'))
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+      statuses: write
+    steps:
+      - uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          path-to-document: https://github.com/DGatoM/DG-Claw/blob/main/CLA.md
+          path-to-signatures: assinaturas/cla.json
+          branch: cla-assinaturas
+          allowlist: DGatoM,dependabot[bot],github-actions[bot]
+          use-dco-flag: false
+          lock-pullrequest-aftermerge: false
+          custom-notsigned-prcomment: >-
+            Obrigado pela contribuição! Antes de incorporar, o projeto pede que você aceite uma vez o
+            [Termo de Contribuição do DG Claw](https://github.com/DGatoM/DG-Claw/blob/main/CLA.md)
+            (resumo e motivo em [CONTRIBUTING.md](https://github.com/DGatoM/DG-Claw/blob/main/CONTRIBUTING.md#termo-de-contribuição)).
+            Para aceitar, responda neste PR com um comentário igual à frase abaixo, sem mudar nada.
+          custom-pr-sign-comment: Li e aceito o Termo de Contribuição do DG Claw.
+          custom-allsigned-prcomment: Todas as pessoas que contribuíram neste PR já aceitaram o Termo de Contribuição. Obrigado!

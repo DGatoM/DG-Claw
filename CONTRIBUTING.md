@@ -121,6 +121,35 @@ que você não quer expor.
 5. Espere a revisão adversarial de segurança (próxima seção). O merge só acontece com ela limpa e
    com o ok de quem mantém o projeto.
 
+## Termo de contribuição
+
+Quem contribui com o DG Claw (código, documentação, teste, correção) aceita o
+[Termo de Contribuição](CLA.md) uma vez só, antes do primeiro merge. Em resumo: você continua autora
+ou autor do que escreveu e pode usar como quiser, e a DG Medeiros ganha o direito de usar a sua
+contribuição no projeto, inclusive em versões fechadas ou pagas (como uma edição Enterprise). Não há
+remuneração nem participação em receita, e o seu nome pode aparecer nos créditos, a critério de quem
+mantém o projeto. Leia o termo inteiro, que é curto, antes de aceitar.
+
+Como aceitar:
+
+1. Abra o pull request normalmente.
+2. O robô **CLA Assistant** comenta no PR pedindo o aceite.
+3. Responda com um comentário igual a esta frase, sem mudar nada:
+
+   ```
+   Li e aceito o Termo de Contribuição do DG Claw.
+   ```
+
+4. O robô registra o seu nome de usuário do GitHub na lista pública de quem aceitou (branch
+   `cla-assinaturas`) e libera o check do PR. Depois disso, os próximos PRs não pedem de novo.
+
+Fica de fora do aceite quem mantém o projeto (`DGatoM`) e os robôs de atualização, como o dependabot.
+Se você contribui em nome de uma empresa, confira o item 5 do termo antes.
+
+Relatar um problema não exige aceite. **Falha de segurança não vai em issue nem em PR público**: use o
+canal privado do [SECURITY.md](SECURITY.md). Quem relata uma falha confirmada recebe o crédito, se
+quiser aparecer.
+
 ## Revisão adversarial de segurança (obrigatória)
 
 Todo pull request, inclusive os só de documentação, passa por uma revisão adversarial feita pelo
