@@ -44,6 +44,8 @@ const { criarEstados } = require('./lib/estados');
 const { criarPrefsAtencao } = require('./lib/prefs-atencao');
 const { criarModalLoginPrefs } = require('./lib/modal-login-prefs');
 const { criarVigiaAtencao } = require('./lib/vigia-atencao');
+const { criarVigiaSaudeRetida } = require('./lib/vigia-saude-retida');
+const { lerSeguro } = require('./lib/diagnostico/arquivos');
 const { criarMesa } = require('./lib/mesa');
 const { criarPedidos } = require('./lib/pedidos');
 const { criarManual } = require('./lib/manual');
@@ -234,6 +236,8 @@ function criarServidor(opcoes) {
   const prefsAtencao = criarPrefsAtencao({ arquivo: path.join(config.dataDir, 'push', 'preferencias.json'), log });
   const modalLoginPrefs = criarModalLoginPrefs({ arquivo: path.join(config.dataDir, 'modal-login.json'), log });
   const vigiaAtencao = criarVigiaAtencao({ registro, estados, lerThread: conversa.threadCompartilhada, push: opcoes.push || push, prefs: prefsAtencao, relogio: opcoes.agora, log, intervaloMs: opcoes.vigiaIntervaloMs });
+  // Avisa o dono quando um agente com avisos retidos (DGCLAW_AVISOS_RETIDOS=1) para de responder. Só lê a saúde; nada vai à conversa do agente.
+  const vigiaSaudeRetida = criarVigiaSaudeRetida({ registro, lerArquivo: lerSeguro, push: opcoes.push || push, relogio: opcoes.agora, log, intervaloMs: opcoes.vigiaSaudeIntervaloMs, primeiraRodadaMs: opcoes.vigiaSaudePrimeiraMs, dataDir: config.dataDir, tz: config.tz, comando: config.equipeAvisoCmd, executor: opcoes.vigiaSaudeExecutor });
   // /api/v1/estados NÃO entra na caixa: ela só atende agentes de trabalho, e um agente não tem por que
   // enxergar o estado (nem o nome) dos vizinhos. O Admin, no host, lê os documentos e a tela.
   const atualizacao = criarAtualizacao({ dataDir: config.dataDir, log });
@@ -1846,7 +1850,7 @@ function criarServidor(opcoes) {
   }
 
   return {
-    servidor, servidorAdmin, caminhoSocketAdmin, config, registro, auth, colaboradores, cadeado, contaColab, proxy, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, chavesApi, diagnostico, estados, vigiaAtencao, prefsAtencao, integracoesVigia,
+    servidor, servidorAdmin, caminhoSocketAdmin, config, registro, auth, colaboradores, cadeado, contaColab, proxy, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, chavesApi, diagnostico, estados, vigiaAtencao, vigiaSaudeRetida, prefsAtencao, integracoesVigia,
     ouvir(porta, host) {
       return new Promise((resolve, reject) => {
         servidor.once('error', reject);
@@ -1856,6 +1860,7 @@ function criarServidor(opcoes) {
           lembretes.iniciar();
           avisos.iniciar();
           vigiaAtencao.iniciar();
+          vigiaSaudeRetida.iniciar();
           integracoesVigia.iniciar();
           if (vigiaYoutube) vigiaYoutube.iniciar();
           if (opcoes.semSocketAdmin) return resolve(servidor.address());
@@ -1863,7 +1868,7 @@ function criarServidor(opcoes) {
         });
       });
     },
-    fechar() { return cadeado.aguardar().catch(() => {}).then(() => new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); integracoesVigia.parar(); if (vigiaYoutube) vigiaYoutube.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidorAdmin.closeAllConnections(); servidorAdmin.close(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); })); },
+    fechar() { return cadeado.aguardar().catch(() => {}).then(() => new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); vigiaSaudeRetida.parar(); integracoesVigia.parar(); if (vigiaYoutube) vigiaYoutube.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidorAdmin.closeAllConnections(); servidorAdmin.close(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); })); },
   };
 }
 

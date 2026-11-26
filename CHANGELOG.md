@@ -15,6 +15,23 @@ comando pergunta ao systemd se existe próximo disparo e só reinicia o timer qu
 não der para conferir, a rotina continua gravada e o terminal mostra o aviso com o comando para conferir. A criação de
 rotina nova não mudou.
 
+**Aviso quando um agente com avisos retidos para de responder.** Agentes de cliente com `DGCLAW_AVISOS_RETIDOS=1` não entregam
+aviso pela conversa, e por isso um agente podia ficar horas sem login sem que o dono soubesse (aconteceu: 22 horas).
+Agora o painel confere a saúde desses agentes a cada 5 minutos e manda um aviso ao aparelho do dono quando um deles
+para de responder (login, limite do plano, sessão caída, container parado) e outro quando volta ao normal, um aviso
+por queda, sem repetir quando o painel reinicia. Nada vai para a conversa do agente. Opcionalmente o mesmo texto também
+vai para um comando da equipe (por exemplo, um bot de Telegram). Vale para os agentes no Claude e no Codex; no Codex
+depende do arquivo de saúde, que lá ainda é parcial (a queda do container é avisada nos dois). Veja
+[docs/AVISO-DA-EQUIPE.md](docs/AVISO-DA-EQUIPE.md).
+
+### Como atualizar (aviso de agente retido)
+
+O aviso no aparelho funciona sozinho depois do `dgclaw atualizar`, para quem já ativou os avisos no celular. Se você
+quiser receber também por outro canal, por exemplo um bot de Telegram da equipe, acrescente a linha
+`DGCLAW_EQUIPE_AVISO_CMD` ao `/etc/dgclaw/web.env`, sem apagar as outras, e reinicie o painel
+(`sudo systemctl restart dgclaw-web`). O exemplo está em `docs/AVISO-DA-EQUIPE.md`. Se você não configurar essa linha,
+nada muda além do aviso no aparelho.
+
 **Correção no login do painel e troca de senha do dono pelo painel.** O usuário do dono passou a ser comparado sem
 diferenciar maiúsculas de minúsculas e sem os espaços das pontas (teclados de celular e preenchimento automático costumam
 mudá-los); a senha continua exata e a comparação segue em tempo constante. O log do servidor agora diz qual campo não
