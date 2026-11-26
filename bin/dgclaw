@@ -1047,7 +1047,7 @@ done
 # nova sozinha. As do Admin (criar-agente, uninstall, trocar-dominio...) ficam de fora.
 mkdir -p "$CASA/.claude/skills"
 chown agente:agente "$CASA/.claude" "$CASA/.claude/skills"
-for s in agenda lembretes aprender avisos memory foco avatar report slide-animado site-animado video-animado groq-audio gemini-gratuito visuais-na-conversa; do
+for s in agenda lembretes aprender avisos memory foco avatar report slide-animado site-animado video-animado groq-audio gemini-gratuito visuais-na-conversa whatsapp-enviar; do
     origem="/opt/dgclaw/app/skills/$s"
     alvo="$CASA/.claude/skills/$s"
     [ -f "$origem/SKILL.md" ] || { echo "aviso: a skill $s nao esta na imagem ($origem); sigo sem ela." >&2; continue; }

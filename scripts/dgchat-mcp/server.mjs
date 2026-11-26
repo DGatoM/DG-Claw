@@ -306,7 +306,7 @@ async function chamarWhatsapp(nome, args) {
     pedido = { acao: "enviar", texto };
     kind = "whatsapp_text";
     extra = { text: texto };
-    limite = 20_000;
+    limite = 90_000; // cabe a espera do intervalo entre mensagens (a ponte aceita 75 s)
     oQue = "Mensagem";
   } else {
     const caminho = typeof args?.caminho === "string" ? args.caminho.trim() : "";

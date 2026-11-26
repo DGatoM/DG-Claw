@@ -17,6 +17,28 @@ continua genérica. A tela de login passou a mostrar quantos minutos faltam quan
 acesso (mínimo de 12 caracteres). Só a linha do hash no `web.env` é regravada, o limite de tentativas da senha atual é o
 do login, as outras sessões caem e a sessão de quem trocou continua. Colaborador e chave de API recebem 403 nessa rota. A troca também invalida o link de primeiro acesso ou recuperação que estiver pendente, deixa uma só linha do hash no `web.env` e fecha de imediato os WebSockets das sessões derrubadas; a senha nova é comparada com a atual já normalizada, como o login faz. A sessão do dono também é conferida até o fim do pedido (uma espera aberta por outra sessão termina com 401 quando a senha é trocada), o hash fica sempre numa linha canônica sem `export`, e o tamanho mínimo da senha (12) vale tanto para o que foi digitado quanto para a forma normalizada, a mesma que o login usa. Se a senha do painel for definida fora do `web.env` (por exemplo numa linha `Environment=` da unidade), a troca pelo painel responde 409 sem gravar nada, porque ela não valeria depois de reiniciar; o mesmo vale quando o `web.env` não é um arquivo comum. Ao reinstalar sem senha nova, o instalador não lê nem regrava mais a linha do hash: só a linha do usuário é atualizada. O instalador, o `dgclaw senha` e o painel agora gravam o `web.env` sob uma trava de pasta comum (`.web.env.trava`, ao lado dele), para uma regravação não desfazer o hash de uma troca feita ao mesmo tempo. O `web.env` também passa a valer sobre o ambiente do serviço para o hash da senha: se ele define `DGCLAW_PANEL_PASSWORD_HASH`, é o valor dele que vale depois de reiniciar. Os pedidos de escrita do dono por `/p/` passam a ser conferidos no fim do corpo mesmo sem Face ID, e o link de recuperação só é apagado depois que o `web.env` novo entra.
 
+**WhatsApp com travas contra banimento, em qualquer conexão.** Conectar o WhatsApp por uma API não oficial
+(a ponte do DG Claw, a Z-API, a Evolution) tem risco de banimento do número, e em alguns casos até pela API
+oficial. O risco vem de comportamento de robô: muitas mensagens de uma vez e o mesmo texto para várias pessoas.
+Usando o WhatsApp para análise, ou mandando como uma pessoa mandaria, o risco fica muito baixo. Agora o padrão do
+DG Claw já envia assim: uma mensagem por chamada; quando o agente fala com 2 pessoas ou mais em uma hora, espera
+um intervalo aleatório de 8 a 20 segundos entre uma mensagem e a seguinte; faz uma pausa de 30 minutos a cada 30
+mensagens; para em 60 mensagens por dia; recusa o mesmo texto para duas pessoas em 24 horas; e, no primeiro erro
+de envio ou sinal de bloqueio, trava tudo até você liberar. Conversar com uma pessoa só não tem espera nenhuma.
+Os valores vieram de uma pesquisa de recomendações atuais (fontes em `docs/CANAL-WHATSAPP.md`) e você muda todos em
+`~/.dgclaw/whatsapp/envio.json`, inclusive para ir mais devagar. A ponte já usa isso, e há um script e uma skill
+novos (`whatsapp-enviar`) para quem usa a Z-API. O comando novo `dgclaw-agente canal whatsapp retomar` libera
+os envios depois de uma trava, e o `canal status` mostra quando há uma.
+
+### Como atualizar (WhatsApp com travas)
+
+O `dgclaw atualizar` padrão basta, e nada que você configurou muda. Se o seu agente já usa o WhatsApp, ele passa a
+respeitar as travas assim que a ponte reiniciar (a atualização reinicia). Quem usa a Z-API precisa guardar no cofre
+do agente as chaves `ZAPI_INSTANCE`, `ZAPI_TOKEN` e `ZAPI_CLIENT_TOKEN`. Agentes criados antes desta versão não
+ganham a skill `whatsapp-enviar` sozinhos, mas as instruções do ambiente já apontam para o script e o documento.
+Se algum dia um envio vier travado, confira o número no celular e peça ao agente, no chat do DG Claw, para
+rodar `dgclaw-agente canal whatsapp retomar`.
+
 **Correção: render pesado não derruba o agente, e subagente em segundo plano não prende a fila.** Um agente com 2 GB de
 memória rodou um script de numpy sobre miniaturas de vídeo, passou de 1,2 GB, e o kernel matou o python. O systemd, que
 por padrão derruba o serviço inteiro quando um filho morre por falta de memória, parou o runner junto, e o painel ficou
