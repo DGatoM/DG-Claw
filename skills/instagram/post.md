@@ -68,6 +68,7 @@ python3 $DGCLAW_PLUGIN_ROOT/scripts/ig-publish.py publish-image \
 ```
 (Use `--caption-file` para legendas longas/multilinha — evita problemas de shell quoting.)
 A saida traz `mediaId` e, quando disponivel, `permalink`.
+Saida com codigo 4 e "RESULTADO INCERTO": a publicacao pode ter saido. Nao publique de novo; confira na conta e conte ao dono.
 
 ## 7. Registrar (OBRIGATORIO — imediatamente apos publicar)
 

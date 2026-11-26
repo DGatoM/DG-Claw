@@ -270,12 +270,14 @@ COPY --from=runner-build /build/runner/package.json /opt/dgclaw/app/runner/packa
 # dgclaw-monitor: o vigia sem modelo dos cards (docs/MODO-MONITOR.md); o timer dele nasce no install-timers.sh.
 # dgclaw-card: o agente abre um card em outro provedor (a skill cai no caminho completo se
 # o link faltar). dgclaw-api: o agente chama a API do Web pela caixa de arquivos (docs/CAIXA-DO-AGENTE.md).
+# dgclaw-integracao: os programas anotam o resultado de cada integracao (panel/docs/INTEGRACOES.md).
 # dgclaw-abrir-zip: extrai zip recebido como anexo numa pasta nova, com as travas contra zip slip e zip bomba.
 RUN ln -s /opt/dgclaw/app/bin/dgclaw-agente /usr/local/bin/dgclaw-agente \
  && ln -s /opt/dgclaw/app/bin/dgclaw-card /usr/local/bin/dgclaw-card \
  && ln -s /opt/dgclaw/app/bin/dgclaw-monitor /usr/local/bin/dgclaw-monitor \
  && ln -s /opt/dgclaw/app/bin/dgclaw-abrir-zip /usr/local/bin/dgclaw-abrir-zip \
- && ln -s /opt/dgclaw/app/bin/dgclaw-api /usr/local/bin/dgclaw-api
+ && ln -s /opt/dgclaw/app/bin/dgclaw-api /usr/local/bin/dgclaw-api \
+ && ln -s /opt/dgclaw/app/bin/dgclaw-integracao /usr/local/bin/dgclaw-integracao
 # dgclaw-mesa: o agente cria e atualiza as tarefas da Mesa (fala com o Web pela caixa, dgclaw-api).
 RUN ln -s /opt/dgclaw/app/bin/dgclaw-mesa /usr/local/bin/dgclaw-mesa
 # dgclaw-tela-navegador: o lançador do navegador da Tela (Google Chrome se existir, senão o Chromium
