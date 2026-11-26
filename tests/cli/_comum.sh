@@ -21,6 +21,10 @@ preparar() {
     export NO_COLOR=1
     mkdir -p "$DGCLAW_RAIZ/etc/dgclaw" "$STUB_ESTADO"
     : >"$STUB_LOG"
+    # Uma maquina grande de mentira: sem MemTotal o criar de um segundo agente exige --mesmo-assim (lib/limites.sh). Os testes
+    # que precisam de outra RAM (limites.sh) trocam ou apagam o arquivo.
+    mkdir -p "$DGCLAW_RAIZ/proc"
+    printf 'MemTotal:       %d kB\nMemFree:         100 kB\n' "$((64 * 1024 * 1024))" >"$DGCLAW_RAIZ/proc/meminfo"
     PATH="$AQUI/stubs:$PATH"
     export PATH
     printf 'DGCLAW_DOMINIO=teste.exemplo.org\n' >"$DGCLAW_RAIZ/etc/dgclaw/dgclaw.env"

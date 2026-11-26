@@ -34,6 +34,8 @@ case "${1:-}" in
             nome="${*: -1}"; [ -f "$est/c-$nome" ] || exit 1
             cat "$est/img-$nome" 2>/dev/null || echo imagem-velha; exit 0
         fi
+        # exists-erro: o `container exists` termina com 125 (erro do podman), como o de verdade, em vez de 0 ou 1.
+        if [ "$2" = exists ] && [ -f "$est/exists-erro" ]; then exit 125; fi
         [ "$2" = exists ] && [ -f "$est/c-$3" ]; exit $? ;;
     network)
         case "$2" in
@@ -43,15 +45,19 @@ case "${1:-}" in
         esac ;;
     create)
         dns=""
-        mem=0; cpus=0; pids=2048
+        mem=0; cpus=0; pids=2048; oom=0; reserva=0; pai=""; conf=""
         while [ $# -gt 0 ]; do
             [ "$1" = --name ] && nome="$2"; [ "$1" = --dns ] && dns="$dns $2"
+            [ "$1" = --oom-score-adj ] && oom="$2"; [ "$1" = --cgroup-parent ] && pai="$2"; [ "$1" = --cgroup-conf ] && conf="$conf $2"
+            if [ "$1" = --memory-reservation ]; then reserva="$2"; case "$reserva" in *g) reserva=$(( ${reserva%g} * 1073741824 )) ;; *m) reserva=$(( ${reserva%m} * 1048576 )) ;; esac; fi
             [ "$1" = --memory ] && mem="$2"; [ "$1" = --cpus ] && cpus="$2"; [ "$1" = --pids-limit ] && pids="$2"
             shift
         done
         # Limites do container: "<bytes> <quota> <periodo> <pids>", como o inspect devolve.
         case "$mem" in *g) mem=$(( ${mem%g} * 1073741824 )) ;; *m) mem=$(( ${mem%m} * 1048576 )) ;; esac
         echo "$mem $(awk -v c="$cpus" 'BEGIN { printf "%d", c * 100000 }') 100000 $pids $((mem * 2))" > "$est/lim-$nome"
+        # Prioridade: "<oom_score_adj>|<memory-reservation em bytes>|<cgroup-parent>|<--cgroup-conf>", como o inspect devolve.
+        echo "$oom|$reserva|$pai|${conf# }" > "$est/prio-$nome"
         echo created > "$est/c-$nome"
         echo "[${dns# }]" > "$est/dns-$nome"
         # O container nasce com a imagem que estava "atual" na hora (para o `agente recriar` comparar).
@@ -128,10 +134,21 @@ case "${1:-}" in
                 if [ "$q" -gt 0 ]; then echo "$q $p" > "$d/cpu.max"; else echo "max $p" > "$d/cpu.max"; fi
                 # cgroup-sem-swap: o kernel sem contabilidade de swap nao tem o arquivo.
                 [ -f "$est/cgroup-sem-swap" ] && rm -f "$d/memory.swap.max"
+                # uso-<nome> (bytes): o memory.current do cgroup.
+                rm -f "$d/memory.current"
+                # Sem uso-<nome>, o container usa 100 MB; estado/uso-ilegivel tira o memory.current de todos.
+                if [ -f "$est/uso-$nome" ]; then cp "$est/uso-$nome" "$d/memory.current"; elif [ ! -f "$est/uso-ilegivel" ]; then echo 104857600 > "$d/memory.current"; fi
                 # cpu-nao-relido: o cpu.max some depois do update (os outros controladores continuam legiveis).
                 [ -f "$est/cpu-nao-relido" ] && [ -f "$est/update-feito" ] && rm -f "$d/cpu.max"
             fi
             echo "/machine.slice/libpod-$nome.scope"; exit 0
+        fi
+        # `inspect -f {{.HostConfig.OomScoreAdj}}|{{.HostConfig.MemoryReservation}}|{{.HostConfig.CgroupParent}}`: o que o create recebeu
+        # (estado/prio-<nome>); container sem o arquivo (criado a mao no teste) responde "sem protecao".
+        if printf '%s ' "$@" | grep -q 'HostConfig.OomScoreAdj'; then
+            [ -f "$est/inspect-limites-falha" ] && exit 125
+            IFS='|' read -r o r pa _ < <(cat "$est/prio-$nome" 2>/dev/null || echo "0|0||")
+            echo "$o|$r|$pa"; exit 0
         fi
         # `inspect -f {{.HostConfig.Memory}}`: so os bytes da memoria persistida em lim-<nome> (container parado). Com cgroup-ausente
         # responde 0 (nada persistido), a menos que estado/memoria-persistida exista.
@@ -139,6 +156,8 @@ case "${1:-}" in
             [ -f "$est/inspect-limites-falha" ] && exit 125
             # Com cgroup-ausente e sem memoria-persistida a consulta FALHA (nada persistido legivel); com memoria-zero ela tem
             # sucesso e devolve 0 (container criado sem limite).
+            # hostconfig-mem-<nome> (bytes): o HostConfig.Memory que o podman guardou na criacao, diferente do cgroup (apos um `podman update`).
+            if [ -f "$est/hostconfig-mem-$nome" ]; then cat "$est/hostconfig-mem-$nome"; exit 0; fi
             if [ -f "$est/memoria-zero" ]; then echo 0; exit 0; fi
             if [ -f "$est/cgroup-ausente" ] && [ ! -f "$est/memoria-persistida" ]; then exit 125; fi
             read -r m _ < "$est/lim-$nome" 2>/dev/null || m=0

@@ -98,8 +98,8 @@ terminal seu e nunca no chat do Admin:
   `sudo`, então servem de apoio e não de prova.
 
 Não ajuste memória, CPU ou processos com `podman update`: no Podman 4.9 o ajuste se perde quando o container
-para e volta. A memória e a CPU saem do tamanho da VPS na criação e na recriação (o agente principal fica com
-quase toda a RAM, cada adicional com até 2 GB, conforme a folga), e outro valor se define com
+para e volta. A memória e a CPU saem do tamanho da VPS na criação e na recriação (todo agente recebe a RAM menos uma reserva
+para o sistema, como teto de proteção; o principal ainda ganha proteção de melhor esforço no kernel), e outro valor se define com
 `DGCLAW_CONTAINER_MEMORIA` no `dgclaw.env`, seguida de `recriar`.
 
 **Recriar o agente sem perder nada.** O `dgclaw agente recriar <agente>` recria o container na hora. Antes dele,

@@ -80,8 +80,23 @@ Agentes
         --papel "<o que ele faz>"        --jeito "<como ele fala>"
         --dono "<como ele chama voce>"   --canal chat|telegram|whatsapp (padrao: chat)
         --avatar <emoji ou letra>        --cor "#3b82f6"
+        --prioridade alta|normal|baixa   (padrao: normal; so vale se o agente nao for o principal)
+        --mesmo-assim                    cria mesmo que a conferencia de memoria ache a VPS no limite
       Exemplo:  dgclaw agente criar ana --nome "Ana" --papel "organiza a minha agenda" --dono "Marta"
       Rodar de novo o mesmo comando continua de onde parou, sem duplicar nada.
+      Memoria: o primeiro agente criado (o principal) tem a protecao maior. Antes de criar um outro, o comando
+      confere o uso real de memoria dos agentes que ja existem e recusa se a VPS ficaria no limite
+      (explica os numeros); --mesmo-assim cria por sua conta e risco.
+
+  dgclaw agente prioridade <slug> [alta|normal|baixa]
+      Sem o nivel, mostra a prioridade de memoria do agente. Com o nivel, grava (em /etc/dgclaw/prioridades)
+      e passa a valer na proxima vez que o agente for recriado (ou ja: dgclaw agente recriar <slug> --forcar).
+      Quando a memoria da VPS aperta, o kernel prefere segurar e derrubar antes os de prioridade baixa;
+      os de prioridade alta ficam para depois dos normais (e uma preferencia do kernel, sem garantia
+      absoluta). O agente principal tem a protecao maior e ignora o nivel.
+      O --forcar pula a conferencia de arquivos que so existem dentro do container, entao copie antes
+      para a casa do agente o que precisar guardar.
+      Exemplo:  dgclaw agente prioridade ana alta
 
   dgclaw agente listar [--json]          lista os agentes e se estao de pe
       Exemplo:  dgclaw agente listar
@@ -911,6 +926,14 @@ criar_container() {
         if [ "${#DNS_CONTAINER_ARGS[@]}" -gt 0 ]; then
             info "o DNS deste servidor ($DNS_HOST_PRIVADOS) fica numa rede privada, que a cerca dos agentes bloqueia; o container $c usa DNS publico (1.1.1.1 e 8.8.8.8)."
         fi
+        # Memoria e prioridade: so entram os flags que foram definidos (ver limites_calcular).
+        local mem_args=() prio_args=()
+        [ -z "$LIM_MEM_ARG" ] || mem_args=(--memory "$LIM_MEM_ARG")
+        [ -z "$LIM_OOM_ADJ" ] || prio_args+=(--oom-score-adj "$LIM_OOM_ADJ")
+        [ -z "$LIM_RESERVA_GARANTIDA_MB" ] || prio_args+=(--memory-reservation "${LIM_RESERVA_GARANTIDA_MB}m")
+        [ -z "$LIM_CGROUP_PARENT" ] || prio_args+=(--cgroup-parent "$LIM_CGROUP_PARENT")
+        [ -z "$LIM_HIGH_BYTES" ] || prio_args+=(--cgroup-conf "memory.high=$LIM_HIGH_BYTES")
+        limites_preparar_slice
         local args=(create
             --name "$c" --hostname "$C_SLUG"
             --uidmap "0:$ub:$FAIXA_UID" --gidmap "0:$ub:$FAIXA_UID"
@@ -923,7 +946,8 @@ criar_container() {
             "${DNS_CONTAINER_ARGS[@]}"
             --publish "127.0.0.1:$C_PORTA_RUNNER:4300"
             --publish "127.0.0.1:$C_PORTA_PAINEL:8300"
-            --memory "$LIM_MEM_ARG" --cpus "$LIM_CPUS_ARG" --pids-limit "$LIMITE_PIDS" --restart unless-stopped
+            "${mem_args[@]}" --cpus "$LIM_CPUS_ARG" --pids-limit "$LIMITE_PIDS" --restart unless-stopped
+            "${prio_args[@]}"
             # O podman copia as variaveis de proxy de quem roda o comando para dentro do
             # container. Um proxy local do host (127.0.0.1:...) nao existe la dentro, e todo
             # curl do agente falharia com "connection refused".
@@ -1263,10 +1287,12 @@ agente_criar() {
     [ $# -ge 1 ] || falha "faltou o nome curto (slug) do agente." 'exemplo: dgclaw agente criar ana --nome "Ana"'
     C_SLUG="$1"; shift
     C_NOME=""; C_PROVEDOR=claude; C_AUTH=assinatura; C_MODELO=""; C_PAPEL=""; C_JEITO=""
-    local dono="" canal=chat avatar="" cor=""
+    local dono="" canal=chat avatar="" cor="" mesmo_assim=0
+    C_PRIORIDADE=""
     while [ $# -gt 0 ]; do
         case "$1" in
-            --nome|--provedor|--auth|--modelo|--papel|--jeito|--dono|--canal|--avatar|--cor)
+            --mesmo-assim) mesmo_assim=1; shift ;;
+            --nome|--provedor|--auth|--modelo|--papel|--jeito|--dono|--canal|--avatar|--cor|--prioridade)
                 [ $# -ge 2 ] || falha "a opcao $1 precisa de um valor." "exemplo: $1 \"valor\"; veja dgclaw --ajuda"
                 case "$1" in
                     --nome) C_NOME="$(uma_linha "$2")" ;;
@@ -1279,6 +1305,7 @@ agente_criar() {
                     --canal) canal="$2" ;;
                     --avatar) avatar="$(uma_linha "$2")" ;;
                     --cor) cor="$2" ;;
+                    --prioridade) C_PRIORIDADE="$2" ;;
                 esac
                 shift 2 ;;
             *) falha "opcao desconhecida: $1" "veja as opcoes de 'agente criar' com: dgclaw --ajuda" ;;
@@ -1294,6 +1321,9 @@ agente_criar() {
     case "$C_AUTH" in assinatura|api) ;; *) falha "autenticacao '$C_AUTH' nao existe." "use --auth assinatura ou --auth api." ;; esac
     case "$canal" in chat|telegram|whatsapp) ;; *) falha "canal '$canal' nao existe." "use --canal chat, telegram ou whatsapp." ;; esac
     C_CANAL="$canal"
+    if [ -n "$C_PRIORIDADE" ]; then
+        case "$C_PRIORIDADE" in alta|normal|baixa) ;; *) falha "a prioridade '$C_PRIORIDADE' nao existe." "use --prioridade alta, normal ou baixa." ;; esac
+    fi
     if [ -z "$cor" ]; then cor="#3b82f6"; fi
     [[ "$cor" =~ ^#[0-9a-fA-F]{6}$ ]] || falha "a cor '$cor' nao e valida." "use o formato #rrggbb, por exemplo --cor \"#3b82f6\"."
     C_COR="$cor"
@@ -1321,9 +1351,19 @@ agente_criar() {
     # Antes de reservar uid, portas, casa ou rede: uma sobrescrita invalida (DGCLAW_CONTAINER_MEMORIA=4GB) falha aqui, sem nada reservado.
     # O criar_container reaproveita este resultado (LIM_*).
     limites_calcular "$C_SLUG"
+    # Agente que nao sera o principal: confere se a maquina aguenta mais um (falha aqui, sem reservar nada, a menos que --mesmo-assim).
+    limites_conferir_risco "$C_SLUG" "$mesmo_assim"
     if ! podman image exists "$DGCLAW_IMAGEM" >/dev/null 2>&1; then
         falha "a imagem dos agentes ($DGCLAW_IMAGEM) ainda nao existe nesta maquina." \
               "ela e construida em segundo plano pelo instalador; espere ficar pronta: dgclaw imagem status (para construir agora: dgclaw imagem construir)"
+    fi
+    # A prioridade escolhida entra no arquivo antes de o container existir (e depois de a conferencia de risco ter passado).
+    if [ -n "$C_PRIORIDADE" ]; then
+        if [ "$ENSAIO" = 1 ]; then
+            info "[ensaio] gravaria a prioridade $C_PRIORIDADE do agente $C_SLUG em $DG_PRIORIDADES"
+        else
+            com_trava prioridade_gravar "$C_SLUG" "$C_PRIORIDADE"
+        fi
     fi
 
     C_CASA="$DG_CASAS/$C_SLUG"
@@ -2005,6 +2045,8 @@ agente_recriar() {
     # (DGCLAW_CONTAINER_MEMORIA=4GB) falha neste calculo, antes de parar ou remover qualquer coisa.
     limites_trava_pegar
     limites_calcular "$slug"
+    # Nunca reduz a memoria de um agente que ja existe (a sobrescrita do dono vence).
+    limites_manter_atual "$slug"
 
     passo "Trocando o container do agente $slug pelo da imagem atual"
     C_RECRIANDO="$slug"; C_RECRIOU=0
@@ -2525,6 +2567,86 @@ agente_tela() {
     printf '\nA Tela de %s esta pronta. O dono abre pelo menu do agente na conversa (Tela) ou pela aba Tela do painel.\n' "$slug"
 }
 
+# prioridade_gravar <slug> <nivel>: poe o nivel do agente no $DG_PRIORIDADES (linhas `slug<TAB>nivel`, 0600). Troca so a
+# linha do slug (ou acrescenta no fim) e preserva todas as outras, na ordem, mesmo as que nao entende. Roda sob com_trava.
+prioridade_gravar() {
+    local slug="$1" nivel="$2" arq="$DG_PRIORIDADES" tmp
+    mkdir -p "$DG_ETC" || falha "nao consegui criar a pasta $DG_ETC." "confira se voce e root e o espaco em disco."
+    tmp="$(mktemp "$DG_ETC/.prioridades.XXXXXX")" \
+        || falha "nao consegui criar um arquivo temporario em $DG_ETC para gravar a prioridade." "confira o espaco em disco e a permissao da pasta."
+    if [ -f "$arq" ]; then
+        awk -F'\t' -v s="$slug" -v n="$nivel" '
+            $1 "" == s "" { if (!feito) { printf "%s\t%s\n", s, n; feito = 1 } next }
+            { print }
+            END { if (!feito) printf "%s\t%s\n", s, n }' "$arq" >"$tmp" \
+            || { rm -f -- "$tmp"; falha "nao consegui ler $arq para trocar a prioridade do agente $slug." "nada foi mudado; confira o arquivo e o espaco em disco."; }
+    else
+        printf '%s\t%s\n' "$slug" "$nivel" >"$tmp" || { rm -f -- "$tmp"; falha "nao consegui gravar a prioridade do agente $slug em $tmp." "confira o espaco em disco."; }
+    fi
+    if ! { chmod 600 "$tmp" && mv -f "$tmp" "$arq"; }; then
+        rm -f -- "$tmp"
+        falha "nao consegui gravar $arq." "nada foi mudado; confira o espaco em disco e a permissao de $DG_ETC."
+    fi
+}
+
+# _agente_prioridade_registrado <slug> <principal 0|1>: mostra o que o podman registrou na criacao do container (oom_score_adj,
+# memory-reservation, cgroup-parent) e se bate com o papel atual do agente.
+_agente_prioridade_registrado() {
+    local slug="$1" principal="$2" c="dgclaw-$1" confere=0
+    limites_calcular "$slug"
+    if ! _limites_ler_protecoes "$c"; then
+        printf 'Nao consegui ler o que o podman registrou para o container %s (podman inspect), entao nao sei se as protecoes de memoria dele batem com o papel atual.\n' "$c"
+    else
+        printf 'O podman registrou para %s: oom_score_adj %s, memory-reservation %s bytes, cgroup-parent "%s".\n' "$c" "$PROT_OOM" "$PROT_RES" "$PROT_PAI"
+        if _limites_protecoes_conferem; then
+            confere=1
+            printf 'Isso bate com o papel atual do agente.\n'
+        else
+            printf 'Isso NAO bate com o papel atual do agente (esperado: oom_score_adj %s%s).\n' "$LIM_OOM_ADJ" "${LIM_RESERVA_GARANTIDA_MB:+, memory-reservation de $LIM_RESERVA_GARANTIDA_MB MB ($((LIM_RESERVA_GARANTIDA_MB * 1048576)) bytes) e cgroup-parent $LIM_CGROUP_PARENT}"
+            [ -z "$LIM_RESERVA_GARANTIDA_MB" ] || printf 'Registrado: memory-reservation %s bytes; esperado: %s bytes.\n' "$PROT_RES" "$((LIM_RESERVA_GARANTIDA_MB * 1048576))"
+        fi
+    fi
+    if [ "$principal" = 1 ] || [ "$confere" = 0 ]; then
+        printf 'Para aplicar: dgclaw agente recriar %s --forcar (o --forcar pula a conferencia de arquivos que so existem dentro do container, entao copie para a casa do agente antes o que precisar guardar).\n' "$slug"
+    fi
+}
+
+# agente_prioridade <slug> [alta|normal|baixa]: mostra ou muda a prioridade de memoria de um agente (lib/limites.sh).
+agente_prioridade() {
+    local slug="${1:-}" nivel="${2:-}" atual principal=0
+    [ "$#" -le 2 ] || falha_uso "argumentos demais para dgclaw agente prioridade." "use: dgclaw agente prioridade <slug> [alta|normal|baixa]"
+    exigir_slug "$slug" prioridade
+    exigir_ferramentas jq podman
+    existe_agente "$slug" || falha "o agente '$slug' nao existe." "veja os que existem com: dgclaw agente listar"
+    if [ -n "$nivel" ]; then
+        case "$nivel" in alta|normal|baixa) ;; *) falha "a prioridade '$nivel' nao existe." "use alta, normal ou baixa." ;; esac
+    fi
+    atual="$(_limites_nivel_de "$slug")"
+    [ "$(limites_principal "$slug")" != "$slug" ] || principal=1
+    if [ -z "$nivel" ]; then
+        if [ "$principal" = 1 ]; then
+            printf 'O agente %s e o principal: a memoria dele tem sempre a protecao maior, e o nivel guardado (%s) so vale se ele deixar de ser o principal.\n' "$slug" "$atual"
+        else
+            printf 'Prioridade de memoria do agente %s: %s.\n' "$slug" "$atual"
+        fi
+        _agente_prioridade_registrado "$slug" "$principal"
+        printf 'Para mudar: dgclaw agente prioridade %s alta|normal|baixa\n' "$slug"
+        return 0
+    fi
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] gravaria a prioridade $nivel do agente $slug em $DG_PRIORIDADES"
+        return 0
+    fi
+    com_trava prioridade_gravar "$slug" "$nivel"
+    ok "prioridade do agente $slug: $nivel (antes: $atual)"
+    if [ "$principal" = 1 ]; then
+        aviso "o agente $slug e o principal, que tem sempre a protecao maior: o nivel $nivel ficou guardado, mas so vale se ele deixar de ser o principal."
+        return 0
+    fi
+    # shellcheck disable=SC2016 # as crases fazem parte do texto
+    info "ela passa a valer na proxima vez que o agente for recriado (por exemplo ao atualizar o DG Claw). Para valer ja: \`dgclaw agente recriar $slug --forcar\`. O --forcar pula a conferencia de arquivos que so existem dentro do container, entao copie para a casa do agente antes o que precisar guardar."
+}
+
 agente_main() {
     local sub="${1:-}"; shift || true
     case "$sub" in
@@ -2533,6 +2655,7 @@ agente_main() {
         parar|iniciar|reiniciar) agente_acao "$sub" "$@" ;;
         reparar) agente_reparar "$@" ;;
         recriar) agente_recriar "$@" ;;
+        prioridade) agente_prioridade "$@" ;;
         restricoes) agente_restricoes "$@" ;;
         identidade) agente_identidade "$@" ;;
         cofre) agente_cofre "$@" ;;
@@ -2540,8 +2663,8 @@ agente_main() {
         tela) agente_tela "$@" ;;
         youtube) agente_youtube "$@" ;;
         remover) agente_remover "$@" ;;
-        "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, restricoes, identidade, cofre, tela, tela-senha, youtube ou remover (veja dgclaw --ajuda)." ;;
-        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, restricoes, identidade, cofre, tela, tela-senha, youtube ou remover (veja dgclaw --ajuda)." ;;
+        "") falha "faltou dizer o que fazer com os agentes." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, prioridade, restricoes, identidade, cofre, tela, tela-senha, youtube ou remover (veja dgclaw --ajuda)." ;;
+        *) falha "'agente $sub' nao existe." "use: criar, listar, parar, iniciar, reiniciar, reparar, recriar, prioridade, restricoes, identidade, cofre, tela, tela-senha, youtube ou remover (veja dgclaw --ajuda)." ;;
     esac
 }
 

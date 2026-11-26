@@ -7,6 +7,30 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção nos limites de memória: o agente principal tem prioridade e os outros usam a memória livre.** Quem tinha vários
+agentes ficava com 1 a 2 GB em cada um, e o Admin chegava a recusar a atualização por causa disso. Agora todo agente recebe
+o mesmo teto, a RAM da VPS menos a reserva do sistema, só como proteção: ninguém fica com uma fatia fixa, e os agentes
+usam a memória que estiver livre. O agente principal (o primeiro criado) passa a ter a proteção maior: quando a memória da VPS acaba, o kernel
+prefere derrubar os outros agentes antes dele, e metade da memória útil da VPS (no mínimo 1 GB) fica protegida para ele,
+num grupo próprio do systemd (`dgclaw_principal.slice`). Essa é a proteção do próprio kernel, de melhor esforço: se o
+principal sozinho passar do teto dele, ele também pode ser derrubado. Os demais agentes têm um nível de prioridade, `alta`, `normal` (o padrão) ou `baixa`, que
+decide quem o kernel prefere segurar primeiro quando a memória aperta, e o comando novo `dgclaw agente prioridade <agente>
+[alta|normal|baixa]` mostra ou muda esse nível (também existe `--prioridade` no `dgclaw agente criar`). Ao criar um agente
+que não é o principal, o comando confere o uso real de memória dos agentes existentes e recusa quando a VPS ficaria no
+limite, explicando os números; `--mesmo-assim` cria por sua conta e risco. Recriar e reparar nunca reduzem a memória de um
+agente que já existe, e o reparar passa a subir também os limites de 1 a 2 GB que a versão anterior deu aos agentes
+adicionais. O aviso de "sobra pouca memória" e o de excesso da soma dos tetos deixaram de existir.
+
+### Como atualizar (memória dos agentes)
+
+O `dgclaw atualizar` padrão já aplica tudo, sem passo manual. Atualizar com vários agentes é seguro: nenhum agente perde
+memória, porque o limite de um agente que já existe só sobe, nunca desce. As proteções do agente principal e os níveis
+de prioridade entram quando cada agente é recriado, o que o `atualizar` faz quando a imagem muda. Para aplicar já num
+agente, rode `dgclaw agente recriar <agente> --forcar`; o `--forcar` pula a conferência de arquivos que só existem dentro
+do container, então copie antes para a casa do agente o que precisar guardar. Para escolher o nível de um agente, use
+`dgclaw agente prioridade <agente> alta`, `normal` ou `baixa` (o principal ignora o nível). Se você tinha definido
+`DGCLAW_CONTAINER_MEMORIA` no `/etc/dgclaw/dgclaw.env`, esse valor continua vencendo o cálculo.
+
 **Correção no sistema de rotinas próprias do agente: remarcar uma rotina que já tinha disparado.** Uma rotina de uma vez
 só, depois de disparar, fica no estado `elapsed` do systemd. Quando o agente a remarcava com `persona-cron-mgr edit`, o
 arquivo `.timer` recebia o horário novo, mas o `daemon-reload` seguido de `enable --now` não rearmava um timer que já
