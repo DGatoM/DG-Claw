@@ -30,6 +30,10 @@ function comparaTempoConstante(a, b) {
   return crypto.timingSafeEqual(sha256(String(a)), sha256(String(b)));
 }
 
+/** Usuário do dono para comparar: sem espaços nas pontas e sem diferença de maiúscula (teclado de celular, preenchimento automático). */
+const normalizaUsuario = (v) => String(v == null ? '' : v).trim().toLowerCase();
+const mesmoUsuario = (a, b) => comparaTempoConstante(normalizaUsuario(a), normalizaUsuario(b));
+
 function b64urlParaBuffer(s) { return Buffer.from(String(s), 'base64url'); }
 
 /** Lê "scrypt$N$r$p$sal$hash". Devolve { N, r, p, sal, hash } ou { erro }. */
@@ -231,7 +235,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
 
     /** Confere usuário e senha. Sempre gasta o scrypt (mesmo com usuário errado). { ok, trancado?, erro? } */
     async verificaSenha(usuarioInformado, senha, ip) {
-      if (colaboradores && !comparaTempoConstante(usuarioInformado == null ? '' : usuarioInformado, usuario)) return verificaColaborador(usuarioInformado, senha, ip);
+      if (colaboradores && !mesmoUsuario(usuarioInformado, usuario)) return verificaColaborador(usuarioInformado, senha, ip);
       if (trancado) return { ok: false, trancado: true, erro: semSenha ? `O login ainda não tem senha. ${motivoTrancado}` : `O login está trancado: ${motivoTrancado} Rode o gerador de hash do instalador.` };
       const b = ip ? bloqueioLogin(IDENT_DONO, ip) : { bloqueado: false };
       if (b.bloqueado) return { ok: false, limite: true, retryAfter: b.retryAfter, erro: `Muitas tentativas erradas. Tente de novo em ${Math.ceil(b.retryAfter / 60)} min.` };
@@ -250,13 +254,14 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
         scryptEmCurso--;
       }
       const senhaOk = calculado.length === parsed.hash.length && crypto.timingSafeEqual(calculado, parsed.hash);
-      const usuarioOk = comparaTempoConstante(usuarioInformado == null ? '' : usuarioInformado, usuario);
+      const usuarioOk = mesmoUsuario(usuarioInformado, usuario);
       if (senhaOk && usuarioOk) {
         if (ip) limpaFalhasDe(IDENT_DONO, ip);
         return { ok: true, usuario, papel: 'dono' };
       }
       if (ip) registraFalhaLogin(IDENT_DONO, ip);
-      return { ok: false, erro: 'Usuário ou senha incorretos.' };
+      // `campo` é só para o log do servidor (diz qual dos dois não conferiu); a resposta ao navegador continua genérica.
+      return { ok: false, campo: usuarioOk ? 'senha' : 'usuário', erro: 'Usuário ou senha incorretos.' };
     },
 
     /** Cria a sessão e devolve { token, expira, cabecalho(Set-Cookie) } pronta para o cookie. */
@@ -447,7 +452,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
     const senhaOk = !!visto && alvo !== hashFicticioCache && calculado.length === alvo.hash.length && crypto.timingSafeEqual(calculado, alvo.hash);
     if (!senhaOk) {
       if (ip) registraFalhaLogin(identidade, ip);
-      return { ok: false, erro: 'Usuário ou senha incorretos.' };
+      return { ok: false, campo: visto ? 'senha' : 'usuário', erro: 'Usuário ou senha incorretos.' };
     }
     // Recarrega: só vale se o registro ainda é exatamente o que a senha conferiu e o acesso não foi revogado.
     const atual = colaboradores.obter(visto.id);

@@ -24,6 +24,16 @@ quiser receber também por outro canal, por exemplo um bot de Telegram da equipe
 (`sudo systemctl restart dgclaw-web`). O exemplo está em `docs/AVISO-DA-EQUIPE.md`. Se você não configurar essa linha,
 nada muda além do aviso no aparelho.
 
+**Correção no login do painel e troca de senha do dono pelo painel.** O usuário do dono passou a ser comparado sem
+diferenciar maiúsculas de minúsculas e sem os espaços das pontas (teclados de celular e preenchimento automático costumam
+mudá-los); a senha continua exata e a comparação segue em tempo constante. O log do servidor agora diz qual campo não
+conferiu ("usuário não confere" ou "senha não confere"), sem registrar o que foi digitado, e a resposta ao navegador
+continua genérica. A tela de login passou a mostrar quantos minutos faltam quando o bloqueio por tentativas está ativo
+(o servidor manda `espera` na volta ao `/login`). O dono logado troca a própria senha em Segurança > Trocar senha
+(`/trocar-senha`, rota `POST /api/v1/dono/senha`): pede a senha atual, a nova duas vezes e usa as mesmas regras do primeiro
+acesso (mínimo de 12 caracteres). Só a linha do hash no `web.env` é regravada, o limite de tentativas da senha atual é o
+do login, as outras sessões caem e a sessão de quem trocou continua. Colaborador e chave de API recebem 403 nessa rota. A troca também invalida o link de primeiro acesso ou recuperação que estiver pendente, deixa uma só linha do hash no `web.env` e fecha de imediato os WebSockets das sessões derrubadas; a senha nova é comparada com a atual já normalizada, como o login faz. A sessão do dono também é conferida até o fim do pedido (uma espera aberta por outra sessão termina com 401 quando a senha é trocada), o hash fica sempre numa linha canônica sem `export`, e o tamanho mínimo da senha (12) vale tanto para o que foi digitado quanto para a forma normalizada, a mesma que o login usa. Se a senha do painel for definida fora do `web.env` (por exemplo numa linha `Environment=` da unidade), a troca pelo painel responde 409 sem gravar nada, porque ela não valeria depois de reiniciar; o mesmo vale quando o `web.env` não é um arquivo comum. Ao reinstalar sem senha nova, o instalador não lê nem regrava mais a linha do hash: só a linha do usuário é atualizada. O instalador, o `dgclaw senha` e o painel agora gravam o `web.env` sob uma trava de pasta comum (`.web.env.trava`, ao lado dele), para uma regravação não desfazer o hash de uma troca feita ao mesmo tempo. O `web.env` também passa a valer sobre o ambiente do serviço para o hash da senha: se ele define `DGCLAW_PANEL_PASSWORD_HASH`, é o valor dele que vale depois de reiniciar. Os pedidos de escrita do dono por `/p/` passam a ser conferidos no fim do corpo mesmo sem Face ID, e o link de recuperação só é apagado depois que o `web.env` novo entra.
+
 **Barra superior da conversa: agentes com rolagem lateral e botões compactos.** Conforme a barra de cima ganhava
 botões com nome escrito, ela estourava e empurrava os agentes para fora da tela, sem como clicar neles. Agora os botões
 da barra mostram só o ícone, e o nome de cada um aparece ao passar o mouse (e é lido pelo leitor de tela). As bolinhas

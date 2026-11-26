@@ -54,7 +54,7 @@ Todas rodam no terminal do servidor, pelo comando `dgclaw`.
 | `dgclaw backup` e `dgclaw restaurar <pasta>` | para guardar uma cópia de tudo ou voltar a uma cópia; o roteiro está em `/opt/dgclaw/app/docs/BACKUP.md` |
 | `dgclaw versao` | para saber que versão está instalada |
 | `dgclaw personalizacoes levantar\|conferir\|concluir` | para listar o que já foi personalizado no programa, ver se a versão nova cruza com isso e fechar o levantamento da migração (`/opt/dgclaw/app/docs/PERSONALIZAR.md`) |
-| `dgclaw senha` | quando o dono quer trocar a senha do painel (ele digita no terminal, nunca no chat) |
+| `dgclaw senha` | quando o dono quer trocar a senha do painel e não está logado no painel (ele digita no terminal, nunca no chat). Logado, ele mesmo troca em Segurança > Trocar senha, no menu do painel, digitando a atual |
 | `dgclaw primeiro-acesso` | quando o dono esqueceu a senha ou o link de primeiro acesso expirou: gera um link novo de uso único |
 | `dgclaw dominio` e `dgclaw dominio trocar <nome>` | quando o dono quer um endereço próprio para o painel (explica o DNS e configura; segue a skill `trocar-dominio`) |
 | `dgclaw suporte ligar --chave <linha> --dias N`, `desligar [--derrubar-sessoes]`, `status` | quando o dono quer dar ou tirar o acesso do suporte DG (ao tirar, use --derrubar-sessoes para encerrar as outras sessões de root abertas) (chave SSH temporária, 7 dias por padrão, no máximo 30). Nunca ligue sem o dono pedir; a chave pública vem dele ou do suporte, nunca invente uma. O roteiro está em `/opt/dgclaw/app/docs/PROJETO-DE-CLIENTE.md` |
