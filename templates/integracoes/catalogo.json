@@ -1,0 +1,22 @@
+{
+  "versao": 1,
+  "integracoes": {
+    "whatsapp": { "nome": "WhatsApp", "icone": "message" },
+    "telegram": { "nome": "Telegram", "icone": "send" },
+    "instagram": { "nome": "Instagram", "icone": "camera" },
+    "gmail": { "nome": "Gmail", "icone": "mail" },
+    "email": { "nome": "E-mail", "icone": "mail" },
+    "groq": { "nome": "Groq", "icone": "sparkle" },
+    "openai": { "nome": "OpenAI", "icone": "sparkle" },
+    "gemini": { "nome": "Gemini", "icone": "sparkle" },
+    "openrouter": { "nome": "OpenRouter", "icone": "sparkle" },
+    "anthropic": { "nome": "Anthropic", "icone": "sparkle" },
+    "elevenlabs": { "nome": "ElevenLabs", "icone": "volume" },
+    "pluggy": { "nome": "Pluggy", "icone": "vault" },
+    "banco": { "nome": "Banco", "icone": "vault" },
+    "nota-fiscal": { "nome": "Nota fiscal", "icone": "file-text" },
+    "crm": { "nome": "CRM", "icone": "users" },
+    "agenda": { "nome": "Agenda", "icone": "calendar" },
+    "google-calendar": { "nome": "Google Agenda", "icone": "calendar" }
+  }
+}
