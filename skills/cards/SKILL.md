@@ -41,16 +41,36 @@ Pedido longo vai por arquivo ou pipe, sem se preocupar com aspas:
 ## Passo 4: abra, espere, leia
 
 ```bash
-id="$(dgclaw-card abrir --provedor codex --titulo "Revisão do contrato" --pedido-arquivo /tmp/pedido.md | head -1)"
-dgclaw-card esperar "$id" --max 900
-dgclaw-card ler "$id" --n 2
+cod=0; saida="$(dgclaw-card abrir --provedor codex --titulo "Revisão do contrato" --pedido-arquivo /tmp/pedido.md)" || cod=$?
+id="$(printf '%s\n' "$saida" | head -1)"
+# Se o abrir for interrompido no meio da espera, o card pode já existir: confira com dgclaw-card listar antes de abrir outro.
+if [ "$cod" != 0 ]; then
+  # Não siga para o esperar nem avise o dono de que o card trabalha. Confira o estado e nunca repita o pedido.
+  echo "o abrir saiu com $cod: leia a mensagem de erro"; [ -z "$id" ] || dgclaw-card estado "$id"
+else
+  # Se o abrir disser que o card espera uma decisão do dono, repasse esse aviso ao dono em vez de chamar o esperar.
+  # O mesmo vale se 'dgclaw-card estado "$id"' mostrar waiting_input.
+  case "$saida" in
+    *"esperando uma decisao do dono"*) printf '%s\n' "$saida" ;;
+    *) dgclaw-card esperar "$id" --max 900
+       dgclaw-card ler "$id" --n 2 ;;
+  esac
+fi
 ```
 
+- Capture a saída e o código antes de pegar o id: com `| head -1` direto, o código de saída do `abrir` se perde.
+  O id sai uma vez, na primeira linha, assim que o card é criado, mesmo quando o `abrir` termina com 8, 11, 12 ou 14.
+  O `abrir` só imprime "Card aberto" e só sai com 0 quando o pedido virou o primeiro turno do card (espera até
+  60 s). Com `--espera-turno 0` o `abrir` sai com 0 sem conferir o aceite (diz "Card criado", não "Card aberto"):
+  aí confira com `dgclaw-card estado "$id"` antes de avisar o dono. Só siga para o `esperar` e só avise o dono com `cod` igual a 0. Com `cod` diferente de 0, confira com
+  `dgclaw-card estado "$id"` e conte ao dono, sem repetir o pedido.
 - `esperar` serve para card CURTO ou segunda opinião, em que a resposta sai em poucos minutos. Para tarefa
   longa, a sessão principal NÃO espera: abre o card com `--monitor`, fica livre para conversar com o dono
   e deixa o monitor acordá-la (ver "Tarefa longa" abaixo e "Sempre livre para conversar" no seu prompt).
-- `esperar` volta quando o card termina o turno. Se estourar o tempo (código 7), o card segue
-  trabalhando: avise o dono e espere mais com `--max`, ou leia o parcial com `ler`.
+- `esperar` volta quando o card termina o turno. Se estourar o tempo (código 7), o término não foi
+  confirmado a tempo: isso não prova que o card segue trabalhando. Leia o parcial com `ler`, confira com
+  `estado` e espere mais com `--max` se fizer sentido. Se o `abrir` (ou o `estado`) disse que o card espera uma
+  decisão do dono, não chame o `esperar`: repasse o aviso ao dono e não aprove nem mande nada ao card por ele.
 - Para uma pergunta nova no mesmo card: `dgclaw-card mandar "$id" "texto"` e espere de novo.
 - `dgclaw-card estado "$id"` mostra provedor, auth, modelo e situação. `dgclaw-card listar` mostra
   os cards abertos.
@@ -61,8 +81,17 @@ Se o card vai levar mais que alguns minutos (construir, migrar, levantar, revisa
 ligue o modo monitor no mesmo comando que abre o card, com `--monitor` e o critério de entregue:
 
 ```bash
-id="$(dgclaw-card abrir --provedor codex --titulo "Relatório de vendas" --pedido-arquivo /tmp/pedido.md \
-  --monitor --entregue "o arquivo /home/agente/relatorio.md existe e tem as três seções" | head -1)"
+cod=0; saida="$(dgclaw-card abrir --provedor codex --titulo "Relatório de vendas" --pedido-arquivo /tmp/pedido.md \
+  --monitor --entregue "o arquivo /home/agente/relatorio.md existe e tem as três seções")" || cod=$?
+id="$(printf '%s\n' "$saida" | head -1)"
+# Se o abrir for interrompido no meio da espera, o card pode já existir: confira com dgclaw-card listar antes de abrir outro.
+if [ "$cod" != 0 ]; then
+  # Só consulte e avise: nada de mandar, esperar ou fechar neste ramo, e não repita o pedido.
+  echo "o abrir saiu com $cod: não anuncie o acompanhamento"; [ -z "$id" ] || dgclaw-card estado "$id"
+else
+  # Imprima a mensagem do abrir. Se ela disser que o card espera uma decisão do dono, repasse o aviso ao dono.
+  printf '%s\n' "$saida"
+fi
 ```
 
 O `--entregue` diz como saber que terminou (obrigatório com `--monitor`); `--cada MIN` muda o
@@ -118,12 +147,33 @@ O comando já escreve a frase pronta. Repasse ao dono em linguagem simples:
 - Código 4 (limite): há cards demais abertos (o padrão desta instalação é 8). Rode `dgclaw-card listar`, feche os que acabaram com
   `dgclaw-card fechar <id>` e tente de novo. Se o dono quiser mais vagas, o limite sobe em
   `RUNNER_MAX_SESSOES_EXTRAS` (quem mantém a máquina ajusta).
+- Código 12 (o runner não observou o primeiro turno): o card foi criado, mas o runner não viu o primeiro turno
+  do pedido dentro da espera. Isso não prova que o card esteja parado: o pedido pode ainda começar, ou já
+  estar rodando sem ter sido observado. Não diga ao dono que ele está trabalhando (nem que está parado), não
+  feche o card e NÃO reenvie o pedido por conta própria (reenviar poderia duplicá-lo). Confira com
+  `dgclaw-card estado <id>` e `dgclaw-card ler <id>` depois de um tempo.
+  O `abrir` espera 60 segundos por isso; `--espera-turno SEG` muda o prazo (0 desliga).
+- Código 13 (`fechar` recusado): o runner ainda não observou um turno nesta conversa, ainda tem texto na fila, ou não deu para ler o
+  estado dele, e fechar agora pode jogar o pedido fora. Só use `dgclaw-card fechar <id> --forcar`
+  depois de avisar o dono.
+- Código 14 (o turno falhou): o card aceitou o pedido, mas o turno deu erro e o card está parado em erro.
+  Leia o que ele fez com `dgclaw-card ler <id>` e conte ao dono. Não diga que o trabalho está indo bem.
+- Código 11 (não deu para confirmar): o card foi criado e o pedido entregue, mas o `abrir` não conseguiu
+  ler o estado dele (recusa, erro do runner ou resposta sem o contador de turnos). Não diga ao dono que o
+  card está trabalhando, não feche e não reenvie. Rode `dgclaw-card estado <id>` e `dgclaw-card ler <id> --n 20` e conte ao dono o que viu. É o mesmo código 11 da entrega incerta do envio.
 - Código 5 (sem login): o provedor ainda não está conectado. Peça ao dono para abrir o painel,
   aba Status, cartão Modelo e autenticação, e usar Entrar com a assinatura (ou colar a chave de
   API). Depois repita o pedido.
 - Código 2 (runner fora): ele pode estar reiniciando. Espere um minuto e tente de novo; se
-  continuar, o dono toca em Reiniciar no painel.
+  continuar, o dono toca em Reiniciar no painel. Se a mensagem do `abrir` disser "entrega incerta", o card já
+  foi criado e o pedido pode ter entrado: não tente de novo, confira com `dgclaw-card estado <id>`.
 - Código 3 (token): problema de instalação. Peça ao dono para reiniciar o agente pelo painel.
 - Código 6 (outro erro do runner): leia a mensagem e o "o que fazer" que ela traz.
-- Se o pedido não foi entregue mas o card foi criado, a mensagem diz o id: reenvie com
-  `dgclaw-card mandar <id> --arquivo ...` ou feche com `dgclaw-card fechar <id>`.
+- "Entrega incerta" (o `abrir` criou o card e a resposta do envio do pedido se perdeu ou veio com erro do
+  runner, saída 2 ou 6): o card pode já estar trabalhando. Confira com `dgclaw-card estado <id>`, avise o dono e
+  NUNCA reenvie o pedido nem faça a tarefa pela conversa principal.
+- Só quando a mensagem diz que o pedido "nao foi entregue" (o runner recusou o texto com uma resposta 4xx, antes
+  de enfileirar), ela traz o id: reenvie com `dgclaw-card mandar <id> --arquivo ...` ou feche com
+  `dgclaw-card fechar <id> --forcar`. Esse é o único caso em que vale reenviar, e a tarefa só passa a ser feita
+  na conversa principal quando ficou confirmado que o pedido não foi entregue. Com os códigos 8, 11, 12 e 14 e
+  com "entrega incerta" o pedido pode ter sido entregue: não repita a tarefa pela conversa principal.

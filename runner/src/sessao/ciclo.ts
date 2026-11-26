@@ -343,6 +343,7 @@ export async function spawn(s: Sessao, ctx: CtxMotor, args: string[], rolloutDaR
     return;
   }
   s.proc = esteProc;
+  s.subagentesAtivos.clear();
 
   log.info(s.a("pty"), `PTY de pé, pid ${esteProc.pid}`);
   s.buffer = [];
@@ -521,6 +522,7 @@ export function parar(s: Sessao, motivo: string, statusReason?: string): void {
   }
   registrarSaidaPendente(s, antigoProc);
   s.proc = null;
+  s.subagentesAtivos.clear();
   s.encerrando = false;
   cancelarQuietoDeBoot(s);
   cancelarReintentoDaFila(s);
@@ -798,6 +800,7 @@ async function varrerGrupoOrfao(s: Sessao, pid: number, exitCode: number, signal
 export function aoSair(s: Sessao, exitCode: number, signal?: number): void {
   log.info(s.a("pty"), `PTY saiu (código ${exitCode}${signal ? `, sinal ${signal}` : ""})`);
   s.proc = null;
+  s.subagentesAtivos.clear();
   cancelarStopPendente(s);
   cancelarQuietoDeBoot(s);
   cancelarReintentoDaFila(s);

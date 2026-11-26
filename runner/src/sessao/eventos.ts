@@ -3,7 +3,7 @@ import { log } from "../logger.js";
 import { mascarar } from "../mascara.js";
 import { RX_LOGIN_EXPIRADO } from "../transcript.js";
 import { spawn } from "./ciclo.js";
-import { STOP_CONFIRM_MS, TURNOS_DO_CODEX_GUARDADOS } from "./constantes.js";
+import { STOP_CONFIRM_MS, SUBAGENTE_SEM_SINAL_MAX_MS, SUBAGENTES_RASTREADOS_MAX, TURNOS_DO_CODEX_GUARDADOS } from "./constantes.js";
 import { confirmarRecibos, normalizarTexto, talvezSoltarFila } from "./fila.js";
 import { conferirLoginExpiradoNoTranscript, marcarLoginExpirado } from "./login.js";
 import { nonceConfere } from "./telas.js";
@@ -18,6 +18,9 @@ export interface PayloadDeEvento {
   source?: string | null;
   error?: string | null;
   lastAssistantMessage?: string | null;
+  /** Presente só em evento disparado de DENTRO de um subagente (Agent tool). Não confundir com o `agentId` do DG Claw. */
+  subagentId?: string | null;
+  subagentType?: string | null;
   /** Codex: o texto da mensagem do usuário gravada no turno do rollout (evento "TextoDoUsuario"). */
   texto?: string | null;
 }
@@ -59,11 +62,18 @@ export function receberHook(s: Sessao, payload: PayloadDeHook): { ok: boolean; m
 
 /** O efeito de um evento de status já autenticado (vindo do hook ou do rollout do Codex). */
 export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolean; motivo?: string } {
+  // O id do subagente vem do JSON do hook: só vale se for texto curto e simples; senão é tratado como ausente.
+  if (payload.subagentId != null && !(typeof payload.subagentId === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(payload.subagentId))) {
+    log.debug(s.a("hook"), `subagentId ignorado (fora do formato esperado) no evento ${payload.event ?? "?"}`);
+    payload = { ...payload, subagentId: null };
+  }
   // O session_id do evento é a fonte mais confiável que existe: vem do próprio
   // CLI. É assim que o runner descobre quando o agente trocou de sessão por
   // dentro (um `/resume` digitado no TUI), caso em que o id que guardamos
   // ficaria apontando para uma conversa que ninguém mais escreve.
-  if (payload.sessionId && payload.sessionId !== s.estado.sessionId) {
+  // Evento de subagente nunca troca a sessão viva: o session_id dele é o da principal, e um atrasado (de antes de um
+  // /resume) restauraria a conversa antiga.
+  if (payload.sessionId && payload.sessionId !== s.estado.sessionId && !payload.subagentId) {
     // Quem causou: o evento e o source do hook (SessionStart com source=resume/clear/compact/startup...).
     // Só valores conhecidos do protocolo entram no log: o que vem do hook não é confiável e não deve virar texto de log.
     const evento = payload.event ? (EVENTOS_CONHECIDOS.includes(payload.event) ? payload.event : "outro") : null;
@@ -74,6 +84,48 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       sessionId: payload.sessionId,
       previousSessionId: s.estado.sessionId ?? s.estado.previousSessionId ?? null,
     });
+  }
+
+  // Ferramenta de um subagente (em especial o que roda em segundo plano) não decide o estado da sessão principal.
+  // O session_id é o mesmo, então sem este filtro cada PreToolUse dele cancelava o Stop já confirmado da
+  // principal: o status ficava em working e as mensagens do dono presas na fila de ocioso por ~25 min.
+  // Não muda status, não cancela o Stop pendente e não mexe em currentTool. Ainda assim é sinal de vida:
+  // renova a atividade (o relógio de suspensão dos cards não pode dormir um card com subagente trabalhando) e
+  // guarda o id da ferramenta (o Notification de permissão usa o do último PreToolUse, que pode ser o do subagente).
+  // A pergunta ao dono (AskUserQuestion) continua valendo, porque o turno só segue quando ele responde.
+  // Com a sessão em waiting_input o filtro não vale: é o subagente em primeiro plano seguindo depois de uma
+  // permissão (o de segundo plano não abre diálogo), e o caminho normal o devolve a working, como antes.
+  const eventoDeFerramenta = payload.event === "PreToolUse" || payload.event === "PostToolUse";
+  // Em qualquer status (inclusive waiting_input): o subagente está vivo e a suspensão não pode matá-lo.
+  if (payload.subagentId && eventoDeFerramenta) registrarSubagente(s, payload.subagentId);
+  if (
+    payload.subagentId &&
+    !(s.estado.status === "waiting_input" && s.estado.motivo === "permissao") &&
+    (payload.event === "PreToolUse" || payload.event === "PostToolUse") &&
+    payload.toolName !== "AskUserQuestion"
+  ) {
+    log.debug(
+      s.a("hook"),
+      `evento de subagente (${payload.event} ${payload.toolName ?? ""}, subagente ${payload.subagentType ?? payload.subagentId}): renova a atividade, sem mudar o estado da sessão principal`,
+    );
+    s.marcarAtividade();
+    s.ultimoEventoEm = Date.now();
+    if (payload.event === "PreToolUse") s.ultimoToolUseId = payload.toolUseId ?? null;
+    s.hooksVivos = true;
+    if (!s.estado.hookActive) s.estado.hookActive = true;
+    return { ok: true };
+  }
+
+  // Começo e fim de um subagente: só mexem no rastreio. O estado da principal é decidido pelo Stop dela, em qualquer status.
+  if (payload.event === "SubagentStart" || payload.event === "SubagentStop") {
+    if (payload.subagentId) {
+      if (payload.event === "SubagentStart") registrarSubagente(s, payload.subagentId);
+      else s.subagentesAtivos.delete(payload.subagentId);
+    }
+    s.marcarAtividade();
+    s.ultimoEventoEm = Date.now();
+    s.hooksVivos = true;
+    return { ok: true };
   }
 
   if (["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "StopBloqueado", "StopFailure", "PreCompact"].includes(payload.event ?? "")) {
@@ -122,6 +174,7 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       // de que o texto virou turno em vez de ficar escrito na caixa. Quem espera
       // por ele é o enviarComRecibo().
       s.promptsAceitos += 1;
+      s.turnosDaSessao += 1;
       s.compactadoSemTurno = false;
       // Codex: o turno guarda os textos do usuário gravados nele; o recibo só vale com o texto do pedido (ver reciboDoTexto).
       if (s.motor.reciboPorRollout) {
@@ -286,6 +339,24 @@ export function aplicarEvento(s: Sessao, payload: PayloadDeEvento): { ok: boolea
       log.debug(s.a("hook"), `evento sem tratamento: ${payload.event}`);
   }
   return { ok: true };
+}
+
+/** Grava o sinal de vida de um subagente. Limpa as entradas sem sinal há mais de 2 h e respeita o teto de entradas
+ *  (com o mapa cheio, sai a de sinal mais antigo), para a sessão principal também não acumular. */
+export function registrarSubagente(s: Sessao, id: string): void {
+  const agora = Date.now();
+  for (const [outro, sinal] of s.subagentesAtivos) {
+    if (agora - sinal > SUBAGENTE_SEM_SINAL_MAX_MS) s.subagentesAtivos.delete(outro);
+  }
+  if (!s.subagentesAtivos.has(id) && s.subagentesAtivos.size >= SUBAGENTES_RASTREADOS_MAX) {
+    let maisAntigo: string | null = null;
+    let menor = Infinity;
+    for (const [outro, sinal] of s.subagentesAtivos) {
+      if (sinal < menor) { menor = sinal; maisAntigo = outro; }
+    }
+    if (maisAntigo !== null) s.subagentesAtivos.delete(maisAntigo);
+  }
+  s.subagentesAtivos.set(id, agora);
 }
 
 /** Teto, em bytes, da soma dos textos guardados para o recibo do Codex (turnos e textos soltos). */

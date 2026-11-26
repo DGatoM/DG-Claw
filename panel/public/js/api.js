@@ -156,6 +156,7 @@ const API = {
   memoriaArquivo: (path) => API.pedir(`/api/memoria/arquivo?path=${encodeURIComponent(path)}`),
   memoriaSalvar: (path, conteudo, versaoLida) => API.put('/api/memoria/arquivo', { path, conteudo, versaoLida }),
   radiografia: () => API.pedir('/api/radiografia'),
+  integracoes: () => API.pedir('/api/integracoes'),
   saude: () => API.pedir('/api/saude'),
   saudeReiniciar: (modo) => API.post('/api/saude/reiniciar', { modo }),
   workingMemory: () => API.get('/api/working-memory'),

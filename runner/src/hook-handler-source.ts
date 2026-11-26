@@ -65,6 +65,9 @@ const payload = JSON.stringify({
   sessionId: ev.session_id || process.env.CLAUDE_CODE_SESSION_ID || null,
   toolName: ev.tool_name || null,
   toolUseId: typeof ev.tool_use_id === "string" ? ev.tool_use_id : null,
+  // Só vêm em evento disparado de dentro de um subagente; o session_id dele é o mesmo da principal.
+  subagentId: typeof ev.agent_id === "string" ? ev.agent_id.slice(0, 100) : null,
+  subagentType: typeof ev.agent_type === "string" ? ev.agent_type.slice(0, 100) : null,
   source: ev.source || null,
   error: ev.error || null,
   lastAssistantMessage: typeof ev.last_assistant_message === "string" ? ev.last_assistant_message.slice(0, 500) : null,

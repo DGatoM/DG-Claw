@@ -5,7 +5,7 @@ import { GUARDAR_IDS, LIMITE_MIDIA_ENTRADA } from './limites.mjs';
 import { numeroDeJid } from './numeros.mjs';
 import { dataLocal, escaparCorpo, extensaoDe, horaLocal, motivoErro, numeroDe } from './util.mjs';
 
-export function criarEntrada({ memoria, opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico, arqUltimo, dirUploads, downloadMediaMessage, pendentes }) {
+export function criarEntrada({ envioSeguro, ligacao, memoria, opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico, arqUltimo, dirUploads, downloadMediaMessage, pendentes }) {
   const idsVistos = new Set();
 
   const recusasRecentes = new Map();
@@ -144,7 +144,18 @@ export function criarEntrada({ memoria, opcoes, registrar, agora, lids, aprender
         ? 'Sua mensagem não chegou ao agente: ele está sem login ou sem chave. Avise o dono para abrir o painel do DG Claw.'
         : 'Sua mensagem não chegou ao agente agora. Tente de novo daqui a pouco.';
       try {
-        await sock.sendMessage(jid, { text: aviso });
+        // O aviso automatico tambem e mensagem enviada: passa pelas mesmas travas (ritmo, teto, trava).
+        const env = await envioSeguro.enviar({
+          para: numero, texto: aviso, prazoMs: 30000,
+          // Depois da espera do ritmo o socket pode ter sido trocado (reconexao) e o numero pode ter saido da lista.
+          conferir: () => {
+            if (!estaPermitido(numero)) return { ok: false, codigo: 'FORA_DA_LISTA', erro: `${numero} saiu da lista de permitidos` };
+            const l = ligacao();
+            return !l.conectado || !l.sock ? { ok: false, codigo: 'DESCONECTADO', erro: 'a conexao caiu enquanto o aviso esperava; nada foi enviado nem travado' } : null;
+          },
+          executar: () => ligacao().sock.sendMessage(jid, { text: aviso }),
+        });
+        if (!env.ok) registrar(`nao avisei ${numero} que a mensagem ${id} falhou (${env.codigo}): ${env.erro}`);
       } catch (e) {
         registrar(`nao consegui avisar ${numero} que a mensagem ${id} falhou: ${motivoErro(e)}`);
       }

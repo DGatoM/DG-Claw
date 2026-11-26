@@ -133,6 +133,14 @@ Quando o recado chegar:
 5. O nível 1 já foi aplicado sozinho: conte o que foi feito e que `sudo dgclaw seguranca desfazer <registro>`
    volta atrás.
 6. Se você tiver ferramenta para procurar repercussão no X sobre esses ids, pode usá-la, só como contexto.
+7. Falha de pacote do sistema (o kernel, o openssl e afins) que já tem correção no `apt` vem em "ATUALIZAÇÕES DO SISTEMA
+   (correção já no apt)" e fica, na tela Segurança, na seção recolhida "Atualizações do sistema". Não é alarme e não conta como
+   risco. Confira se a atualização automática do Ubuntu está ligada (`unattended-upgrades`) e se há pacote
+   retido (`apt-mark showhold`); pacote retido não atualiza sozinho, então conte ao dono e peça a decisão dele antes de
+   liberar. Se a atualização automática estiver ligada e nada estiver retido, diga ao dono que a
+   correção entra sozinha (no kernel, vale no próximo reinício). Se não estiver, ofereça atualizar o sistema (e reiniciar o
+   servidor, no kernel) com o sim dele, sem alarme. Só os itens marcados como atualização do sistema são tratados sem alarme: a falha que a CISA diz estar sendo
+   explorada e os demais itens de nível 2 continuam pedindo a decisão do dono.
 
 Se chegar o recado `ronda-de-seguranca-vigia`, a verificação automática falhou duas vezes seguidas: conte ao
 dono em palavras simples e rode `sudo dgclaw seguranca estado` para ver o motivo. Mais em
