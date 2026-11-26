@@ -394,3 +394,15 @@ test("recusa por restrição: grupo que sobrou e não dá para confirmar morto v
   assert.equal(s.grupoQueSobrou, 888_888);
   s.grupoQueSobrou = null;
 });
+
+test("turnosDaSessao: zera quando a conversa troca de id, mas não ao descobrir o primeiro id", async () => {
+  const s = await nova();
+  s.turnosDaSessao = 2;
+  s.mudar({ sessionId: null });
+  s.mudar({ sessionId: "aaaaaaaa-0000-4000-8000-000000000001" });
+  assert.equal(s.turnosDaSessao, 2, "null para um id: os turnos já eram dessa conversa");
+  s.mudar({ sessionId: "aaaaaaaa-0000-4000-8000-000000000001" });
+  assert.equal(s.turnosDaSessao, 2, "mesmo id: não zera");
+  s.mudar({ sessionId: "bbbbbbbb-0000-4000-8000-000000000002" });
+  assert.equal(s.turnosDaSessao, 0, "conversa nova: zera");
+});

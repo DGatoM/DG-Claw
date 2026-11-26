@@ -107,6 +107,25 @@ test('estados novos e o campo paliativo passam saneados; estado desconhecido con
   assert.equal(validaAchado(achado({ correcao: { tipo: 'acao-catalogo', acao_id: 'a', disponivel: true, executavel: true, paliativo: true } })).achado.correcao.paliativo, true);
 });
 
+test('atualizacao-sistema passa; o estado gravado pelo motor é preservado, sem reclassificar', () => {
+  const apt = { tipo: 'apt', disponivel: true, executavel: false, exige_reinicio: true };
+  assert.equal(validaAchado(achado({ estado: 'atualizacao-sistema', correcao: apt })).achado.estado, 'atualizacao-sistema');
+  const kernel = achado({ correcao: apt, severidade: 'CRITICAL', onde: ['kernel 6.8.0-147 em execução'] });
+  assert.equal(validaAchado(kernel).achado.estado, 'aberto', 'ronda.json antigo: o painel não reclassifica, a próxima rodada corrige');
+  assert.equal(validaRonda(ronda([kernel])).ronda.niveis[2][0].estado, 'aberto');
+});
+
+test('atualizacao-sistema não pode ser desfeita nem aplicada pelo painel', async () => {
+  const w = await logado();
+  try {
+    gravaRonda(w, ronda([achado({ id: 'ATU-1', estado: 'atualizacao-sistema', correcao: { tipo: 'apt', disponivel: true } })]));
+    assert.equal((await w.c.post('/api/v1/seguranca/ronda/ATU-1/desfazer', { json: {} })).status, 409);
+    const ap = await w.c.post('/api/v1/seguranca/ronda/ATU-1/aplicar', { json: {} });
+    assert.equal(ap.status, 409);
+    assert.match(ap.json.erro, /entra pela atualização do sistema/);
+  } finally { await w.fechar(); }
+});
+
 test('validaRonda agrupa por nível, mais grave primeiro, e acusa os descartados', () => {
   const descartes = [];
   const r = validaRonda(ronda([
@@ -193,7 +212,7 @@ test('aplicar e agendar recusam correção não executável (409 explicando); co
   const w = await logado();
   try {
     gravaRonda(w, ronda([
-      achado({ id: 'USN-APT-1', correcao: { tipo: 'apt', disponivel: true, executavel: false } }),
+      achado({ id: 'USN-APT-1', explorada_ativamente: true, correcao: { tipo: 'apt', disponivel: true, executavel: false } }),
       achado({ id: 'GHSA-aaaa-bbbb-cccc' }),
     ]));
     const quando = new Date(Date.now() + 3600 * 1000).toISOString();

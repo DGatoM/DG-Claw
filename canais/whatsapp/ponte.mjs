@@ -26,7 +26,9 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { criarEntrada } from './lib/entrada.mjs';
 import { criarEntregaRunner } from './lib/entrega-runner.mjs';
+import { criarAnotadorIntegracao } from './lib/integracao.mjs';
 import { criarEnvioArquivo } from './lib/envio-arquivo.mjs';
+import { criarEnvioSeguro } from './lib/envio-seguro.mjs';
 import { criarMemoriaMensagens } from './lib/memoria-mensagens.mjs';
 import { criarLids } from './lib/lids.mjs';
 import { motivoNumeroInvalido, normalizar, numeroDeJid } from './lib/numeros.mjs';
@@ -70,7 +72,7 @@ export async function iniciar(opcoes = {}) {
   const tempoPareamento = opcoes.tempoPareamentoMs ?? 300000;
   const tempoLogout = opcoes.tempoLogoutMs ?? 30000;
   const timeoutLeitura = opcoes.timeoutLeituraSocketMs ?? 30000;
-  const timeoutExecTexto = opcoes.timeoutExecTextoMs ?? 30000;
+  const timeoutExecTexto = opcoes.timeoutExecTextoMs ?? 75000;
   const timeoutExecArquivo = opcoes.timeoutExecArquivoMs ?? 120000;
   const saida = opcoes.saida || ((l) => process.stdout.write(l + '\n'));
 
@@ -216,6 +218,7 @@ export async function iniciar(opcoes = {}) {
   const { useMultiFileAuthState, DisconnectReason, Browsers, downloadMediaMessage } = baileys;
   const LOGGED_OUT = (DisconnectReason && DisconnectReason.loggedOut) || 401;
   const RESTART_REQUIRED = (DisconnectReason && DisconnectReason.restartRequired) || 515;
+  const FORBIDDEN = (DisconnectReason && DisconnectReason.forbidden) || 403;
 
   let logger = opcoes.logger;
   if (!logger) {
@@ -288,17 +291,32 @@ export async function iniciar(opcoes = {}) {
     estaEncerrando: () => encerrando,
     pendentes,
   });
-  const { entregar } = criarEntregaRunner({
+  const { entregar: entregarAoRunner } = criarEntregaRunner({
     opcoes, env, runnerUrl, tokenFile, runnerJson, esperasEntrega, dormir, estaEncerrando: () => encerrando,
   });
+  // Travas contra banimento: ritmo, tetos, texto repetido e trava no primeiro erro (docs/CANAL-WHATSAPP.md).
+  const envioSeguro = opcoes.envioSeguro || criarEnvioSeguro({
+    dir: path.join(dir, 'envio'), arqConfig: path.join(dir, 'envio.json'), agora, registrar,
+    dormir: opcoes.dormirEnvio, aleatorio: opcoes.aleatorioEnvio,
+  });
+  // Mensagem entregue ao agente = o WhatsApp esta funcionando de ponta a ponta: anota no mapa de integracoes.
+  const { anotar: anotarIntegracao } = criarAnotadorIntegracao({ registrar, env, opcoes });
+  async function entregar(envelope) {
+    const r = await entregarAoRunner(envelope);
+    if (r && r.ok) anotarIntegracao('ok', 'uso');
+    return r;
+  }
   const memoria = criarMemoriaMensagens();
   const { aoReceber, aoAtualizar, aoApagar, aoApagarConversas } = criarEntrada({
+    envioSeguro,
+    ligacao: () => ({ conectado, sock: sockAtual }),
     memoria, opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico,
     arqUltimo, dirUploads, downloadMediaMessage, pendentes,
   });
   const raizesArquivo = opcoes.raizesArquivo || [home];
   const { validarArquivo, montarEnvioArquivo } = criarEnvioArquivo({ home, raizesArquivo });
   const { tratarPedido } = criarPedidos({
+    envioSeguro,
     memoria,
     lerPermitidos,
     estaPermitido,
@@ -401,9 +419,15 @@ export async function iniciar(opcoes = {}) {
         registrar('conectado ao WhatsApp' + (numeroBot ? ` como ${numeroBot}` : ''));
       },
       aoFechar: async ({ codigo }) => {
+        // Aparelho encerrado (401) ou recusado (403) e sinal de bloqueio: trava os envios ate o dono liberar.
+        // Queda comum (rede, reinicio) nao trava: reconecta como sempre.
+        if (codigo === LOGGED_OUT || codigo === FORBIDDEN) {
+          envioSeguro.travar(`o WhatsApp encerrou ou recusou o aparelho (codigo ${codigo}); pode ser bloqueio do numero`);
+        }
         if (codigo === LOGGED_OUT) {
           registrar('o WhatsApp encerrou este aparelho (401). Pareie de novo com "dgclaw-agente canal whatsapp parear <numero-secundario>".');
           definirEstado('deslogado', 'o WhatsApp encerrou o aparelho; é preciso parear de novo');
+          await anotarIntegracao('desconectado', 'canal');   // espera (com prazo) antes de encerrar
           finalizar(0);
           return 'parar';
         }

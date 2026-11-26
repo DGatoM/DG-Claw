@@ -43,6 +43,7 @@ _atu_problema() { ATU_PROBLEMAS=$((ATU_PROBLEMAS + 1)); printf '   FALHOU  %s\n'
 # e como seguir ou voltar.
 _atualizar_ao_sair() {
     local rc=$?
+    assinatura_limpar
     [ "$rc" -eq 0 ] && return 0
     {
         printf '\nA atualizacao parou em: %s.\n' "${ATU_ETAPA:-inicio}"
@@ -184,6 +185,10 @@ atualizar_conferir() {
                 if [ "$sha_atual" != "$hash" ] && ! modelo_admin_sha_de_fabrica "$hash" "$nome" "$ATU_REPO"; then
                     _atu_problema "$rel estava personalizado e foi alterado (o backup tem a sua versao: $b/admin.tar.gz)"
                 fi ;;
+            etc/dgclaw/assinatura/*)
+                # A atualizacao assinada regrava de proposito o commit instalado, o marcador e, na troca de chave,
+                # o arquivo de chaves (lib/assinatura.sh); a verificacao deles e a da propria assinatura.
+                if [ "$sha_atual" != "$hash" ]; then info "$rel foi atualizado pela conferencia de assinatura (esperado)"; fi ;;
             var/lib/dgclaw/web/sessoes.json|var/lib/dgclaw/agentes/*/home/*)
                 # Quem escreve aqui e o uso normal (conversas, memoria do agente): mudar nao e erro.
                 if [ "$sha_atual" != "$hash" ]; then
@@ -203,6 +208,8 @@ atualizar_conferir() {
 # atualizar_rodar_install: o install.sh do clone, sem nada interativo e reaproveitando o que ja esta configurado.
 atualizar_rodar_install() {
     local usuario dominio prov rc=0 args=()
+    assinatura_exigir_head
+    assinatura_persistir_antes
     usuario="${DGCLAW_USUARIO:-$(_env_de "$DG_ETC/web.env" DGCLAW_PANEL_USER)}"
     [ -n "$usuario" ] || falha "nao descobri o usuario do painel (nem DGCLAW_USUARIO no dgclaw.env, nem DGCLAW_PANEL_USER no web.env)." \
         "diga qual e: sudo ./install.sh --usuario <nome> dentro do clone ($ATU_REPO) e depois rode de novo."
@@ -223,6 +230,8 @@ atualizar_rodar_install() {
     set -e
     [ "$rc" -eq 0 ] || falha "o instalador ($ATU_REPO/install.sh) terminou com codigo $rc." \
         "leia as linhas acima, que mostram a causa. Seus dados estao no backup; rodar de novo e seguro: sudo dgclaw atualizar --sem-baixar"
+    # Instalou: so agora a chave e o commit conferidos passam a valer como estado desta maquina (fora do clone).
+    assinatura_gravar_estado
 }
 
 # atualizar_aplicar: instalar + imagem + agentes. Compartilhado pela atualizacao e pelo --voltar.
@@ -577,6 +586,9 @@ atualizar_main() {
             --sem-personalizacoes) export ATU_SEM_PERS=1 ;;
             --mesmo-assim) mesmo_assim=1 ;;
             --sem-voltar-sozinho) ATU_SEM_VOLTAR=1 ;;
+            --exigir-assinatura) export ATU_EXIGIR_ASSINATURA=1 ;;
+            --chave-assinatura) [ $# -ge 2 ] || falha "a opcao --chave-assinatura precisa do caminho do arquivo allowed_signers." "exemplo: sudo dgclaw atualizar --chave-assinatura /root/allowed_signers (veja docs/ASSINATURA.md)"; export ATU_CHAVE_EXTERNA="$2"; shift ;;
+            --chave-assinatura=*) export ATU_CHAVE_EXTERNA="${a#*=}" ;;
             --voltar) [ $# -ge 2 ] || falha "a opcao --voltar precisa da pasta do backup." "exemplo: sudo dgclaw atualizar --voltar /var/backups/dgclaw/20261018-093000"; voltar="$2"; ATU_MODO=voltar; shift ;;
             --voltar=*) voltar="${a#*=}"; ATU_MODO=voltar ;;
             *) falha "a opcao '$a' nao existe em 'atualizar'." "veja as opcoes com: dgclaw --ajuda" ;;
@@ -785,12 +797,17 @@ atualizar_baixar() {
                  "confira a internet (curl -I https://github.com) e rode de novo. O backup ja foi feito; nada mais foi mudado."
     # Instala EXATAMENTE a versao que o relatorio "o que muda" mostrou ao dono (ATU_DESTINO), nao o que o GitHub tem agora.
     alvo="${ATU_DESTINO:-}"; [ -n "$alvo" ] || alvo='@{u}'
+    assinatura_reconferir
     novos="$(_git rev-list --count "HEAD..$alvo")"
     if ! _git merge --ff-only "$alvo" >/dev/null 2>&1; then
         falha "o clone $ATU_REPO divergiu do GitHub (tem commits seus que nao estao la, ou o historico mudou), entao o 'git merge --ff-only' recusou. Nao fiz merge nem reset." \
               "veja a diferenca: cd $ATU_REPO && git log --oneline --graph --all -20. Guarde seus commits em outra branch (git branch minha-copia) e deixe o clone igual ao GitHub, ou peca ajuda. Depois rode de novo. O backup ja foi feito; nada mais foi mudado."
     fi
     depois="$(_git rev-parse HEAD)"
+    if [ "$ATU_ASSINATURA" = ativa ] && [ "$depois" != "$ASS_DESTINO" ]; then
+        falha "depois de baixar, o clone ficou em ${depois:0:10} e a versao assinada e ${ASS_DESTINO:0:10}. Nao rodei o instalador." \
+              "o instalador roda como root, entao so segue com a versao assinada. Rode de novo: sudo dgclaw atualizar. O backup ja foi feito."
+    fi
     if [ "$antes" = "$depois" ]; then ok "o clone ja estava na versao mais nova do GitHub (nenhum commit novo)"
     else ok "baixei $novos commit(s) novo(s): ${antes:0:10} -> ${depois:0:10}"; fi
 }
@@ -820,6 +837,8 @@ atualizar_segundo_plano() {
 # atualizar_voltar <backup> <sem-homes> <mesmo-assim>
 atualizar_voltar() {
     local b="$1" sem_homes="$2" mesmo_assim="$3" commit_alvo ramo_novo extras="" backup_agora log_arq resumo_arq
+    # A volta devolve o commit e o estado de assinatura que estao no backup: nao se aplica a conferencia da atualizacao.
+    ATU_ASSINATURA=""; ASS_DESTINO=""
     ATU_ETAPA="conferindo o backup a restaurar"
     b="$(backup_conferir_pasta "$b")"
     commit_alvo="$(_env_de "$b/MANIFESTO.txt" commit)"
