@@ -17,6 +17,20 @@ continua genérica. A tela de login passou a mostrar quantos minutos faltam quan
 acesso (mínimo de 12 caracteres). Só a linha do hash no `web.env` é regravada, o limite de tentativas da senha atual é o
 do login, as outras sessões caem e a sessão de quem trocou continua. Colaborador e chave de API recebem 403 nessa rota. A troca também invalida o link de primeiro acesso ou recuperação que estiver pendente, deixa uma só linha do hash no `web.env` e fecha de imediato os WebSockets das sessões derrubadas; a senha nova é comparada com a atual já normalizada, como o login faz. A sessão do dono também é conferida até o fim do pedido (uma espera aberta por outra sessão termina com 401 quando a senha é trocada), o hash fica sempre numa linha canônica sem `export`, e o tamanho mínimo da senha (12) vale tanto para o que foi digitado quanto para a forma normalizada, a mesma que o login usa. Se a senha do painel for definida fora do `web.env` (por exemplo numa linha `Environment=` da unidade), a troca pelo painel responde 409 sem gravar nada, porque ela não valeria depois de reiniciar; o mesmo vale quando o `web.env` não é um arquivo comum. Ao reinstalar sem senha nova, o instalador não lê nem regrava mais a linha do hash: só a linha do usuário é atualizada. O instalador, o `dgclaw senha` e o painel agora gravam o `web.env` sob uma trava de pasta comum (`.web.env.trava`, ao lado dele), para uma regravação não desfazer o hash de uma troca feita ao mesmo tempo. O `web.env` também passa a valer sobre o ambiente do serviço para o hash da senha: se ele define `DGCLAW_PANEL_PASSWORD_HASH`, é o valor dele que vale depois de reiniciar. Os pedidos de escrita do dono por `/p/` passam a ser conferidos no fim do corpo mesmo sem Face ID, e o link de recuperação só é apagado depois que o `web.env` novo entra.
 
+**Barra superior da conversa: agentes com rolagem lateral e botões compactos.** Conforme a barra de cima ganhava
+botões com nome escrito, ela estourava e empurrava os agentes para fora da tela, sem como clicar neles. Agora os botões
+da barra mostram só o ícone, e o nome de cada um aparece ao passar o mouse (e é lido pelo leitor de tela). As bolinhas
+com número continuam no canto de cada botão. "Ler em voz alta" e "Conversa contínua" ficaram juntos num botão só, o
+**Voz**, que abre um quadro pequeno com os dois controles, cada um dizendo por escrito se está ligado ou desligado; o
+botão fica destacado quando um deles está ligado. A fileira de agentes do celular ganhou uma sombra na borda quando há
+mais agentes para o lado, continua rolando com o dedo, aceita a roda do mouse e mantém o agente atual à vista.
+
+### Como atualizar (barra superior)
+
+O `dgclaw atualizar` padrão já traz a barra nova. Depois de atualizar, recarregue a página da conversa (no app
+instalado no celular, feche e abra de novo) para o navegador pegar os arquivos novos. Não há chave nova nem nada para
+ajustar.
+
 **Correção de segurança: a atualização só instala versão assinada.** O `dgclaw atualizar` baixava o código do GitHub e rodava
 o `install.sh` dele como root sem conferir de onde vinha. Quem controlasse o repositório ou o clone executaria código como
 root em todos os servidores. Agora, quando o seu DG Claw tem a chave de assinatura do projeto (arquivo

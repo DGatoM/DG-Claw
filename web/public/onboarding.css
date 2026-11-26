@@ -4,7 +4,7 @@
 @media(max-width:600px){.nascimento{margin:16px 12px;padding:20px;border-radius:20px}.nas-badge strong{font-size:23px}.nas-topo{gap:6px}.nas-marca{font-size:9px;letter-spacing:1.5px}}
 @media(prefers-reduced-motion:reduce){.nascimento *{animation:none!important;transition:none!important}.nas-abriu{height:24px}.nas-abriu .nas-cubo{display:none}.nas-badge{transform:none;animation:nasAparece .25s ease-out both!important}@keyframes nasAparece{from{opacity:.35}to{opacity:1}}}
 
-.admin-primeiro-acesso #avisoAdmin,.admin-primeiro-acesso #btnLer,.admin-primeiro-acesso #btnContinua{display:none!important}#nasGerarFoto{margin-top:10px;font-size:13px}
+.admin-primeiro-acesso #avisoAdmin,.admin-primeiro-acesso #btnVoz,.admin-primeiro-acesso #menuVoz,.admin-primeiro-acesso #btnLer,.admin-primeiro-acesso #btnContinua{display:none!important}#nasGerarFoto{margin-top:10px;font-size:13px}
 
 .admin-primeiro-acesso #wrap .vazio{display:none}
 

@@ -37,7 +37,7 @@ Em toda tela existe o botão **Tutorial**, ao lado do título. Ele faz uma visit
 ## A conversa
 
 **O que é.** O chat do navegador, o canal principal de cada agente. O Telegram e o WhatsApp são opcionais (veja [canais.md](canais.md)) e caem na mesma conversa.
-**Como usar.** Abra `/a/<slug>`, escreva e envie. A resposta aparece quando o agente a manda. O cabeçalho mostra "agente sem sinal" quando o serviço dele não responde.
+**Como usar.** Abra `/a/<slug>`, escreva e envie. A resposta aparece quando o agente a manda. O cabeçalho mostra "agente sem sinal" quando o serviço dele não responde. Os botões do cabeçalho (Mesa, Sessões, Lembretes, não lida e outros) mostram só o ícone, e o nome aparece ao passar o mouse ou na leitura de tela. O botão Voz (alto-falante) agrupa a leitura das respostas em voz alta e a conversa contínua: ao tocar nele abre um quadro com os dois controles, cada um dizendo se está ligado ou desligado, e o botão fica destacado quando qualquer um está ligado. No celular a fileira de avatares dos agentes rola para o lado, com uma sombra na borda do lado que ainda tem agentes, e o agente atual fica sempre à vista.
 **Precisa de.** O agente criado e a conta de IA dele conectada (veja [provedores.md](provedores.md)).
 **Limites.** A conversa mostra o que o agente envia pelo chat. Um agente trabalhando em silêncio parece parado, por isso ele deve avisar quando começa algo demorado.
 **Se der erro.** "Agente sem sinal": peça ao Admin `dgclaw agente reparar <slug>` (veja [agentes.md](agentes.md)). Pedido de login: a conversa abre o cartão para entrar na conta, descrito em [Conectar conta](#conectar-conta).
@@ -83,7 +83,7 @@ Mais em [../../web/docs/ESTADO-DOS-AGENTES.md](../../web/docs/ESTADO-DOS-AGENTES
 
 ## Voz: falar e ouvir
 
-**O que é.** O botão 🎤 grava um áudio que o painel transcreve e manda ao agente como texto. O botão 🔊 faz o agente responder em voz alta, e o 🔁 (conversa contínua) volta a gravar depois de cada resposta.
+**O que é.** O botão 🎤 grava um áudio que o painel transcreve e manda ao agente como texto. O botão de voz (alto-falante) no cabeçalho abre dois controles: "Ler respostas em voz alta", que faz o agente responder falando, e "Conversa contínua", que volta a gravar depois de cada resposta.
 **Precisa de.** Uma chave no `web.env`. Para transcrever, vale `GROQ_API_KEY` (gratuita), `ELEVENLABS_API_KEY` ou `OPENAI_API_KEY`, nessa ordem de preferência: ElevenLabs, Groq, OpenAI. Para o agente falar, só `ELEVENLABS_API_KEY`, mais uma voz escolhida para o agente. O agente tem a skill `groq-audio`, que guia o dono para conectar a Groq ("quero falar por áudio").
 **Limites.** A resposta é lida em pedaços (o primeiro de até 450 caracteres, os outros de até 1200, no máximo 40 pedaços). Tabelas, código e links não viram fala. O áudio transcrito chega ao agente marcado como `[áudio transcrito]`, e ele sabe que a transcrição pode ter erros.
 **Se der erro.** Sem chave, a tela esconde os botões e a rota responde com o motivo ("falta GROQ_API_KEY..."). Peça ao Admin: "conecta a Groq para eu falar por áudio".
