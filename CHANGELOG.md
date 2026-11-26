@@ -24,6 +24,20 @@ quiser receber também por outro canal, por exemplo um bot de Telegram da equipe
 (`sudo systemctl restart dgclaw-web`). O exemplo está em `docs/AVISO-DA-EQUIPE.md`. Se você não configurar essa linha,
 nada muda além do aviso no aparelho.
 
+**Barra superior da conversa: agentes com rolagem lateral e botões compactos.** Conforme a barra de cima ganhava
+botões com nome escrito, ela estourava e empurrava os agentes para fora da tela, sem como clicar neles. Agora os botões
+da barra mostram só o ícone, e o nome de cada um aparece ao passar o mouse (e é lido pelo leitor de tela). As bolinhas
+com número continuam no canto de cada botão. "Ler em voz alta" e "Conversa contínua" ficaram juntos num botão só, o
+**Voz**, que abre um quadro pequeno com os dois controles, cada um dizendo por escrito se está ligado ou desligado; o
+botão fica destacado quando um deles está ligado. A fileira de agentes do celular ganhou uma sombra na borda quando há
+mais agentes para o lado, continua rolando com o dedo, aceita a roda do mouse e mantém o agente atual à vista.
+
+### Como atualizar (barra superior)
+
+O `dgclaw atualizar` padrão já traz a barra nova. Depois de atualizar, recarregue a página da conversa (no app
+instalado no celular, feche e abra de novo) para o navegador pegar os arquivos novos. Não há chave nova nem nada para
+ajustar.
+
 **Correção de segurança: a atualização só instala versão assinada.** O `dgclaw atualizar` baixava o código do GitHub e rodava
 o `install.sh` dele como root sem conferir de onde vinha. Quem controlasse o repositório ou o clone executaria código como
 root em todos os servidores. Agora, quando o seu DG Claw tem a chave de assinatura do projeto (arquivo
