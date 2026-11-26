@@ -7,7 +7,7 @@
 #   3. web/test         o DG Claw Web (node --test)
 #   4. painel           panel/test-*.mjs, um por um (saida 3 = parte pulada, ex.: sem chave de teste)
 #   5. python           scripts/_lib/test_*.py, um por um
-#   5b. bin             bin/test/*.test.sh (dgclaw-agente e dgclaw-card, com Telegram e runner falsos)
+#   5b. bin             bin/test/*.test.sh (dgclaw-agente, dgclaw-card e dgclaw-pesado, com Telegram e runner falsos)
 #   6. runner           compila numa pasta temporaria e roda os *.test.js do dist
 #   7. cofre            scripts/test-cofre-nomes.sh e as duas linhas dele na unidade do runner
 #   8. shellcheck       nos scripts do instalador, da CLI e dos testes
@@ -133,7 +133,7 @@ testes_shellcheck() {
     (
         cd "$REPO" || exit 1
         arquivos=(install.sh bin/dgclaw lib/*.sh tests/rodar.sh tests/cli/*.sh tests/cli/stubs/* tests/cli/stubs-entrega/* scripts/smoke-entrega.sh
-                  tests/instalador/*.sh tests/novidades/*.sh tests/changelog/*.sh tests/monitor/*.sh tests/aviso-atualizacao/*.sh tests/boletins/*.sh tests/emergencia/*.sh tests/tela/*.sh tests/anonimizar/*.sh tests/docs-em-dia/*.sh tests/heartbeat/*.sh scripts/heartbeat.sh tests/reflexao/*.sh tests/comentarios/*.sh scripts/responder-comentario.sh scripts/cron/dgclaw-comentarios.sh tests/instrucoes/*.sh tests/anexo-seguro/*.sh scripts/_lib/anexo-seguro.sh tests/confianca/*.sh scripts/_lib/confiar-pastas.sh scripts/channel-watchdog.sh scripts/gerar-instrucoes.sh bin/dgclaw-tela-navegador tests/ronda/rodar.sh tests/ronda/stubs/* scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh bin/dgclaw-integracao
+                  tests/instalador/*.sh tests/novidades/*.sh tests/changelog/*.sh tests/monitor/*.sh tests/aviso-atualizacao/*.sh tests/boletins/*.sh tests/emergencia/*.sh tests/tela/*.sh tests/anonimizar/*.sh tests/docs-em-dia/*.sh tests/heartbeat/*.sh scripts/heartbeat.sh tests/reflexao/*.sh tests/comentarios/*.sh scripts/responder-comentario.sh scripts/cron/dgclaw-comentarios.sh tests/instrucoes/*.sh tests/anexo-seguro/*.sh scripts/_lib/anexo-seguro.sh tests/confianca/*.sh scripts/_lib/confiar-pastas.sh scripts/channel-watchdog.sh scripts/gerar-instrucoes.sh bin/dgclaw-tela-navegador bin/dgclaw-pesado bin/test/dgclaw-pesado.test.sh tests/ronda/rodar.sh tests/ronda/stubs/* scripts/cofre-nomes.sh scripts/test-cofre-nomes.sh bin/dgclaw-integracao
                   scripts/revisao-adversarial.sh tests/revisao-adversarial/*.sh tests/versao/*.sh)
         "$sc" -x "${arquivos[@]}"
     )

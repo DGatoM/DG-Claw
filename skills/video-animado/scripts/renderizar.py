@@ -16,6 +16,28 @@ import sys
 import time
 import urllib.request
 
+def _autoembrulho():
+    # Reexecuta este script sob o dgclaw-pesado (cgroup próprio com teto de memória e de tempo):
+    # se o render estourar, morre só ele, e o que sobrar dele (Chrome headless) é recolhido.
+    if os.environ.get("DGCLAW_PESADO"):
+        return
+    exe = shutil.which("dgclaw-pesado")
+    if not exe:
+        return
+    args = [exe]
+    if not os.environ.get("DGCLAW_PESADO_TIMEOUT"):
+        args += ["--timeout", "3600"]
+    # Reexecuta ESTE arquivo (não o programa que o chamou) e mantém as opções de isolamento do interpretador.
+    if sys.flags.isolated:
+        opcoes = ["-I"]
+    else:
+        opcoes = [o for o, ligada in (("-E", sys.flags.ignore_environment), ("-s", sys.flags.no_user_site),
+                                      ("-P", getattr(sys.flags, "safe_path", False))) if ligada]
+    if sys.flags.no_site:
+        opcoes.append("-S")
+    os.execv(exe, args + ["--", sys.executable, *opcoes, os.path.abspath(__file__), *sys.argv[1:]])
+
+
 # Chrome da Tela do agente. Endereço fixo de propósito: não vem de argumento nem de variável
 # de ambiente, para o script não poder ser apontado para outro servidor.
 TELA_CDP = "http://127.0.0.1:9222"
@@ -163,4 +185,5 @@ def main():
 
 
 if __name__ == "__main__":
+    _autoembrulho()
     main()
