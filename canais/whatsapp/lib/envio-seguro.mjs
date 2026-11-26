@@ -308,7 +308,8 @@ export function criarEnvioSeguro({ dir, arqConfig, limiteExecucaoMs = 100000, ag
       return falha('ESTADO_INVALIDO', `${est.erro}; sem o historico as travas de ritmo ficariam cegas. Nada foi enviado. O dono confere o arquivo (se estiver corrompido, apagar e recomecar o historico) e tenta de novo`);
     }
     const envios = est.envios.filter((e) => t - e.t < DIA * 30 && t - e.t >= -MIN);
-    const pessoa = sha(String(para).replace(/\D/g, '') || String(para));
+    // Grupo chega como "grupo:<id>": conta como UM destinatario e nunca colide com um numero (o ID tem mais digitos que um telefone).
+    const pessoa = String(para).startsWith('grupo:') ? sha(String(para)) : sha(String(para).replace(/\D/g, '') || String(para));
     const norm = normalizarTexto(texto);
     const hTexto = norm.length >= c.texto_minimo ? sha(norm) : null;
 

@@ -278,6 +278,8 @@ versão nova, se é segura e o que ele ganha, grave o parecer e pergunte se quer
 `dgclaw atualizar --checar` confere na hora (mostra só as versões; para o resumo, mande o dono ver a faixa do painel), e `dgclaw atualizar --aviso desligar` desliga o aviso se o dono
 pedir. Detalhes: `/opt/dgclaw/app/docs/AVISO-DE-ATUALIZACAO.md`.
 
+- `dgclaw atualizar` só instala versão (tag `vX.Y.Z`) assinada pela chave do projeto (a chave que vale fica em `/etc/dgclaw/assinatura`, fora do clone; nunca apague nem edite esse arquivo). Se ele recusar por falta de assinatura, **não contorne** (nem com `--sem-baixar`, nem baixando na mão): conte ao dono o que a mensagem disse e espere a versão assinada. Na primeira adoção ele imprime a impressão digital da chave nova: mostre ao dono e peça que confira com a que o Danilo divulgou fora do repositório. Detalhes: `docs/ASSINATURA.md`.
+
 ### Integração de um agente com defeito
 
 Cada agente anota o resultado de cada uso real de um sistema de fora (WhatsApp, Instagram, transcrição,

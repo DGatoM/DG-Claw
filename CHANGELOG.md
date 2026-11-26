@@ -17,6 +17,31 @@ continua genérica. A tela de login passou a mostrar quantos minutos faltam quan
 acesso (mínimo de 12 caracteres). Só a linha do hash no `web.env` é regravada, o limite de tentativas da senha atual é o
 do login, as outras sessões caem e a sessão de quem trocou continua. Colaborador e chave de API recebem 403 nessa rota. A troca também invalida o link de primeiro acesso ou recuperação que estiver pendente, deixa uma só linha do hash no `web.env` e fecha de imediato os WebSockets das sessões derrubadas; a senha nova é comparada com a atual já normalizada, como o login faz. A sessão do dono também é conferida até o fim do pedido (uma espera aberta por outra sessão termina com 401 quando a senha é trocada), o hash fica sempre numa linha canônica sem `export`, e o tamanho mínimo da senha (12) vale tanto para o que foi digitado quanto para a forma normalizada, a mesma que o login usa. Se a senha do painel for definida fora do `web.env` (por exemplo numa linha `Environment=` da unidade), a troca pelo painel responde 409 sem gravar nada, porque ela não valeria depois de reiniciar; o mesmo vale quando o `web.env` não é um arquivo comum. Ao reinstalar sem senha nova, o instalador não lê nem regrava mais a linha do hash: só a linha do usuário é atualizada. O instalador, o `dgclaw senha` e o painel agora gravam o `web.env` sob uma trava de pasta comum (`.web.env.trava`, ao lado dele), para uma regravação não desfazer o hash de uma troca feita ao mesmo tempo. O `web.env` também passa a valer sobre o ambiente do serviço para o hash da senha: se ele define `DGCLAW_PANEL_PASSWORD_HASH`, é o valor dele que vale depois de reiniciar. Os pedidos de escrita do dono por `/p/` passam a ser conferidos no fim do corpo mesmo sem Face ID, e o link de recuperação só é apagado depois que o `web.env` novo entra.
 
+**Correção de segurança: a atualização só instala versão assinada.** O `dgclaw atualizar` baixava o código do GitHub e rodava
+o `install.sh` dele como root sem conferir de onde vinha. Quem controlasse o repositório ou o clone executaria código como
+root em todos os servidores. Agora, quando o seu DG Claw tem a chave de assinatura do projeto (arquivo
+`seguranca/assinatura/allowed_signers`), a atualização instala a **tag de versão assinada mais nova** (`vX.Y.Z`) e recusa tag
+sem assinatura, tag assinada por outra chave e versão que tente remover ou trocar a chave sem a assinatura da chave anterior. A
+chave que vale fica gravada fora do clone (`/etc/dgclaw/assinatura`), só vale assinatura SSH, e uma vez ligada a proteção não
+volta para o modo sem conferência. A chave do repositório só entra depois que a versão que a traz foi aceita e instalada. O `git`
+roda isolado nessa conferência, e o instalador só roda depois de conferir de novo que o clone está exatamente na versão assinada,
+sem arquivo rastreado alterado. Se a conferência recusar, a mensagem diz o que
+aconteceu e o que fazer, e nada é instalado. Detalhes e o passo a passo de quem assina: `docs/ASSINATURA.md`.
+Falhas reportadas por Renato Gracie (divulgação responsável).
+
+### Como atualizar (assinatura das versões)
+
+1. **A atualização em que a conferência passa a existir não tem como ser conferida.** A sua instalação ainda não tem a chave,
+   e ela chega junto com a versão nova. O comando mostra a impressão digital (`SHA256:...`) da chave que passa a valer.
+   Confira com a que o Danilo divulgou fora do repositório (aula, site ou mensagem direta); se for diferente, não siga e volte
+   com `sudo dgclaw atualizar --voltar <backup>`.
+2. **Para não depender nem desse momento**, peça o arquivo `allowed_signers` por um canal de confiança e rode
+   `sudo dgclaw atualizar --exigir-assinatura --chave-assinatura <arquivo>`.
+3. **Depois disso, cada atualização é conferida sozinha.** Se aparecer "versão nova SEM assinatura válida", não contorne:
+   espere a versão assinada e avise quem mantém o DG Claw. Quem precisa instalar algo sem assinatura atualiza o clone à mão e
+   usa `--sem-baixar`, sabendo que nesse caso nada é conferido.
+4. **A atualização passa a instalar a versão (tag) assinada mais nova**, e não mais a ponta da `main`.
+
 **WhatsApp com travas contra banimento, em qualquer conexão.** Conectar o WhatsApp por uma API não oficial
 (a ponte do DG Claw, a Z-API, a Evolution) tem risco de banimento do número, e em alguns casos até pela API
 oficial. O risco vem de comportamento de robô: muitas mensagens de uma vez e o mesmo texto para várias pessoas.
@@ -30,6 +55,12 @@ Os valores vieram de uma pesquisa de recomendações atuais (fontes em `docs/CAN
 novos (`whatsapp-enviar`) para quem usa a Z-API. O comando novo `dgclaw-agente canal whatsapp retomar` libera
 os envios depois de uma trava, e o `canal status` mostra quando há uma.
 
+**Envio para grupo de WhatsApp pela Z-API.** O script de envio da Z-API agora também escreve em grupos, com
+`enviar --grupo <id>`, e o comando `grupos` lista os grupos da conta (ID e nome) para o agente achar o ID pelo
+nome. O agente só escreve nos grupos que você liberou: o comando `dgclaw-agente canal whatsapp grupo liberar <id>`
+libera um, `grupo remover <id>` tira e `grupo listar` mostra os liberados. Um grupo conta como uma mensagem e passa
+pelas mesmas travas do envio para uma pessoa (ritmo, teto por rodada e por dia, texto repetido, trava no primeiro erro).
+
 ### Como atualizar (WhatsApp com travas)
 
 O `dgclaw atualizar` padrão basta, e nada que você configurou muda. Se o seu agente já usa o WhatsApp, ele passa a
@@ -38,6 +69,14 @@ do agente as chaves `ZAPI_INSTANCE`, `ZAPI_TOKEN` e `ZAPI_CLIENT_TOKEN`. Agentes
 ganham a skill `whatsapp-enviar` sozinhos, mas as instruções do ambiente já apontam para o script e o documento.
 Se algum dia um envio vier travado, confira o número no celular e peça ao agente, no chat do DG Claw, para
 rodar `dgclaw-agente canal whatsapp retomar`.
+
+### Como atualizar (envio para grupo pela Z-API)
+
+Nenhum grupo vem liberado: sem a sua liberação o agente recusa o envio para grupo, e é isso que protege você de uma
+mensagem para um grupo errado. Quem quiser que o agente escreva em um grupo precisa liberá-lo uma vez. Peça ao agente
+a lista dos grupos (ele mostra o ID e o nome de cada um) e, no chat do DG Claw, peça para rodar
+`dgclaw-agente canal whatsapp grupo liberar <id>` com o ID do grupo escolhido. Use só o ID: o nome do grupo é escrito por
+quem participa dele, e por isso não deve ser colado dentro de um comando.
 
 **Correção: render pesado não derruba o agente, e subagente em segundo plano não prende a fila.** Um agente com 2 GB de
 memória rodou um script de numpy sobre miniaturas de vídeo, passou de 1,2 GB, e o kernel matou o python. O systemd, que

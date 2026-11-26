@@ -25,6 +25,8 @@ APP_DIR="$(cd "$(dirname "$DGCLAW_BIN_REAL")/.." && pwd)"
 . "$APP_DIR/lib/backup.sh"
 # shellcheck source=lib/atualizar.sh
 . "$APP_DIR/lib/atualizar.sh"
+# shellcheck source=lib/assinatura.sh
+. "$APP_DIR/lib/assinatura.sh"
 # shellcheck source=lib/versao.sh
 . "$APP_DIR/lib/versao.sh"
 # shellcheck source=lib/ronda-seguranca.sh
@@ -202,6 +204,8 @@ Atualizar o DG Claw
                                 Exige parecer 'segura' para a mesma versao; parecer 'arriscada' bloqueia
         --apesar-do-alerta      com --ok-do-dono: instala mesmo com parecer 'arriscada'. So quando o dono, depois de
                                 ouvir o alerta, pedir explicitamente
+        --exigir-assinatura     recusa a atualizacao se esta instalacao ainda nao tem a chave de assinatura (use com --chave-assinatura)
+        --chave-assinatura <arquivo>  entrega de fora o allowed_signers do projeto (sem depender do repositorio)
         --segundo-plano         roda solto do terminal (recomendado para o Admin) e deixa o log em /var/log/dgclaw/
       Exemplo:  sudo dgclaw atualizar --simular
   dgclaw atualizar --checar              confere agora se saiu versao nova (so le o GitHub; nao baixa nem instala)

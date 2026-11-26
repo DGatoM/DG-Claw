@@ -221,6 +221,162 @@ ok "whatsapp: remover de numero ausente da erro claro" $([ $c = 1 ] && grep -q "
 "$BIN" canal whatsapp remover "+1 415 555 2671" >/dev/null 2>&1
 "$BIN" canal whatsapp remover 11987654321 >"$T/o" 2>&1; ok "whatsapp: remover o ultimo deixa a lista vazia" $(grep -q "Permitidos: nenhum" "$T/o" && echo 0 || echo 1)
 
+# grupo: libera, nao duplica, valida o ID, remove, e arquivo ilegivel nunca vira lista vazia
+GR="$WA/grupos-liberados.json"
+"$BIN" canal whatsapp grupo listar >"$T/o" 2>&1; ok "whatsapp: grupo listar sem arquivo diz nenhum" $(grep -q "Grupos liberados: nenhum" "$T/o" && echo 0 || echo 1)
+"$BIN" canal whatsapp grupo liberar 120363000000000001-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: grupo liberar funciona" $([ $c = 0 ] && grep -q "120363000000000001-group" "$T/o" && echo 0 || echo 1)
+[ "$(stat -c %a "$GR")" = 600 ]; ok "whatsapp: grupos-liberados.json com 600" $?
+node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1]));const g=d.grupos[0];process.exit(d.versao===1&&d.grupos.length===1&&g.id==="120363000000000001-group"&&g.nome===undefined&&!isNaN(Date.parse(g.liberado_em))?0:1)' "$GR"
+ok "whatsapp: grupo liberado grava id e liberado_em, sem nome" $?
+"$BIN" canal whatsapp grupo liberar 120363000000000001-group >"$T/o" 2>&1; c=$?
+ok "whatsapp: liberar de novo nao duplica" $([ $c = 0 ] && grep -q "ja estava liberado" "$T/o" && [ "$(grep -c '120363000000000001-group"' "$GR")" = 1 ] && echo 0 || echo 1)
+for ruim in 5511987654321 abc 120363000000000001 "120363-group" "../x-group"; do
+  "$BIN" canal whatsapp grupo liberar "$ruim" >"$T/o" 2>"$T/e"; c=$?
+  ok "whatsapp: grupo liberar recusa o ID '$ruim'" $([ $c = 1 ] && grep -q "ID de grupo invalido" "$T/e" && echo 0 || echo 1)
+done
+"$BIN" canal whatsapp grupo liberar 120363000000000002-group >/dev/null 2>&1
+cp "$GR" "$T/gr.antes"
+"$BIN" canal whatsapp grupo liberar 120363000000000010-group "Nome extra" >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: grupo liberar com argumento extra e erro de uso e a lista fica igual" $([ $c = 1 ] && grep -q "exatamente um ID" "$T/e" && cmp -s "$GR" "$T/gr.antes" && echo 0 || echo 1)
+"$BIN" canal whatsapp grupo remover 120363000000000002-group 120363000000000001-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: grupo remover com dois IDs falha e a lista fica igual" $([ $c = 1 ] && grep -q "exatamente um ID" "$T/e" && cmp -s "$GR" "$T/gr.antes" && echo 0 || echo 1)
+"$BIN" canal whatsapp grupo liberar 120363000000000004-group >/dev/null 2>&1
+"$BIN" canal whatsapp grupo remover 120363000000000004-group >/dev/null 2>&1
+cp "$GR" "$T/gr.antes-sync"
+mkdir -p "$T/sync-falso"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$T/sync-falso/sync"; chmod +x "$T/sync-falso/sync"
+PATH="$T/sync-falso:$PATH" "$BIN" canal whatsapp grupo remover 120363000000000002-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: grupo remover com sync que falha sai com erro e nao confirma" $([ $c != 0 ] && ! grep -q "removido" "$T/o" && cmp -s "$GR" "$T/gr.antes-sync" && echo 0 || echo 1)
+# ID ja ausente: o sync da pasta e feito; falha so na primeira chamada de sync (contador em arquivo)
+rm -f "$T/sync-conta"
+mkdir -p "$T/sync-uma-vez"
+printf '#!/usr/bin/env bash\nif [ ! -e "%s" ]; then : > "%s"; exit 1; fi\nexit 0\n' "$T/sync-conta" "$T/sync-conta" > "$T/sync-uma-vez/sync"; chmod +x "$T/sync-uma-vez/sync"
+PATH="$T/sync-uma-vez:$PATH" "$BIN" canal whatsapp grupo remover 120363000000000009-group >"$T/o" 2>"$T/e"; c1=$?
+ok "whatsapp: remover ID ausente com sync que falha da erro de persistencia" $([ $c1 = 1 ] && grep -q "nao consegui confirmar no disco" "$T/e" && ! grep -q "confirmada no disco" "$T/e" && echo 0 || echo 1)
+PATH="$T/sync-uma-vez:$PATH" "$BIN" canal whatsapp grupo remover 120363000000000009-group >"$T/o" 2>"$T/e"; c2=$?
+ok "whatsapp: remover ID ausente de novo faz o sync e confirma a ausencia" $([ $c2 = 1 ] && grep -q "ausencia esta confirmada no disco" "$T/e" && echo 0 || echo 1)
+# liberar: o sync da PASTA falha so na primeira vez (o do arquivo temporario passa); a segunda chamada, com o ID ja presente, faz o sync e confirma
+rm -f "$T/sync-pasta-conta"
+mkdir -p "$T/sync-pasta-uma-vez"
+printf '#!/usr/bin/env bash\nif [ -d "$1" ] && [ ! -e "%s" ]; then : > "%s"; exit 1; fi\nexit 0\n' "$T/sync-pasta-conta" "$T/sync-pasta-conta" > "$T/sync-pasta-uma-vez/sync"; chmod +x "$T/sync-pasta-uma-vez/sync"
+PATH="$T/sync-pasta-uma-vez:$PATH" "$BIN" canal whatsapp grupo liberar 120363000000000011-group >"$T/o" 2>"$T/e"; c1=$?
+ok "whatsapp: liberar com o sync da pasta falhando sai com erro de persistencia" $([ $c1 = 1 ] && grep -q "nao consegui confirmar no disco" "$T/e" && ! grep -q "liberado\." "$T/o" && echo 0 || echo 1)
+PATH="$T/sync-pasta-uma-vez:$PATH" "$BIN" canal whatsapp grupo liberar 120363000000000011-group >"$T/o" 2>"$T/e"; c2=$?
+ok "whatsapp: liberar de novo com o ID ja presente faz o sync e sai com sucesso" $([ $c2 = 0 ] && grep -q "120363000000000011-group" "$T/o" && echo 0 || echo 1)
+# sync da pasta falha nas duas: a segunda chamada (ID ja presente) tambem sai com erro
+printf '#!/usr/bin/env bash\nif [ -d "$1" ]; then exit 1; fi\nexit 0\n' > "$T/sync-falso/sync"
+"$BIN" canal whatsapp grupo remover 120363000000000011-group >/dev/null 2>&1
+PATH="$T/sync-falso:$PATH" "$BIN" canal whatsapp grupo liberar 120363000000000012-group >"$T/o" 2>"$T/e"; c1=$?
+PATH="$T/sync-falso:$PATH" "$BIN" canal whatsapp grupo liberar 120363000000000012-group >"$T/o" 2>"$T/e"; c2=$?
+ok "whatsapp: liberar com o sync da pasta falhando nas duas chamadas falha nas duas" $([ $c1 = 1 ] && [ $c2 = 1 ] && grep -q "nao consegui confirmar no disco" "$T/e" && echo 0 || echo 1)
+printf '#!/usr/bin/env bash\nexit 1\n' > "$T/sync-falso/sync"
+"$BIN" canal whatsapp grupo remover 120363000000000002-group >"$T/o" 2>&1; c=$?
+ok "whatsapp: grupo remover funciona" $([ $c = 0 ] && grep -q "removido" "$T/o" && ! grep -q "000002-group" "$GR" && grep -q "000001-group" "$GR" && echo 0 || echo 1)
+"$BIN" canal whatsapp grupo remover 120363000000000009-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: remover grupo ausente da erro claro" $([ $c = 1 ] && grep -q "nao esta na lista" "$T/e" && echo 0 || echo 1)
+echo '{"grupos":' > "$GR"
+for sub in listar "liberar 120363000000000003-group" "remover 120363000000000001-group"; do
+  # shellcheck disable=SC2086
+  "$BIN" canal whatsapp grupo $sub >"$T/o" 2>"$T/e"; c=$?
+  ok "whatsapp: grupo $sub com arquivo ilegivel recusa" $([ $c = 1 ] && grep -q "nao e uma lista valida" "$T/e" && echo 0 || echo 1)
+done
+[ "$(cat "$GR")" = '{"grupos":' ]; ok "whatsapp: arquivo ilegivel de grupos nao e sobrescrito" $?
+# entrada malformada na lista: recusa sem alterar e aponta o indice, sem imprimir o valor
+CHAVE_SEGREDO="tok""en"
+printf '{"versao":1,"grupos":[{"id":"120363000000000001-group"},{"id":"valor-secreto-%s"}]}' "$CHAVE_SEGREDO" > "$GR"
+cp "$GR" "$T/gr.antes"
+"$BIN" canal whatsapp grupo liberar 120363000000000003-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: lista com entrada malformada recusa e aponta a entrada 2" $([ $c = 1 ] && grep -q "entrada 2" "$T/e" && ! grep -q "valor-secreto" "$T/e" "$T/o" && cmp -s "$GR" "$T/gr.antes" && echo 0 || echo 1)
+# versao desconhecida: recusa sem gravar
+echo '{"versao":2,"grupos":[]}' > "$GR"; cp "$GR" "$T/gr.antes"
+"$BIN" canal whatsapp grupo liberar 120363000000000003-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: versao 2 da lista e recusada sem gravar" $([ $c = 1 ] && grep -q "versao" "$T/e" && cmp -s "$GR" "$T/gr.antes" && echo 0 || echo 1)
+# campos extras do raiz e da entrada sobrevivem a liberar e a remover
+echo '{"versao":1,"dono_nota":"fica","grupos":[{"id":"120363000000000001-group","nome":"A","liberado_em":"x","extra":42}]}' > "$GR"
+"$BIN" canal whatsapp grupo liberar 120363000000000002-group >/dev/null 2>&1
+"$BIN" canal whatsapp grupo remover 120363000000000002-group >/dev/null 2>&1
+node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1]));process.exit(d.versao===1&&d.dono_nota==="fica"&&d.grupos.length===1&&d.grupos[0].extra===42?0:1)' "$GR"
+ok "whatsapp: campos extras sobrevivem a liberar e remover" $?
+# liberar e remover ao mesmo tempo: a revogacao nunca e desfeita
+falhou=0
+for rodada in 1 2 3 4 5 6 7 8; do
+  echo '{"versao":1,"grupos":[{"id":"120363000000000001-group","nome":"A","liberado_em":"x"}]}' > "$GR"
+  "$BIN" canal whatsapp grupo remover 120363000000000001-group >/dev/null 2>&1 &
+  p1=$!
+  "$BIN" canal whatsapp grupo liberar 120363000000000002-group >/dev/null 2>&1 &
+  p2=$!
+  wait "$p1" "$p2"
+  node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1])).grupos.map((g)=>g.id);process.exit(d.length===1&&d[0]==="120363000000000002-group"?0:1)' "$GR" || falhou=1
+done
+ok "whatsapp: remover A e liberar B em paralelo mantem A revogado e B liberado" $falhou
+[ -f "$HOME/.dgclaw/whatsapp-grupos.trava" ] && [ ! -e "$GR.trava" ]; ok "whatsapp: a trava da lista e um arquivo estavel fora da pasta whatsapp" $?
+"$BIN" canal whatsapp grupo >"$T/o" 2>"$T/e"; ok "whatsapp: grupo sem subcomando mostra o uso" $([ $? = 1 ] && grep -q "listar | liberar" "$T/e" && echo 0 || echo 1)
+DGCLAW_TIPO=admin "$BIN" canal whatsapp grupo listar >/dev/null 2>&1; ok "whatsapp: admin nao mexe nos grupos (codigo 2)" $([ $? = 2 ] && echo 0 || echo 1)
+rm -f "$GR"
+
+# lista que e link simbolico: a CLI recusa, o link continua link e o alvo fica intacto
+echo '{"versao":1,"grupos":[{"id":"120363000000000001-group","nome":"Antigo","liberado_em":"x"}]}' > "$T/lista-antiga.json"
+cp "$T/lista-antiga.json" "$T/lista-antiga.antes"; ln -s "$T/lista-antiga.json" "$GR"
+"$BIN" canal whatsapp grupo liberar 120363000000000005-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: lista que e link simbolico recusa liberar, o link fica e o alvo nao muda" $([ $c = 1 ] && [ -L "$GR" ] && grep -q "link simbolico" "$T/e" && cmp -s "$T/lista-antiga.json" "$T/lista-antiga.antes" && echo 0 || echo 1)
+rm -f "$GR"
+# FIFO no caminho da lista: recusa sem travar
+mkfifo "$GR"
+timeout 15 "$BIN" canal whatsapp grupo liberar 120363000000000005-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: lista que e FIFO recusa sem travar" $([ $c = 1 ] && grep -q "nao e um arquivo comum" "$T/e" && echo 0 || echo 1)
+rm -f "$GR"
+# liberar de novo um grupo ja liberado, com lista grande (saida maior que o pipe): a saida vem inteira
+node -e 'const g=[];for(let i=0;i<3000;i++)g.push({id:"1203630000"+String(10000+i)+"-group",nome:"Grupo numero "+i,liberado_em:"x"});require("fs").writeFileSync(process.argv[1],JSON.stringify({versao:1,grupos:g}))' "$GR"
+"$BIN" canal whatsapp grupo liberar 120363000010000-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: liberar de novo com lista grande mostra a lista inteira" $([ $c = 0 ] && grep -q "3000 grupos\|3000" "$T/o" && grep -q "120363000012999-group" "$T/o" && grep -q "ja estava liberado" "$T/e" && echo 0 || echo 1)
+rm -f "$GR"
+# falha de escrita (cat falso que falha): a lista anterior fica igual e a CLI sai com erro
+echo '{"versao":1,"grupos":[{"id":"120363000000000001-group","nome":"A","liberado_em":"x"}]}' > "$GR"; cp "$GR" "$T/gr.antes"
+mkdir -p "$T/cat-falso"; printf '#!/bin/sh\nexit 1\n' > "$T/cat-falso/cat"; chmod +x "$T/cat-falso/cat"
+PATH="$T/cat-falso:$PATH" "$BIN" canal whatsapp grupo liberar 120363000000000006-group >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: falha ao escrever a lista sai com erro e mantem a lista anterior" $([ $c != 0 ] && cmp -s "$GR" "$T/gr.antes" && ! ls "$WA"/grupos-liberados.json.* >/dev/null 2>&1 && echo 0 || echo 1)
+# desligar --apagar pega a mesma trava da lista: com a trava presa, ele espera; solta, e apaga
+rm -f "$GR"; echo '{"versao":1,"grupos":[]}' > "$GR"
+TRAVA="$HOME/.dgclaw/whatsapp-grupos.trava"
+mkfifo "$T/solta"
+( flock -x 9; echo preso > "$T/preso"; read -r _ < "$T/solta" ) 9>>"$TRAVA" &
+LP=$!
+for _ in $(seq 50); do [ -e "$T/preso" ] && break; sleep 0.1; done
+"$BIN" canal whatsapp desligar --apagar >"$T/o" 2>"$T/e" &
+DP=$!
+sleep 1
+[ -d "$WA" ] && kill -0 "$DP" 2>/dev/null; ok "whatsapp: desligar --apagar espera a trava da lista" $?
+echo ok > "$T/solta"; wait "$LP" "$DP"
+[ ! -e "$WA" ]; ok "whatsapp: desligar --apagar apaga depois que a trava e solta" $?
+rm -f "$T/preso"
+# alteracao que estava esperando a trava quando a pasta foi apagada: aborta e nao recria a pasta
+mkdir -p "$WA"; chmod 700 "$HOME/.dgclaw" "$WA"; echo '{"versao":1,"grupos":[]}' > "$GR"
+( flock -x 9; echo preso > "$T/preso"; read -r _ < "$T/solta" ) 9>>"$TRAVA" &
+LP=$!
+for _ in $(seq 50); do [ -e "$T/preso" ] && break; sleep 0.1; done
+"$BIN" canal whatsapp grupo liberar 120363000000000007-group >"$T/o" 2>"$T/e" &
+AP=$!
+sleep 1
+rm -rf "$WA"
+echo ok > "$T/solta"; wait "$LP"; wait "$AP"; c=$?
+ok "whatsapp: alteracao que esperava a trava nao recria a pasta apagada" $([ $c = 1 ] && [ ! -e "$WA" ] && grep -q "foi apagada" "$T/e" && echo 0 || echo 1)
+rm -f "$T/preso" "$T/solta"
+# pasta apagada e RECRIADA enquanto a alteracao espera a trava: aborta e a pasta nova fica sem a lista
+mkfifo "$T/solta"
+mkdir -p "$WA"; chmod 700 "$HOME/.dgclaw" "$WA"; echo '{"versao":1,"grupos":[]}' > "$GR"
+( flock -x 9; echo preso > "$T/preso"; read -r _ < "$T/solta" ) 9>>"$TRAVA" &
+LP=$!
+for _ in $(seq 50); do [ -e "$T/preso" ] && break; sleep 0.1; done
+"$BIN" canal whatsapp grupo liberar 120363000000000008-group >"$T/o" 2>"$T/e" &
+AP=$!
+sleep 1
+# apaga antes de recriar: sem o descritor aberto o sistema de arquivos poderia reaproveitar o inode
+rm -rf "$WA"; mkdir "$WA"; chmod 700 "$WA"
+echo ok > "$T/solta"; wait "$LP"; wait "$AP"; c=$?
+ok "whatsapp: pasta recriada durante a espera aborta e fica sem a lista" $([ $c = 1 ] && [ ! -e "$GR" ] && grep -q "foi apagada" "$T/e" && echo 0 || echo 1)
+rm -rf "$WA"; rm -f "$T/preso" "$T/solta"
+
 # ligar com sessao mas sem lista; depois com tudo
 mkdir -p "$WA/sessao"; echo '{"registered": true}' > "$WA/sessao/creds.json"
 "$BIN" canal whatsapp ligar >"$T/o" 2>"$T/e"; c=$?
@@ -270,6 +426,15 @@ ok "whatsapp: desligar --apagar funciona" $([ $c = 0 ] && echo 0 || echo 1)
 grep -qx "logout" "$PONTE_FALSA_LOG"; ok "whatsapp: --apagar chamou o logout da ponte" $?
 [ ! -e "$WA" ]; ok "whatsapp: --apagar apagou a pasta" $?
 grep -q "uploads/whatsapp" "$T/o"; ok "whatsapp: --apagar avisa que os uploads ficaram" $?
+# sync da pasta falha depois do rm: nao confirma a exclusao
+mkdir -p "$WA"; echo '{"versao":1,"grupos":[]}' > "$WA/grupos-liberados.json"
+PATH="$T/sync-falso:$PATH" "$BIN" canal whatsapp desligar --apagar >"$T/o" 2>"$T/e"; c=$?
+ok "whatsapp: --apagar com sync que falha sai com erro e nao confirma a exclusao" $([ $c != 0 ] && ! grep -q "dados apagados" "$T/o" && grep -q "confirmar no disco" "$T/e" && echo 0 || echo 1)
+# pasta ja inexistente: ainda faz o sync da pasta pai, e so confirma se ele der certo (duas chamadas seguidas)
+rm -rf "$WA"
+PATH="$T/sync-falso:$PATH" "$BIN" canal whatsapp desligar --apagar >"$T/o" 2>"$T/e"; c1=$?
+PATH="$T/sync-falso:$PATH" "$BIN" canal whatsapp desligar --apagar >"$T/o" 2>"$T/e"; c2=$?
+ok "whatsapp: --apagar com a pasta ja apagada e sync falso falha nas duas chamadas seguidas" $([ $c1 != 0 ] && [ $c2 != 0 ] && echo 0 || echo 1)
 mkdir -p "$T/alvo/sessao"; echo '{"registered": true}' > "$T/alvo/sessao/creds.json"; ln -s "$T/alvo" "$WA"
 "$BIN" canal whatsapp desligar --apagar >"$T/o" 2>"$T/e"; c=$?
 ok "whatsapp: --apagar recusa pasta que e atalho" $([ $c = 1 ] && [ -f "$T/alvo/sessao/creds.json" ] && echo 0 || echo 1)
