@@ -128,3 +128,29 @@ test('auth.gerarHash produz hash aceito por verificaSenha', async () => {
     assert.equal(x.t.web.auth.definirHash('lixo').ok, false);
   } finally { await x.t.fechar(); }
 });
+
+test('primeiro acesso: senha que só chega a 12 em forma decomposta é recusada e o link continua valendo', async () => {
+  const x = await cenario();
+  try {
+    const s = 'ã'.normalize('NFD') + 'xxxxxxxxxx'; // 12 decomposta, 11 normalizada
+    const r = await x.post({ token: x.token, senha: s, confirmacao: s });
+    assert.equal(r.status, 400); assert.match(r.json.erro, /a sua tem 11/);
+  } finally { await x.t.fechar(); }
+});
+
+test('gravaHashNoEnv: com duas definições (a primeira com export) fica uma só, canônica, que o instalador acha', async () => {
+  const x = await cenario();
+  try {
+    fs.writeFileSync(x.webEnv, "DGCLAW_PANEL_USER=maria\nexport DGCLAW_PANEL_PASSWORD_HASH='velho1'\nOUTRA=valor\nDGCLAW_PANEL_PASSWORD_HASH='velho2'\n", { mode: 0o600 });
+    const r = await x.post({ token: x.token, senha: PW, confirmacao: PW });
+    assert.equal(r.status, 200, r.texto);
+    const env = fs.readFileSync(x.webEnv, 'utf8');
+    const linhas = env.split('\n').filter((l) => l.includes('DGCLAW_PANEL_PASSWORD_HASH'));
+    assert.equal(linhas.length, 1);
+    assert.match(linhas[0], /^DGCLAW_PANEL_PASSWORD_HASH='scrypt\$/);
+    assert.match(env, /^OUTRA=valor$/m);
+    const { execFileSync } = require('node:child_process');
+    const achado = execFileSync('sed', ['-n', "s/^DGCLAW_PANEL_PASSWORD_HASH='\\(.*\\)'$/\\1/p;T;q", x.webEnv], { encoding: 'utf8' });
+    assert.match(achado, /^scrypt\$/);
+  } finally { await x.t.fechar(); }
+});

@@ -372,6 +372,25 @@ caso_reinstalar_sem_senha_mantem_a_atual() {
     limpar_cenario
 }
 
+caso_senha_preservada_nao_toca_na_linha_do_hash() {
+    novo_cenario
+    afirma "primeira rodada com senha" instalacao_basica
+    local e="$RAIZ/etc/dgclaw/web.env"
+    # web.env com linha alheia, hash "trocado pelo painel" (com caracteres especiais) e usuario no meio.
+    printf '%s\n' 'ALHEIA=a b # c' 'DGCLAW_PANEL_USER=maria' "DGCLAW_PANEL_PASSWORD_HASH='scrypt\$teste\$p4in3l\$x\\y'" 'FIM=1' >"$e"
+    cp "$e" "$TMP/antes"
+    afirma "rodada sem senha, mesmo usuario" instalar "" --usuario maria --provedor claude
+    afirma "arquivo byte a byte igual" cmp "$TMP/antes" "$e"
+    afirma "rodada sem senha, outro usuario" instalar "" --usuario joana --provedor claude
+    afirma "linha do hash intacta" grep -qxF "DGCLAW_PANEL_PASSWORD_HASH='scrypt\$teste\$p4in3l\$x\\y'" "$e"
+    afirma "linha alheia intacta" grep -qxF 'ALHEIA=a b # c' "$e"
+    afirma "FIM intacta" grep -qxF 'FIM=1' "$e"
+    afirma "usuario trocado" grep -qxF 'DGCLAW_PANEL_USER=joana' "$e"
+    igual "$(sed -n 1p "$e")|$(sed -n 2p "$e")|$(sed -n 4p "$e")" "ALHEIA=a b # c|DGCLAW_PANEL_USER=joana|FIM=1" || { echo "      FALHOU: ordem das linhas mudou"; FALHAS=$((FALHAS + 1)); }
+    afirma "ainda 600" modo_e "$e" 600
+    limpar_cenario
+}
+
 caso_novo_primeiro_acesso_gera_link_e_mantem_hash() {
     novo_cenario
     afirma "primeira rodada com senha" instalacao_basica
@@ -1750,4 +1769,47 @@ caso_apt_update_falhando_com_node_velho_aborta_e_explica() {
     afirma "a mensagem diz que o Node continua velho" tem "$SAIDA" "o Node do servidor continua na versao 18"
     afirma "a mensagem diz o que fazer" tem "$SAIDA" "rode ./install.sh de novo"
     nega "nao chegou a copiar o codigo" test -e "$RAIZ/opt/dgclaw/app/install.sh"
+}
+
+# --- trava do web.env (instalador, CLI e painel gravam o mesmo arquivo) ---------------------------
+
+caso_reinstalar_com_o_mesmo_usuario_nao_regrava_o_web_env() {
+    novo_cenario
+    afirma "primeira rodada com senha" instalacao_basica
+    local w="$RAIZ/etc/dgclaw/web.env" ino1
+    ino1="$(stat -c %i "$w")"
+    cp "$w" "$TMP/webenv1"
+    afirma "segunda rodada sem senha, mesmo usuario" instalar "" --usuario maria --provedor claude
+    igual "$(stat -c %i "$w")" "$ino1" || { echo "      FALHOU: o web.env foi regravado (inode mudou)"; FALHAS=$((FALHAS + 1)); }
+    afirma "web.env igual" cmp "$TMP/webenv1" "$w"
+    nega "a trava nao fica para tras" test -e "$RAIZ/etc/dgclaw/.web.env.trava"
+    limpar_cenario
+}
+
+caso_reinstalar_com_a_trava_do_web_env_ocupada_falha_sem_mexer_no_arquivo() {
+    novo_cenario
+    afirma "primeira rodada com senha" instalacao_basica
+    local w="$RAIZ/etc/dgclaw/web.env"
+    cp "$w" "$TMP/webenv1"
+    mkdir "$RAIZ/etc/dgclaw/.web.env.trava"
+    EXTRA_ENV=(DGCLAW_TRAVA_ESPERA_S=1)
+    nega "a reinstalacao com a trava fresca" instalar "" --usuario joao --provedor claude
+    afirma "explica o que travou" tem "$SAIDA" "outro processo esta gravando web.env"
+    afirma "diz o que fazer" tem "$SAIDA" "rmdir"
+    afirma "web.env nao mudou" cmp "$TMP/webenv1" "$w"
+    afirma "a trava de outro processo continua la" test -d "$RAIZ/etc/dgclaw/.web.env.trava"
+    limpar_cenario
+}
+
+caso_trava_do_web_env_abandonada_e_removida() {
+    novo_cenario
+    afirma "primeira rodada com senha" instalacao_basica
+    local w="$RAIZ/etc/dgclaw/web.env"
+    mkdir "$RAIZ/etc/dgclaw/.web.env.trava"
+    touch -d '2 minutes ago' "$RAIZ/etc/dgclaw/.web.env.trava"
+    EXTRA_ENV=(DGCLAW_TRAVA_ESPERA_S=1)
+    afirma "a reinstalacao segue" instalar "" --usuario joao --provedor claude
+    afirma "usuario novo gravado" tem "$w" "DGCLAW_PANEL_USER=joao"
+    nega "a trava abandonada saiu" test -e "$RAIZ/etc/dgclaw/.web.env.trava"
+    limpar_cenario
 }

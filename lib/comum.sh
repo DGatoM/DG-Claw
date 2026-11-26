@@ -290,6 +290,40 @@ trava_faixa_pegar() {
 # trava_faixa_soltar: larga a trava (fecha o descritor 8).
 trava_faixa_soltar() { exec 8>&-; }
 
+# trava_arquivo_pegar <arquivo> / trava_arquivo_soltar <arquivo>
+# Trava por pasta (mkdir e atomico) em volta da leitura+escrita de um arquivo de configuracao que o painel tambem
+# grava (web.env): sem ela, o hash de uma troca de senha feita pelo painel no meio de uma regravacao voltaria ao antigo.
+# O caminho e <pasta do arquivo>/.<nome do arquivo>.trava (o do web.env e o mesmo que web/lib/primeiro-acesso.js usa).
+# Trava com mais de 30 s e tratada como abandonada (quem a pegou morreu) e removida.
+trava_arquivo_caminho() { printf '%s/.%s.trava' "$(dirname "$1")" "$(basename "$1")"; }
+
+trava_arquivo_pegar() {
+    [ "$ENSAIO" = 1 ] && return 0
+    local trava espera=10 inicio agora mtime
+    trava="$(trava_arquivo_caminho "$1")"
+    if [ -n "$R" ] && [ -n "${DGCLAW_TRAVA_ESPERA_S:-}" ]; then espera="$DGCLAW_TRAVA_ESPERA_S"; fi
+    mkdir -p "$(dirname "$1")"
+    inicio="$(date +%s)"
+    until mkdir "$trava" 2>/dev/null; do
+        agora="$(date +%s)"
+        mtime="$(stat -c %Y "$trava" 2>/dev/null || echo "$agora")"
+        if [ $((agora - mtime)) -gt 30 ]; then
+            rmdir "$trava" 2>/dev/null || true
+            continue
+        fi
+        if [ $((agora - inicio)) -ge "$espera" ]; then
+            falha "outro processo esta gravando $(basename "$1") agora (a trava $trava ficou ocupada por mais de ${espera}s)." \
+                "espere um pouco e rode de novo. Se nada estiver rodando, apague a pasta da trava: rmdir $trava"
+        fi
+        sleep 0.1
+    done
+}
+
+trava_arquivo_soltar() {
+    [ "$ENSAIO" = 1 ] && return 0
+    rmdir "$(trava_arquivo_caminho "$1")" 2>/dev/null || true
+}
+
 # --- trava por agente (reparar e recriar) -------------------------------------------------
 # Reparar e recriar do MESMO agente nao podem rodar juntos: um troca o container enquanto o outro ajusta os limites
 # dele. Uma trava exclusiva por agente, em $DG_ETC/travas/agentes/<slug>.lock (pasta propria: um agente chamado "limites" nao pode colidir com a trava global), e o descritor 6 do processo (o podman roda com
@@ -335,8 +369,10 @@ trava_agente_pegar() {
 # Regra do projeto: arquivo de configuracao que ja existe se edita linha a linha.
 definir_linha_env() {
     local arq="$1" chave="$2" valor="$3" modo="${4:-644}"
+    trava_arquivo_pegar "$arq"
     if [ ! -f "$arq" ]; then
         printf '%s=%s\n' "$chave" "$valor" | escrever_arquivo "$arq" "$modo"
+        trava_arquivo_soltar "$arq"
         return 0
     fi
     # O modo do arquivo que ja existe vence: web.env e 600 e nao pode virar 644 por aqui.
@@ -346,6 +382,7 @@ definir_linha_env() {
         index($0, k "=") == 1 {if (!feito) print linha; feito = 1; next}
         {print}
         END {if (!feito) print linha}' "$arq" | escrever_arquivo "$arq" "$modo"
+    trava_arquivo_soltar "$arq"
 }
 
 # git_do_clone <pasta> <argumentos do git...>: git em outro clone, sem pergunta de senha e sem
