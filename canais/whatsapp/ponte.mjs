@@ -26,6 +26,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { criarEntrada } from './lib/entrada.mjs';
 import { criarEntregaRunner } from './lib/entrega-runner.mjs';
+import { criarAnotadorIntegracao } from './lib/integracao.mjs';
 import { criarEnvioArquivo } from './lib/envio-arquivo.mjs';
 import { criarEnvioSeguro } from './lib/envio-seguro.mjs';
 import { criarMemoriaMensagens } from './lib/memoria-mensagens.mjs';
@@ -290,7 +291,7 @@ export async function iniciar(opcoes = {}) {
     estaEncerrando: () => encerrando,
     pendentes,
   });
-  const { entregar } = criarEntregaRunner({
+  const { entregar: entregarAoRunner } = criarEntregaRunner({
     opcoes, env, runnerUrl, tokenFile, runnerJson, esperasEntrega, dormir, estaEncerrando: () => encerrando,
   });
   // Travas contra banimento: ritmo, tetos, texto repetido e trava no primeiro erro (docs/CANAL-WHATSAPP.md).
@@ -298,6 +299,13 @@ export async function iniciar(opcoes = {}) {
     dir: path.join(dir, 'envio'), arqConfig: path.join(dir, 'envio.json'), agora, registrar,
     dormir: opcoes.dormirEnvio, aleatorio: opcoes.aleatorioEnvio,
   });
+  // Mensagem entregue ao agente = o WhatsApp esta funcionando de ponta a ponta: anota no mapa de integracoes.
+  const { anotar: anotarIntegracao } = criarAnotadorIntegracao({ registrar, env, opcoes });
+  async function entregar(envelope) {
+    const r = await entregarAoRunner(envelope);
+    if (r && r.ok) anotarIntegracao('ok', 'uso');
+    return r;
+  }
   const memoria = criarMemoriaMensagens();
   const { aoReceber, aoAtualizar, aoApagar, aoApagarConversas } = criarEntrada({
     envioSeguro,
@@ -419,6 +427,7 @@ export async function iniciar(opcoes = {}) {
         if (codigo === LOGGED_OUT) {
           registrar('o WhatsApp encerrou este aparelho (401). Pareie de novo com "dgclaw-agente canal whatsapp parear <numero-secundario>".');
           definirEstado('deslogado', 'o WhatsApp encerrou o aparelho; é preciso parear de novo');
+          await anotarIntegracao('desconectado', 'canal');   // espera (com prazo) antes de encerrar
           finalizar(0);
           return 'parar';
         }

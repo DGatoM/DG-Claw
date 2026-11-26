@@ -29,6 +29,28 @@ ganham a skill `whatsapp-enviar` sozinhos, mas as instruções do ambiente já a
 Se algum dia um envio vier travado, confira o número no celular e peça ao agente, no chat do DG Claw, para
 rodar `dgclaw-agente canal whatsapp retomar`.
 
+**Novo: mapa de integrações de cada agente e faixa de aviso quando uma delas quebra.** Cada agente passa a anotar o
+resultado de cada uso real de um sistema de fora (WhatsApp, Instagram, transcrição de áudio, OpenRouter e os que ele
+mesmo usar) com o comando `dgclaw-integracao registrar`, sempre com uma palavra de uma lista fechada e sem texto livre.
+O painel do agente ganhou a aba Integrações, com o mapa de cada sistema e o estado dele (funcionando, atenção, com
+defeito, desligado ou sem uso recente). Quando uma integração fica com defeito e foi usada nos últimos 7 dias, o
+DG Claw Web mostra ao dono uma faixa vermelha no topo, com "Pedir ao Admin para verificar" (abre a conversa do Admin com
+o pedido escrito, e quem envia é você), "Ver detalhes" e "Lembrar em 1 hora". Colaborador não vê a faixa. Na tela
+Segurança há o interruptor "Chamar o Admin sozinho", que vem desligado: ligado, o pedido vai ao Admin sem clique, no
+máximo um por defeito, um a cada 6 horas por integração e cinco por dia. O pedido tem só frases fixas, pede para
+investigar e propor e não deixa o Admin aplicar nada antes do seu ok. O Web lê o arquivo de estado de cada agente com
+conferência de dono, tipo e tamanho, e qualquer falha nessa leitura aparece como "não foi possível medir", nunca como
+tudo certo.
+
+### Como atualizar (integrações)
+
+Peça ao Admin, no chat: "atualiza o DG Claw". A aba, a faixa e as rotas já vêm na atualização. Nesta versão há uma
+instrução nova para os seus agentes anotarem o resultado das integrações e outra para o Admin saber responder ao pedido
+que a faixa monta. Elas entram na seção de ambiente que o DG Claw mantém para cada agente, sem apagar o que você
+personalizou nas instruções deles. Se algum agente antigo não a mostrar depois da atualização, peça ao Admin para
+regravar essa seção com `sudo dgclaw agente identidade <nome>`. O interruptor "Chamar o Admin sozinho" continua
+desligado depois de atualizar; ligar é escolha sua, na tela Segurança.
+
 - **Correção na fila de mensagens: aviso de atraso também no WhatsApp.** Quando uma mensagem esperava na fila
   porque o agente ainda respondia outra coisa, só a do chat do painel chegava com o aviso de que ela foi escrita
   antes das últimas respostas e de que um "ok" ou "sim" não autoriza uma ação nova. Agora a mensagem do WhatsApp
