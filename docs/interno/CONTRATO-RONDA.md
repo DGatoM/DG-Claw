@@ -33,7 +33,7 @@ Escreve: `seguranca/ronda/ronda.py` (motor). Lê: `web/lib/ronda-painel.js` (pai
                                        // disponivel: o fabricante já publicou a correção
                                        // executavel: true só para acao-catalogo válida no catálogo (o executor recusa o resto)
     "estado": "aberto",                // aberto | aplicado-sozinho | aplicado-pelo-dono | mitigado | agendado
-                                       // | protegido-aguardando | aguardando-fornecedor (veja "Sem correção instalável")
+                                       // | protegido-aguardando | aguardando-fornecedor | atualizacao-sistema (veja "Sem correção instalável")
     "aplicado": null,                  // {"em", "acao_id", "antes", "depois", "desfazer"} quando aplicado
     "primeira_vez_em": "2026-10-31T10:00:00Z"
   }],
@@ -137,8 +137,10 @@ segue como antes (a equipe do DG Claw avisa por boletim).
 
 Regras da rodada:
 
-1. correção instalável (apt `True`/`None`, ação do catálogo que não é paliativo, `atualizar-dgclaw`): `aberto`, como sempre. Se houver
-   paliativo verificado, o texto diz que a proteção provisória está ativa enquanto isso.
+1. correção instalável (ação do catálogo que não é paliativo, `atualizar-dgclaw`, ou apt de um achado KEV): `aberto`, como sempre. Se houver
+   paliativo verificado, o texto diz que a proteção provisória está ativa enquanto isso. Correção pelo apt de um achado só de pacotes Ubuntu, sem ação
+   do catálogo e que não é KEV, com confirmação positiva de que **todos** os afetados têm candidato >= corrigida: `atualizacao-sistema`
+   (veja abaixo). Sem a confirmação (apt `None`), `aberto` como sempre.
 2. sem correção instalável e paliativo verificado: `protegido-aguardando`.
 3. sem correção instalável, paliativo casado e **não** verificado, com `acao_id`: `aberto`, com
    `correcao = {"tipo": "acao-catalogo", "acao_id", "exige_reinicio": false, "disponivel": true, "executavel": true, "paliativo": true}`
@@ -147,11 +149,40 @@ Regras da rodada:
 4. sem correção instalável e sem paliativo: `aguardando-fornecedor` (ou `aberto` se KEV).
 
 **Paliativo nunca é tratamento.** Aplicado (sozinho ou pelo dono), o registro interno fica `aberto` e o achado é reavaliado a
-cada rodada. Quando o pacote corrigido chega ao apt, volta a `aberto` pedindo atualizar (e reiniciar, no kernel), com `avisado_em`
-zerado: o Admin recebe o recado e o aviso do painel trata como ponto novo. Quando a proteção deixa de ser verificada (alguém voltou
+cada rodada. Quando o pacote corrigido chega ao apt, passa a `atualizacao-sistema` (sem recado), ou volta a `aberto` se for KEV. Sempre que
+um achado volta a `aberto`, `avisado_em` é zerado: o Admin recebe o recado e o aviso do painel trata como ponto novo. Quando a proteção deixa de ser verificada (alguém voltou
 o `sysctl`), volta a `aberto` com a oferta de Aplicar. A ação de catálogo com `"paliativo": true` não é devolvida como correção
 definitiva por `acao_do_catalogo`.
 
 `protegido-aguardando` e `aguardando-fornecedor` ficam fora do recado ao Admin (`novos`) e fora da contagem por nível de
 `dgclaw seguranca estado` (que mostra `aguardando_correcao: {"total", "protegidos"}` à parte). O pedido `desfazer` e a rota
 `POST /ronda/<id>/desfazer` aceitam `protegido-aguardando` com `aplicado.desfazer` preenchido.
+
+**Estado `atualizacao-sistema` (segundo plano).** Falha só de pacotes Ubuntu (dpkg, kernel e afins) cuja correção o apt deste servidor
+já oferece, **confirmado para todos os pacotes afetados** (`correcao.tipo == "apt"`, `disponivel`; candidato do apt >= corrigida em cada
+binário, sem corte da lista; só o kernel em execução (`kernel_em_execucao`) se confere por algum metapacote de imagem da variante do `uname -r`:
+`generic` aceita `linux-(image-)generic` e `linux-(image-)virtual` e as séries `-hwe-*`, as outras variantes só o mesmo sufixo, nunca
+`linux-headers-*` nem `linux-tools-*`; pacote que só começa com "linux" confere os próprios binários), sem ação do catálogo e sem `explorada_ativamente`. Fica fora do aviso único, do selo e da contagem
+por nível (que, como em `aguardando_correcao`, ganha um campo próprio em `dgclaw seguranca estado`: `atualizacoes_sistema: {"total"}`).
+Vale para os níveis 2 e 3; `nivel` e `severidade` ficam como o motor calculou, só para registro, e a tela não mostra gravidade nem cor de
+alerta. Na ordenação do `ronda.json`, a explorada (KEV) vem primeiro e o segundo plano (`aguardando` e este estado) vai para o fim, antes do corte de 80 achados; o recado sai da lista completa, antes do corte. Não é desfazível nem aplicável pelo painel (`409`), e não é
+"tratado": segue reavaliado a cada rodada e some quando o pacote é atualizado.
+
+`como_corrigir` é único: "Já existe correção pelo canal normal de atualização do Ubuntu. Com a atualização automática ligada (o padrão do
+Ubuntu), ela entra sozinha; se não estiver, peça ao Admin para atualizar o sistema.", e só quando algum afetado tem `kernel_em_execucao` leva
+mais " O kernel novo passa a valer no próximo reinício do servidor; reinicie quando for conveniente." (`correcao.exige_reinicio` também só
+vale para o kernel em execução). A tela traz sempre o botão Pedir ao Admin no cartão, e o achado entra no recado ao Admin uma vez (regra de
+`avisado_em`), sem contar como ponto em risco; no resumo ele aparece no grupo "ATUALIZAÇÕES DO SISTEMA", com a orientação de conferir o
+`unattended-upgrades` e atualizar com o ok do dono. A ronda não tenta provar que a atualização automática instalará a correção.
+
+**KEV (sem memória).** O KEV continua `aberto`, em destaque. Um achado só vai para `atualizacao-sistema` se a fonte CISA KEV respondeu ok
+nesta rodada e nenhum id ligado a ele (id, key e aliases do achado, `ids_osv` do registro, id e aliases do `ultimo`) consta no catálogo;
+se algum constar, ele é KEV (aberto, nível 2, `explorada_ativamente`). Se a CISA não respondeu ok nesta rodada, o achado mantém a classificação
+anterior: o que já era `atualizacao-sistema` continua nela, sem novo recado, e qualquer outro caso (inclusive achado novo) fica `aberto`, como
+antes desta regra. Nada é guardado no registro sobre a marca KEV. Resposta da CISA com a lista vazia, com entrada de `cveID` fora do formato
+`CVE-AAAA-N` (ASCII, sem espaço nem quebra de linha) ou repetida, ou sem `count` (obrigatório) ou com `count` que não seja inteiro igual ao número de entradas válidas, conta como
+fonte fora. O achado reapresentado do estado anterior (qualquer caminho que reaproveita `ultimo`, com a CISA respondendo) que estava em segundo plano
+(`atualizacao-sistema` ou `aguardando-fornecedor`) e tem algum id no catálogo volta a `aberto`, nível 2, `explorada_ativamente`,
+com `avisado_em` zerado. O `protegido-aguardando` fica como está (o caminho normal da rodada também mantém a KEV com proteção ativa assim). O recado desta rodada sempre está no `ronda.json` exibido, mesmo que a lista passe de 80 (no máximo pelo limite do recado). Só os ids nomeados no recado (`novos[:max_ids_no_recado]`) recebem `avisado_em`; os demais seguem pendentes para as próximas rodadas. O `ids_osv` do registro
+une os ids novos aos guardados (teto de 60, mantendo as CVE antigas), e um registro `corrigido` que reincide recomeça do zero (sem `ids_osv`, `ultimo` nem
+`estado_contrato`), ficando aberto até uma consulta válida da CISA.

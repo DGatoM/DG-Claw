@@ -46,7 +46,7 @@ test('seletor: nome com HTML não vira marcação', () => {
 test('páginas do painel: 13 links com #aba=, e nenhum sem painel', () => {
   const l = M.linksPainel({ id: 'ana', tem_painel: true, painel_url: '/p/ana/' });
   assert.deepEqual(l.map(x => x.href.split('#aba=')[1]),
-    ['status', 'skills', 'rotinas', 'cofre', 'arquivos', 'memory', 'operations', 'costs', 'como', 'identity', 'personality', 'apps', 'socorro']);
+    ['status', 'skills', 'rotinas', 'cofre', 'arquivos', 'memory', 'operations', 'costs', 'como', 'identity', 'personality', 'apps', 'integracoes', 'socorro']);
   assert.ok(l.every(x => x.href.startsWith('/p/ana/#aba=')));
   assert.deepEqual(M.linksPainel({ id: 'admin', tem_painel: false }), []);
 });
@@ -137,7 +137,7 @@ test('organizaMenu (dono, agente com painel): fixos, cinco grupos, rodapé solto
   assert.deepEqual(org.conexoes.map(i => i.chave), ['tela']);
   // nenhum item que existia antes sumiu
   const chaves = new Set(M.montaItens(AG, false).map(i => i.chave));
-  for (const c of ['status', 'skills', 'rotinas', 'cofre', 'arquivos', 'memory', 'operations', 'costs', 'como', 'identity', 'personality', 'apps', 'socorro',
+  for (const c of ['status', 'skills', 'rotinas', 'cofre', 'arquivos', 'memory', 'operations', 'costs', 'como', 'identity', 'personality', 'apps', 'integracoes', 'socorro',
     'lembretes', 'avisos', 'seguranca', 'conectar', 'anonimizar', 'colaboradores', 'sessoes', 'tela']) assert.ok(chaves.has(c), c);
   const agrupados = [...org.fixos, ...org.grupos.flatMap(g => g.itens), ...org.rodape, ...org.conexoes];
   assert.equal(agrupados.length, chaves.size, 'todo item cai em exatamente um lugar');

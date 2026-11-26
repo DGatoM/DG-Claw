@@ -23,7 +23,7 @@
     ['cofre', 'i-vault', 'Cofre (chaves)'], ['arquivos', 'i-folder', 'Pasta do agente'],
     ['memory', 'i-layers', 'Memória'], ['operations', 'i-settings', 'Operações'], ['costs', 'i-gem', 'Custos'],
     ['como', 'i-info', 'Como funciona'], ['identity', 'i-id', 'Identidade'], ['personality', 'i-smile', 'Personalidade'],
-    ['apps', 'i-layout', 'Apps'], ['socorro', 'i-lifebuoy', 'Socorro'],
+    ['apps', 'i-layout', 'Apps'], ['integracoes', 'i-link', 'Integrações'], ['socorro', 'i-lifebuoy', 'Socorro'],
   ];
 
 
@@ -108,7 +108,7 @@
   const GRUPOS_MENU = [
     { id: 'perfil', nome: 'Perfil do agente', ico: 'i-id', chaves: ['identity', 'personality', 'memory'] },
     { id: 'dia', nome: 'Dia a dia', ico: 'i-calendar', chaves: ['rotinas', 'lembretes', 'sessoes'] },
-    { id: 'ferramentas', nome: 'Ferramentas', ico: 'i-package', chaves: ['skills', 'apps', 'conectar', 'faceid', 'anonimizar'] },
+    { id: 'ferramentas', nome: 'Ferramentas', ico: 'i-package', chaves: ['skills', 'apps', 'integracoes', 'conectar', 'faceid', 'anonimizar'] },
     { id: 'operacao', nome: 'Operação', ico: 'i-activity', chaves: ['status', 'operations', 'costs', 'logs'] },
     { id: 'seguranca', nome: 'Segurança', ico: 'i-shield', chaves: ['seguranca', 'cofre', 'avisos', 'suporte', 'colaboradores', 'senha'] },
   ];

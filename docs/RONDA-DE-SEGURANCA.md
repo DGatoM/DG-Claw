@@ -148,8 +148,8 @@ versão corrigida já pode ser instalada. Se ainda não pode, a falha **não ass
 | **Aguardando correção do fornecedor** | não há correção nem proteção provisória conhecida | não |
 
 As duas ficam na seção recolhida "Aguardando correção oficial" da tela Segurança, só para informar. A ronda confere a cada
-rodada: quando o pacote corrigido aparece no apt, a falha volta para "Ação necessária" pedindo atualizar (e reiniciar, no kernel), e o Admin
-recebe o recado como de uma falha nova. Exceção: se a CISA diz que a falha está sendo explorada e não existe correção nem
+rodada: quando o pacote corrigido aparece no apt, a falha passa para "Atualizações do sistema" (veja abaixo), onde a correção entra sozinha
+pela atualização do Ubuntu. Exceção: se a CISA diz que a falha está sendo explorada e não existe correção nem
 proteção, ela continua em "Ação necessária", com a sugestão de considerar o botão de emergência.
 
 A **proteção provisória** é uma ação do catálogo marcada `"paliativo": true`, descrita em `seguranca/paliativos.json`. Se ela não
@@ -167,6 +167,35 @@ também conta. Se alguém voltar a configuração, a falha volta a pedir ação.
 3. Rode `tests/ronda/rodar.sh`: o catálogo é validado no carregamento. Um erro vira a fonte "Catálogo de paliativos" com falha na ronda,
    sem derrubar o resto.
 4. Para um tipo novo de verificação, acrescente a função em `VERIFICADORES` e os campos em `TIPOS_VERIFICA`, em `ronda.py`.
+
+## Atualizações do sistema (segundo plano)
+
+Falha de um pacote do sistema (o kernel Linux, o openssl e afins, os pacotes Ubuntu do `dpkg`) que **já tem correção** no `apt` deste
+servidor nunca aparece como crítica nem em destaque. A ronda só trata a falha como "do sistema" quando o apt confirma que **todos** os
+pacotes afetados têm versão corrigida disponível (sem cortar a lista de binários; só o kernel em execução se confere por metapacotes,
+e só pelos de imagem da mesma variante do `uname -r` (aceita também o sufixo da série em execução, como `linux-image-generic-6.8` num kernel 6.8; o candidato do metapacote também precisa ser da mesma série do kernel em execução, então um `hwe` na 6.17 não prova nada num kernel 6.8), então um `linux-image-aws` não prova nada num kernel `generic`, e um
+`linux-headers-*` nunca prova; um pacote que só começa com "linux", como o `linuxptp`, confere os próprios binários). Sem essa confirmação (por exemplo, o `apt-cache` falhou), a falha segue as regras de sempre.
+Com ela, a falha vai para o estado **Atualização do sistema** (segundo plano):
+
+- aparece só na seção recolhida "Atualizações do sistema" da tela Segurança, agrupada por componente (por exemplo, "Kernel Linux: 12
+  correções na fila da atualização do sistema"), sem etiqueta de gravidade e sem cor de alerta;
+- não entra no aviso "Seu ambiente está em risco", no selo nem na contagem de pontos em risco;
+- o cartão mostra o texto "Já existe correção pelo canal normal de atualização do Ubuntu. Com a atualização automática ligada (o padrão do
+  Ubuntu), ela entra sozinha; se não estiver, peça ao Admin para atualizar o sistema." (só no kernel em execução acrescenta que o kernel
+  novo vale no próximo reinício) e o botão Pedir ao Admin, sempre disponível;
+- o Admin recebe o achado no recado uma vez (regra normal de `avisado_em`), no grupo "ATUALIZAÇÕES DO SISTEMA", com a orientação de
+  conferir se a atualização automática do Ubuntu (unattended-upgrades) está ligada e, se não estiver, atualizar o sistema com o ok do dono.
+  A ronda não tenta provar que a atualização automática vai instalar a correção: quem confere é o Admin;
+- a ronda reavalia a cada rodada, e a falha some sozinha quando o pacote é atualizado;
+- no `ronda.json`, a explorada (KEV) vem primeiro e o segundo plano (este estado e o "aguardando") vai para o fim da lista antes do corte de
+  80 achados; o recado é montado da lista completa, antes do corte. `dgclaw seguranca estado` conta `atualizacoes_sistema: {total}`.
+
+Continuam em destaque, pedindo decisão, as falhas que a CISA diz estar sendo exploradas (lista KEV) e as que dependem de uma ação do
+catálogo ou de atualizar o DG Claw. A ronda só rebaixa uma falha para "atualização do sistema" com a CISA respondendo nesta rodada e nenhum id da falha (nem os do registro anterior) e nenhum de seus pacotes citado no
+catálogo. Sem a resposta da CISA, o que já era atualização do sistema continua assim, sem recado novo, e o resto fica aberto, como antes. Uma resposta
+da CISA com a lista vazia, com `cveID` fora do formato, repetido, sem `count` ou com `count` que não bate conta como fonte fora. Um achado reapresentado de uma
+rodada anterior que estava em segundo plano ou aberto sem ser explorado (nível 3) e tem id no catálogo volta a aberto, nível 2, com recado novo. Falha de
+pacote que não é do sistema (npm, Python, um agente) segue as regras de sempre. Com alguma fonte ou inventário incompleto na rodada, uma falha que perdeu algum pacote guardado na rodada anterior também não é rebaixada, e o mesmo vale quando a lista de pacotes guardados passou do limite de 200 (a marca de corte se mantém durante as rodadas parciais seguintes e só some numa rodada completa em que tudo coube) ou a lista de ids da falha foi cortada. As CVEs que o USN lista por pacote também entram nos ids da falha, e o candidato do apt só vale quando cobre a versão corrigida também sem o epoch.
 
 ## Como desligar ou mudar os horários
 

@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# dgclaw-pesado: roda um comando pesado (render, ffmpeg, numpy, transcrição) sem arriscar o agente.
+#
+# Uso:  dgclaw-pesado [--mem 2500M] [--timeout SEGUNDOS] -- <comando> [args...]
+#       (o "--" é opcional quando o comando não começa com "-")
+#
+# O que faz:
+#   1. Põe o comando num cgroup PRÓPRIO (systemd-run --user --scope) com teto de memória. Se passar do
+#      teto, morre só ele: o runner e o Claude do agente seguem de pé, e quem chamou recebe código 137.
+#   2. Com --timeout (ou DGCLAW_PESADO_TIMEOUT), o comando tem um teto de tempo. Estourou: código 124.
+#   3. Roda com nice 10, para o terminal do agente continuar respondendo durante o render.
+#   4. Marca o comando como o primeiro da fila do OOM do container (oom_score_adj 800).
+#   5. Limita as threads de numpy/BLAS/OpenCV ao número de CPUs da máquina.
+#   6. Ao terminar (sucesso, erro, tempo esgotado ou este script receber TERM/INT/HUP), encerra TUDO o que
+#      sobrou do comando (Chrome headless, processos de render): pelo cgroup do scope, ou, sem o gerente
+#      systemd, pelo grupo de processos. Nunca por nome, então o Chrome da Tela do agente não é tocado.
+# Sem o gerente systemd do usuário (linger desligado), cai para os itens 2 a 6 (sem teto de memória) e avisa
+# no stderr por quê.
+#
+# O código de saída é o do comando (137 = bateu no teto de memória, 124 = estourou o tempo).
+# Sem o gerente systemd, o recolhimento alcança só o grupo de processos: um auxiliar que abre sessão própria
+# escapa. O caminho completo é o do scope.
+#
+# Teto de memória padrão: 60% da memória do container (memory.max do cgroup), no máximo 2500M; sem leitura
+# possível, 2500M. Ele precisa caber dentro da memória do container, com folga para o runner, o Claude e o
+# Chrome da Tela.
+# Variáveis: DGCLAW_PESADO_MEM (teto de memória, ex.: 2500M) e DGCLAW_PESADO_TIMEOUT (tempo padrão,
+# em segundos; vazio ou 0 = sem teto de tempo). Já dentro de um dgclaw-pesado, só executa o comando.
+set -uo pipefail
+
+uso="Uso: dgclaw-pesado [--mem 2500M] [--timeout SEGUNDOS] -- <comando> [args...]"
+mem="${DGCLAW_PESADO_MEM:-}"
+tempo="${DGCLAW_PESADO_TIMEOUT:-}"
+mem_dado=""
+tempo_dado=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --mem)
+      [ $# -ge 2 ] || { echo "dgclaw-pesado: --mem precisa de um valor, ex.: --mem 2G" >&2; exit 2; }
+      mem="$2"; mem_dado=1; shift 2 ;;
+    --timeout)
+      [ $# -ge 2 ] || { echo "dgclaw-pesado: --timeout precisa de um valor em segundos, ex.: --timeout 600" >&2; exit 2; }
+      tempo="$2"; tempo_dado=1; shift 2 ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+if [ $# -eq 0 ]; then
+  echo "dgclaw-pesado: faltou o comando. $uso" >&2
+  exit 2
+fi
+if [ -z "$mem" ] && [ -z "$mem_dado" ]; then
+  mem="2500M"
+  memmax="$(cat "${DGCLAW_PESADO_CGROUP_MEMMAX_ARQ:-/sys/fs/cgroup/memory.max}" 2>/dev/null || true)"
+  case "$memmax" in
+    ""|*[!0-9]*) ;;
+    *)
+      mb=$(( memmax / 1048576 ))
+      sessenta=$(( mb * 60 / 100 ))
+      if [ "$sessenta" -ge 1 ] && [ "$sessenta" -lt 2500 ]; then mem="${sessenta}M"; fi
+      ;;
+  esac
+fi
+# O systemd só aceita o sufixo em maiúscula (1G; 1g dá erro).
+mem="${mem^^}"
+if ! [[ "$mem" =~ ^[0-9]+[KMG]?$ ]]; then
+  echo "dgclaw-pesado: teto de memória inválido: '$mem' (use algo como 1500M ou 2G)" >&2
+  exit 2
+fi
+if [ -n "$tempo_dado" ] || [ -n "$tempo" ]; then
+  if ! [[ "$tempo" =~ ^[0-9]+$ ]]; then
+    echo "dgclaw-pesado: tempo máximo inválido: '$tempo' (use um número inteiro de segundos, como 600)" >&2
+    exit 2
+  fi
+fi
+if [ -n "$tempo" ] && [ "$((10#$tempo))" -eq 0 ]; then tempo=""; fi
+
+if [ -n "${DGCLAW_PESADO:-}" ]; then exec -- "$@"; fi
+export DGCLAW_PESADO=1
+# Prefixo da unidade do scope: quem chama (o runner) o define para poder parar só os seus scopes.
+prefixo_unidade="${DGCLAW_PESADO_PREFIXO:-dgclaw-pesado}"
+if ! [[ "$prefixo_unidade" =~ ^[a-z][a-z0-9-]{0,39}$ ]]; then
+  echo "dgclaw-pesado: DGCLAW_PESADO_PREFIXO inválido: '$prefixo_unidade' (começa por letra minúscula, até 40 caracteres entre letras minúsculas, números e hífen)" >&2
+  exit 2
+fi
+
+# O nproc do GNU obedece OMP_NUM_THREADS e OMP_THREAD_LIMIT: sem tirá-los, um valor herdado alto viraria o "número de CPUs".
+cpus=$(env -u OMP_NUM_THREADS -u OMP_THREAD_LIMIT nproc 2>/dev/null || echo 1)
+# O nproc do Ubuntu 24.04 não enxerga a cota de CPU do container (cpu.max): sem isto, 32 threads de numpy
+# num container de 1 CPU.
+read -r cota periodo < "${DGCLAW_PESADO_CGROUP_CPUMAX_ARQ:-/sys/fs/cgroup/cpu.max}" 2>/dev/null || cota=max
+if [[ "${cota:-max}" =~ ^[0-9]+$ ]] && [[ "${periodo:-}" =~ ^[0-9]+$ ]] && [ "$periodo" -gt 0 ]; then
+  cpus_cota=$(( (cota + periodo - 1) / periodo ))
+  if [ "$cpus_cota" -ge 1 ] && [ "$cpus_cota" -lt "$cpus" ]; then cpus=$cpus_cota; fi
+fi
+# Valor herdado maior que as CPUs, vazio ou inválido vira $cpus; inteiro positivo até $cpus fica.
+for var in OMP_NUM_THREADS OPENBLAS_NUM_THREADS MKL_NUM_THREADS NUMEXPR_NUM_THREADS OPENCV_FOR_THREADS_NUM; do
+  atual="${!var:-}"
+  if ! [[ "$atual" =~ ^[0-9]+$ ]] || [ "$((10#$atual))" -lt 1 ] || [ "$((10#$atual))" -gt "$cpus" ]; then atual="$cpus"; fi
+  export "$var=$((10#$atual))"
+done
+
+# Subir o próprio oom_score_adj é permitido sem root, e os filhos herdam.
+echo 800 > /proc/self/oom_score_adj 2>/dev/null || true
+
+# "timeout -k 10": TERM no estouro e KILL 10 s depois se o comando teimar; sai com 124 no estouro.
+# O "--" do nice garante que um comando começado com "-" não vire opção dele; o timeout para de ler opções na
+# duração, então o que vem depois dela é sempre o comando, literal.
+prefixo=(nice -n 10 --)
+# Com --timeout o scope também ganha prazo próprio (RuntimeMaxSec): se este invólucro morrer por SIGKILL, sem
+# trap, o systemd ainda encerra o que sobrou dele.
+teto_scope=()
+if [ -n "$tempo" ]; then prefixo+=(timeout -k 10 "$tempo"); teto_scope=(-p "RuntimeMaxSec=$((10#$tempo + 30))"); fi
+inicio=$SECONDS
+
+pid=""
+unidade=""
+esperado=""
+cancelado=""
+
+# Recolhe o que sobrou do comando. Idempotente: roda no fim normal e no trap.
+recolher() {
+  if [ -n "$unidade" ]; then
+    # Só pelo nome da unidade, nunca por pid (um pid já recolhido pode ser de outro processo).
+    systemctl --user stop -- "$unidade.scope" >/dev/null 2>&1 || true
+    # Cancelamento antes do fim: o scope pode ainda estar nascendo na primeira parada. Para de novo depois.
+    if [ -z "$esperado" ]; then
+      sleep 1
+      systemctl --user stop -- "$unidade.scope" >/dev/null 2>&1 || true
+    fi
+  elif [ -n "$pid" ]; then
+    # Também o próprio pid enquanto o wait não terminou: cobre a janela em que o grupo ainda não existe.
+    if [ -z "$esperado" ]; then kill -TERM "$pid" 2>/dev/null || true; fi
+    kill -TERM -- "-$pid" 2>/dev/null || true
+    local espera=0
+    while [ "$espera" -lt 6 ] && kill -0 -- "-$pid" 2>/dev/null; do
+      sleep 0.5
+      espera=$((espera + 1))
+    done
+    kill -KILL -- "-$pid" 2>/dev/null || true
+    if [ -z "$esperado" ]; then kill -KILL "$pid" 2>/dev/null || true; fi
+  fi
+}
+
+# shellcheck disable=SC2317  # chamada pelos traps abaixo
+sinal() {
+  recolher
+  exit $((128 + $1))
+}
+# Sinal que chega antes de existir o pid do comando só é guardado; é tratado logo depois do "pid=$!".
+# shellcheck disable=SC2317  # chamada pelos traps abaixo
+recebido() {
+  if [ -z "$pid" ]; then cancelado="$1"; else sinal "$1"; fi
+}
+trap 'recebido 15' TERM
+trap 'recebido 2' INT
+trap 'recebido 1' HUP
+
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+if [ -S "$XDG_RUNTIME_DIR/systemd/private" ] && command -v systemd-run >/dev/null 2>&1; then
+  unidade="${prefixo_unidade}-$$-$RANDOM"
+  # Em segundo plano para poder recolher o scope inteiro depois. Sem controle de jobs o "&" joga o stdin
+  # para /dev/null, por isso o 0<&0 explícito.
+  systemd-run --user --scope --quiet --collect --unit="$unidade" --description=dgclaw-pesado \
+    -p MemoryMax="$mem" -p MemorySwapMax=0 "${teto_scope[@]}" \
+    -- "${prefixo[@]}" "$@" 0<&0 &
+  pid=$!
+else
+  echo "dgclaw-pesado: sem gerente systemd do usuário ($XDG_RUNTIME_DIR/systemd/private não existe); rodando sem teto de memória próprio, só com nice, teto de tempo e prioridade de sacrifício no OOM. Para ligar o teto: loginctl enable-linger $(id -un) (como root)." >&2
+  # Sem controle de jobs o filho em background não é líder de grupo: o setsid não precisa criar processo
+  # novo, e o pid de $! passa a ser o id do grupo que o recolher mata.
+  setsid "${prefixo[@]}" "$@" 0<&0 &
+  pid=$!
+fi
+if [ -n "$cancelado" ]; then sinal "$cancelado"; fi
+
+wait "$pid"
+codigo=$?
+esperado=1
+# O "timeout -k" mata com KILL quando o comando ignora o TERM: sai 137 em vez de 124.
+if [ "$codigo" -eq 137 ] && [ -n "$tempo" ] && [ $((SECONDS - inicio)) -ge "$((10#$tempo))" ]; then codigo=124; fi
+recolher
+exit "$codigo"

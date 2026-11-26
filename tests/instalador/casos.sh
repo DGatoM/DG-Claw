@@ -1484,14 +1484,162 @@ caso_caddy_arquivo_antigo_identico_e_atualizado() {
     limpar_cenario
 }
 
-caso_caddy_arquivo_personalizado_e_preservado() {
+caso_caddy_arquivo_personalizado_simples_ganha_so_o_encode() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado"
+    echo caddy >"$TMP/estado/ativos" # o Caddy ja esta no ar, como numa atualizacao de verdade
+    printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n%s {\n\theader X-Minha-Linha "do dono"\n\treverse_proxy 127.0.0.1:8300\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    afirma "a atualizacao termina com sucesso" instalacao_basica
+    afirma "a linha do dono continua la" tem "$RAIZ/etc/caddy/Caddyfile" 'header X-Minha-Linha "do dono"'
+    afirma "ganhou a compressao" tem "$RAIZ/etc/caddy/Caddyfile" "zstd"
+    nega "o stream da conversa nao entra" tem "$RAIZ/etc/caddy/Caddyfile" "event-stream"
+    nega "nada de text/* generico" grep -qE 'Content-Type text/\*' "$RAIZ/etc/caddy/Caddyfile"
+    igual "$(contar "$RAIZ/etc/caddy/Caddyfile" reverse_proxy)" 1 || { echo "      FALHOU: reverse_proxy duplicado"; FALHAS=$((FALHAS + 1)); }
+    # shellcheck disable=SC2016
+    afirma "so linhas novas foram acrescentadas" bash -c 'diff "$1" "$2" | grep -c "^<" | grep -qx 0' _ "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    afirma "caddy validado" tem "$STUB_LOG" "caddy validate --config $RAIZ/etc/caddy/Caddyfile"
+    afirma "caddy recarregado" tem "$STUB_LOG" "systemctl reload caddy"
+    afirma "avisa o que fez" tem "$SAIDA" "acrescentei so o bloco de compressao"
+    # Segunda rodada: ja tem encode, nao duplica.
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-depois"
+    afirma "segunda rodada termina com sucesso" instalacao_basica
+    afirma "arquivo igual ao da primeira rodada" cmp "$TMP/caddy-depois" "$RAIZ/etc/caddy/Caddyfile"
+    limpar_cenario
+}
+
+caso_caddy_encode_preserva_modo_copia_ao_lado_e_quebras_finais() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado"
+    echo caddy >"$TMP/estado/ativos"
+    local cf="$RAIZ/etc/caddy/Caddyfile"
+    printf '# DG Claw: gerado pelo install.sh.\n%s {\n\theader X-Minha-Linha "do dono"\n\treverse_proxy 127.0.0.1:8300\n}\n\n\n' "$DOM_CADDY" >"$cf"
+    chmod 640 "$cf"
+    cp -p "$cf" "$TMP/caddy-antes"
+    afirma "a atualizacao termina com sucesso" instalacao_basica
+    afirma "ganhou a compressao" tem "$cf" "zstd"
+    igual "$(stat -c %a "$cf")" 640 || { echo "      FALHOU: o modo 0640 do dono nao foi mantido"; FALHAS=$((FALHAS + 1)); }
+    # shellcheck disable=SC2016
+    afirma "o arquivo termina com as 2 linhas em branco de antes" bash -c '[ "$(tail -c 4 "$1" | od -An -tx1 | tr -d " \n")" = 7d0a0a0a ]' _ "$cf"
+    local bak
+    bak="$(find "$RAIZ/etc/dgclaw/caddy-copias" -maxdepth 1 -name 'Caddyfile.antes-encode-*' | head -n 1)"
+    afirma "a copia de antes ficou na pasta privada do root" test -n "$bak"
+    igual "$(stat -c %a "$RAIZ/etc/dgclaw/caddy-copias")" 700 || { echo "      FALHOU: a pasta das copias nao e 0700"; FALHAS=$((FALHAS + 1)); }
+    afirma "a copia e igual ao arquivo de antes" cmp "$TMP/caddy-antes" "$bak"
+    igual "$(stat -c %a "$bak")" 640 || { echo "      FALHOU: a copia de antes nao tem o modo do original"; FALHAS=$((FALHAS + 1)); }
+    # shellcheck disable=SC2016
+    nega "nenhuma sobra temporaria em /etc/caddy" bash -c 'ls -A "$1" | grep -E "^\.Caddyfile"' _ "$RAIZ/etc/caddy"
+    # shellcheck disable=SC2016
+    nega "nenhuma copia solta em /etc/caddy" bash -c 'ls "$1" | grep -q antes-encode' _ "$RAIZ/etc/caddy"
+    limpar_cenario
+}
+
+caso_caddy_encode_nao_troca_link_simbolico() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado" "$TMP/real"
+    echo caddy >"$TMP/estado/ativos"
+    printf '# DG Claw: gerado pelo install.sh.\n%s {\n\theader X-Minha-Linha "do dono"\n\treverse_proxy 127.0.0.1:8300\n}\n' "$DOM_CADDY" >"$TMP/real/Caddyfile"
+    ln -s "$TMP/real/Caddyfile" "$RAIZ/etc/caddy/Caddyfile"
+    cp "$TMP/real/Caddyfile" "$TMP/caddy-antes"
+    afirma "a atualizacao termina com sucesso" instalacao_basica
+    afirma "continua sendo link" test -L "$RAIZ/etc/caddy/Caddyfile"
+    afirma "o destino do link ficou intacto" cmp "$TMP/caddy-antes" "$TMP/real/Caddyfile"
+    afirma "avisa o que acrescentar" tem "$SAIDA" "personalizacoes suas"
+    limpar_cenario
+}
+
+caso_caddy_encode_recusa_proxy_aninhado_mesmo_com_indentacao_de_site() {
     novo_cenario
     mkdir -p "$RAIZ/etc/caddy"
-    printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n%s {\n\treverse_proxy 127.0.0.1:8300\n\theader X-Minha-Linha "do dono"\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    printf '# DG Claw: gerado pelo install.sh.\n%s {\n    handle /api/* {\n    reverse_proxy 127.0.0.1:8300\n    }\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    afirma "a atualizacao termina com sucesso" instalacao_basica
+    afirma "arquivo intacto" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    # shellcheck disable=SC2016
+    # shellcheck disable=SC2016
+    afirma "nenhuma copia sobrou" bash -c '[ -z "$(find "$1" -type f 2>/dev/null)" ]' _ "$RAIZ/etc/dgclaw/caddy-copias"
+    limpar_cenario
+}
+
+caso_caddy_encode_recusa_comentario_no_fim_da_linha_e_arquivo_sem_quebra_final() {
+    # 1) comentario no fim da linha escondendo o bloco aninhado
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy"
+    printf '# DG Claw: gerado pelo install.sh.\n%s {\n    handle /api/* { # inicio\n    reverse_proxy 127.0.0.1:8300\n    } # fim\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    afirma "termina com sucesso (comentario)" instalacao_basica
+    afirma "arquivo intacto (comentario)" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    limpar_cenario
+    # 2) arquivo que termina direto em "}", sem quebra de linha
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy"
+    printf '# DG Claw: gerado pelo install.sh.\n%s {\n\theader X-Minha-Linha "do dono"\n\treverse_proxy 127.0.0.1:8300\n}' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    afirma "termina com sucesso (sem quebra final)" instalacao_basica
+    afirma "arquivo intacto (sem quebra final)" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    limpar_cenario
+}
+
+caso_caddy_encode_validacao_que_falha_volta_o_arquivo_do_dono() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/estado"
+    echo caddy >"$TMP/estado/ativos"
+    printf '# DG Claw: gerado pelo install.sh.\n%s {\n\theader X-Minha-Linha "do dono"\n\treverse_proxy 127.0.0.1:8300\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    cp -p "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    touch "$TMP/estado/caddy-falha"
+    nega "a instalacao para quando o Caddy recusa" instalacao_basica
+    afirma "o arquivo do dono voltou ao que era" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    nega "nao recarregou o Caddy" tem "$STUB_LOG" "systemctl reload caddy"
+    limpar_cenario
+}
+
+caso_caddy_encode_recusa_formas_que_o_instalador_nao_interpreta() {
+    local c
+    # 1) site sem chaves externas, com handle: o unico bloco e do handle
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy"
+    printf '# DG Claw: gerado pelo install.sh.\n%s\nhandle /api/* {\n    reverse_proxy 127.0.0.1:8300\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    afirma "termina com sucesso (sem chaves do site)" instalacao_basica
+    afirma "intacto (sem chaves do site)" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    limpar_cenario
+    # 2) respond com texto multilinha que contem a linha de exemplo
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy"
+    printf '# DG Claw: gerado pelo install.sh.\n%s {\n\trespond <<EOT\n\treverse_proxy 127.0.0.1:8300\n\tEOT\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    afirma "termina com sucesso (heredoc)" instalacao_basica
+    afirma "intacto (heredoc)" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    limpar_cenario
+    # 3) arquivo com dois nomes (hard link): o mv romperia o vinculo
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$TMP/outro"
+    printf '# DG Claw: gerado pelo install.sh.\n%s {\n\theader X-Minha-Linha "do dono"\n\treverse_proxy 127.0.0.1:8300\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    ln "$RAIZ/etc/caddy/Caddyfile" "$TMP/outro/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    afirma "termina com sucesso (hard link)" instalacao_basica
+    afirma "intacto (hard link)" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    limpar_cenario
+    # 4) pasta das copias que e um link simbolico: nao segue
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy" "$RAIZ/etc/dgclaw" "$TMP/alvo-do-link"
+    ln -s "$TMP/alvo-do-link" "$RAIZ/etc/dgclaw/caddy-copias"
+    printf '# DG Claw: gerado pelo install.sh.\n%s {\n\theader X-Minha-Linha "do dono"\n\treverse_proxy 127.0.0.1:8300\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
+    cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
+    afirma "termina com sucesso (pasta e link)" instalacao_basica
+    afirma "intacto (pasta e link)" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
+    c="$(find "$TMP/alvo-do-link" -type f | wc -l)"
+    igual "$c" 0 || { echo "      FALHOU: gravou copias atras do link"; FALHAS=$((FALHAS + 1)); }
+    limpar_cenario
+}
+
+caso_caddy_arquivo_personalizado_complexo_e_preservado() {
+    novo_cenario
+    mkdir -p "$RAIZ/etc/caddy"
+    printf '# DG Claw: gerado pelo install.sh. Rodar o instalador de novo reescreve este arquivo.\n%s {\n\thandle /api/* {\n\t\treverse_proxy 127.0.0.1:8300\n\t}\n\theader X-Minha-Linha "do dono"\n}\n' "$DOM_CADDY" >"$RAIZ/etc/caddy/Caddyfile"
     cp "$RAIZ/etc/caddy/Caddyfile" "$TMP/caddy-antes"
     afirma "a atualizacao termina com sucesso" instalacao_basica
     afirma "arquivo personalizado intacto" cmp "$TMP/caddy-antes" "$RAIZ/etc/caddy/Caddyfile"
-    afirma "a linha do dono continua la" tem "$RAIZ/etc/caddy/Caddyfile" 'header X-Minha-Linha "do dono"'
     afirma "avisa o que acrescentar" tem "$SAIDA" "personalizacoes suas"
     afirma "o aviso explica o perigo do text/*" tem "$SAIDA" "event-stream"
     limpar_cenario

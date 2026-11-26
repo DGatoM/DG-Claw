@@ -111,7 +111,7 @@
   /* Os fatos de uma falha, na ordem pedida: publicada em, gravidade, onde afeta, o que faz, como corrigir, fonte e notícia. */
   function fatosHtml(a) {
     let h = fato('Publicada em', esc(a.publicado_em ? dataBr(a.publicado_em) : 'data não informada'), 'rp-f-data');
-    h += fato('Gravidade', esc(gravidadeRotulo(a.severidade)), 'rp-f-grav');
+    if (!ehAtualizacaoSistema(a)) h += fato('Gravidade', esc(gravidadeRotulo(a.severidade)), 'rp-f-grav');
     if (a.onde && a.onde.length) h += fato('Onde afeta', a.onde.map(esc).join('<br>'), 'rp-f-onde');
     h += fato('O que faz', esc(a.o_que_faz || 'A fonte oficial não descreve o impacto.'), 'rp-f-faz');
     h += fato('Como corrigir', esc(a.como_corrigir || 'Ainda não há orientação publicada.'), 'rp-f-como');
@@ -142,9 +142,15 @@
   const ROTULO_ESTADO = {
     'aplicado-sozinho': 'Aplicado sozinho', 'aplicado-pelo-dono': 'Aplicado por você', mitigado: 'Mitigado', agendado: 'Agendado', aberto: 'Aberto',
     'protegido-aguardando': 'Protegido, aguardando correção oficial', 'aguardando-fornecedor': 'Aguardando correção do fornecedor',
+    'atualizacao-sistema': 'Atualização do sistema',
   };
   /* Sem correção instalável: informativo, nunca entra na lista de pontos em risco nem pede decisão. */
   function aguardaCorrecao(a) { return !!a && (a.estado === 'protegido-aguardando' || a.estado === 'aguardando-fornecedor'); }
+  /* Pacote do sistema que já tem correção no apt: entra pela atualização do Ubuntu. Segundo plano, nunca é ponto em risco. */
+  function ehAtualizacaoSistema(a) { return !!a && a.estado === 'atualizacao-sistema'; }
+  /* Atualização do sistema: o cartão sempre traz o Pedir ao Admin (a atualização automática pode não estar ligada). Mesmo pedido do nível 3. */
+  function podePedirAtualizacao(a) { return ehAtualizacaoSistema(a); }
+  function segundoPlano(a) { return aguardaCorrecao(a) || ehAtualizacaoSistema(a); }
   function estadoRotulo(e) { return ROTULO_ESTADO[e] || 'Aberto'; }
 
   /* "Aplicado sozinho em hoje, 13h02: <antes> para <depois>". */
@@ -299,7 +305,7 @@
     API, FUSO, PESO, SONDA_CADA_MS, SONDA_MAX_MS, FRASE_SEM_NOVIDADE, TEXTO_NIVEL3, GRAVIDADE,
     esc, ehHttps, dataBr, horaBr, quando, resumoTopo, textoParcial, textoVigia, gravidadeRotulo, linkHtml, fatosHtml,
     ehAtualizarDgclaw, textoDoPedidoAtualizar, textoDoPedidoAoAdmin, avisoReinicio, podeAplicar, podePedirAoAdmin, estadoRotulo, textoAplicado, agendaParaIso,
-    marcaDecidido, estaDecidido, criticasEmAberto, aguardaCorrecao,
+    marcaDecidido, estaDecidido, criticasEmAberto, aguardaCorrecao, ehAtualizacaoSistema, podePedirAtualizacao, segundoPlano,
     ordenaPorGravidade, abertura, temCorrecaoParaAplicar, textoBoletim, textoDoPedidoBoletim, fatosBoletimHtml,
     chama, sondar, pedirEEsperar, urlAchado, PEDIDO_ROTULO,
   };
