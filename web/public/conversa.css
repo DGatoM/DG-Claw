@@ -197,8 +197,24 @@
   .tools .btn{flex:0 0 auto}
   .tools a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:4px;color:var(--cor-texto);white-space:nowrap}
   .tools a.btn[hidden]{display:none}
-  #btnContinua.on{background:var(--botao-fundo);color:var(--botao-texto);border-color:transparent}
-  #btnContinua:not(.on){opacity:.75}
+  /* Só ícone em qualquer largura: o nome fica no title e no aria-label. Bolinhas e selos
+     continuam visíveis, presos ao canto do botão. */
+  .tools .lbl{display:none}
+  .tools .btn{position:relative}
+  .tools #btnParar{font-size:13px}
+  #btnVoz.on,#menuVoz .btn.on{background:var(--botao-fundo);color:var(--botao-texto);border-color:transparent}
+  #menuVoz .btn:not(.on){opacity:.85}
+  /* Popover da Voz: fixo e calculado pelo JS, para não ser cortado pela faixa que rola */
+  .menu-voz{position:fixed;z-index:60;display:flex;flex-direction:column;gap:6px;padding:8px;
+    min-width:240px;max-width:calc(100vw - 16px);box-sizing:border-box;background:var(--header);
+    border:1px solid var(--line);border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+  .menu-voz[hidden]{display:none}
+  .menu-voz .btn{display:flex;align-items:center;justify-content:flex-start;gap:8px;min-height:44px;
+    width:100%;text-align:left;white-space:normal;color:var(--cor-texto)}
+  .menu-voz .lbl{display:inline}
+  /* o Voz nasce hidden no HTML e só aparece depois que o conversa.js montou o quadro; até lá (ou com
+     arquivos antigos) ler e contínua continuam na faixa, funcionando */
+  #btnVoz[hidden]{display:none}
   @media (max-width:700px){
     header{flex-wrap:wrap;row-gap:0;gap:0 8px;padding-left:6px;padding-right:6px}
     header .who{flex:1 1 0;min-width:0}
@@ -209,7 +225,6 @@
     .ferr .tools::-webkit-scrollbar{display:none}
     header .tools .btn{min-height:40px;min-width:40px;padding:4px 8px;font-size:18px;
                        display:inline-flex;align-items:center;justify-content:center;gap:4px;position:relative}
-    header .tools .lbl{display:none}
     header .tools #btnParar{font-size:13px;padding:4px 12px}
     .ferr-sombra{display:block;position:absolute;top:0;bottom:0;width:22px;pointer-events:none;
                  opacity:0;transition:opacity .15s;z-index:2}
@@ -392,6 +407,10 @@
   html.pwa .troca-baixo:not(:empty){padding-bottom:4px}
   html.teclado .troca-baixo{display:none}
   .troca-baixo::-webkit-scrollbar{display:none}
+  /* sombra de borda: há agente escondido do lado (o JS marca .tem-esq / .tem-dir) */
+  .troca-baixo.tem-esq{-webkit-mask-image:linear-gradient(90deg,transparent,#000 22px);mask-image:linear-gradient(90deg,transparent,#000 22px)}
+  .troca-baixo.tem-dir{-webkit-mask-image:linear-gradient(270deg,transparent,#000 22px);mask-image:linear-gradient(270deg,transparent,#000 22px)}
+  .troca-baixo.tem-esq.tem-dir{-webkit-mask-image:linear-gradient(90deg,transparent,#000 22px,#000 calc(100% - 22px),transparent);mask-image:linear-gradient(90deg,transparent,#000 22px,#000 calc(100% - 22px),transparent)}
   .troca-baixo a{position:relative;display:block;flex:0 0 auto;border-radius:50%;padding:3px;
     scroll-snap-align:center;text-decoration:none;-webkit-tap-highlight-color:transparent}
   .troca-baixo .av{width:34px;height:34px;flex:0 0 34px;font-size:15px;opacity:.8}
@@ -495,7 +514,7 @@
 #avisoAdmin code{font-family:ui-monospace,Menlo,monospace;background:rgba(0,0,0,.06);border-radius:4px;padding:0 3px}
 
 /* Os botões que dependem de microfone ou voz só aparecem quando o servidor libera */
-.sem-mic #btnMic,.sem-voz #btnLer,.sem-voz #btnContinua,.sem-mic #btnContinua{display:none}
+.sem-mic #btnMic,.sem-voz #btnVoz,.sem-voz #menuVoz,.sem-voz #btnLer,.sem-voz #btnContinua,.sem-mic #btnContinua{display:none}
 #btnTutorial{font-size:13px}
 .sem-mic .linha1 .campo{margin-right:0}
 
