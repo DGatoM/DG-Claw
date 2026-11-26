@@ -379,4 +379,4 @@ function tarefasDoAgente(ctx, ag) {
   return [container, sessao, login, saudeResposta, painel, telegram, whatsapp, rotinas, injecao, workingMemory, compactacao, youtube];
 }
 
-module.exports = { tarefasDoAgente };
+module.exports = { tarefasDoAgente, FRASES_SAUDE };
