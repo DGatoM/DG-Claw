@@ -49,6 +49,7 @@ const { criarPedidos } = require('./lib/pedidos');
 const { criarManual } = require('./lib/manual');
 const { criarAvisos } = require('./lib/avisos');
 const { criarAtualizacao } = require('./lib/atualizacao');
+const { criarIntegracoesVigia } = require('./lib/integracoes-vigia');
 const { criarSeguranca } = require('./lib/seguranca');
 const { criarLogsRotas, autorizado: logsAutorizado } = require('./lib/logs-rotas');
 const { criarRondaPainel } = require('./lib/ronda-painel');
@@ -236,6 +237,8 @@ function criarServidor(opcoes) {
   // /api/v1/estados NÃO entra na caixa: ela só atende agentes de trabalho, e um agente não tem por que
   // enxergar o estado (nem o nome) dos vizinhos. O Admin, no host, lê os documentos e a tela.
   const atualizacao = criarAtualizacao({ dataDir: config.dataDir, log });
+  // Integrações com defeito: só o dono, pelo painel (fora de caixa.permitir de propósito: agente não chama estas rotas).
+  const integracoesVigia = criarIntegracoesVigia({ dataDir: config.dataDir, registro, runner, log, agora: opcoes.agora, leitura: opcoes.leituraIntegracoes, catalogoArquivo: opcoes.catalogoIntegracoes, intervaloMs: opcoes.integracoesIntervaloMs, filtro: filtroAnon });
   // Aviso de segurança: só o dono, pelo painel (mesma regra da faixa de versão), por isso também fora de caixa.permitir.
   const seguranca = criarSeguranca({ dataDir: config.dataDir, log, agora: opcoes.agora });
   // Ronda de fábrica e botão de emergência: também só do dono (fora de caixa.permitir). O Web só grava pedidos; o root executa.
@@ -592,6 +595,8 @@ function criarServidor(opcoes) {
     if ((p === '/api/v1/lembretes' || p.startsWith('/api/v1/lembretes/')) && await lembretes.rotas(req, res, url, sessao)) return undefined;
 
     if ((p === '/api/v1/atualizacao' || p.startsWith('/api/v1/atualizacao/')) && await atualizacao.rotas(req, res, url, sessao)) return undefined;
+
+    if ((p === '/api/v1/integracoes' || p.startsWith('/api/v1/integracoes/')) && await integracoesVigia.rotas(req, res, url, sessao)) return undefined;
 
     if (p.startsWith('/api/v1/seguranca/') && await rondaPainel.rotas(req, res, url, sessao)) return undefined;
 
@@ -1811,7 +1816,7 @@ function criarServidor(opcoes) {
   }
 
   return {
-    servidor, servidorAdmin, caminhoSocketAdmin, config, registro, auth, colaboradores, cadeado, contaColab, proxy, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, chavesApi, diagnostico, estados, vigiaAtencao, prefsAtencao,
+    servidor, servidorAdmin, caminhoSocketAdmin, config, registro, auth, colaboradores, cadeado, contaColab, proxy, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, chavesApi, diagnostico, estados, vigiaAtencao, prefsAtencao, integracoesVigia,
     ouvir(porta, host) {
       return new Promise((resolve, reject) => {
         servidor.once('error', reject);
@@ -1821,13 +1826,14 @@ function criarServidor(opcoes) {
           lembretes.iniciar();
           avisos.iniciar();
           vigiaAtencao.iniciar();
+          integracoesVigia.iniciar();
           if (vigiaYoutube) vigiaYoutube.iniciar();
           if (opcoes.semSocketAdmin) return resolve(servidor.address());
           return abreSocketAdmin().then(() => resolve(servidor.address()));
         });
       });
     },
-    fechar() { return cadeado.aguardar().catch(() => {}).then(() => new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); if (vigiaYoutube) vigiaYoutube.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidorAdmin.closeAllConnections(); servidorAdmin.close(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); })); },
+    fechar() { return cadeado.aguardar().catch(() => {}).then(() => new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); integracoesVigia.parar(); if (vigiaYoutube) vigiaYoutube.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidorAdmin.closeAllConnections(); servidorAdmin.close(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); })); },
   };
 }
 

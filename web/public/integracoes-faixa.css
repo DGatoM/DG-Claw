@@ -1,0 +1,21 @@
+/* Faixa de integração com defeito (integracoes-faixa.js): vermelha, quebra linha no celular, sem rolagem horizontal. */
+.if{background:var(--cor-perigo-fundo);border-bottom:1px solid var(--cor-perigo-borda);color:var(--cor-perigo);font-size:13px;padding:4px 12px;max-width:100%;box-sizing:border-box}
+.if[hidden]{display:none}
+.if-linha{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-height:34px}
+.if-tit{flex:1 1 220px;min-width:0;overflow-wrap:anywhere;font-weight:600}
+.if-ico{display:inline-flex;vertical-align:middle}
+.if-acoes{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.if-btn{display:inline-flex;align-items:center;min-height:32px;padding:0 12px;border-radius:16px;border:1px solid var(--cor-perigo-borda);background:var(--cor-superficie,#fff);color:var(--cor-perigo);font:inherit;font-weight:600;cursor:pointer;text-decoration:none;box-sizing:border-box}
+.if-btn.if-pedir{background:var(--botao-perigo-fundo);border-color:var(--botao-perigo-fundo);color:var(--botao-perigo-texto)}
+.if-btn:disabled{opacity:.6;cursor:default}
+.if-ajuda{width:32px;height:32px;padding:0;justify-content:center;border-radius:50%;flex:0 0 auto}
+.if-lista{margin:4px 0 6px;padding:0;list-style:none;max-height:40vh;overflow-y:auto}
+.if-lista[hidden]{display:none}
+.if-item{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin:4px 0;overflow-wrap:anywhere}
+.if-item-txt{flex:1 1 220px;min-width:0}
+.if-link{display:inline-flex;align-items:center;min-height:32px;color:inherit;font-weight:600}
+.if-erro{margin:4px 0;overflow-wrap:anywhere}
+.if-erro[hidden]{display:none}
+.if-nm{font-size:12px;padding:2px 12px;max-width:100%;box-sizing:border-box;color:var(--cor-texto-suave,inherit)}
+.if-nm[hidden]{display:none}
+.if-nm-linha{margin:2px 0;overflow-wrap:anywhere}
