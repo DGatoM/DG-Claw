@@ -1,4 +1,7 @@
 'use strict';
+const dgUiText_lembretes_faixa_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiHtml_lembretes_faixa_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
+const dgUiLabel_lembretes_faixa_js = (el, fonte, atributo) => { if (globalThis.DGI18n) globalThis.DGI18n.rotulo(el, fonte, atributo); else if (atributo) el.setAttribute(atributo, fonte); else el.textContent = fonte; };
 /* lembretes-faixa.js: a faixa de lembretes no alto da conversa com os lembretes que estão tocando agora.
 
    Lê GET /api/v1/lembretes (campo "insistindo") a cada 15 s e quando a aba volta ao foco. Cada
@@ -19,7 +22,7 @@
 
   /* "aviso 3 de 12" */
   function rotuloAviso(item) {
-    return 'aviso ' + (item.envio || 1) + ' de ' + item.teto;
+    return 'aviso ' + (item.envio || 1) + dgUiText_lembretes_faixa_js(" de ") + item.teto;
   }
 
   function linhaHtml(item) {
@@ -29,8 +32,8 @@
     return `<li class="lf-item" data-oc="${id}">` +
       `<div class="lf-txt"><b>${esc(item.agente_nome || item.agente)}</b> ${esc(item.texto)} ` +
       `<small>${esc(rotuloAviso(item))}</small></div>` +
-      `<div class="lf-acoes"><button type="button" class="lf-feito" data-feito="${id}">Feito</button>` +
-      `<button type="button" class="lf-adiar" data-menu="${id}" aria-expanded="false">Adiar</button></div>` +
+      (dgUiHtml_lembretes_faixa_js("<div class=\"lf-acoes\"><button type=\"button\" class=\"lf-feito\" data-feito=\"") + (id) + dgUiHtml_lembretes_faixa_js("\"><!--dg-i18n:cb8eec47629b-->Feito<!--/dg-i18n--></button>")) +
+      (dgUiHtml_lembretes_faixa_js("<button type=\"button\" class=\"lf-adiar\" data-menu=\"") + (id) + dgUiHtml_lembretes_faixa_js("\" aria-expanded=\"false\"><!--dg-i18n:466bfbce1b9e-->Adiar<!--/dg-i18n--></button></div>")) +
       `<div class="lf-menu" hidden>${menu}</div></li>`;
   }
 
@@ -38,7 +41,7 @@
     alvo: '#faixaLembretes',
     titulo: 'Faixa de lembretes',
     oque: 'Os lembretes que estão tocando agora, de qualquer agente. Cada linha mostra quem lembra, o que é e quantos avisos já saíram.',
-    como: 'O ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' confere a cada 15 segundos e repete o aviso no intervalo do lembrete (5 minutos, se você não mudou) até o teto. Feito encerra a ocorrência em todos os aparelhos. Adiar traz o aviso de volta no prazo que você escolher, com a contagem de avisos zerada.',
+    get como() { return 'O ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + dgUiText_lembretes_faixa_js(" confere a cada 15 segundos e repete o aviso no intervalo do lembrete (5 minutos, se você não mudou) até o teto. Feito encerra a ocorrência em todos os aparelhos. Adiar traz o aviso de volta no prazo que você escolher, com a contagem de avisos zerada."); },
     porque: 'Para você não esquecer de algo que pediu para ser lembrado, mesmo que tenha deixado passar o primeiro aviso.',
   };
 
@@ -57,12 +60,12 @@
     faixa.className = 'lf';
     faixa.setAttribute('role', 'region');
     faixa.setAttribute('aria-live', 'polite');
-    faixa.setAttribute('aria-label', 'Lembretes tocando agora');
+    dgUiLabel_lembretes_faixa_js(faixa, "Lembretes tocando agora", "aria-label");
     faixa.hidden = true;
-    faixa.innerHTML = '<div class="lf-topo"><span class="lf-tit">' + dsIcone('clock') + ' Lembretes</span>' +
-      '<a class="lf-ver" href="/lembretes">ver todos</a>' +
-      '<button type="button" class="lf-ajuda" id="faixaLembretesAjuda" aria-label="Tutorial da faixa de lembretes" ' +
-      'title="O que é esta faixa">?</button></div><ul class="lf-lista" id="faixaLembretesLista"></ul>' +
+    faixa.innerHTML = '<div class="lf-topo"><span class="lf-tit">' + dsIcone('clock') + dgUiHtml_lembretes_faixa_js(" <!--dg-i18n:1a02ec714ff6-->Lembretes<!--/dg-i18n--></span>") +
+      dgUiHtml_lembretes_faixa_js("<a class=\"lf-ver\" href=\"/lembretes\"><!--dg-i18n:2a35cf0e1aac-->ver todos<!--/dg-i18n--></a>") +
+      dgUiHtml_lembretes_faixa_js("<button type=\"button\" class=\"lf-ajuda\" id=\"faixaLembretesAjuda\" aria-label=\"Tutorial da faixa de lembretes\" data-dg-i18n-aria-label=\"8012429326dd\" ") +
+      dgUiHtml_lembretes_faixa_js("title=\"O que é esta faixa\" data-dg-i18n-title=\"cd9f6ab3f6a0\">?</button></div><ul class=\"lf-lista\" id=\"faixaLembretesLista\"></ul>") +
       '<p class="lf-erro" id="faixaLembretesErro" role="alert" hidden></p>';
     const cab = document.querySelector('header');
     if (cab && cab.parentNode) cab.parentNode.insertBefore(faixa, cab.nextSibling);
@@ -70,7 +73,7 @@
     lista = faixa.querySelector('#faixaLembretesLista');
     erroEl = faixa.querySelector('#faixaLembretesErro');
     faixa.querySelector('#faixaLembretesAjuda').onclick = () => {
-      if (!window.DGTour) { mostraErro('A visita guiada não carregou. Recarregue a página e tente de novo.'); return; }
+      if (!window.DGTour) { mostraErro(dgUiText_lembretes_faixa_js("A visita guiada não carregou. Recarregue a página e tente de novo.")); return; }
       window.DGTour.inicia({ passos: [PASSO] });
     };
     lista.addEventListener('click', aoClicar);
@@ -96,7 +99,7 @@
         body: corpo === undefined ? undefined : JSON.stringify(corpo),
       });
     } catch (e) {
-      return { ok: false, erro: 'Não consegui falar com o servidor (' + e.message + '). Confira a conexão; tento de novo em instantes.' };
+      return { ok: false, erro: dgUiText_lembretes_faixa_js("Não consegui falar com o servidor (") + e.message + dgUiText_lembretes_faixa_js("). Confira a conexão; tento de novo em instantes.") };
     }
     let json = null;
     try { json = await r.json(); } catch (e) { console.warn('lembretes-faixa: a resposta de ' + caminho + ' não veio em JSON:', e.message); }
@@ -109,7 +112,7 @@
     ocupado = true;
     try {
       const r = await chamar('GET', '/api/v1/lembretes');
-      if (!r.ok) { mostraErro('Não consegui ler os lembretes: ' + r.erro); return; }
+      if (!r.ok) { mostraErro(dgUiText_lembretes_faixa_js("Não consegui ler os lembretes: ") + r.erro); return; }
       mostraErro('');
       atual = Array.isArray(r.json.insistindo) ? r.json.insistindo : [];
       pinta();

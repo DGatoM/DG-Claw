@@ -1,4 +1,5 @@
 'use strict';
+const dgUiText_login_cartao_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 const dgTexto_login_cartao = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 const dgFrase_login_cartao = (fonte, valores) => globalThis.DGI18n ? globalThis.DGI18n.frase(fonte, valores) : fonte.replace(/\{([a-z_]+)\}/g, (m, k) => Object.hasOwn(valores, k) ? String(valores[k]) : m);
 /* login-cartao.js: a parte pura do cartão "Conectar o seu Claude/Codex" da conversa.
@@ -41,7 +42,7 @@ const dgFrase_login_cartao = (fonte, valores) => globalThis.DGI18n ? globalThis.
     let estado = d.estado || 'nenhum';
     if ((estado === 'concluido' || estado === 'falhou') && !iniciado) estado = 'nenhum';
     const base = {
-      fase: 'inicio', provedor: nome, titulo: dgFrase_login_cartao('Conectar o seu {provedor}', { provedor: nome }), texto: '', passos: [],
+      fase: 'inicio', provedor: nome, titulo: dgFrase_login_cartao("Conectar o seu {provedor}", { provedor: nome }), texto: '', passos: [],
       botao: null, link: null, campoCodigo: false, codigoDispositivo: null,
       cancelar: false, fechar: false, entrarDeNovo: false, aviso: '',
     };
@@ -61,10 +62,10 @@ const dgFrase_login_cartao = (fonte, valores) => globalThis.DGI18n ? globalThis.
           aviso: dgTexto_login_cartao('Esperando você terminar o login na página'),
         });
       case 'concluido':
-        return Object.assign(base, { fase: 'concluido', titulo: dgTexto_login_cartao('Conectado!'), texto: dgFrase_login_cartao('Tudo certo. {agente} já pode responder.', { agente }), aviso: dgTexto_login_cartao('Conectado') });
+        return Object.assign(base, { fase: 'concluido', get titulo() { return dgUiText_login_cartao_js("Conectado!"); }, texto: dgFrase_login_cartao(dgUiText_login_cartao_js("Tudo certo. {agente} já pode responder."), { agente }), aviso: dgTexto_login_cartao('Conectado') });
       case 'falhou':
         return Object.assign(base, {
-          fase: 'falhou', titulo: dgTexto_login_cartao('O login não deu certo'),
+          fase: 'falhou', get titulo() { return dgUiText_login_cartao_js("O login não deu certo"); },
           texto: d.mensagem ? String(d.mensagem) : dgTexto_login_cartao('O login terminou sem conectar a conta.'),
           botao: dgTexto_login_cartao('Tentar de novo'), fechar: true, aviso: dgTexto_login_cartao('O login falhou'),
         });
@@ -72,13 +73,13 @@ const dgFrase_login_cartao = (fonte, valores) => globalThis.DGI18n ? globalThis.
         const jaOk = !!(d.conferido && d.conferido.ok === true) && !d.precisa_login;
         if (jaOk) {
           return Object.assign(base, {
-            fase: 'ja_conectado', titulo: dgTexto_login_cartao('Esta conta já está conectada'),
-            texto: dgFrase_login_cartao('{agente} já usa a sua conta do {provedor}. Só entre de novo se quiser trocar de conta.', { agente, provedor: nome }),
+            fase: 'ja_conectado', get titulo() { return dgUiText_login_cartao_js("Esta conta já está conectada"); },
+            texto: dgFrase_login_cartao(dgUiText_login_cartao_js("{agente} já usa a sua conta do {provedor}. Só entre de novo se quiser trocar de conta."), { agente, provedor: nome }),
             fechar: true, entrarDeNovo: true,
           });
         }
         return Object.assign(base, {
-          texto: dgFrase_login_cartao('{agente} precisa da sua conta do {provedor} para responder. Conecte aqui, sem terminal.', { agente, provedor: nome }),
+          texto: dgFrase_login_cartao(dgUiText_login_cartao_js("{agente} precisa da sua conta do {provedor} para responder. Conecte aqui, sem terminal."), { agente, provedor: nome }),
           botao: dgTexto_login_cartao('Conectar'), fechar: true,
         });
       }

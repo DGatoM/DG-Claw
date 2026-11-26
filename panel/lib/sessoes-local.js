@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 /**
  * sessoes-local.js: a aba Sessões em "modo local" (mini-Bunker do DG Claw, 17/10/2026).
  *
@@ -99,8 +100,8 @@ function registrar(router, { CONFIG }) {
 
   function casa() {
     try { return fs.realpathSync(casaBruta); } catch (e) {
-      throw new ErroLocal(500, `Não consegui abrir a pasta do agente (${casaBruta}): ${e.code || e.message}.`, {
-        como_resolver: 'Confira agentDir no config.json do painel.', code: 'SEM_CASA',
+      throw new ErroLocal(500, dgIdiomaBackend.mensagem("Não consegui abrir a pasta do agente ({p0}): {p1}.", {p0: (casaBruta), p1: (e.code || e.message)}), {
+        como_resolver: dgIdiomaBackend.mensagem("Confira agentDir no config.json do painel."), code: 'SEM_CASA',
       });
     }
   }
@@ -113,11 +114,11 @@ function registrar(router, { CONFIG }) {
     const bruta = (CONFIG.bunkerUrl || process.env.DGCLAW_BUNKER_URL || 'http://127.0.0.1:4300').trim();
     try {
       const u = new URL(bruta);
-      if (u.protocol !== 'http:') throw new Error('só http');
+      if (u.protocol !== 'http:') throw new Error(dgIdiomaBackend.mensagem("só http"));
       return u;
     } catch {
-      throw new ErroLocal(503, `O endereço do runner (${bruta}) não é um endereço http válido.`, {
-        como_resolver: 'Corrija bunkerUrl no config.json do painel (ou DGCLAW_BUNKER_URL) e reinicie o agente pelo Admin.', code: 'RUNNER_FORA',
+      throw new ErroLocal(503, dgIdiomaBackend.mensagem("O endereço do runner ({p0}) não é um endereço http válido.", {p0: (bruta)}), {
+        como_resolver: dgIdiomaBackend.mensagem("Corrija bunkerUrl no config.json do painel (ou DGCLAW_BUNKER_URL) e reinicie o agente pelo Admin."), code: 'RUNNER_FORA',
       });
     }
   }
@@ -128,9 +129,9 @@ function registrar(router, { CONFIG }) {
     if (!cab.Authorization) {
       const arq = caminhoDoToken(CONFIG);
       throw new ErroLocal(503, arq
-        ? `Não consegui ler o token do runner em ${arq} (arquivo ausente, vazio ou sem permissão).`
-        : 'O painel não sabe onde está o token do runner (falta runnerTokenFile no config.json ou RUNNER_TOKEN_FILE).', {
-        como_resolver: 'Reinicie o agente pelo Admin. Se continuar, o instalador precisa ser rodado de novo.', code: 'SEM_TOKEN_RUNNER',
+        ? dgIdiomaBackend.mensagem("Não consegui ler o token do runner em {p0} (arquivo ausente, vazio ou sem permissão).",{p0:(arq)})
+        : dgIdiomaBackend.mensagem("O painel não sabe onde está o token do runner (falta runnerTokenFile no config.json ou RUNNER_TOKEN_FILE)."), {
+        como_resolver: dgIdiomaBackend.mensagem("Reinicie o agente pelo Admin. Se continuar, o instalador precisa ser rodado de novo."), code: 'SEM_TOKEN_RUNNER',
       });
     }
     const dados = corpo === undefined ? null : Buffer.from(JSON.stringify(corpo), 'utf-8');
@@ -153,7 +154,7 @@ function registrar(router, { CONFIG }) {
         let total = 0;
         resp.on('data', (b) => {
           total += b.length;
-          if (total > TETO_RESPOSTA_RUNNER) { resp.destroy(Object.assign(new Error('resposta grande demais'), { code: 'EMSGSIZE' })); return; }
+          if (total > TETO_RESPOSTA_RUNNER) { resp.destroy(Object.assign(new Error(dgIdiomaBackend.mensagem("resposta grande demais")), { code: 'EMSGSIZE' })); return; }
           pedacos.push(b);
         });
         resp.on('error', falhou);
@@ -175,8 +176,8 @@ function registrar(router, { CONFIG }) {
     const j = r.json || {};
     const code = j.code || 'RUNNER_ERRO';
     if (r.status === 401 || r.status === 403) {
-      return new ErroLocal(503, `O runner deste agente recusou o token do painel (HTTP ${r.status}) ao ${acao}.`, {
-        como_resolver: 'Reinicie o agente pelo Admin. Se continuar, o instalador precisa ser rodado de novo.', code: 'RUNNER_RECUSOU_TOKEN',
+      return new ErroLocal(503, dgIdiomaBackend.mensagem("O runner deste agente recusou o token do painel (HTTP {p0}) ao {p1}.",{p0:(r.status),p1:(acao)}), {
+        como_resolver: dgIdiomaBackend.mensagem("Reinicie o agente pelo Admin. Se continuar, o instalador precisa ser rodado de novo."), code: 'RUNNER_RECUSOU_TOKEN',
       });
     }
     const status = r.status >= 500 && r.status !== 503 ? 502 : r.status;
@@ -204,22 +205,22 @@ function registrar(router, { CONFIG }) {
       cru = fs.readFileSync(arquivoRegistro, 'utf-8');
     } catch (e) {
       if (e.code === 'ENOENT') return { dados: {}, aviso: null };
-      return { dados: {}, aviso: `Não consegui ler ${arquivoRegistro} (${e.code || e.message}): nomes e estrelas escolhidos na tela não aparecem agora.` };
+      return { dados: {}, aviso: dgIdiomaBackend.mensagem("Não consegui ler {p0} ({p1}): nomes e estrelas escolhidos na tela não aparecem agora.", {p0: (arquivoRegistro), p1: (e.code || e.message)}) };
     }
     try {
       const d = JSON.parse(cru);
-      if (!d || typeof d !== 'object' || Array.isArray(d)) throw new Error('não é um objeto');
+      if (!d || typeof d !== 'object' || Array.isArray(d)) throw new Error(dgIdiomaBackend.mensagem("não é um objeto"));
       return { dados: d, aviso: null };
     } catch (e) {
       console.error(`sessoes-local: ${arquivoRegistro} está quebrado (${e.message}); sigo sem ele e não escrevo por cima`);
-      return { dados: {}, aviso: `O registro ${arquivoRegistro} está ilegível (${e.message}). Conserte ou apague o arquivo para voltar a guardar nomes e estrelas.` };
+      return { dados: {}, aviso: dgIdiomaBackend.mensagem("O registro {p0} está ilegível ({p1}). Conserte ou apague o arquivo para voltar a guardar nomes e estrelas.", {p0: (arquivoRegistro), p1: (e.message)}) };
     }
   }
 
   function gravarRegistro(dados) {
     const lido = lerRegistro();
     if (lido.aviso) {
-      throw new ErroLocal(500, lido.aviso, { como_resolver: 'Depois disso repita a ação.', code: 'REGISTRO_ILEGIVEL' });
+      throw new ErroLocal(500, lido.aviso, { como_resolver: dgIdiomaBackend.mensagem("Depois disso repita a ação."), code: 'REGISTRO_ILEGIVEL' });
     }
     const pasta = path.dirname(arquivoRegistro);
     const tmp = `${arquivoRegistro}.${process.pid}.${Date.now()}.tmp`;
@@ -229,8 +230,8 @@ function registrar(router, { CONFIG }) {
       fs.renameSync(tmp, arquivoRegistro);
     } catch (e) {
       try { fs.unlinkSync(tmp); } catch { /* nunca chegou a existir */ }
-      throw new ErroLocal(500, `Não consegui gravar ${arquivoRegistro} (${e.code || e.message}).`, {
-        como_resolver: 'Confira a permissão de escrita nessa pasta.', code: 'REGISTRO_NAO_GRAVOU',
+      throw new ErroLocal(500, dgIdiomaBackend.mensagem("Não consegui gravar {p0} ({p1}).", {p0: (arquivoRegistro), p1: (e.code || e.message)}), {
+        como_resolver: dgIdiomaBackend.mensagem("Confira a permissão de escrita nessa pasta."), code: 'REGISTRO_NAO_GRAVOU',
       });
     }
   }
@@ -256,22 +257,22 @@ function registrar(router, { CONFIG }) {
     const ferramenta = ag.currentTool ? ` (${ag.currentTool})` : '';
     switch (st) {
       case 'waiting_input':
-        return { grupo: 'esperando_voce', estado: ag.pendingPermission ? 'pedindo_permissao' : 'esperando_resposta', motivo: 'esperando sua decisão', tem_terminal: true };
+        return { grupo: 'esperando_voce', estado: ag.pendingPermission ? 'pedindo_permissao' : 'esperando_resposta', motivo: dgIdiomaBackend.mensagem("esperando sua decisão"), tem_terminal: true };
       case 'working':
       case 'spawning':
-        return { grupo: 'trabalhando', estado: 'trabalhando', motivo: `trabalhando agora${ferramenta}`, tem_terminal: true };
+        return { grupo: 'trabalhando', estado: 'trabalhando', motivo: dgIdiomaBackend.mensagem("trabalhando agora{p0}",{p0:(ferramenta)}), tem_terminal: true };
       case 'idle':
       case 'completed':
-        return { grupo: 'concluido', estado: 'ocioso', motivo: 'terminou e espera o próximo pedido', tem_terminal: true };
+        return { grupo: 'concluido', estado: 'ocioso', motivo: dgIdiomaBackend.mensagem("terminou e espera o próximo pedido"), tem_terminal: true };
       case 'errored':
         // A lista do runner não diz se o terminal ainda vive; tratar como sem terminal deixa o Retomar disponível.
-        return { grupo: 'erro', estado: 'erro', motivo: ag.error ? `erro: ${espacos(ag.error).slice(0, 200)}` : 'o runner marcou erro nesta sessão', tem_terminal: false };
+        return { grupo: 'erro', estado: 'erro', motivo: ag.error ? `erro: ${espacos(ag.error).slice(0, 200)}` : dgIdiomaBackend.mensagem("o runner marcou erro nesta sessão"), tem_terminal: false };
       case 'stopped':
-        return { grupo: 'parado', estado: 'parado', motivo: 'terminal parado', tem_terminal: false };
+        return { grupo: 'parado', estado: 'parado', motivo: dgIdiomaBackend.mensagem("terminal parado"), tem_terminal: false };
       case 'resumable':
-        return { grupo: 'fechado', estado: 'fechado', motivo: 'dormindo: acorda com um recado', tem_terminal: false };
+        return { grupo: 'fechado', estado: 'fechado', motivo: dgIdiomaBackend.mensagem("dormindo: acorda com um recado"), tem_terminal: false };
       default:
-        return { grupo: 'erro', estado: 'desconhecido', motivo: `o runner mandou um estado que não conheço (${st})`, tem_terminal: false };
+        return { grupo: 'erro', estado: 'desconhecido', motivo: dgIdiomaBackend.mensagem("o runner mandou um estado que não conheço ({p0})", {p0: (st)}), tem_terminal: false };
     }
   }
 
@@ -302,8 +303,8 @@ function registrar(router, { CONFIG }) {
     const r = await runner('GET', '/api/agents?todas=1', undefined, 'listar as sessões');
     const lista = r.json && r.json.data;
     if (!Array.isArray(lista)) {
-      throw new ErroLocal(502, 'O runner respondeu a lista de sessões num formato inesperado (faltou "data" como lista).', {
-        como_resolver: 'Reinicie o agente pelo Admin; se continuar, o runner e o painel estão em versões diferentes.', code: 'RUNNER_FORMATO',
+      throw new ErroLocal(502, dgIdiomaBackend.mensagem("O runner respondeu a lista de sessões num formato inesperado (faltou \"data\" como lista)."), {
+        como_resolver: dgIdiomaBackend.mensagem("Reinicie o agente pelo Admin; se continuar, o runner e o painel estão em versões diferentes."), code: 'RUNNER_FORMATO',
       });
     }
     return lista.filter((x) => x && typeof x.id === 'string');
@@ -352,7 +353,7 @@ function registrar(router, { CONFIG }) {
     const { itens: todos } = await itens();
     const it = todos.find((x) => x.id === id);
     if (!it) {
-      throw new ErroLocal(404, `Não achei a sessão ${id} neste agente.`, { como_resolver: 'Recarregue a lista: ela pode ter sido apagada.', code: 'SESSAO_INEXISTENTE' });
+      throw new ErroLocal(404, dgIdiomaBackend.mensagem("Não achei a sessão {p0} neste agente.", {p0: (id)}), { como_resolver: dgIdiomaBackend.mensagem("Recarregue a lista: ela pode ter sido apagada."), code: 'SESSAO_INEXISTENTE' });
     }
     return it;
   }
@@ -399,11 +400,11 @@ function registrar(router, { CONFIG }) {
       let total = 0;
       req.on('data', (b) => {
         total += b.length;
-        if (total > teto) { req.destroy(); reject(new ErroLocal(413, `O corpo do pedido passou de ${Math.round(teto / 1024 / 1024)} MB.`, { como_resolver: 'Mande um menor.' })); return; }
+        if (total > teto) { req.destroy(); reject(new ErroLocal(413, dgIdiomaBackend.mensagem("O corpo do pedido passou de {p0} MB.", {p0: (Math.round(teto / 1024 / 1024))}), { como_resolver: dgIdiomaBackend.mensagem("Mande um menor.") })); return; }
         pedacos.push(b);
       });
       req.on('end', () => resolve(Buffer.concat(pedacos)));
-      req.on('error', (e) => reject(new ErroLocal(400, `O pedido foi interrompido antes de terminar (${e.code || e.message}).`)));
+      req.on('error', (e) => reject(new ErroLocal(400, dgIdiomaBackend.mensagem("O pedido foi interrompido antes de terminar ({p0}).", {p0: (e.code || e.message)}))));
     });
   }
 
@@ -412,9 +413,9 @@ function registrar(router, { CONFIG }) {
     if (!bruto.length) return {};
     let d;
     try { d = JSON.parse(bruto.toString('utf-8')); } catch {
-      throw new ErroLocal(400, 'O corpo do pedido não é um JSON válido.', { como_resolver: 'Mande um objeto JSON com Content-Type: application/json.' });
+      throw new ErroLocal(400, dgIdiomaBackend.mensagem("O corpo do pedido não é um JSON válido."), { como_resolver: dgIdiomaBackend.mensagem("Mande um objeto JSON com Content-Type: application/json.") });
     }
-    if (!d || typeof d !== 'object' || Array.isArray(d)) throw new ErroLocal(400, 'O corpo do pedido precisa ser um objeto JSON.');
+    if (!d || typeof d !== 'object' || Array.isArray(d)) throw new ErroLocal(400, dgIdiomaBackend.mensagem("O corpo do pedido precisa ser um objeto JSON."));
     return d;
   }
 
@@ -432,19 +433,19 @@ function registrar(router, { CONFIG }) {
 
   function checarId(id) {
     if (!/^[A-Za-z0-9._-]{1,80}$/.test(id || '')) {
-      throw new ErroLocal(404, `"${String(id).slice(0, 40)}" não é um código de sessão.`, { como_resolver: 'Veja os códigos em GET /api/sessoes.', code: 'SESSAO_INEXISTENTE' });
+      throw new ErroLocal(404, dgIdiomaBackend.mensagem("\"{p0}\" não é um código de sessão.", {p0: (String(id).slice(0, 40))}), { como_resolver: dgIdiomaBackend.mensagem("Veja os códigos em GET /api/sessoes."), code: 'SESSAO_INEXISTENTE' });
     }
   }
 
   async function rotaLista(req, res, query) {
     const grupo = query.get('grupo') || 'ativos';
     if (!GRUPOS_FILTRO.includes(grupo)) {
-      throw new ErroLocal(400, `O grupo "${grupo}" não existe.`, { como_resolver: `Use um destes: ${GRUPOS_FILTRO.join(', ')}.` });
+      throw new ErroLocal(400, dgIdiomaBackend.mensagem("O grupo \"{p0}\" não existe.", {p0: (grupo)}), { como_resolver: dgIdiomaBackend.mensagem("Use um destes: {p0}.", {p0: (GRUPOS_FILTRO.join(', '))}) });
     }
     const brutoLimite = query.get('limite');
     const limite = brutoLimite === null ? 100 : Number(brutoLimite);
     if (!Number.isInteger(limite) || limite < 1 || limite > 300) {
-      throw new ErroLocal(400, 'O limite precisa ser um número inteiro de 1 a 300.');
+      throw new ErroLocal(400, dgIdiomaBackend.mensagem("O limite precisa ser um número inteiro de 1 a 300."));
     }
     const { itens: todos, avisoRegistro } = await itens();
     const lista = montarLista(todos, { grupo, q: query.get('q') || '', limite });
@@ -463,14 +464,14 @@ function registrar(router, { CONFIG }) {
     const antesTxt = query.get('before');
     const antes = antesTxt === null || antesTxt === '' ? 0 : Number(antesTxt);
     if (!Number.isInteger(lim) || lim < 1 || !Number.isInteger(antes) || antes < 0) {
-      throw new ErroLocal(400, 'limite e before precisam ser números inteiros (limite de 1 a 100, before a partir de 0).');
+      throw new ErroLocal(400, dgIdiomaBackend.mensagem("limite e before precisam ser números inteiros (limite de 1 a 100, before a partir de 0)."));
     }
     const limite = Math.min(100, lim);
     const pedir = Math.min(CONVERSA_BUSCA_MAX, antes + limite);
     const r = await runner('GET', `/api/agents/${encodeURIComponent(it.id)}/conversation?limit=${pedir}`, undefined, 'ler a conversa');
     const msgs = Array.isArray(r.json && r.json.data) ? r.json.data : null;
     if (!msgs) {
-      throw new ErroLocal(502, `O runner devolveu a conversa da sessão ${id} num formato inesperado (faltou "data" como lista).`, { code: 'RUNNER_FORMATO' });
+      throw new ErroLocal(502, dgIdiomaBackend.mensagem("O runner devolveu a conversa da sessão {p0} num formato inesperado (faltou \"data\" como lista).", {p0: (id)}), { code: 'RUNNER_FORMATO' });
     }
     const janela = msgs.slice(0, Math.max(0, msgs.length - antes)).slice(-limite);
     const mensagens = janela.filter((m) => m && typeof m === 'object').map((m) => {
@@ -489,23 +490,23 @@ function registrar(router, { CONFIG }) {
   function resolverPasta(pasta) {
     if (pasta === undefined || pasta === null || pasta === '') return null;
     if (typeof pasta !== 'string' || pasta.length > 500 || pasta.includes('\0')) {
-      throw new ErroLocal(400, 'O campo "pasta" precisa ser um caminho de texto (até 500 caracteres).');
+      throw new ErroLocal(400, dgIdiomaBackend.mensagem("O campo \"pasta\" precisa ser um caminho de texto (até 500 caracteres)."));
     }
     const raiz = casa();
     let real;
     try { real = fs.realpathSync(path.resolve(raiz, pasta)); } catch {
-      throw new ErroLocal(400, `A pasta "${pasta}" não existe.`, { como_resolver: `Escolha uma pasta que exista dentro de ${raiz}, ou deixe o campo vazio.` });
+      throw new ErroLocal(400, dgIdiomaBackend.mensagem("A pasta \"{p0}\" não existe.", {p0: (pasta)}), { como_resolver: dgIdiomaBackend.mensagem("Escolha uma pasta que exista dentro de {p0}, ou deixe o campo vazio.", {p0: (raiz)}) });
     }
     if (real !== raiz && !real.startsWith(raiz + path.sep)) {
-      throw new ErroLocal(400, `A pasta "${pasta}" fica fora da casa do agente (${raiz}).`, { como_resolver: 'Escolha uma pasta dentro da casa do agente, ou deixe o campo vazio.' });
+      throw new ErroLocal(400, dgIdiomaBackend.mensagem("A pasta \"{p0}\" fica fora da casa do agente ({p1}).", {p0: (pasta), p1: (raiz)}), { como_resolver: dgIdiomaBackend.mensagem("Escolha uma pasta dentro da casa do agente, ou deixe o campo vazio.") });
     }
-    if (!fs.statSync(real).isDirectory()) throw new ErroLocal(400, `"${pasta}" é um arquivo, e não uma pasta.`);
+    if (!fs.statSync(real).isDirectory()) throw new ErroLocal(400, dgIdiomaBackend.mensagem("\"{p0}\" é um arquivo, e não uma pasta.", {p0: (pasta)}));
     return real;
   }
 
   function textoDoNome(nome) {
     if (typeof nome !== 'string' || !nome.trim() || nome.trim().length > NOME_MAX) {
-      throw new ErroLocal(400, `O campo "nome" é obrigatório (1 a ${NOME_MAX} caracteres).`);
+      throw new ErroLocal(400, dgIdiomaBackend.mensagem("O campo \"nome\" é obrigatório (1 a {p0} caracteres).", {p0: (NOME_MAX)}));
     }
     return nome.trim();
   }
@@ -517,7 +518,7 @@ function registrar(router, { CONFIG }) {
   async function lerProvedores() {
     const prov = (await runner('GET', '/api/provedor', undefined, 'ler o provedor da sessão principal')).json || {};
     if (typeof prov.provedor !== 'string' || !prov.provedor) {
-      throw new ErroLocal(502, 'O runner não disse qual é o provedor da sessão principal (faltou "provedor" em GET /api/provedor).', { code: 'RUNNER_FORMATO' });
+      throw new ErroLocal(502, dgIdiomaBackend.mensagem("O runner não disse qual é o provedor da sessão principal (faltou \"provedor\" em GET /api/provedor)."), { code: 'RUNNER_FORMATO' });
     }
     const lista = Array.isArray(prov.disponiveis) ? prov.disponiveis.filter((x) => typeof x === 'string' && x) : [];
     const disponiveis = lista.includes(prov.provedor) ? lista : [prov.provedor, ...lista];
@@ -538,8 +539,8 @@ function registrar(router, { CONFIG }) {
     let escolhido = prov.provedor;
     if (provedor !== undefined && provedor !== null && provedor !== '') {
       if (typeof provedor !== 'string' || !disponiveis.includes(provedor)) {
-        throw new ErroLocal(400, `O provedor ${JSON.stringify(provedor)} não está disponível neste agente.`, {
-          como_resolver: `Use um destes: ${disponiveis.join(', ')}. Sem o campo "provedor", o card usa o da conversa principal (${prov.provedor}).`, code: 'PROVEDOR_INVALIDO',
+        throw new ErroLocal(400, dgIdiomaBackend.mensagem("O provedor {p0} não está disponível neste agente.", {p0: (JSON.stringify(provedor))}), {
+          como_resolver: dgIdiomaBackend.mensagem("Use um destes: {p0}. Sem o campo \"provedor\", o card usa o da conversa principal ({p1}).", {p0: (disponiveis.join(', ')), p1: (prov.provedor)}), code: 'PROVEDOR_INVALIDO',
         });
       }
       escolhido = provedor;
@@ -553,7 +554,7 @@ function registrar(router, { CONFIG }) {
     const criada = await runner('POST', '/api/sessoes', corpo, 'criar a sessão');
     const ag = criada.json && criada.json.data;
     if (!ag || typeof ag.id !== 'string') {
-      throw new ErroLocal(502, 'O runner criou a sessão mas não devolveu o código dela (faltou data.id).', { como_resolver: 'Confira a lista de sessões antes de tentar de novo.', code: 'RUNNER_FORMATO' });
+      throw new ErroLocal(502, dgIdiomaBackend.mensagem("O runner criou a sessão mas não devolveu o código dela (faltou data.id)."), { como_resolver: dgIdiomaBackend.mensagem("Confira a lista de sessões antes de tentar de novo."), code: 'RUNNER_FORMATO' });
     }
     mexerNoRegistro((d) => {
       d[ag.id] = { nome, favorito: false, arquivado: null, criado_em: new Date().toISOString(), criado_por: por, pasta: absoluta };
@@ -583,7 +584,7 @@ function registrar(router, { CONFIG }) {
     const d = await lerJson(req);
     const nome = textoDoNome(d.nome);
     if (typeof d.prompt !== 'string' || !d.prompt.trim() || d.prompt.trim().length > PROMPT_MAX) {
-      throw new ErroLocal(400, `O campo "prompt" é obrigatório (1 a ${PROMPT_MAX} caracteres).`);
+      throw new ErroLocal(400, dgIdiomaBackend.mensagem("O campo \"prompt\" é obrigatório (1 a {p0} caracteres).", {p0: (PROMPT_MAX)}));
     }
     const it = await criarCard({ nome, prompt: d.prompt.trim(), pasta: d.pasta, por: quemPediu(req), provedor: d.provedor });
     log(`criar ${it.id} por ${quemPediu(req)}`);
@@ -593,15 +594,15 @@ function registrar(router, { CONFIG }) {
   /** O que vale para qualquer entrega de texto a uma sessão. Devolve {enviado, enfileirado, quando, retomado}. */
   async function entregarTexto(it, texto, quando, retomar) {
     if (it.grupo === 'esperando_voce') {
-      throw new ErroLocal(409, 'A sessão está esperando você decidir um pedido. Um recado agora cairia dentro do menu de permissão.', {
-        como_resolver: 'Aprove ou negue o pedido primeiro (POST /decidir ou os botões Aprovar e Negar) e mande o recado depois.', code: 'ESPERANDO_DECISAO',
+      throw new ErroLocal(409, dgIdiomaBackend.mensagem("A sessão está esperando você decidir um pedido. Um recado agora cairia dentro do menu de permissão."), {
+        como_resolver: dgIdiomaBackend.mensagem("Aprove ou negue o pedido primeiro (POST /decidir ou os botões Aprovar e Negar) e mande o recado depois."), code: 'ESPERANDO_DECISAO',
       });
     }
     let retomado = false;
     if (!it.tem_terminal) {
       if (!retomar) {
-        throw new ErroLocal(409, 'A sessão está fechada (sem terminal), então o recado não tem para onde ir.', {
-          como_resolver: 'Mande de novo com "retomar": true para abrir o terminal e entregar o recado quando ele estiver livre.', code: 'SEM_TERMINAL',
+        throw new ErroLocal(409, dgIdiomaBackend.mensagem("A sessão está fechada (sem terminal), então o recado não tem para onde ir."), {
+          como_resolver: dgIdiomaBackend.mensagem("Mande de novo com \"retomar\": true para abrir o terminal e entregar o recado quando ele estiver livre."), code: 'SEM_TERMINAL',
         });
       }
       await runner('POST', `/api/agents/${encodeURIComponent(it.id)}/resume`, undefined, 'retomar a sessão');
@@ -617,10 +618,10 @@ function registrar(router, { CONFIG }) {
 
   async function rotaRecado(req, res, id) {
     const d = await lerJson(req);
-    if (typeof d.texto !== 'string' || !d.texto.trim()) throw new ErroLocal(400, 'O campo "texto" é obrigatório e precisa ser um texto não vazio.');
-    if (d.texto.length > RECADO_MAX) throw new ErroLocal(400, `O recado tem ${d.texto.length} caracteres; o limite é ${RECADO_MAX}.`);
+    if (typeof d.texto !== 'string' || !d.texto.trim()) throw new ErroLocal(400, dgIdiomaBackend.mensagem("O campo \"texto\" é obrigatório e precisa ser um texto não vazio."));
+    if (d.texto.length > RECADO_MAX) throw new ErroLocal(400, dgIdiomaBackend.mensagem("O recado tem {p0} caracteres; o limite é {p1}.", {p0: (d.texto.length), p1: (RECADO_MAX)}));
     const quando = d.quando === undefined ? 'agora' : d.quando;
-    if (quando !== 'agora' && quando !== 'quando_livre') throw new ErroLocal(400, 'O campo "quando" aceita "agora" ou "quando_livre".');
+    if (quando !== 'agora' && quando !== 'quando_livre') throw new ErroLocal(400, dgIdiomaBackend.mensagem("O campo \"quando\" aceita \"agora\" ou \"quando_livre\"."));
     const it = await itemPorId(id);
     const r = await entregarTexto(it, prefixoDeChave(req) + d.texto, quando, d.retomar === true);
     log(`recado (${r.quando}) em ${id} por ${quemPediu(req)}`);
@@ -629,15 +630,15 @@ function registrar(router, { CONFIG }) {
 
   async function rotaDecidir(req, res, id) {
     if (ehChave(req)) {
-      throw new ErroLocal(403, 'Uma chave de API não decide pedidos de permissão: um agente não pode aprovar o próprio pedido.', {
-        como_resolver: 'Peça à pessoa para decidir pela tela do painel, com o login dela (botões Aprovar e Negar).', code: 'DECIDIR_SO_COM_LOGIN',
+      throw new ErroLocal(403, dgIdiomaBackend.mensagem("Uma chave de API não decide pedidos de permissão: um agente não pode aprovar o próprio pedido."), {
+        como_resolver: dgIdiomaBackend.mensagem("Peça à pessoa para decidir pela tela do painel, com o login dela (botões Aprovar e Negar)."), code: 'DECIDIR_SO_COM_LOGIN',
       });
     }
     const d = await lerJson(req);
-    if (d.acao !== 'aprovar' && d.acao !== 'negar') throw new ErroLocal(400, 'O campo "acao" precisa ser "aprovar" ou "negar".');
+    if (d.acao !== 'aprovar' && d.acao !== 'negar') throw new ErroLocal(400, dgIdiomaBackend.mensagem("O campo \"acao\" precisa ser \"aprovar\" ou \"negar\"."));
     const it = await itemPorId(id);
     if (it.grupo !== 'esperando_voce') {
-      throw new ErroLocal(409, `A sessão ${id} não tem pedido esperando decisão agora (estado: ${it.estado}).`, { como_resolver: 'Recarregue a lista: o pedido pode já ter sido decidido.', code: 'SEM_PEDIDO' });
+      throw new ErroLocal(409, dgIdiomaBackend.mensagem("A sessão {p0} não tem pedido esperando decisão agora (estado: {p1}).", {p0: (id), p1: (it.estado)}), { como_resolver: dgIdiomaBackend.mensagem("Recarregue a lista: o pedido pode já ter sido decidido."), code: 'SEM_PEDIDO' });
     }
     await runner('POST', `/api/agents/${encodeURIComponent(id)}/permissao`, { decisao: d.acao }, 'decidir o pedido');
     log(`decidir ${d.acao} em ${id} por ${quemPediu(req)}`);
@@ -646,8 +647,8 @@ function registrar(router, { CONFIG }) {
 
   function exigirCard(it, acao) {
     if (it.papel !== 'card') {
-      throw new ErroLocal(409, `A sessão ${it.id} é a ${it.papel === 'principal' ? 'principal' : 'de bastidores'} deste agente e não pode ser ${acao}.`, {
-        como_resolver: 'Isso vale só para os cards que você abriu; a principal e a de bastidores ficam sempre.', code: 'SESSAO_FIXA',
+      throw new ErroLocal(409, dgIdiomaBackend.mensagem("A sessão {p0} é a {p1} deste agente e não pode ser {p2}.", {p0: (it.id), p1: (it.papel === 'principal' ? 'principal' : 'de bastidores'), p2: (acao)}), {
+        como_resolver: dgIdiomaBackend.mensagem("Isso vale só para os cards que você abriu; a principal e a de bastidores ficam sempre."), code: 'SESSAO_FIXA',
       });
     }
   }
@@ -674,7 +675,7 @@ function registrar(router, { CONFIG }) {
 
   async function rotaDesarquivar(req, res, id) {
     const it = await itemPorId(id);
-    if (!it.arquivado) throw new ErroLocal(404, `A sessão ${id} não está arquivada.`);
+    if (!it.arquivado) throw new ErroLocal(404, dgIdiomaBackend.mensagem("A sessão {p0} não está arquivada.", {p0: (id)}));
     mexerNoRegistro((d) => { d[id] = Object.assign({}, d[id], { arquivado: null }); });
     log(`desarquivar ${id} por ${quemPediu(req)}`);
     enviarJson(res, 200, { ok: true, arquivado: false });
@@ -684,7 +685,7 @@ function registrar(router, { CONFIG }) {
     const d = await lerJson(req);
     const it = await itemPorId(id);
     if (it.tem_terminal) {
-      throw new ErroLocal(409, `A sessão ${id} já tem terminal aberto (estado: ${it.estado}); só dá para retomar uma sem terminal.`, { code: 'JA_TEM_TERMINAL' });
+      throw new ErroLocal(409, dgIdiomaBackend.mensagem("A sessão {p0} já tem terminal aberto (estado: {p1}); só dá para retomar uma sem terminal.", {p0: (id), p1: (it.estado)}), { code: 'JA_TEM_TERMINAL' });
     }
     const nova = d.nova === true;
     await runner('POST', `/api/agents/${encodeURIComponent(id)}/${nova ? 'revive' : 'resume'}`, undefined, nova ? 'abrir uma conversa nova' : 'retomar a conversa');
@@ -701,11 +702,11 @@ function registrar(router, { CONFIG }) {
     const it = await itemPorId(id);
     exigirCard(it, 'apagada');
     if (!it.arquivado) {
-      throw new ErroLocal(409, `A sessão ${id} não está arquivada, e só se apaga uma arquivada.`, { como_resolver: 'Arquive primeiro (POST /arquivar) e depois apague.', code: 'APAGAR_SO_ARQUIVADA' });
+      throw new ErroLocal(409, dgIdiomaBackend.mensagem("A sessão {p0} não está arquivada, e só se apaga uma arquivada.", {p0: (id)}), { como_resolver: dgIdiomaBackend.mensagem("Arquive primeiro (POST /arquivar) e depois apague."), code: 'APAGAR_SO_ARQUIVADA' });
     }
     await apagarNoRunner(id);
     log(`apagar ${id} por ${quemPediu(req)}`);
-    enviarJson(res, 200, { ok: true, apagado: true, aviso: 'A sessão saiu da lista. A conversa dela continua guardada no disco.' });
+    enviarJson(res, 200, { ok: true, apagado: true, aviso: dgIdiomaBackend.mensagem("A sessão saiu da lista. A conversa dela continua guardada no disco.") });
   }
 
   async function rotaRenomear(req, res, id) {
@@ -720,7 +721,7 @@ function registrar(router, { CONFIG }) {
   async function rotaFavorito(req, res, id) {
     const d = await lerJson(req);
     if (d.favorito !== undefined && typeof d.favorito !== 'boolean') {
-      throw new ErroLocal(400, 'O campo "favorito" precisa ser verdadeiro ou falso (ou ficar de fora, para alternar).');
+      throw new ErroLocal(400, dgIdiomaBackend.mensagem("O campo \"favorito\" precisa ser verdadeiro ou falso (ou ficar de fora, para alternar)."));
     }
     const it = await itemPorId(id);
     const valor = d.favorito === undefined ? !it.favorito : d.favorito;
@@ -760,7 +761,7 @@ function registrar(router, { CONFIG }) {
     exigirCard(it, 'passada adiante por handoff');
     const h = await handoffExistente(id);
     if (!h) {
-      enviarJson(res, 200, { ok: true, encontrado: false, motivo: 'A última resposta desta sessão não tem um handoff no formato (▶️ no começo, bloco de código no meio, ✅ no fim).' });
+      enviarJson(res, 200, { ok: true, encontrado: false, motivo: dgIdiomaBackend.mensagem("A última resposta desta sessão não tem um handoff no formato (▶️ no começo, bloco de código no meio, ✅ no fim).") });
       return;
     }
     const corte = h.prompt.length > 600 ? `${h.prompt.slice(0, 600).trimEnd()}…` : h.prompt;
@@ -772,7 +773,7 @@ function registrar(router, { CONFIG }) {
     const usar = d.usar_existente === undefined ? true : d.usar_existente;
     const apagar = d.apagar_antigo === undefined ? false : d.apagar_antigo;
     if (typeof usar !== 'boolean' || typeof apagar !== 'boolean') {
-      throw new ErroLocal(400, '"usar_existente" e "apagar_antigo" precisam ser verdadeiro ou falso.');
+      throw new ErroLocal(400, dgIdiomaBackend.mensagem("\"usar_existente\" e \"apagar_antigo\" precisam ser verdadeiro ou falso."));
     }
     const it = await itemPorId(id);
     exigirCard(it, 'passada adiante por handoff');
@@ -790,7 +791,7 @@ function registrar(router, { CONFIG }) {
     }
     await entregarTexto(it, prefixoDeChave(req) + PEDIDO_DE_HANDOFF, 'quando_livre', true);
     log(`handoff pedido em ${id} por ${quemPediu(req)}`);
-    enviarJson(res, 202, { ok: true, modo: 'pedido', aviso: 'Pedi o handoff. Quando ele responder, aperte Handoff de novo.' });
+    enviarJson(res, 202, { ok: true, modo: 'pedido', aviso: dgIdiomaBackend.mensagem("Pedi o handoff. Quando ele responder, aperte Handoff de novo.") });
   }
 
   // ─── Anexo (multipart sem dependência) ──────────────────────
@@ -825,19 +826,19 @@ function registrar(router, { CONFIG }) {
   async function rotaAnexo(req, res, id) {
     const tam = Number(req.headers['content-length'] || 0);
     if (tam > ANEXO_MAX_BYTES + 64 * 1024) {
-      throw new ErroLocal(413, `O anexo passa do limite de ${ANEXO_MAX_BYTES / 1024 / 1024} MB.`, { como_resolver: 'Deixe o arquivo numa pasta do agente e cite o caminho no recado.' });
+      throw new ErroLocal(413, dgIdiomaBackend.mensagem("O anexo passa do limite de {p0} MB.",{p0:(ANEXO_MAX_BYTES / 1024 / 1024)}), { como_resolver: dgIdiomaBackend.mensagem("Deixe o arquivo numa pasta do agente e cite o caminho no recado.") });
     }
     const tipo = String(req.headers['content-type'] || '');
     const m = /^multipart\/form-data;.*boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(tipo);
-    if (!m) throw new ErroLocal(400, 'Mande o arquivo num multipart/form-data, no campo "arquivo".');
+    if (!m) throw new ErroLocal(400, dgIdiomaBackend.mensagem("Mande o arquivo num multipart/form-data, no campo \"arquivo\"."));
     const it = await itemPorId(id);
     const corpo = await lerCorpoBruto(req, ANEXO_MAX_BYTES + 64 * 1024);
     const partes = partesMultipart(corpo, m[1] || m[2]);
     const arq = partes.find((p) => p.campo === 'arquivo' && p.arquivo !== null);
-    if (!arq) throw new ErroLocal(400, 'Não achei o campo "arquivo" no envio.', { como_resolver: 'Mande o arquivo num multipart/form-data, no campo "arquivo".' });
-    if (!arq.dados.length) throw new ErroLocal(400, 'O arquivo chegou vazio (0 bytes).', { como_resolver: 'Escolha o arquivo de novo.' });
+    if (!arq) throw new ErroLocal(400, dgIdiomaBackend.mensagem("Não achei o campo \"arquivo\" no envio."), { como_resolver: dgIdiomaBackend.mensagem("Mande o arquivo num multipart/form-data, no campo \"arquivo\".") });
+    if (!arq.dados.length) throw new ErroLocal(400, dgIdiomaBackend.mensagem("O arquivo chegou vazio (0 bytes)."), { como_resolver: dgIdiomaBackend.mensagem("Escolha o arquivo de novo.") });
     if (arq.dados.length > ANEXO_MAX_BYTES) {
-      throw new ErroLocal(413, `O anexo tem ${(arq.dados.length / 1024 / 1024).toFixed(1)} MB e o limite é ${ANEXO_MAX_BYTES / 1024 / 1024} MB.`, { como_resolver: 'Mande um menor.' });
+      throw new ErroLocal(413, dgIdiomaBackend.mensagem("O anexo tem {p0} MB e o limite é {p1} MB.", {p0: ((arq.dados.length / 1024 / 1024).toFixed(1)), p1: (ANEXO_MAX_BYTES / 1024 / 1024)}), { como_resolver: dgIdiomaBackend.mensagem("Mande um menor.") });
     }
     const nome = nomeSaneado(arq.arquivo);
     const pasta = path.join(casa(), 'anexos', id);
@@ -849,7 +850,7 @@ function registrar(router, { CONFIG }) {
       for (let n = 2; fs.existsSync(destino); n++) destino = path.join(pasta, `${name}-${n}${ext}`);
       fs.writeFileSync(destino, arq.dados, { mode: 0o644, flag: 'wx' });
     } catch (e) {
-      throw new ErroLocal(500, `Não consegui guardar o anexo em ${pasta} (${e.code || e.message}).`, { como_resolver: 'Confira a permissão de escrita na pasta do agente.', code: 'ANEXO_NAO_GRAVOU' });
+      throw new ErroLocal(500, dgIdiomaBackend.mensagem("Não consegui guardar o anexo em {p0} ({p1}).", {p0: (pasta), p1: (e.code || e.message)}), { como_resolver: dgIdiomaBackend.mensagem("Confira a permissão de escrita na pasta do agente."), code: 'ANEXO_NAO_GRAVOU' });
     }
     const resposta = { ok: true, caminho: destino, nome: path.basename(destino), tamanho: arq.dados.length };
     const texto = partes.find((p) => p.campo === 'texto' && p.arquivo === null);
@@ -914,20 +915,20 @@ function registrar(router, { CONFIG }) {
   async function rotaDocumento(req, res, id, query) {
     const pedido = query.get('caminho');
     if (!pedido || pedido.length > 1000 || pedido.includes('\0')) {
-      throw new ErroLocal(400, 'Mande ?caminho= com o caminho de um documento da lista (até 1000 caracteres).');
+      throw new ErroLocal(400, dgIdiomaBackend.mensagem("Mande ?caminho= com o caminho de um documento da lista (até 1000 caracteres)."));
     }
     const raiz = casa();
     let real;
     try { real = fs.realpathSync(path.resolve(raiz, pedido)); } catch {
-      throw new ErroLocal(404, 'Esse documento não existe mais no disco.', { como_resolver: 'Atualize a lista de documentos.' });
+      throw new ErroLocal(404, dgIdiomaBackend.mensagem("Esse documento não existe mais no disco."), { como_resolver: dgIdiomaBackend.mensagem("Atualize a lista de documentos.") });
     }
     if (!real.startsWith(raiz + path.sep)) {
-      throw new ErroLocal(403, 'Esse arquivo fica fora da pasta do agente, então não abro.', { como_resolver: 'Só abro arquivos que ficam dentro da casa do agente.', code: 'FORA_DA_CASA' });
+      throw new ErroLocal(403, dgIdiomaBackend.mensagem("Esse arquivo fica fora da pasta do agente, então não abro."), { como_resolver: dgIdiomaBackend.mensagem("Só abro arquivos que ficam dentro da casa do agente."), code: 'FORA_DA_CASA' });
     }
     const it = await itemPorId(id);
     const citados = await documentosCitados(it);
     if (!citados.some((d) => d.caminho === real)) {
-      throw new ErroLocal(403, 'Esse documento não foi citado nesta conversa, então não abro.', { como_resolver: 'Escolha um da lista de documentos da sessão.', code: 'NAO_CITADO' });
+      throw new ErroLocal(403, dgIdiomaBackend.mensagem("Esse documento não foi citado nesta conversa, então não abro."), { como_resolver: dgIdiomaBackend.mensagem("Escolha um da lista de documentos da sessão."), code: 'NAO_CITADO' });
     }
     const nome = path.basename(real);
     const ext = path.extname(real).slice(1).toLowerCase();
@@ -935,7 +936,7 @@ function registrar(router, { CONFIG }) {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     if (ext === 'pdf' || MIME_IMAGEM[ext]) {
-      if (st.size > DOC_BINARIO_MAX) throw new ErroLocal(413, `O arquivo ${nome} tem ${(st.size / 1024 / 1024).toFixed(1)} MB e o limite de leitura é ${DOC_BINARIO_MAX / 1024 / 1024} MB.`);
+      if (st.size > DOC_BINARIO_MAX) throw new ErroLocal(413, dgIdiomaBackend.mensagem("O arquivo {p0} tem {p1} MB e o limite de leitura é {p2} MB.", {p0: (nome), p1: ((st.size / 1024 / 1024).toFixed(1)), p2: (DOC_BINARIO_MAX / 1024 / 1024)}));
       res.status(200);
       res.setHeader('Content-Type', ext === 'pdf' ? 'application/pdf' : MIME_IMAGEM[ext]);
       res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(nome)}`);
@@ -949,7 +950,7 @@ function registrar(router, { CONFIG }) {
       fs.readSync(fd, buf, 0, buf.length, 0);
     } finally { fs.closeSync(fd); }
     if (buf.slice(0, 8192).includes(0)) {
-      throw new ErroLocal(415, `${nome} não é um arquivo de texto, então não dá para mostrar aqui.`, { como_resolver: 'Abra o arquivo direto na máquina.' });
+      throw new ErroLocal(415, dgIdiomaBackend.mensagem("{p0} não é um arquivo de texto, então não dá para mostrar aqui.", {p0: (nome)}), { como_resolver: dgIdiomaBackend.mensagem("Abra o arquivo direto na máquina.") });
     }
     enviarJson(res, 200, { ok: true, nome, texto: buf.toString('utf-8'), cortado: st.size > DOC_TEXTO_MAX });
   }
@@ -958,7 +959,7 @@ function registrar(router, { CONFIG }) {
     const arq = path.join(__dirname, '..', 'docs', 'SESSOES.md');
     let texto;
     try { texto = fs.readFileSync(arq, 'utf-8'); } catch (e) {
-      throw new ErroLocal(500, `Não consegui ler a documentação da aba Sessões (${arq}): ${e.code || e.message}.`, { como_resolver: 'Reinstale o painel.', code: 'SEM_DOCS' });
+      throw new ErroLocal(500, dgIdiomaBackend.mensagem("Não consegui ler a documentação da aba Sessões ({p0}): {p1}.", {p0: (arq), p1: (e.code || e.message)}), { como_resolver: 'Reinstale o painel.', code: 'SEM_DOCS' });
     }
     res.status(200);
     res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
@@ -982,20 +983,20 @@ function registrar(router, { CONFIG }) {
     const query = new URLSearchParams(corte === -1 ? '' : original.slice(corte + 1));
     const resto = caminhoBruto.slice(PREFIXO.length);
     const partes = partesDoCaminho(resto);
-    if (!partes) throw new ErroLocal(400, 'O endereço pedido tem uma parte inválida (vazia, "." ou ".." ou com barra escondida).');
+    if (!partes) throw new ErroLocal(400, dgIdiomaBackend.mensagem("O endereço pedido tem uma parte inválida (vazia, \".\" ou \"..\" ou com barra escondida)."));
     const metodo = req.method;
     const [a, acao, sub] = partes;
     const escrita = metodo !== 'GET' && metodo !== 'HEAD';
 
     if (metodo !== 'GET' && metodo !== 'POST' && metodo !== 'HEAD') {
-      throw new ErroLocal(405, `O método ${metodo} não existe na aba Sessões.`, { como_resolver: 'Use GET para ler e POST para agir.' });
+      throw new ErroLocal(405, dgIdiomaBackend.mensagem("O método {p0} não existe na aba Sessões.", {p0: (metodo)}), { como_resolver: dgIdiomaBackend.mensagem("Use GET para ler e POST para agir.") });
     }
     if (escrita) {
       if (ehSoLeitura()) {
         console.log(`sessoes-local: ${metodo} /${partes.join('/')} recusado: painel em modo só leitura`);
         req.resume();
-        throw new ErroLocal(403, 'Neste painel a aba Sessões é só para ler: as ações (recado, criar, arquivar, renomear...) estão desligadas porque este painel não tem a proteção de login na frente.', {
-          como_resolver: 'Para liberar as ações, tire DGCLAW_PANEL_SESSOES_SO_LEITURA (ou sessoes.soLeitura do config.json) e reinicie o painel.', code: 'SO_LEITURA',
+        throw new ErroLocal(403, dgIdiomaBackend.mensagem("Neste painel a aba Sessões é só para ler: as ações (recado, criar, arquivar, renomear...) estão desligadas porque este painel não tem a proteção de login na frente."), {
+          como_resolver: dgIdiomaBackend.mensagem("Para liberar as ações, tire DGCLAW_PANEL_SESSOES_SO_LEITURA (ou sessoes.soLeitura do config.json) e reinicie o painel."), code: 'SO_LEITURA',
         });
       }
       // Cookie e Access são credenciais que o navegador manda sozinho; chave de API e proxy do dono não.
@@ -1004,7 +1005,7 @@ function registrar(router, { CONFIG }) {
         if (!o.ok) {
           console.log(`sessoes-local: ${metodo} /${partes.join('/')} recusado: Origin de outro site ou ausente (visto: ${o.visto})`);
           req.resume();
-          throw new ErroLocal(403, 'Pedido recusado: ele não veio da tela deste painel (Origin ausente ou de outro site). Por segurança, as ações da aba Sessões só valem quando feitas pela própria tela.');
+          throw new ErroLocal(403, dgIdiomaBackend.mensagem("Pedido recusado: ele não veio da tela deste painel (Origin ausente ou de outro site). Por segurança, as ações da aba Sessões só valem quando feitas pela própria tela."));
         }
       }
       const tipo = String(req.headers['content-type'] || '').toLowerCase();
@@ -1013,8 +1014,8 @@ function registrar(router, { CONFIG }) {
       if (temCorpo && !aceita.test(tipo)) {
         req.resume();
         throw new ErroLocal(415, acao === 'anexo'
-          ? 'O anexo precisa vir como envio de arquivo (multipart/form-data).'
-          : 'O pedido tem um tipo de conteúdo que a aba Sessões não aceita. Só vale JSON (application/json).');
+          ? dgIdiomaBackend.mensagem("O anexo precisa vir como envio de arquivo (multipart/form-data).")
+          : dgIdiomaBackend.mensagem("O pedido tem um tipo de conteúdo que a aba Sessões não aceita. Só vale JSON (application/json)."));
       }
     }
 
@@ -1040,7 +1041,7 @@ function registrar(router, { CONFIG }) {
       };
       if (acao && !sub && Object.prototype.hasOwnProperty.call(rotas, acao)) return rotas[acao](req, res, a);
     }
-    throw new ErroLocal(404, `A aba Sessões não tem a rota ${metodo} /${partes.join('/')}.`, { como_resolver: 'Veja as rotas em GET /api/sessoes/docs.md.' });
+    throw new ErroLocal(404, dgIdiomaBackend.mensagem("A aba Sessões não tem a rota {p0} /{p1}.", {p0: (metodo), p1: (partes.join('/'))}), { como_resolver: dgIdiomaBackend.mensagem("Veja as rotas em GET /api/sessoes/docs.md.") });
   }
 
   router.all([PREFIXO, `${PREFIXO}/*`], (req, res) => {
@@ -1052,7 +1053,7 @@ function registrar(router, { CONFIG }) {
         return;
       }
       console.error(`sessoes-local: ${req.method} ${req.url.split('?')[0]} estourou: ${(e && e.stack) || e}`);
-      enviarJson(res, 500, { ok: false, erro: `Erro inesperado na aba Sessões: ${(e && e.message) || e}.`, como_resolver: 'Veja o log do painel; a mensagem completa está lá.', code: 'ERRO_INTERNO' });
+      enviarJson(res, 500, { ok: false, erro: dgIdiomaBackend.mensagem("Erro inesperado na aba Sessões: {p0}.", {p0: ((e && e.message) || e)}), como_resolver: dgIdiomaBackend.mensagem("Veja o log do painel; a mensagem completa está lá."), code: 'ERRO_INTERNO' });
     });
   });
 

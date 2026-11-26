@@ -1,3 +1,4 @@
+const { preludioIdioma } = require('./idioma-fixture');
 'use strict';
 // Fila de leitura em voz: resposta nova não derruba a que está tocando (21/10/2026).
 // Carrega só o bloco delimitado de public/conversa.js, com as dependências de mentira.
@@ -34,7 +35,7 @@ function mundo(extra) {
       return new Promise(r => { m.resolve = () => { item.tocando = false; r(m.resultado); }; });
     },
     console, ...extra });
-  vm.runInContext(bloco, c);
+  vm.runInContext(preludioIdioma(fonte) + bloco, c);
   m.c = c;
   m.fim = async () => { const r = m.resolve; m.resolve = null; if (r) r(); await tick(); };   // a atual acabou sozinha
   m.estado = () => JSON.parse(vm.runInContext('JSON.stringify(estadoFilaLeitura())', c));

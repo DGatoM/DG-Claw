@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 /**
  * operacoes.js: a aba Operações, com uma fileira de quadradinhos por operação.
  *
@@ -131,7 +132,7 @@ function buildOperacoes(config, deps = {}) {
 
     let rot = { rotinas: [], erro: null };
     try { rot = (await listarRotinas()) || rot; } catch (e) {
-      rot = { rotinas: [], erro: `não consegui ler as rotinas no systemd: ${e.message}` };
+      rot = { rotinas: [], erro: dgIdiomaBackend.mensagem("não consegui ler as rotinas no systemd: {p0}", {p0: (e.message)}) };
     }
     let pul = null;
     try { pul = await pulsoStatus(); } catch (e) {
@@ -396,7 +397,7 @@ function buildOperacoes(config, deps = {}) {
         achou = true;
         const frase = `o processo está de pé, mas ele não consegue responder: ${d.frase || 'o diagnóstico de saúde diz que ele está inativo'}`;
         const qs = (o.quadrados || []).slice();
-        if (qs.length) qs[qs.length - 1] = { ...qs[qs.length - 1], cor: 'vermelho', titulo: 'De pé, mas sem conseguir responder', detalhe: d.frase || '' };
+        if (qs.length) qs[qs.length - 1] = { ...qs[qs.length - 1], cor: 'vermelho', titulo: dgIdiomaBackend.texto("De pé, mas sem conseguir responder"), detalhe: d.frase || '' };
         return { ...o, estado: 'falha', frase, cadencia: 'o processo está de pé', quadrados: qs, diagnostico: { estado: d.estado, tipo: d.tipo || null } };
       }),
     }));
@@ -429,7 +430,7 @@ function buildOperacoes(config, deps = {}) {
       console.error('[operacoes] falha ao montar a aba Operacoes:', e);
       return {
         geradoEm: new Date().toISOString(),
-        historico: { disponivel: false, motivo: `o painel quebrou ao montar esta tela: ${e.message}` },
+        historico: { disponivel: false, motivo: dgIdiomaBackend.mensagem("o painel quebrou ao montar esta tela: {p0}",{p0:(e.message)}) },
         resumo: { estado: 'indisponivel', frase: 'Não consegui montar as operações', motivo: e.message, total: 0, verdes: 0, atencao: [], semDado: 0 },
         grupos: [], rotinasDoUsuario: [], inconsistencias: [],
       };

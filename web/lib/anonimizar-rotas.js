@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Rotas /api/v1/anonimizar (só o dono, pela tela). Ver web/docs/ANONIMIZAR.md.
 // Não entram em caixa.permitir: agente em container não chama nenhuma delas, e a checagem de `sessao.via`
 // abaixo é a segunda trava. Nenhuma resposta traz valor da tabela, exceto a de tabela e a de reverter.
@@ -28,9 +29,9 @@ function criarRotasAnonimizar({ anon, registro, midia, log, origemOk, arquivoDoc
   }
 
   function agenteOuErro(res, slug) {
-    if (!RX_SLUG.test(slug)) { H.erroJson(res, 400, `O id de agente "${slug.slice(0, 40)}" não vale. Veja GET /api/v1/agents.`); return null; }
+    if (!RX_SLUG.test(slug)) { H.erroJson(res, 400, dgIdiomaBackend.mensagem("O id de agente \"{p0}\" não vale. Veja GET /api/v1/agents.", {p0: (slug.slice(0, 40))})); return null; }
     const a = registro.obter(slug);
-    if (!a) { H.erroJson(res, 404, `Não existe agente com o id "${slug}". Veja GET /api/v1/agents.`); return null; }
+    if (!a) { H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe agente com o id \"{p0}\". Veja GET /api/v1/agents.", {p0: (slug)})); return null; }
     return a;
   }
 
@@ -42,16 +43,16 @@ function criarRotasAnonimizar({ anon, registro, midia, log, origemOk, arquivoDoc
     const p = url.pathname.replace(/\/+$/, '');
     if (p !== BASE && !p.startsWith(`${BASE}/`)) return false;
     if (!sessao || sessao.via === 'caixa') {
-      H.erroJson(res, 403, 'A anonimização é do dono, pelo painel. Agente não usa estas rotas: ele só recebe os documentos já com marcadores.');
+      H.erroJson(res, 403, dgIdiomaBackend.mensagem("A anonimização é do dono, pelo painel. Agente não usa estas rotas: ele só recebe os documentos já com marcadores."));
       return true;
     }
     const m = req.method;
     if (ESCREVE.has(m) && !origemOk(req)) {
-      H.erroJson(res, 403, 'Pedido recusado: a origem não é a deste site. Abra o DG Claw pelo endereço normal e tente de novo.');
+      H.erroJson(res, 403, dgIdiomaBackend.mensagem("Pedido recusado: a origem não é a deste site. Abra o DG Claw pelo endereço normal e tente de novo."));
       return true;
     }
     const sub = p.slice(BASE.length);
-    const metodoErrado = (usar) => { H.erroJson(res, 405, `Use ${usar} em ${p}.`); return true; };
+    const metodoErrado = (usar) => { H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use {p0} em {p1}.", {p0: (usar), p1: (p)})); return true; };
     try {
       if (sub === '/docs.md') {
         if (m !== 'GET') return metodoErrado('GET');
@@ -69,7 +70,7 @@ function criarRotasAnonimizar({ anon, registro, midia, log, origemOk, arquivoDoc
         if (m !== 'POST') return metodoErrado('POST');
         const c = await corpo(req, 4096);
         const r = await anon.instalarDetector(c.nivel, c.forcar === true);
-        H.enviaJson(res, 202, { ok: true, nivel: r.nivel, mensagem: 'Instalação iniciada. Acompanhe o progresso em GET /api/v1/anonimizar/estado.' });
+        H.enviaJson(res, 202, { ok: true, nivel: r.nivel, mensagem: dgIdiomaBackend.mensagem("Instalação iniciada. Acompanhe o progresso em GET /api/v1/anonimizar/estado.") });
         return true;
       }
       if (sub === '/testar') {
@@ -77,7 +78,7 @@ function criarRotasAnonimizar({ anon, registro, midia, log, origemOk, arquivoDoc
         const c = await corpo(req);
         let slug = null;
         if (c.slug != null) {
-          if (typeof c.slug !== 'string') { H.erroJson(res, 400, 'O campo "slug" precisa ser o id de um agente (texto).'); return true; }
+          if (typeof c.slug !== 'string') { H.erroJson(res, 400, dgIdiomaBackend.mensagem("O campo \"slug\" precisa ser o id de um agente (texto).")); return true; }
           if (!agenteOuErro(res, c.slug)) return true;
           slug = c.slug;
         }
@@ -115,7 +116,7 @@ function criarRotasAnonimizar({ anon, registro, midia, log, origemOk, arquivoDoc
           if (m !== 'GET') return metodoErrado('GET');
           if (!leituraDoSite(req, true)) {
             log('aviso', `Anonimizar: leitura da tabela de ${slug} recusada (pedido sem Origin do próprio site).`);
-            H.erroJson(res, 403, 'Pedido recusado: a tabela só abre pela tela do DG Claw, neste mesmo site. Abra a tela Anonimizar e use "Ver tabela".');
+            H.erroJson(res, 403, dgIdiomaBackend.mensagem("Pedido recusado: a tabela só abre pela tela do DG Claw, neste mesmo site. Abra a tela Anonimizar e use \"Ver tabela\"."));
             return true;
           }
           const entradas = anon.tabela(slug);
@@ -131,8 +132,8 @@ function criarRotasAnonimizar({ anon, registro, midia, log, origemOk, arquivoDoc
         }
         if (acao === 'final' && extra) {
           if (m !== 'GET') return metodoErrado('GET');
-          if (!leituraDoSite(req, false)) { H.erroJson(res, 403, 'Pedido recusado: a versão final só baixa pela tela do DG Claw, neste mesmo site.'); return true; }
-          if (!RX_MEDIA.test(extra)) { H.erroJson(res, 400, 'O id do arquivo não vale. Use o botão "Baixar versão final" ao lado do anexo.'); return true; }
+          if (!leituraDoSite(req, false)) { H.erroJson(res, 403, dgIdiomaBackend.mensagem("Pedido recusado: a versão final só baixa pela tela do DG Claw, neste mesmo site.")); return true; }
+          if (!RX_MEDIA.test(extra)) { H.erroJson(res, 400, dgIdiomaBackend.mensagem("O id do arquivo não vale. Use o botão \"Baixar versão final\" ao lado do anexo.")); return true; }
           const r = await anon.gerarFinal(agente, midia.obter(extra));
           const ativo = ['.html', '.htm'].includes(r.ext);
           const ascii = r.nome.replace(/[^A-Za-z0-9._-]+/g, '_');
@@ -154,10 +155,10 @@ function criarRotasAnonimizar({ anon, registro, midia, log, origemOk, arquivoDoc
         return true;
       }
       log('erro', `Anonimizar: falha inesperada em ${m} ${p}: ${e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e.message}`);
-      H.erroJson(res, 500, 'Não consegui tratar o pedido de anonimização. O detalhe está no log do Web (journalctl -u dgclaw-web).');
+      H.erroJson(res, 500, dgIdiomaBackend.mensagem("Não consegui tratar o pedido de anonimização. O detalhe está no log do Web (journalctl -u dgclaw-web)."));
       return true;
     }
-    H.erroJson(res, 404, `Não existe ${m} ${p}. As rotas estão em GET ${BASE}/docs.md.`);
+    H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe {p0} {p1}. As rotas estão em GET {p2}/docs.md.", {p0: (m), p1: (p), p2: (BASE)}));
     return true;
   }
 
@@ -166,7 +167,7 @@ function criarRotasAnonimizar({ anon, registro, midia, log, origemOk, arquivoDoc
     let texto;
     try { texto = fs.readFileSync(docsPath, 'utf8'); } catch (e) {
       log('erro', `Anonimizar: não li ${docsPath} (${e.code || e.message}).`);
-      H.erroJson(res, 500, 'A documentação não está instalada neste servidor. Reinstale o DG Claw Web.');
+      H.erroJson(res, 500, dgIdiomaBackend.mensagem("A documentação não está instalada neste servidor. Reinstale o DG Claw Web."));
       return;
     }
     res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });

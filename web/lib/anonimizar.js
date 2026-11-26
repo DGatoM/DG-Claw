@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Anonimizar documentos (lado Web). Combinado com o motor Python em anonimizar/CONTRATO.md.
 //
 // O que este módulo faz:
@@ -116,7 +117,7 @@ function trocarValoresConhecidos(texto, tabela, jaConferido) {
   for (const [a, b, marcador] of reservados) saida = saida.slice(0, a) + marcador + saida.slice(b);
   // Salvaguarda: depois da troca não pode sobrar nenhum valor conhecido. Se sobrou, o mapa falhou: não entrega.
   if (!jaConferido && trocarValoresConhecidos(saida, tabela, true).trocas > 0) {
-    throw new ErroAnon(503, 'O filtro de dados conhecidos não conseguiu trocar tudo neste texto, então ele não foi entregue. Nada foi enviado.', 'filtro_incompleto');
+    throw new ErroAnon(503, dgIdiomaBackend.mensagem("O filtro de dados conhecidos não conseguiu trocar tudo neste texto, então ele não foi entregue. Nada foi enviado."), 'filtro_incompleto');
   }
   return { texto: saida, trocas: reservados.length };
 }
@@ -184,11 +185,11 @@ function criarAnonimizar(opcoes) {
     if (chave) return chave;
     let bruto = null;
     try { bruto = fs.readFileSync(caminhoChave); } catch (e) {
-      if (e.code !== 'ENOENT') throw new ErroAnon(500, `Não consegui ler a chave de cifra em ${caminhoChave} (${e.code || e.message}). Confira o dono (root) e o modo (600) do arquivo.`, 'CHAVE_ILEGIVEL');
+      if (e.code !== 'ENOENT') throw new ErroAnon(500, dgIdiomaBackend.mensagem("Não consegui ler a chave de cifra em {p0} ({p1}). Confira o dono (root) e o modo (600) do arquivo.", {p0: (caminhoChave), p1: (e.code || e.message)}), 'CHAVE_ILEGIVEL');
     }
     if (bruto) {
       if (bruto.length !== 32) {
-        throw new ErroAnon(500, `A chave de cifra em ${caminhoChave} tem ${bruto.length} bytes e deveria ter 32. Não vou criar outra por cima: apagar a chave tornaria ilegíveis as tabelas já gravadas. Restaure o arquivo original.`, 'CHAVE_INVALIDA');
+        throw new ErroAnon(500, dgIdiomaBackend.mensagem("A chave de cifra em {p0} tem {p1} bytes e deveria ter 32. Não vou criar outra por cima: apagar a chave tornaria ilegíveis as tabelas já gravadas. Restaure o arquivo original.", {p0: (caminhoChave), p1: (bruto.length)}), 'CHAVE_INVALIDA');
       }
       chave = bruto;
       return chave;
@@ -199,7 +200,7 @@ function criarAnonimizar(opcoes) {
       gravaArquivoSeguro(caminhoChave, crypto.randomBytes(32), { raiz: pasta, modo: 0o600 });
       chave = fs.readFileSync(caminhoChave);
     } catch (e) {
-      throw new ErroAnon(500, `Não consegui criar a chave de cifra em ${caminhoChave} (${e.code || e.message}). Crie a pasta ${pasta} com permissão 700 e tente de novo.`, 'CHAVE_NAO_CRIADA');
+      throw new ErroAnon(500, dgIdiomaBackend.mensagem("Não consegui criar a chave de cifra em {p0} ({p1}). Crie a pasta {p2} com permissão 700 e tente de novo.", {p0: (caminhoChave), p1: (e.code || e.message), p2: (pasta)}), 'CHAVE_NAO_CRIADA');
     }
     log('info', `Anonimizar: chave de cifra criada em ${caminhoChave}.`);
     return chave;
@@ -212,14 +213,14 @@ function criarAnonimizar(opcoes) {
     return Buffer.concat([Buffer.from([1]), iv, c.getAuthTag(), dados]);
   }
   function decifra(buf, ctx) {
-    if (buf.length < 30 || buf[0] !== 1) throw new ErroAnon(500, `O arquivo cifrado de ${ctx} não está no formato esperado.`, 'CIFRA_FORMATO');
+    if (buf.length < 30 || buf[0] !== 1) throw new ErroAnon(500, dgIdiomaBackend.mensagem("O arquivo cifrado de {p0} não está no formato esperado.", {p0: (ctx)}), 'CIFRA_FORMATO');
     const d = crypto.createDecipheriv('aes-256-gcm', obterChave(), buf.subarray(1, 13));
     d.setAAD(Buffer.from(`dgclaw-anon|v1|${ctx}`));
     d.setAuthTag(buf.subarray(13, 29));
     try {
       return JSON.parse(Buffer.concat([d.update(buf.subarray(29)), d.final()]).toString('utf8'));
     } catch (_) {
-      throw new ErroAnon(500, `Não consegui decifrar ${ctx}. A chave em ${caminhoChave} não é a que cifrou esse arquivo, ou ele foi alterado. Restaure a chave original; nada foi apagado.`, 'CIFRA_FALHOU');
+      throw new ErroAnon(500, dgIdiomaBackend.mensagem("Não consegui decifrar {p0}. A chave em {p1} não é a que cifrou esse arquivo, ou ele foi alterado. Restaure a chave original; nada foi apagado.", {p0: (ctx), p1: (caminhoChave)}), 'CIFRA_FALHOU');
     }
   }
 
@@ -229,10 +230,10 @@ function criarAnonimizar(opcoes) {
     fs.chmodSync(p, 0o700);
   }
   function pastaDoAgente(slug) {
-    if (typeof slug !== 'string' || !RX_SLUG.test(slug)) throw new ErroAnon(400, `O id de agente "${String(slug).slice(0, 40)}" não vale.`, 'SLUG');
+    if (typeof slug !== 'string' || !RX_SLUG.test(slug)) throw new ErroAnon(400, dgIdiomaBackend.mensagem("O id de agente \"{p0}\" não vale.", {p0: (String(slug).slice(0, 40))}), 'SLUG');
     const base = path.resolve(raiz);
     const p = path.resolve(base, slug);
-    if (!p.startsWith(base + path.sep)) throw new ErroAnon(400, `O id de agente "${String(slug).slice(0, 40)}" não vale.`, 'SLUG');
+    if (!p.startsWith(base + path.sep)) throw new ErroAnon(400, dgIdiomaBackend.mensagem("O id de agente \"{p0}\" não vale.", {p0: (String(slug).slice(0, 40))}), 'SLUG');
     pasta0700(base);
     pasta0700(p);
     return p;
@@ -242,7 +243,7 @@ function criarAnonimizar(opcoes) {
     let buf;
     try { buf = fs.readFileSync(arq); } catch (e) {
       if (e.code === 'ENOENT') return vazio();
-      throw new ErroAnon(500, `Não consegui ler ${nome} de ${slug} (${e.code || e.message}).`, 'LEITURA');
+      throw new ErroAnon(500, dgIdiomaBackend.mensagem("Não consegui ler {p0} de {p1} ({p2}).", {p0: (nome), p1: (slug), p2: (e.code || e.message)}), 'LEITURA');
     }
     return decifra(buf, `${slug}|${nome}`);
   }
@@ -252,7 +253,7 @@ function criarAnonimizar(opcoes) {
     try {
       gravaArquivoSeguro(path.join(pasta, nome), buf, { raiz: dataDir, modo: 0o600 });
     } catch (e) {
-      throw new ErroAnon(500, `Não consegui gravar ${nome} de ${slug} (${e.code || e.message}). Confira o espaço em disco e a pasta ${raiz}.`, 'GRAVACAO');
+      throw new ErroAnon(500, dgIdiomaBackend.mensagem("Não consegui gravar {p0} de {p1} ({p2}). Confira o espaço em disco e a pasta {p3}.", {p0: (nome), p1: (slug), p2: (e.code || e.message), p3: (raiz)}), 'GRAVACAO');
     }
   }
   const lerTabela = (slug) => lerCifrado(slug, 'tabela.enc', () => ({ entradas: [] }));
@@ -276,14 +277,14 @@ function criarAnonimizar(opcoes) {
     let bruto;
     try { bruto = fs.readFileSync(caminhoConfig, 'utf8'); } catch (e) {
       if (e.code === 'ENOENT') return {};
-      throw new ErroAnon(500, `Não consegui ler ${caminhoConfig} (${e.code || e.message}). Sem ler a configuração eu não sei se este agente está com a anonimização ligada, então nada passa.`, 'CONFIG_ILEGIVEL');
+      throw new ErroAnon(500, dgIdiomaBackend.mensagem("Não consegui ler {p0} ({p1}). Sem ler a configuração eu não sei se este agente está com a anonimização ligada, então nada passa.", {p0: (caminhoConfig), p1: (e.code || e.message)}), 'CONFIG_ILEGIVEL');
     }
     try {
       const j = JSON.parse(bruto);
-      if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error('não é um objeto');
+      if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error(dgIdiomaBackend.mensagem("não é um objeto"));
       return j;
     } catch (e) {
-      throw new ErroAnon(500, `O arquivo ${caminhoConfig} está ilegível (${e.message}). Não vou sobrescrevê-lo. Corrija o JSON ou renomeie o arquivo; enquanto isso nenhum documento passa.`, 'CONFIG_CORROMPIDA');
+      throw new ErroAnon(500, dgIdiomaBackend.mensagem("O arquivo {p0} está ilegível ({p1}). Não vou sobrescrevê-lo. Corrija o JSON ou renomeie o arquivo; enquanto isso nenhum documento passa.", {p0: (caminhoConfig), p1: (e.message)}), 'CONFIG_CORROMPIDA');
     }
   }
   function config(slug) {
@@ -292,17 +293,17 @@ function criarAnonimizar(opcoes) {
   }
   /** Valida o PUT. Devolve { mudancas } ou { erro }. */
   function validaConfig(corpo) {
-    if (!corpo || typeof corpo !== 'object' || Array.isArray(corpo)) return { erro: 'Mande um objeto JSON com as opções a mudar, por exemplo {"ligado": true}.' };
+    if (!corpo || typeof corpo !== 'object' || Array.isArray(corpo)) return { erro: dgIdiomaBackend.mensagem("Mande um objeto JSON com as opções a mudar, por exemplo {\"ligado\": true}.") };
     const mud = {};
     for (const [k, v] of Object.entries(corpo)) {
       if (CAMPOS_BOOL.includes(k)) {
-        if (typeof v !== 'boolean') return { erro: `A opção "${k}" precisa ser true ou false. Recebi: ${JSON.stringify(v).slice(0, 40)}.` };
+        if (typeof v !== 'boolean') return { erro: dgIdiomaBackend.mensagem("A opção \"{p0}\" precisa ser true ou false. Recebi: {p1}.", {p0: (k), p1: (JSON.stringify(v).slice(0, 40))}) };
         mud[k] = v;
       } else if (CAMPOS_ENUM[k]) {
-        if (!CAMPOS_ENUM[k].includes(v)) return { erro: `A opção "${k}" aceita ${CAMPOS_ENUM[k].map((x) => `"${x}"`).join(' ou ')}. Recebi: ${JSON.stringify(v).slice(0, 40)}.` };
+        if (!CAMPOS_ENUM[k].includes(v)) return { erro: dgIdiomaBackend.mensagem("A opção \"{p0}\" aceita {p1}. Recebi: {p2}.", {p0: (k), p1: (CAMPOS_ENUM[k].map((x) => `"${x}"`).join(' ou ')), p2: (JSON.stringify(v).slice(0, 40))}) };
         mud[k] = v;
       } else {
-        return { erro: `Não conheço a opção "${String(k).slice(0, 40)}". As opções são: ${CAMPOS_BOOL.concat(Object.keys(CAMPOS_ENUM)).join(', ')}.` };
+        return { erro: dgIdiomaBackend.mensagem("Não conheço a opção \"{p0}\". As opções são: {p1}.", {p0: (String(k).slice(0, 40)), p1: (CAMPOS_BOOL.concat(Object.keys(CAMPOS_ENUM)).join(', '))}) };
       }
     }
     return { mudancas: mud };
@@ -315,7 +316,7 @@ function criarAnonimizar(opcoes) {
     try {
       gravaArquivoSeguro(caminhoConfig, JSON.stringify(tudo, null, 2) + '\n', { raiz: dataDir, modo: 0o600 });
     } catch (e) {
-      throw new ErroAnon(500, `Não consegui gravar a configuração em ${caminhoConfig} (${e.code || e.message}). Nada mudou.`, 'GRAVACAO');
+      throw new ErroAnon(500, dgIdiomaBackend.mensagem("Não consegui gravar a configuração em {p0} ({p1}). Nada mudou.", {p0: (caminhoConfig), p1: (e.code || e.message)}), 'GRAVACAO');
     }
     return config(slug);
   }
@@ -335,7 +336,7 @@ function criarAnonimizar(opcoes) {
       if (o.motor) return o.motor;
       const script = path.join(appDir, 'anonimizar', 'motor.py');
       if (!fs.existsSync(script)) {
-        throw new ErroAnon(503, `O motor de anonimização não está instalado (falta ${script}). Atualize o DG Claw com "dgclaw atualizar" e tente de novo. Nada foi enviado ao agente.`, 'MOTOR_AUSENTE');
+        throw new ErroAnon(503, dgIdiomaBackend.mensagem("O motor de anonimização não está instalado (falta {p0}). Atualize o DG Claw com \"dgclaw atualizar\" e tente de novo. Nada foi enviado ao agente.", {p0: (script)}), 'MOTOR_AUSENTE');
       }
       let py = env.DGCLAW_ANON_PYTHON;
       if (!py) { const venv = path.join(base, 'venv', 'bin', 'python'); py = fs.existsSync(venv) ? venv : 'python3'; }
@@ -364,7 +365,7 @@ function criarAnonimizar(opcoes) {
       p.stdout.setEncoding('utf8');
       p.stdout.on('data', (d) => {
         buffer += d;
-        if (buffer.length > MAX_LINHA_MOTOR) { encerra(); falhaAtual(new ErroAnon(503, 'O motor de anonimização devolveu uma resposta grande demais. Nada foi enviado ao agente; tente um arquivo menor.', 'MOTOR_RESPOSTA_GRANDE')); proximo(); return; }
+        if (buffer.length > MAX_LINHA_MOTOR) { encerra(); falhaAtual(new ErroAnon(503, dgIdiomaBackend.mensagem("O motor de anonimização devolveu uma resposta grande demais. Nada foi enviado ao agente; tente um arquivo menor."), 'MOTOR_RESPOSTA_GRANDE')); proximo(); return; }
         let i;
         while ((i = buffer.indexOf('\n')) >= 0) {
           const linha = buffer.slice(0, i); buffer = buffer.slice(i + 1);
@@ -374,7 +375,7 @@ function criarAnonimizar(opcoes) {
           atual = null; clearTimeout(a.relogio);
           let j;
           try { j = JSON.parse(linha); } catch (_) {
-            a.rejeita(new ErroAnon(503, 'O motor de anonimização respondeu algo que não é JSON. Nada foi enviado ao agente. Reinstale o detector pela tela de Anonimizar ou peça ao Admin para conferir o motor.', 'MOTOR_RESPOSTA_INVALIDA'));
+            a.rejeita(new ErroAnon(503, dgIdiomaBackend.mensagem("O motor de anonimização respondeu algo que não é JSON. Nada foi enviado ao agente. Reinstale o detector pela tela de Anonimizar ou peça ao Admin para conferir o motor."), 'MOTOR_RESPOSTA_INVALIDA'));
             encerra(); proximo(); return;
           }
           a.resolve(j);
@@ -387,13 +388,13 @@ function criarAnonimizar(opcoes) {
       p.on('error', (e) => {
         if (proc === p) { proc = null; buffer = ''; }
         log('erro', `Anonimizar: não consegui iniciar o motor com "${comando}" (${e.code || e.message}). Confira se o Python existe e o detector está instalado.`);
-        falhaAtual(new ErroAnon(503, `Não consegui iniciar o motor de anonimização (${e.code || e.message}). Peça ao Admin para conferir se o Python está instalado. Nada foi enviado ao agente.`, 'MOTOR_NAO_INICIA'));
+        falhaAtual(new ErroAnon(503, dgIdiomaBackend.mensagem("Não consegui iniciar o motor de anonimização ({p0}). Peça ao Admin para conferir se o Python está instalado. Nada foi enviado ao agente.", {p0: (e.code || e.message)}), 'MOTOR_NAO_INICIA'));
         proximo();
       });
       p.on('exit', (codigo, sinal) => {
         if (proc === p) { proc = null; buffer = ''; }
         log(atual ? 'erro' : 'info', `Anonimizar: o motor saiu (código ${codigo}, sinal ${sinal || '-'})${atual ? ' no meio de um pedido' : ''}.${ultimaErr ? ` Últimas linhas dele: ${ultimaErr.replace(/\s+/g, ' ').slice(-200)}` : ''}`);
-        falhaAtual(new ErroAnon(503, 'O motor de anonimização parou no meio do pedido (provavelmente faltou memória). Nada foi enviado ao agente. Tente de novo; se repetir, use um arquivo menor ou instale só os leitores, sem o detector completo.', 'MOTOR_CAIU'));
+        falhaAtual(new ErroAnon(503, dgIdiomaBackend.mensagem("O motor de anonimização parou no meio do pedido (provavelmente faltou memória). Nada foi enviado ao agente. Tente de novo; se repetir, use um arquivo menor ou instale só os leitores, sem o detector completo."), 'MOTOR_CAIU'));
         proximo();
       });
     }
@@ -419,13 +420,13 @@ function criarAnonimizar(opcoes) {
       item.relogio = setTimeout(() => {
         log('erro', `Anonimizar: o motor passou de ${Math.round(item.limite / 1000)} s no pedido "${item.op}". Encerrei o processo.`);
         encerra();
-        falhaAtual(new ErroAnon(503, `O motor de anonimização demorou mais de ${Math.round(item.limite / 1000)} segundos e foi interrompido. O documento deve ser grande demais para esta máquina. Nada foi enviado ao agente; tente um arquivo menor.`, 'MOTOR_DEMOROU'));
+        falhaAtual(new ErroAnon(503, dgIdiomaBackend.mensagem("O motor de anonimização demorou mais de {p0} segundos e foi interrompido. O documento deve ser grande demais para esta máquina. Nada foi enviado ao agente; tente um arquivo menor.", {p0: (Math.round(item.limite / 1000))}), 'MOTOR_DEMOROU'));
         proximo();
       }, item.limite);
       item.relogio.unref();
       try { proc.stdin.write(JSON.stringify(item.req) + '\n'); } catch (e) {
         encerra();
-        falhaAtual(new ErroAnon(503, `Não consegui falar com o motor de anonimização (${e.code || e.message}). Nada foi enviado ao agente.`, 'MOTOR_NAO_ESCUTA'));
+        falhaAtual(new ErroAnon(503, dgIdiomaBackend.mensagem("Não consegui falar com o motor de anonimização ({p0}). Nada foi enviado ao agente.", {p0: (e.code || e.message)}), 'MOTOR_NAO_ESCUTA'));
         proximo();
       }
     }
@@ -499,19 +500,19 @@ function criarAnonimizar(opcoes) {
     };
   }
   async function instalarDetector(nivel, forcar) {
-    if (!NIVEIS_INSTALAVEIS.includes(nivel)) throw new ErroAnon(400, `O nível precisa ser "leitores" ou "completo". Recebi: ${JSON.stringify(nivel).slice(0, 40)}.`);
+    if (!NIVEIS_INSTALAVEIS.includes(nivel)) throw new ErroAnon(400, dgIdiomaBackend.mensagem("O nível precisa ser \"leitores\" ou \"completo\". Recebi: {p0}.", {p0: (JSON.stringify(nivel).slice(0, 40))}));
     const emCurso = await instalacaoEmCurso();
-    if (emCurso) throw new ErroAnon(409, `Já tem uma instalação do detector em andamento (${emCurso}). Espere ela terminar; o progresso aparece nesta tela.`, 'JA_INSTALANDO');
+    if (emCurso) throw new ErroAnon(409, dgIdiomaBackend.mensagem("Já tem uma instalação do detector em andamento ({p0}). Espere ela terminar; o progresso aparece nesta tela.", {p0: (emCurso)}), 'JA_INSTALANDO');
     const livre = ramDisponivelMb();
     if (nivel === 'completo' && livre < 2500 && !forcar) {
-      throw new ErroAnon(409, `O detector completo usa cerca de 2 GB de memória e só há ${livre} MB livres agora. Feche o que puder, ou instale só os leitores (30 MB). Para instalar assim mesmo, repita o pedido com "forcar": true.`, 'POUCA_RAM');
+      throw new ErroAnon(409, dgIdiomaBackend.mensagem("O detector completo usa cerca de 2 GB de memória e só há {p0} MB livres agora. Feche o que puder, ou instale só os leitores (30 MB). Para instalar assim mesmo, repita o pedido com \"forcar\": true.", {p0: (livre)}), 'POUCA_RAM');
     }
     // Só os dois valores fixos entram no nome da unidade; nada vindo do usuário vai para o comando.
     const unidade = nivel === 'completo' ? 'dgclaw-anonimizar-instalar@completo.service' : 'dgclaw-anonimizar-instalar@leitores.service';
     const r = await executaSystemctl(['start', '--no-block', unidade]);
     if (r.erro) {
       log('erro', `Anonimizar: systemctl start ${unidade} falhou (${r.erro.code || r.erro.message}).`);
-      throw new ErroAnon(503, `Não consegui iniciar a instalação do detector (${r.erro.code || r.erro.message}). Peça ao Admin para rodar: systemctl start ${unidade}`, 'SYSTEMCTL');
+      throw new ErroAnon(503, dgIdiomaBackend.mensagem("Não consegui iniciar a instalação do detector ({p0}). Peça ao Admin para rodar: systemctl start {p1}", {p0: (r.erro.code || r.erro.message), p1: (unidade)}), 'SYSTEMCTL');
     }
     cacheEstado = { t: 0, valor: null };
     log('info', `Anonimizar: instalação do detector (${nivel}) iniciada.`);
@@ -521,14 +522,14 @@ function criarAnonimizar(opcoes) {
   // ── tabela e documentos ───────────────────────────────────────────────────
   function opcoesMotor(c) { return { valores: !!c.valores, datas: !!c.datas, empresas: !!c.empresas }; }
   function validaNovas(novas, tabela) {
-    if (!Array.isArray(novas)) throw new ErroAnon(502, 'O motor devolveu a lista de dados novos num formato inesperado. Nada foi enviado ao agente.', 'MOTOR_RESPOSTA_INVALIDA');
+    if (!Array.isArray(novas)) throw new ErroAnon(502, dgIdiomaBackend.mensagem("O motor devolveu a lista de dados novos num formato inesperado. Nada foi enviado ao agente."), 'MOTOR_RESPOSTA_INVALIDA');
     const existentes = new Map(tabela.map((e) => [e.marcador, e.valor]));
     const ok = [];
     for (const n of novas) {
       const valido = n && TIPOS.includes(n.tipo) && typeof n.valor === 'string' && n.valor && typeof n.marcador === 'string' && n.marcador.startsWith(`[${n.tipo}_`) && /^\[[A-Z]+_\d+\]$/.test(n.marcador);
-      if (!valido) throw new ErroAnon(502, 'O motor devolveu um dado novo malformado. Nada foi enviado ao agente. Peça ao Admin para atualizar o DG Claw.', 'MOTOR_RESPOSTA_INVALIDA');
+      if (!valido) throw new ErroAnon(502, dgIdiomaBackend.mensagem("O motor devolveu um dado novo malformado. Nada foi enviado ao agente. Peça ao Admin para atualizar o DG Claw."), 'MOTOR_RESPOSTA_INVALIDA');
       if (existentes.has(n.marcador)) {
-        if (existentes.get(n.marcador) !== n.valor) throw new ErroAnon(502, `O motor reaproveitou o marcador ${n.marcador} para outro valor. Nada foi enviado ao agente, para não misturar duas pessoas.`, 'MARCADOR_DUPLICADO');
+        if (existentes.get(n.marcador) !== n.valor) throw new ErroAnon(502, dgIdiomaBackend.mensagem("O motor reaproveitou o marcador {p0} para outro valor. Nada foi enviado ao agente, para não misturar duas pessoas.", {p0: (n.marcador)}), 'MARCADOR_DUPLICADO');
         continue;
       }
       existentes.set(n.marcador, n.valor);
@@ -567,9 +568,9 @@ function criarAnonimizar(opcoes) {
   }
   function apagarDocumento(slug, id) {
     return comTrava(slug, async () => {
-      if (!RX_ID.test(id || '')) throw new ErroAnon(400, `O id de documento "${String(id).slice(0, 20)}" não vale.`);
+      if (!RX_ID.test(id || '')) throw new ErroAnon(400, dgIdiomaBackend.mensagem("O id de documento \"{p0}\" não vale.", {p0: (String(id).slice(0, 20))}));
       const r = lerDocs(slug);
-      if (!r.docs.some((d) => d.id === id)) throw new ErroAnon(404, `Não achei o documento ${id} neste agente. Veja a lista em GET /api/v1/anonimizar/${slug}/documentos.`);
+      if (!r.docs.some((d) => d.id === id)) throw new ErroAnon(404, dgIdiomaBackend.mensagem("Não achei o documento {p0} neste agente. Veja a lista em GET /api/v1/anonimizar/{p1}/documentos.", {p0: (id), p1: (slug)}));
       r.docs = r.docs.filter((d) => d.id !== id);
       gravarDocs(slug, r);
       const removidos = podarTabela(slug, r.docs);
@@ -595,13 +596,13 @@ function criarAnonimizar(opcoes) {
   function estaLigado(slug) {
     try { return config(slug).ligado; } catch (e) {
       log('erro', `Anonimizar: não li a configuração de ${slug} (${e.codigo || e.message}). Mensagem recusada até corrigir.`);
-      throw new ErroAnon(503, `${e.message} A mensagem não foi enviada, para não mandar dados pessoais sem o filtro.`, e.codigo || 'CONFIG_ILEGIVEL');
+      throw new ErroAnon(503, dgIdiomaBackend.mensagem("{p0} A mensagem não foi enviada, para não mandar dados pessoais sem o filtro.", {p0: (e.message)}), e.codigo || 'CONFIG_ILEGIVEL');
     }
   }
   function aplicaDigitado(slug) {
     const c = (() => { try { return config(slug); } catch (e) {
       log('erro', `Anonimizar: não li a configuração de ${slug} (${e.codigo || e.message}). Mensagem recusada até corrigir.`);
-      throw new ErroAnon(503, `${e.message} A mensagem não foi enviada, para não mandar dados pessoais sem o filtro.`, e.codigo || 'CONFIG_ILEGIVEL');
+      throw new ErroAnon(503, dgIdiomaBackend.mensagem("{p0} A mensagem não foi enviada, para não mandar dados pessoais sem o filtro.", {p0: (e.message)}), e.codigo || 'CONFIG_ILEGIVEL');
     } })();
     return c.ligado && c.aplicar_no_que_digito;
   }
@@ -630,15 +631,15 @@ function criarAnonimizar(opcoes) {
     return anda;
   }
   function reverterTexto(slug, texto) {
-    if (typeof texto !== 'string') throw new ErroAnon(400, 'Mande o texto em "texto" (uma string).');
-    if (texto.length > MAX_TEXTO) throw new ErroAnon(413, `O texto tem ${texto.length} caracteres e o limite é ${MAX_TEXTO}.`);
+    if (typeof texto !== 'string') throw new ErroAnon(400, dgIdiomaBackend.mensagem("Mande o texto em \"texto\" (uma string)."));
+    if (texto.length > MAX_TEXTO) throw new ErroAnon(413, dgIdiomaBackend.mensagem("O texto tem {p0} caracteres e o limite é {p1}.", {p0: (texto.length), p1: (MAX_TEXTO)}));
     const r = reverterMarcadores(texto, lerTabela(slug).entradas);
     return { texto: r.texto, trocas: r.trocas, desconhecidos: r.desconhecidos };
   }
   /** Tela de teste: tabela temporária, nada é gravado. */
   async function testarTexto(slug, texto) {
-    if (typeof texto !== 'string' || !texto.trim()) throw new ErroAnon(400, 'Escreva um texto para testar, no campo "texto".');
-    if (texto.length > MAX_TEXTO) throw new ErroAnon(413, `O texto tem ${texto.length} caracteres e o limite do teste é ${MAX_TEXTO}.`);
+    if (typeof texto !== 'string' || !texto.trim()) throw new ErroAnon(400, dgIdiomaBackend.mensagem("Escreva um texto para testar, no campo \"texto\"."));
+    if (texto.length > MAX_TEXTO) throw new ErroAnon(413, dgIdiomaBackend.mensagem("O texto tem {p0} caracteres e o limite do teste é {p1}.", {p0: (texto.length), p1: (MAX_TEXTO)}));
     const c = slug ? config(slug) : PADRAO_CONFIG;
     const r = await motor.enviar({ op: 'anonimizar_texto', texto, tabela: [], opcoes: opcoesMotor(c) }, 60000);
     if (!r || !r.ok) throw new ErroAnon(422, (r && r.erro) || 'O motor não conseguiu anonimizar o texto.', r && r.codigo);
@@ -646,7 +647,7 @@ function criarAnonimizar(opcoes) {
     const nivel = est.ok ? est.nivel : null;
     return {
       texto: r.texto, contagem: r.contagem || {}, total: somaContagem(r.contagem), nivel,
-      aviso: nivel && nivel !== 'completo' ? 'Sem o detector completo, nomes de pessoas, empresas e endereços não são procurados. Só números de documento, e-mail, telefone e parecidos.' : null,
+      aviso: nivel && nivel !== 'completo' ? dgIdiomaBackend.mensagem("Sem o detector completo, nomes de pessoas, empresas e endereços não são procurados. Só números de documento, e-mail, telefone e parecidos.") : null,
     };
   }
 
@@ -679,7 +680,7 @@ function criarAnonimizar(opcoes) {
     const ext = path.extname(String(nome || '')).toLowerCase().replace(/[^a-z0-9.]/g, '').slice(0, 8);
     const instalarDica = 'Para anonimizar este tipo de arquivo, instale os leitores na tela Anonimizar. Ou mude a opção "Se não der para anonimizar" para enviar assim mesmo.';
     const naoLe = (motivo) => (c.nao_anonimizavel === 'enviar'
-      ? { ok: true, semAnonimizar: true, aviso: `Este arquivo foi enviado SEM anonimizar (${motivo}), como você escolheu.` }
+      ? { ok: true, semAnonimizar: true, aviso: dgIdiomaBackend.mensagem("Este arquivo foi enviado SEM anonimizar ({p0}), como você escolheu.", {p0: (motivo)}) }
       : bloqueio(422, `Não consigo anonimizar este arquivo (${motivo}), então ele não foi enviado ao agente. ${instalarDica}`, 'NAO_ANONIMIZAVEL'));
 
     if (!EXT_POSSIVEIS.has(ext)) return naoLe(`o formato ${ext || 'sem extensão'} não é de texto nem documento`);
@@ -728,19 +729,19 @@ function criarAnonimizar(opcoes) {
       for (const s of Array.isArray(r.saidas) ? r.saidas : []) {
         const cam = s && typeof s.caminho === 'string' ? s.caminho : '';
         let real;
-        try { real = fs.realpathSync(cam); } catch (_) { throw new ErroAnon(502, 'O motor disse ter gravado um arquivo que não existe. Nada foi enviado ao agente.', 'MOTOR_RESPOSTA_INVALIDA'); }
+        try { real = fs.realpathSync(cam); } catch (_) { throw new ErroAnon(502, dgIdiomaBackend.mensagem("O motor disse ter gravado um arquivo que não existe. Nada foi enviado ao agente."), 'MOTOR_RESPOSTA_INVALIDA'); }
         const st = fs.lstatSync(real);
         if (!dentro(raizSaida, real) || !st.isFile() || !path.basename(real).startsWith(`doc-${id}.anon.`)) {
-          throw new ErroAnon(502, 'O motor devolveu um arquivo fora do combinado. Nada foi enviado ao agente.', 'MOTOR_RESPOSTA_INVALIDA');
+          throw new ErroAnon(502, dgIdiomaBackend.mensagem("O motor devolveu um arquivo fora do combinado. Nada foi enviado ao agente."), 'MOTOR_RESPOSTA_INVALIDA');
         }
         saidasReais.push(real);
       }
-      if (!saidasReais.length) throw new ErroAnon(502, 'O motor terminou sem gravar nenhum arquivo. Nada foi enviado ao agente.', 'MOTOR_SEM_SAIDA');
+      if (!saidasReais.length) throw new ErroAnon(502, dgIdiomaBackend.mensagem("O motor terminou sem gravar nenhum arquivo. Nada foi enviado ao agente."), 'MOTOR_SEM_SAIDA');
 
       // Marcadores deste documento: SÓ a lista `usados` do motor (ele olha todas as partes de todas as saídas, inclusive
       // cabeçalho, comentário e metadado). Sem ela eu não sei o que apagar depois, então o documento não segue.
       if (!Array.isArray(r.usados) || r.usados.some((m) => typeof m !== 'string' || !/^\[[A-Z]+_\d+\]$/.test(m))) {
-        throw new ErroAnon(502, 'O motor de anonimização não informou quais marcadores o documento usa (lista "usados"). Ele está desatualizado: peça ao Admin para atualizar o DG Claw. Nada foi enviado ao agente.', 'MOTOR_SEM_USADOS');
+        throw new ErroAnon(502, dgIdiomaBackend.mensagem("O motor de anonimização não informou quais marcadores o documento usa (lista \"usados\"). Ele está desatualizado: peça ao Admin para atualizar o DG Claw. Nada foi enviado ao agente."), 'MOTOR_SEM_USADOS');
       }
       const marcadores = new Set(r.usados);
       for (const n of novas) marcadores.add(n.marcador);
@@ -768,7 +769,7 @@ function criarAnonimizar(opcoes) {
       docGravado = true;
       // A descida até a pasta é feita pelo ajudante em Python, sem seguir atalho em nenhum componente (o agente pode trocar a pasta enquanto o motor trabalha).
       const entregues = await entregarSeguro({ casa: agente.home_host, dia, origem: saidaDir, nomes: nomesSaida, python: env.DGCLAW_ANON_PYTHON_SISTEMA });
-      if (entregues.some((n, i) => n !== nomesSaida[i])) throw new ErroAnon(500, 'Um arquivo com o mesmo nome já estava na pasta do agente. Nada foi enviado; tente de novo.', 'NOME_EM_USO');
+      if (entregues.some((n, i) => n !== nomesSaida[i])) throw new ErroAnon(500, dgIdiomaBackend.mensagem("Um arquivo com o mesmo nome já estava na pasta do agente. Nada foi enviado; tente de novo."), 'NOME_EM_USO');
       docGravado = false;
       const hostSaidas = nomesSaida.map((n) => path.join(destinoVisivel, n));
       // A saída principal é a que o agente lê melhor: markdown, depois csv, depois a primeira.
@@ -797,8 +798,8 @@ function criarAnonimizar(opcoes) {
     let r;
     try {
       r = await motor.enviar({ op: 'anonimizar_texto', texto: legenda, tabela: tabelaAtual, opcoes: op }, 60000);
-    } catch (e) { throw new ErroAnon(e.status || 503, `Não consegui anonimizar a legenda: ${e.message}`, e.codigo); }
-    if (!r || !r.ok) throw new ErroAnon(422, `Não consegui anonimizar a legenda: ${(r && r.erro) || 'o motor recusou o texto'}. Nada foi enviado ao agente.`, 'LEGENDA');
+    } catch (e) { throw new ErroAnon(e.status || 503, dgIdiomaBackend.mensagem("Não consegui anonimizar a legenda: {p0}", {p0: (e.message)}), e.codigo); }
+    if (!r || !r.ok) throw new ErroAnon(422, dgIdiomaBackend.mensagem("Não consegui anonimizar a legenda: {p0}. Nada foi enviado ao agente.", {p0: ((r && r.erro) || 'o motor recusou o texto')}), 'LEGENDA');
     const novas = validaNovas(r.novas || [], tabelaAtual);
     return { texto: typeof r.texto === 'string' ? r.texto : '', novas, contagem: r.contagem && typeof r.contagem === 'object' ? r.contagem : {} };
   }
@@ -810,20 +811,20 @@ function criarAnonimizar(opcoes) {
    */
   async function gerarFinal(agente, entrada) {
     const slug = agente.slug;
-    if (!agente.home_host) throw new ErroAnon(503, `O agente ${agente.nome} não tem home_host no registro.`);
-    if (!entrada || entrada.slug !== slug) throw new ErroAnon(404, 'Não achei esse arquivo entre os do agente. Recarregue a conversa e tente de novo.', 'MIDIA_DE_OUTRO');
+    if (!agente.home_host) throw new ErroAnon(503, dgIdiomaBackend.mensagem("O agente {p0} não tem home_host no registro.", {p0: (agente.nome)}));
+    if (!entrada || entrada.slug !== slug) throw new ErroAnon(404, dgIdiomaBackend.mensagem("Não achei esse arquivo entre os do agente. Recarregue a conversa e tente de novo."), 'MIDIA_DE_OUTRO');
     // Só a checagem do texto do caminho; quem abre o arquivo de verdade é o ajudante, sem seguir atalho.
     const relativo = path.relative(path.resolve(agente.home_host), path.resolve(entrada.path));
     if (!relativo || relativo.startsWith('..') || path.isAbsolute(relativo)) {
       log('aviso', `Anonimizar: pedido de versão final recusado para ${slug}: o arquivo está fora da pasta do agente.`);
-      throw new ErroAnon(403, 'Este arquivo está fora da pasta do agente e não será aberto.', 'FORA_DA_CASA');
+      throw new ErroAnon(403, dgIdiomaBackend.mensagem("Este arquivo está fora da pasta do agente e não será aberto."), 'FORA_DA_CASA');
     }
     const ext = path.extname(relativo).toLowerCase();
-    if (EXT_ATIVA.has(ext)) throw new ErroAnon(422, `Arquivo ${ext} pode conter scripts e endereços, e trocar os marcadores dentro dele não é seguro. Peça ao agente o mesmo resultado em .md ou .docx e baixe a versão final desse.`, 'FORMATO_ATIVO');
-    if (ext === '.pdf') throw new ErroAnon(422, 'PDF não dá para voltar aos dados reais, porque o texto dele não é trocado de forma segura. Peça ao agente o mesmo resultado em .docx ou .md e baixe a versão final desse.', 'PDF');
-    if (!EXT_FINAL.has(ext)) throw new ErroAnon(422, `Não sei voltar os dados reais em arquivo ${ext || 'sem extensão'}. Os formatos aceitos são .docx, .xlsx, .pptx, .md, .txt, .csv e .json. Peça ao agente o resultado em um deles.`, 'FORMATO');
+    if (EXT_ATIVA.has(ext)) throw new ErroAnon(422, dgIdiomaBackend.mensagem("Arquivo {p0} pode conter scripts e endereços, e trocar os marcadores dentro dele não é seguro. Peça ao agente o mesmo resultado em .md ou .docx e baixe a versão final desse.", {p0: (ext)}), 'FORMATO_ATIVO');
+    if (ext === '.pdf') throw new ErroAnon(422, dgIdiomaBackend.mensagem("PDF não dá para voltar aos dados reais, porque o texto dele não é trocado de forma segura. Peça ao agente o mesmo resultado em .docx ou .md e baixe a versão final desse."), 'PDF');
+    if (!EXT_FINAL.has(ext)) throw new ErroAnon(422, dgIdiomaBackend.mensagem("Não sei voltar os dados reais em arquivo {p0}. Os formatos aceitos são .docx, .xlsx, .pptx, .md, .txt, .csv e .json. Peça ao agente o resultado em um deles.", {p0: (ext || 'sem extensão')}), 'FORMATO');
     const tab = lerTabela(slug).entradas.filter((e) => !e.apagado);
-    if (!tab.length) throw new ErroAnon(422, 'Este agente não tem tabela de dados (nenhum documento anonimizado ainda), então não há o que voltar.', 'SEM_TABELA');
+    if (!tab.length) throw new ErroAnon(422, dgIdiomaBackend.mensagem("Este agente não tem tabela de dados (nenhum documento anonimizado ainda), então não há o que voltar."), 'SEM_TABELA');
 
     let trabalho = null;
     try {
@@ -846,7 +847,7 @@ function criarAnonimizar(opcoes) {
       }
       if (!r || !r.ok) throw new ErroAnon(422, `${(r && r.erro) || 'O motor não conseguiu gerar a versão final.'}`, (r && r.codigo) || 'REVERTER');
       let dadosFinal;
-      try { dadosFinal = fs.readFileSync(sai); } catch (_) { throw new ErroAnon(502, 'O motor disse ter gerado a versão final mas o arquivo não está lá.', 'MOTOR_SEM_SAIDA'); }
+      try { dadosFinal = fs.readFileSync(sai); } catch (_) { throw new ErroAnon(502, dgIdiomaBackend.mensagem("O motor disse ter gerado a versão final mas o arquivo não está lá."), 'MOTOR_SEM_SAIDA'); }
       const baseNome = path.basename(entrada.nome || relativo, path.extname(entrada.nome || relativo));
       log('info', `Anonimizar: versão final gerada para ${slug} (${r.trocas == null ? '?' : r.trocas} troca(s)).`);
       return { dados: dadosFinal, nome: `${baseNome}-final${ext}`, ext, trocas: r.trocas == null ? null : r.trocas, desconhecidos: Array.isArray(r.desconhecidos) ? r.desconhecidos : [] };

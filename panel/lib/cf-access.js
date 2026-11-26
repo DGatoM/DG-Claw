@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 // Entrada sem senha para quem o Cloudflare Access já conferiu. O porquê, as variáveis de
 // ambiente e o que cada recusa significa estão no comentário logo abaixo.
 const nodeCrypto = require('crypto');
@@ -81,7 +82,7 @@ module.exports = function buildCfAccess({ auth }) {
             map.set(jwk.kid, nodeCrypto.createPublicKey({ key: jwk, format: 'jwk' }));
           } catch { /* chave que não abre não entra no mapa */ }
         }
-        if (map.size === 0) throw new Error('resposta sem nenhuma chave RSA utilizável');
+        if (map.size === 0) throw new Error(dgIdiomaBackend.mensagem("resposta sem nenhuma chave RSA utilizável"));
         _cfKeys = map;
         _cfKeysAt = Date.now();
         return map;

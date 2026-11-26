@@ -1,4 +1,7 @@
 'use strict';
+const dgUiText_avisos_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiHtml_avisos_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
+const dgUiFragment_avisos_js = (fonte, valores, original) => globalThis.DGI18n ? globalThis.DGI18n.fragmento(fonte, valores) : original();
 const dgTexto_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* avisos.js: a tela do quadro de avisos entre agentes (rota /avisos e aba "Avisos" da Mesa de tarefas).
@@ -24,7 +27,7 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
   ];
   const ROTULO_TIPO = Object.fromEntries(TIPOS);
   const MAX_TEXTO = 280, MAX_LINHAS = 2, MAX_LINK = 500, MAX_ASSUNTO = 60;
-  const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', dgTexto_avisos('sáb')];
+  const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
   const p2 = n => String(n).padStart(2, '0');
 
   function data(iso) {
@@ -41,12 +44,12 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
   /* "Hoje", "Ontem" ou "sex, 16/10" */
   function rotuloDia(iso, agora) {
     const d = data(iso);
-    if (!d) return 'Sem data';
+    if (!d) return dgUiText_avisos_js("Sem data");
     const ref = agora ? new Date(agora) : new Date();
     const ontem = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - 1);
     if (chaveDia(d) === chaveDia(ref)) return dgTexto_avisos('Hoje');
     if (chaveDia(d) === chaveDia(ontem)) return dgTexto_avisos('Ontem');
-    return DIAS[d.getDay()] + ', ' + p2(d.getDate()) + '/' + p2(d.getMonth() + 1);
+    return dgUiText_avisos_js(DIAS[d.getDay()]) + ', ' + p2(d.getDate()) + '/' + p2(d.getMonth() + 1);
   }
 
   /* Mantém a ordem recebida (do mais novo para o mais velho). */
@@ -86,10 +89,10 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
     const out = [];
     for (const slug of Object.keys(e)) {
       const x = e[slug] || {};
-      if (x.erro) out.push({ slug, estado: 'falha', texto: 'falhou para ' + slug + ': ' + x.erro });
-      else if (x.recado_em) out.push({ slug, estado: 'recado', texto: 'recado entregue a ' + slug + ' às ' + hora(x.recado_em) });
-      else if (x.retrato_em) out.push({ slug, estado: 'ok', texto: 'chegou para ' + slug + ' às ' + hora(x.retrato_em) });
-      else out.push({ slug, estado: 'espera', texto: 'ainda não chegou para ' + slug });
+      if (x.erro) out.push({ slug, estado: 'falha', texto: dgUiText_avisos_js("falhou para ") + slug + ': ' + x.erro });
+      else if (x.recado_em) out.push({ slug, estado: 'recado', texto: 'recado entregue a ' + slug + dgUiText_avisos_js(" às ") + hora(x.recado_em) });
+      else if (x.retrato_em) out.push({ slug, estado: 'ok', texto: dgUiText_avisos_js("chegou para ") + slug + dgUiText_avisos_js(" às ") + hora(x.retrato_em) });
+      else out.push({ slug, estado: 'espera', texto: dgUiText_avisos_js("ainda não chegou para ") + slug });
     }
     return out;
   }
@@ -98,10 +101,10 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
 
   function motivoSituacao(a) {
     if (a.retirado_em) {
-      return 'Retirado' + (a.retirado_por ? ' por ' + a.retirado_por : '') + ' às ' + hora(a.retirado_em) +
+      return 'Retirado' + (a.retirado_por ? ' por ' + a.retirado_por : '') + dgUiText_avisos_js(" às ") + hora(a.retirado_em) +
         (a.motivo_retirada ? ': ' + a.motivo_retirada : '');
     }
-    if (a.substituido_por) return 'Substituído pelo aviso #' + a.substituido_por;
+    if (a.substituido_por) return dgUiText_avisos_js("Substituído pelo aviso #") + a.substituido_por;
     if (a.ativo === false) return 'Fora da lista dos agentes';
     return '';
   }
@@ -110,8 +113,8 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
   function htmlAviso(a, opcoes) {
     const o = opcoes || {};
     const inativo = a.ativo === false || !!a.retirado_em || !!a.substituido_por;
-    const tipo = ROTULO_TIPO[a.tipo] ? a.tipo : 'outro';
-    const rotulo = a.tipo_rotulo || ROTULO_TIPO[a.tipo] || a.tipo || 'aviso';
+    const tipo = dgUiText_avisos_js(ROTULO_TIPO[a.tipo]) ? a.tipo : 'outro';
+    const rotulo = a.tipo_rotulo || dgUiText_avisos_js(ROTULO_TIPO[a.tipo]) || a.tipo || 'aviso';
     const autor = a.agente === 'dono' ? dgTexto_avisos('Você') : (a.agente_nome || nomeDe(a.agente, o.agentes));
     const sit = motivoSituacao(a);
     const entregas = resumirEntregas(a);
@@ -120,16 +123,16 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
     const link = linkSeguro(a.link)
       ? `<a class="av-link" href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">${esc(a.link)}</a>` : '';
     const retirar = !inativo && o.retirar !== false
-      ? `<button type="button" class="av-btn av-mini" data-av-retirar="${esc(a.id)}">Retirar</button>` : '';
+      ? (dgUiHtml_avisos_js("<button type=\"button\" class=\"av-btn av-mini\" data-av-retirar=\"") + (esc(a.id)) + dgUiHtml_avisos_js("\"><!--dg-i18n:0eeac7f5e703-->Retirar<!--/dg-i18n--></button>")) : '';
     const campo = !inativo && String(o.motivoAberto) === String(a.id)
       ? `<form class="av-retirada" data-av-retirada="${esc(a.id)}">` +
-        `<label>Motivo (opcional)<input type="text" name="motivo" maxlength="200" autocomplete="off"></label>` +
-        `<button type="submit" class="av-btn av-perigo">Confirmar a retirada</button>` +
-        `<button type="button" class="av-btn" data-av-cancela="${esc(a.id)}">Cancelar</button></form>` : '';
+        (dgUiHtml_avisos_js("<label><!--dg-i18n:decd42d278ee-->Motivo (opcional)<!--/dg-i18n--><input type=\"text\" name=\"motivo\" maxlength=\"200\" autocomplete=\"off\"></label>")) +
+        (dgUiHtml_avisos_js("<button type=\"submit\" class=\"av-btn av-perigo\"><!--dg-i18n:2c5cbe77caf5-->Confirmar a retirada<!--/dg-i18n--></button>")) +
+        (dgUiHtml_avisos_js("<button type=\"button\" class=\"av-btn\" data-av-cancela=\"") + (esc(a.id)) + dgUiHtml_avisos_js("\"><!--dg-i18n:bb9dbb406dcb-->Cancelar<!--/dg-i18n--></button></form>")) : '';
     return `<article class="av-aviso av-t-${tipo}${inativo ? ' av-apagado' : ''}" data-av-id="${esc(a.id)}">` +
       `<header class="av-topo"><span class="av-tipo">${esc(rotulo)}</span>` +
       `<b class="av-autor">${esc(autor)}</b><span class="av-hora">${esc(hora(a.criado_em))}</span>` +
-      `<span class="av-para">para ${esc(paraQuem(a, o.agentes))}</span></header>` +
+      (dgUiHtml_avisos_js("<span class=\"av-para\">") + dgUiFragment_avisos_js("para {v0}", {v0: paraQuem(a, o.agentes)}, () => `para ${esc(paraQuem(a, o.agentes))}`) + dgUiHtml_avisos_js("</span></header>")) +
       `<p class="av-texto">${esc(a.texto)}</p>` +
       (link ? `<p class="av-linha">${link}</p>` : '') +
       (assunto || tags ? `<p class="av-linha">${assunto}${tags}</p>` : '') +
@@ -153,14 +156,14 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
     const link = String(f.link || '').trim();
     const assunto = String(f.assunto || '').trim();
     let para = Array.isArray(f.para) ? f.para.filter(Boolean) : (f.para && f.para !== 'todos' ? [f.para] : []);
-    if (!ROTULO_TIPO[tipo]) erros.tipo = 'Escolha o tipo do aviso.';
-    if (!texto) erros.texto = 'Escreva o texto do aviso.';
-    else if (texto.length > MAX_TEXTO) erros.texto = 'O texto passou de ' + MAX_TEXTO + ' caracteres (tem ' + texto.length + ').';
-    else if (texto.split(/\r?\n/).length > MAX_LINHAS) erros.texto = 'Use no máximo ' + MAX_LINHAS + ' linhas.';
-    if (link && !linkSeguro(link)) erros.link = 'O link precisa começar com http:// ou https://.';
-    else if (link.length > MAX_LINK) erros.link = 'O link passou de ' + MAX_LINK + ' caracteres.';
-    if (assunto.length > MAX_ASSUNTO) erros.assunto = 'O assunto passou de ' + MAX_ASSUNTO + ' caracteres.';
-    if (tipo === 'pedido' && !para.length) erros.para = 'Um pedido precisa de destinatário: escolha para quem.';
+    if (!dgUiText_avisos_js(ROTULO_TIPO[tipo])) erros.tipo = dgUiText_avisos_js("Escolha o tipo do aviso.");
+    if (!texto) erros.texto = dgUiText_avisos_js("Escreva o texto do aviso.");
+    else if (texto.length > MAX_TEXTO) erros.texto = dgUiText_avisos_js("O texto passou de ") + MAX_TEXTO + ' caracteres (tem ' + texto.length + ').';
+    else if (texto.split(/\r?\n/).length > MAX_LINHAS) erros.texto = dgUiText_avisos_js("Use no máximo ") + MAX_LINHAS + ' linhas.';
+    if (link && !linkSeguro(link)) erros.link = dgUiText_avisos_js("O link precisa começar com http:// ou https://.");
+    else if (link.length > MAX_LINK) erros.link = dgUiText_avisos_js("O link passou de ") + MAX_LINK + ' caracteres.';
+    if (assunto.length > MAX_ASSUNTO) erros.assunto = dgUiText_avisos_js("O assunto passou de ") + MAX_ASSUNTO + ' caracteres.';
+    if (tipo === 'pedido' && !para.length) erros.para = dgUiText_avisos_js("Um pedido precisa de destinatário: escolha para quem.");
     if (!para.length) para = ['todos'];
     const dados = { tipo, para, texto };
     if (link) dados.link = link;
@@ -225,7 +228,7 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
         porque: 'O texto é injetado na conversa dos agentes. Curto, ele cabe sem gastar o contexto deles.' },
     ],
     filtros: [
-      { alvo: '[data-av-tour="filtros"]', titulo: dgTexto_avisos('Filtros'),
+      { alvo: '[data-av-tour="filtros"]', titulo: 'Filtros',
         oque: 'Escolhe quais avisos aparecem: de quem veio, de que tipo e se os retirados entram na lista.',
         como: 'Cada mudança busca de novo no servidor. Sem filtro, a tela mostra os últimos 7 dias.',
         porque: 'Com vários agentes postando, o filtro ajuda a achar, por exemplo, só as decisões ou só o que a Marina avisou.' },
@@ -267,37 +270,11 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
   }
 
   function tela() {
-    return `<div class="av-tela">
-<header class="av-cab" data-av-tour="titulo"><h1>Quadro de avisos</h1>
-<button type="button" class="av-btn" data-av-tutorial="pagina">Tutorial</button></header>
-<p id="avStatus" class="av-status" role="status" aria-live="polite"></p>
-<section class="av-sec" data-av-tour="postar" aria-labelledby="avTPostar">
-<h2 id="avTPostar">Postar <button type="button" class="av-ajuda" data-av-tutorial="postar" aria-label="Ajuda sobre postar">?</button></h2>
-<form id="avForm" class="av-form" novalidate>
-<div class="av-campo"><label for="avTipo">Tipo</label><select id="avTipo" name="tipo"></select><p class="av-erro" data-erro="tipo" hidden></p></div>
-<div class="av-campo" data-av-tour="para"><span class="av-rot" id="avParaRot">Para</span>
-<div id="avPara" class="av-para-lista" role="group" aria-labelledby="avParaRot"></div><p class="av-erro" data-erro="para" hidden></p></div>
-<div class="av-campo" data-av-tour="texto"><label for="avTexto">Texto</label>
-<textarea id="avTexto" name="texto" rows="3" maxlength="400"></textarea>
-<p class="av-cont"><span id="avCont">0/${MAX_TEXTO}</span></p><p class="av-erro" data-erro="texto" hidden></p></div>
-<div class="av-campo"><label for="avLink">Link (opcional)</label><input id="avLink" name="link" type="url" inputmode="url" autocomplete="off" placeholder="https://"><p class="av-erro" data-erro="link" hidden></p></div>
-<div class="av-campo"><label for="avAssunto">Assunto (opcional)</label><input id="avAssunto" name="assunto" type="text" maxlength="80" autocomplete="off"><p class="av-erro" data-erro="assunto" hidden></p></div>
-<p class="av-erro" data-erro="geral" hidden></p>
-<button type="submit" id="avPostar" class="av-btn av-primario">Postar</button>
-<p id="avResposta" class="av-resposta" role="status" hidden></p>
-</form></section>
-<section class="av-sec" data-av-tour="filtros" aria-labelledby="avTFiltros">
-<h2 id="avTFiltros">Filtros <button type="button" class="av-ajuda" data-av-tutorial="filtros" aria-label="Ajuda sobre os filtros">?</button></h2>
-<div class="av-filtros"><div class="av-campo"><label for="avFAgente">Agente</label><select id="avFAgente"></select></div>
-<div class="av-campo"><label for="avFTipo">Tipo</label><select id="avFTipo"></select></div>
-<label class="av-check"><input type="checkbox" id="avFRetirados"> Ver retirados</label></div></section>
-<section class="av-sec" data-av-tour="lista" aria-labelledby="avTLista">
-<h2 id="avTLista">Avisos <button type="button" class="av-ajuda" data-av-tutorial="lista" aria-label="Ajuda sobre os avisos">?</button></h2>
-<div id="avLista" class="av-lista" aria-live="polite"></div></section></div>`;
+    return (dgUiHtml_avisos_js("<div class=\"av-tela\">\n<header class=\"av-cab\" data-av-tour=\"titulo\"><h1><!--dg-i18n:f35096461d38-->Quadro de avisos<!--/dg-i18n--></h1>\n<button type=\"button\" class=\"av-btn\" data-av-tutorial=\"pagina\"><!--dg-i18n:c26982b1425d-->Tutorial<!--/dg-i18n--></button></header>\n<p id=\"avStatus\" class=\"av-status\" role=\"status\" aria-live=\"polite\"></p>\n<section class=\"av-sec\" data-av-tour=\"postar\" aria-labelledby=\"avTPostar\">\n<h2 id=\"avTPostar\"><!--dg-i18n:296dbc23b0a4-->Postar<!--/dg-i18n--> <button type=\"button\" class=\"av-ajuda\" data-av-tutorial=\"postar\" aria-label=\"Ajuda sobre postar\" data-dg-i18n-aria-label=\"490bf60d0650\">?</button></h2>\n<form id=\"avForm\" class=\"av-form\" novalidate>\n<div class=\"av-campo\"><label for=\"avTipo\"><!--dg-i18n:3868d2843d59-->Tipo<!--/dg-i18n--></label><select id=\"avTipo\" name=\"tipo\"></select><p class=\"av-erro\" data-erro=\"tipo\" hidden></p></div>\n<div class=\"av-campo\" data-av-tour=\"para\"><span class=\"av-rot\" id=\"avParaRot\"><!--dg-i18n:237b14cbb480-->Para<!--/dg-i18n--></span>\n<div id=\"avPara\" class=\"av-para-lista\" role=\"group\" aria-labelledby=\"avParaRot\"></div><p class=\"av-erro\" data-erro=\"para\" hidden></p></div>\n<div class=\"av-campo\" data-av-tour=\"texto\"><label for=\"avTexto\"><!--dg-i18n:6df3d6661c09-->Texto<!--/dg-i18n--></label>\n<textarea id=\"avTexto\" name=\"texto\" rows=\"3\" maxlength=\"400\"></textarea>\n<p class=\"av-cont\"><span id=\"avCont\">0/") + (MAX_TEXTO) + dgUiHtml_avisos_js("</span></p><p class=\"av-erro\" data-erro=\"texto\" hidden></p></div>\n<div class=\"av-campo\"><label for=\"avLink\"><!--dg-i18n:666c019ba0c6-->Link (opcional)<!--/dg-i18n--></label><input id=\"avLink\" name=\"link\" type=\"url\" inputmode=\"url\" autocomplete=\"off\" placeholder=\"https://\"><p class=\"av-erro\" data-erro=\"link\" hidden></p></div>\n<div class=\"av-campo\"><label for=\"avAssunto\"><!--dg-i18n:af44cf74054b-->Assunto (opcional)<!--/dg-i18n--></label><input id=\"avAssunto\" name=\"assunto\" type=\"text\" maxlength=\"80\" autocomplete=\"off\"><p class=\"av-erro\" data-erro=\"assunto\" hidden></p></div>\n<p class=\"av-erro\" data-erro=\"geral\" hidden></p>\n<button type=\"submit\" id=\"avPostar\" class=\"av-btn av-primario\"><!--dg-i18n:296dbc23b0a4-->Postar<!--/dg-i18n--></button>\n<p id=\"avResposta\" class=\"av-resposta\" role=\"status\" hidden></p>\n</form></section>\n<section class=\"av-sec\" data-av-tour=\"filtros\" aria-labelledby=\"avTFiltros\">\n<h2 id=\"avTFiltros\"><!--dg-i18n:57ac13ce3d5b-->Filtros<!--/dg-i18n--> <button type=\"button\" class=\"av-ajuda\" data-av-tutorial=\"filtros\" aria-label=\"Ajuda sobre os filtros\" data-dg-i18n-aria-label=\"b8b4307dd541\">?</button></h2>\n<div class=\"av-filtros\"><div class=\"av-campo\"><label for=\"avFAgente\"><!--dg-i18n:1e068f0819ee-->Agente<!--/dg-i18n--></label><select id=\"avFAgente\"></select></div>\n<div class=\"av-campo\"><label for=\"avFTipo\"><!--dg-i18n:3868d2843d59-->Tipo<!--/dg-i18n--></label><select id=\"avFTipo\"></select></div>\n<label class=\"av-check\"><input type=\"checkbox\" id=\"avFRetirados\"> <!--dg-i18n:ded8f165a861-->Ver retirados<!--/dg-i18n--></label></div></section>\n<section class=\"av-sec\" data-av-tour=\"lista\" aria-labelledby=\"avTLista\">\n<h2 id=\"avTLista\"><!--dg-i18n:ebfa2d046fba-->Avisos<!--/dg-i18n--> <button type=\"button\" class=\"av-ajuda\" data-av-tutorial=\"lista\" aria-label=\"Ajuda sobre os avisos\" data-dg-i18n-aria-label=\"764cd039236b\">?</button></h2>\n<div id=\"avLista\" class=\"av-lista\" aria-live=\"polite\"></div></section></div>"));
   }
 
   function opcoesTipo(sel, comTodos) {
-    return (comTodos ? '<option value="">Todos os tipos</option>' : '') +
+    return (comTodos ? dgUiHtml_avisos_js("<option value=\"\"><!--dg-i18n:88bfb93eb03e-->Todos os tipos<!--/dg-i18n--></option>") : '') +
       estado.tipos.map(t => `<option value="${esc(t[0] || t.id)}">${esc(t[1] || t.rotulo)}</option>`).join('');
   }
 
@@ -306,12 +283,12 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
     const lista = estado.agentes;
     const paraEl = q(r, '#avPara');
     const marcados = Array.from(paraEl.querySelectorAll('input[name=para]:checked')).map(i => i.value);
-    paraEl.innerHTML = '<label class="av-check"><input type="radio" name="destino" value="todos" checked> Todos</label>' +
-      '<label class="av-check"><input type="radio" name="destino" value="alguns"> Escolher agentes</label>' +
+    paraEl.innerHTML = dgUiHtml_avisos_js("<label class=\"av-check\"><input type=\"radio\" name=\"destino\" value=\"todos\" checked> <!--dg-i18n:bd02b9a7d71d-->Todos<!--/dg-i18n--></label>") +
+      dgUiHtml_avisos_js("<label class=\"av-check\"><input type=\"radio\" name=\"destino\" value=\"alguns\"> <!--dg-i18n:8e701e562282-->Escolher agentes<!--/dg-i18n--></label>") +
       '<div class="av-escolha" hidden>' + (lista.length ? lista.map(a =>
         `<label class="av-check"><input type="checkbox" name="para" value="${esc(a.slug || a.id)}"` +
         `${marcados.includes(a.slug || a.id) ? ' checked' : ''}> ${esc(a.nome || a.slug)}</label>`).join('')
-        : '<span class="av-fraco">Nenhum agente de trabalho encontrado.</span>') + '</div>';
+        : dgUiHtml_avisos_js("<span class=\"av-fraco\"><!--dg-i18n:f7faf6cb3ed4-->Nenhum agente de trabalho encontrado.<!--/dg-i18n--></span>")) + '</div>';
     const fa = q(r, '#avFAgente');
     const atual = fa.value;
     fa.innerHTML = dgHtml_avisos("<option value=\"\"><!--dg-i18n:e3c5c212401b-->Todos os agentes<!--/dg-i18n--></option><option value=\"dono\"><!--dg-i18n:b21e91730d18-->Você<!--/dg-i18n--></option>") +
@@ -342,11 +319,11 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
     const init = { method: metodo, cache: 'no-store', headers: {} };
     if (corpo !== undefined) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(corpo); }
     const r = await fetch(url, init);
-    if (r.status === 401) { aoNaoAutorizado(); const e = new Error('Sessão expirada.'); e.status = 401; throw e; }
+    if (r.status === 401) { aoNaoAutorizado(); const e = new Error(dgUiText_avisos_js("Sessão expirada.")); e.status = 401; throw e; }
     let d = null;
     try { d = await r.json(); } catch (e) { d = null; }
     if (!r.ok || !d || d.ok === false) {
-      const e = new Error((d && d.erro) || ('a API respondeu ' + r.status + ' sem explicação'));
+      const e = new Error((d && d.erro) || ('a API respondeu ' + r.status + dgUiText_avisos_js(" sem explicação")));
       e.status = r.status;
       e.dados = d;
       throw e;
@@ -357,7 +334,7 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
   function pintaLista() {
     const caixa = q(raizEl, '#avLista');
     if (!estado.avisos.length) {
-      caixa.innerHTML = '<p class="av-vazio">Nenhum aviso nos últimos 7 dias.</p>';
+      caixa.innerHTML = dgUiHtml_avisos_js("<p class=\"av-vazio\"><!--dg-i18n:f929d39e2d99-->Nenhum aviso nos últimos 7 dias.<!--/dg-i18n--></p>");
       return;
     }
     caixa.innerHTML = htmlLista(estado.avisos, { agentes: estado.agentes, motivoAberto: estado.abertoRetirar });
@@ -368,7 +345,7 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
 
   async function carrega(manual) {
     const minha = ++busca;
-    if (!carregou) q(raizEl, '#avLista').innerHTML = '<p class="av-vazio">' + dsCarregando({ rotulo: 'Carregando os avisos', tamanho: 'p' }) + ' Carregando os avisos…</p>';
+    if (!carregou) q(raizEl, '#avLista').innerHTML = '<p class="av-vazio">' + dsCarregando({ rotulo: dgUiText_avisos_js("Carregando os avisos"), tamanho: 'p' }) + dgUiHtml_avisos_js(" <!--dg-i18n:c07f19bc2335-->Carregando os avisos…<!--/dg-i18n--></p>");
     try {
       const d = await api('GET', '/api/v1/avisos' + queryFiltros(estado.filtro));
       if (minha !== busca) return;
@@ -391,8 +368,8 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
       if (!digitando()) pintaLista();
     } catch (e) {
       if (minha !== busca || e.status === 401) return;
-      const motivo = e.status === 503 ? 'O quadro está indisponível: ' + e.message
-        : 'Não consegui carregar os avisos (' + (e.status ? 'erro ' + e.status : 'sem resposta do servidor') + '): ' + e.message;
+      const motivo = e.status === 503 ? dgUiText_avisos_js("O quadro está indisponível: ") + e.message
+        : dgUiText_avisos_js("Não consegui carregar os avisos (") + (e.status ? 'erro ' + e.status : dgUiText_avisos_js("sem resposta do servidor")) + '): ' + e.message;
       status(motivo, 'erro');
       if (!carregou || manual) {
         q(raizEl, '#avLista').innerHTML = `<p class="av-vazio av-erro-bloco" role="alert">${esc(motivo)} ` +
@@ -422,7 +399,7 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
     const bruto = dadosForm();
     const v = validaForm(bruto);
     if (bruto.para.length === 0 && q(raizEl, 'input[name=destino]:checked').value === 'alguns') {
-      v.ok = false; v.erros.para = 'Marque pelo menos um agente, ou volte para "Todos".';
+      v.ok = false; v.erros.para = dgUiText_avisos_js("Marque pelo menos um agente, ou volte para \"Todos\".");
     }
     if (!v.ok) { Object.keys(v.erros).forEach(k => mostraErro(k, v.erros[k])); return; }
     const botao = q(raizEl, '#avPostar');
@@ -446,7 +423,7 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
       campos.forEach(c => { if (c !== 'geral' && mostraErro(c, porCampo[c])) achou = true; });
       const extra = porCampo.geral || (!achou ? e.message + (e.status ? ' (erro ' + e.status + ')' : '') : '');
       if (e.status === 429 && e.dados && e.dados.tente_em) {
-        mostraErro('geral', e.message + ' Tente de novo às ' + hora(e.dados.tente_em) + '.');
+        mostraErro('geral', e.message + dgUiText_avisos_js(" Tente de novo às ") + hora(e.dados.tente_em) + '.');
       } else if (extra) mostraErro('geral', extra);
       else if (e.message && e.status !== 400) mostraErro('geral', e.message);
     } finally { botao.disabled = false; }
@@ -461,7 +438,7 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
       await carrega();
     } catch (e) {
       if (e.status === 401) return;
-      status('Não consegui retirar o aviso #' + id + ' (erro ' + (e.status || 'sem resposta') + '): ' + e.message, 'erro');
+      status(dgUiText_avisos_js("Não consegui retirar o aviso #") + id + ' (erro ' + (e.status || dgUiText_avisos_js("sem resposta")) + '): ' + e.message, 'erro');
     }
   }
 
@@ -473,7 +450,7 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
   }
 
   function tour(chave) {
-    if (!window.DGTour) { status('O modo tutorial não carregou nesta página.', 'erro'); return; }
+    if (!window.DGTour) { status(dgUiText_avisos_js("O modo tutorial não carregou nesta página."), 'erro'); return; }
     let passos = chave === 'pagina'
       ? [].concat(PASSOS.pagina, PASSOS.postar, PASSOS.filtros, PASSOS.lista) : PASSOS[chave];
     // Na tela /avisos o título e o Tutorial moram no cabeçalho da casca e o .av-cab fica escondido: o passo do título aponta para lá.
@@ -529,7 +506,7 @@ const dgHtml_avisos = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte)
   function registra() {
     const api_ = window.DGMesaAbas;
     if (api_ && typeof api_.registrar === 'function') {
-      api_.registrar({ id: 'avisos', titulo: dgTexto_avisos('Avisos'), montar, bolinha });
+      api_.registrar({ id: 'avisos', get titulo() { return dgUiText_avisos_js("Avisos"); }, montar, bolinha });
       espiar();
       espia = setInterval(() => { if (document.visibilityState === 'visible') espiar(); }, 60000);
       return;

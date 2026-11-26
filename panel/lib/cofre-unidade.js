@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 // cofre-unidade.js: descobre qual unidade do systemd reiniciar para a chave nova passar a valer.
 const fs = require('fs');
 const { execFileSync } = require('child_process');
@@ -53,7 +54,7 @@ function criarUnidade({ slug, config }) {
    */
   function unidadeDoAgente() {
     if (!SLUG_OK.test(slug)) {
-      return { erro: `O slug deste agente ("${slug}") tem caractere que eu não aceito em nome de unidade.` };
+      return { erro: dgIdiomaBackend.mensagem("O slug deste agente (\"{p0}\") tem caractere que eu não aceito em nome de unidade.", {p0: (slug)}) };
     }
 
     // 1. O que estiver escrito no config.json manda, e nem confere nada: quem

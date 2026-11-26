@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Vigia de atenção: olha o estado de cada agente a cada 5 s e manda aviso ao aparelho nas TRANSIÇÕES:
 //   * entrou em "precisa de você"  -> "<Nome> precisa de você" (corpo = o resumo seguro do estado)
 //   * trabalhava e ficou ocioso, com resposta nova do agente -> "<Nome> terminou" (corpo genérico, nunca o texto da resposta)
@@ -86,7 +87,7 @@ function criarVigiaAtencao({ registro, estados, lerThread, push, prefs, relogio,
     }
     if (base.estado === 'precisa_de_voce' && anterior !== 'precisa_de_voce') {
       await enviar(agente, 'precisa_de_voce', {
-        titulo: `${agente.nome} precisa de você`,
+        titulo: dgIdiomaBackend.mensagem("{p0} precisa de você", {p0: (agente.nome)}),
         corpo: base.resumo || 'Abra a conversa para ver o que ele pede.',
         tag: `atencao-${agente.slug}`,
         url: `/a/${agente.slug}`,

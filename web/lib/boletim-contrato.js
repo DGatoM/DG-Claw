@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Contrato do boletim de segurança (docs/interno/CONTRATO-BOLETINS.md, versão 2; a 1 continua sendo lida).
 // Um só validador, usado por quem baixa (scripts/checar-boletins.mjs) e por quem serve (web/lib/seguranca.js):
 // o arquivo nasceu no GitHub, então é dado não confiável nas duas pontas. Regra de ouro: boletim sem
@@ -49,8 +50,8 @@ function dataIso(v, campo, obrigatoria) {
 
 /** { boletim } ou { motivo }. Campos desconhecidos são ignorados (compatibilidade para frente). */
 function validaBoletim(b) {
-  if (!b || typeof b !== 'object' || Array.isArray(b)) return { motivo: 'o item não é um objeto' };
-  if (typeof b.id !== 'string' || !RX_ID.test(b.id)) return { motivo: 'id fora do formato' };
+  if (!b || typeof b !== 'object' || Array.isArray(b)) return { motivo: dgIdiomaBackend.mensagem("o item não é um objeto") };
+  if (typeof b.id !== 'string' || !RX_ID.test(b.id)) return { motivo: dgIdiomaBackend.mensagem("id fora do formato") };
   const id = b.id;
   const nega = (m) => ({ id, motivo: m });
 
@@ -91,17 +92,17 @@ function validaBoletim(b) {
 
 /** { boletins, descartados: [{id, motivo}] }. Lança Error com mensagem pronta se o arquivo inteiro não serve. */
 function validaArquivo(j) {
-  if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error('o arquivo não é um objeto JSON');
-  if (j.versao !== 1 && j.versao !== 2) throw new Error(`versao ${JSON.stringify(typeof j.versao === 'number' ? j.versao : String(j.versao).slice(0, 20))} não é 1 nem 2`);
-  if (!Array.isArray(j.boletins)) throw new Error('"boletins" não é uma lista');
-  if (j.boletins.length > MAX_BOLETINS) throw new Error(`mais de ${MAX_BOLETINS} boletins`);
+  if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error(dgIdiomaBackend.mensagem("o arquivo não é um objeto JSON"));
+  if (j.versao !== 1 && j.versao !== 2) throw new Error(dgIdiomaBackend.mensagem("versao {p0} não é 1 nem 2", {p0: (JSON.stringify(typeof j.versao === 'number' ? j.versao : String(j.versao).slice(0, 20)))}));
+  if (!Array.isArray(j.boletins)) throw new Error(dgIdiomaBackend.mensagem("\"boletins\" não é uma lista"));
+  if (j.boletins.length > MAX_BOLETINS) throw new Error(dgIdiomaBackend.mensagem("mais de {p0} boletins", {p0: (MAX_BOLETINS)}));
   const boletins = [];
   const descartados = [];
   const vistos = new Set();
   for (const item of j.boletins) {
     const r = validaBoletim(item);
     if (!r.boletim) { descartados.push({ id: r.id || null, motivo: r.motivo }); continue; }
-    if (vistos.has(r.boletim.id)) { descartados.push({ id: r.boletim.id, motivo: 'id repetido' }); continue; }
+    if (vistos.has(r.boletim.id)) { descartados.push({ id: r.boletim.id, motivo: dgIdiomaBackend.mensagem("id repetido") }); continue; }
     vistos.add(r.boletim.id);
     boletins.push(r.boletim);
   }

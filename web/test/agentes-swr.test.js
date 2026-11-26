@@ -1,3 +1,4 @@
+const { preludioIdioma } = require('./idioma-fixture');
 'use strict';
 // Abertura da conversa: rótulo e hora da última mensagem atualizam por trás depois de vencidos
 // (ninguém espera o runner), e o onboarding só relê do disco quando a pasta muda.
@@ -151,7 +152,7 @@ test('conversa.js: o histórico inicial sai junto com /agents, sem esperar por e
       return /\/messages/.test(url) ? Promise.resolve(resp({ ok: true, msgs: [] })) : agentesResp.then(() => resp({ ok: true, agentes: [] }));
     },
   });
-  vm.runInContext(bloco, ctx);
+  vm.runInContext(preludioIdioma(fonte) + bloco, ctx);
   const p = ctx.boot();
   await dorme(20);
   assert.ok(pedidos.some((u) => u === '/api/v1/agents/ana/messages?limit=60'), '/messages saiu antes de /agents responder');

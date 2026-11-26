@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 'use strict';
+const dgIdiomaBackend = require("./lib/idioma-contexto");
 // DG Claw Web: login, conversa com os agentes, proxy dos painéis. Node 22, sem dependências.
 
 const fs = require('node:fs');
@@ -10,6 +11,7 @@ const http = require('node:http');
 const H = require('./lib/http');
 const { carregaConfig } = require('./lib/config');
 const { renderizarIdioma, idiomaDoPedido } = require('./lib/idioma');
+const idiomaContexto = require('./lib/idioma-contexto');
 const { criarRegistro } = require('./lib/registro');
 const { criarRunner } = require('./lib/runner');
 const { criarAuth } = require('./lib/auth');
@@ -74,10 +76,10 @@ const TIPOS_ESTATICOS = {
 };
 const RX_SLUG_ROTA = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
-const loginReserva = (nome) => '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>Entrar</title>' +
+const loginReserva = (nome) => '<!doctype html><html lang="' + idiomaContexto.idioma() + '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>' + H.escapaHtml(idiomaContexto.texto('Entrar')) + '</title>' +
   '<style>body{font-family:system-ui,sans-serif;max-width:22rem;margin:14vh auto;padding:0 1rem}input,button{display:block;width:100%;margin:.5rem 0;padding:.6rem;font-size:1rem}</style></head><body>' +
-  '<h1>' + nome + '</h1><p id="e" style="color:#b00"></p><form method="post" action="/login"><input name="usuario" placeholder="Usuário" autocomplete="username" required>' +
-  '<input name="senha" type="password" placeholder="Senha" autocomplete="current-password" required><input type="hidden" name="next" value=""><button>Entrar</button></form>' +
+  '<h1>' + nome + '</h1><p id="e" style="color:#b00"></p><form method="post" action="/login"><input name="usuario" placeholder="' + H.escapaHtml(idiomaContexto.texto('Usuário')) + '" autocomplete="username" required>' +
+  '<input name="senha" type="password" placeholder="' + H.escapaHtml(idiomaContexto.texto('Senha')) + '" autocomplete="current-password" required><input type="hidden" name="next" value=""><button>' + H.escapaHtml(idiomaContexto.texto('Entrar')) + '</button></form>' +
   '<script>var q=new URLSearchParams(location.search);document.getElementById("e").textContent=q.get("erro")||"";document.querySelector("[name=next]").value=q.get("next")||"/"</script></body></html>';
 
 /** `next` só vale se for caminho relativo do próprio site. */
@@ -97,7 +99,7 @@ function montaDiagnostico(deps) {
     deps.log('erro', 'O coletor de diagnóstico não está instalado (falta web/lib/diagnostico). A rota /api/v1/diagnostico vai responder 503 até a instalação ser refeita.');
     return {
       async responder(req, res) {
-        H.erroJson(res, 503, 'O coletor de diagnóstico não está instalado neste servidor.', { como_resolver: 'Atualize o DG Claw (sudo dgclaw atualizar) para instalar o coletor.' });
+        H.erroJson(res, 503, dgIdiomaBackend.mensagem("O coletor de diagnóstico não está instalado neste servidor."), { como_resolver: dgIdiomaBackend.mensagem("Atualize o DG Claw (sudo dgclaw atualizar) para instalar o coletor.") });
       },
     };
   }
@@ -138,7 +140,7 @@ function filtraRespostaDaCaixa(res, filtro, log, estatica) {
     if (recusa) {
       log('erro', `Anonimizar: não consegui filtrar a resposta da caixa (${recusa}). Respondi 503.`);
       codigo = 503;
-      corpo = Buffer.from(JSON.stringify({ ok: false, erro: 'Não consegui trocar os dados pessoais da resposta, então ela não foi entregue. Tente de novo; se repetir, peça ao dono para conferir a tela Anonimizar.' }), 'utf8');
+      corpo = Buffer.from(JSON.stringify({ ok: false, erro: dgIdiomaBackend.mensagem("Não consegui trocar os dados pessoais da resposta, então ela não foi entregue. Tente de novo; se repetir, peça ao dono para conferir a tela Anonimizar.") }), 'utf8');
       cabecalhos = {};
       cabecalhos['Content-Type'] = 'application/json; charset=utf-8';
     }
@@ -287,7 +289,7 @@ function criarServidor(opcoes) {
       // Páginas: troca os {{MARCA_*}} (nome, slogan, tema) com escape. Sempre sem cache: a marca pode mudar a qualquer hora.
       let corpoHtml;
       try { corpoHtml = Buffer.from(marca.html(renderizarIdioma(fs.readFileSync(caminho, 'utf8'), req, config.idioma), idiomaDoPedido(req, config.idioma)), 'utf8'); } catch (e) {
-        log('erro', `Falha lendo a página ${caminho} (${e.code || e.message}).`); res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Erro ao abrir a página.'); return true;
+        log('erro', `Falha lendo a página ${caminho} (${e.code || e.message}).`); res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(dgIdiomaBackend.texto("Erro ao abrir a página.")); return true;
       }
       res.writeHead(200, { 'Content-Type': tipo, 'Cache-Control': 'no-store', 'Content-Language': idiomaDoPedido(req, config.idioma), 'X-Content-Type-Options': 'nosniff', 'Content-Length': corpoHtml.length });
       res.end(req.method === 'HEAD' ? undefined : corpoHtml);
@@ -382,10 +384,10 @@ function criarServidor(opcoes) {
   /** Texto de uma página do manual (nome 'README' = índice). Só leitura; erro com motivo em português. */
   function servirManual(req, res, m, nome) {
     let texto;
-    try { texto = manual.ler(nome); } catch (e) {
+    try { texto = manual.ler(nome, idiomaDoPedido(req, config.idioma)); } catch (e) {
       if (e.status) return H.erroJson(res, e.status, e.message);
       log('erro', `Manual: falha ao ler a página ${String(nome).slice(0, 60)}: ${e.message}`);
-      return H.erroJson(res, 500, `Não consegui ler a página do manual (${e.message}). O detalhe está no log do servidor.`);
+      return H.erroJson(res, 500, dgIdiomaBackend.mensagem("Não consegui ler a página do manual ({p0}). O detalhe está no log do servidor.", {p0: (e.message)}));
     }
     res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
     return res.end(m === 'HEAD' ? undefined : texto);
@@ -411,7 +413,7 @@ function criarServidor(opcoes) {
   function falhaDoRegistro(req, res, api) {
     const est = registro.estado();
     if (est.ok) return false;
-    if (api) H.erroJson(res, 503, est.erro); else H.paginaErro(res, 503, 'Lista de agentes indisponível', est.erro);
+    if (api) H.erroJson(res, 503, est.erro); else H.paginaErro(res, 503, dgIdiomaBackend.mensagem("Lista de agentes indisponível"), est.erro);
     return true;
   }
 
@@ -433,7 +435,7 @@ function criarServidor(opcoes) {
     const status = v.status === 302 ? 403 : v.status;
     log('aviso', `Colaborador ${sessao.usuario} (agente ${sessao.agente}) barrado em ${req.method} ${p.slice(0, 120)}: ${v.motivo}`);
     if (p.startsWith('/api/') || !querHtml(req)) return H.erroJson(res, status, v.motivo, v.extra);
-    return H.paginaErro(res, status, 'Acesso não liberado', v.motivo);
+    return H.paginaErro(res, status, dgIdiomaBackend.mensagem("Acesso não liberado"), v.motivo);
   }
 
   // ── login ────────────────────────────────────────────────────────────────
@@ -458,12 +460,12 @@ function criarServidor(opcoes) {
       if (corpoJson) campos = JSON.parse(texto || '{}');
       else campos = Object.fromEntries(new URLSearchParams(texto));
     } catch (e) {
-      return json ? H.erroJson(res, e.status || 400, 'Não entendi o corpo do login. Mande usuario e senha.') : voltaAoLogin(res, 'campos', '/');
+      return json ? H.erroJson(res, e.status || 400, dgIdiomaBackend.mensagem("Não entendi o corpo do login. Mande usuario e senha.")) : voltaAoLogin(res, 'campos', '/');
     }
     const next = proximoSeguro(campos.next);
     const usuarioDigitado = String(campos.usuario == null ? '' : campos.usuario);
     if (!usuarioDigitado || !campos.senha) {
-      return json ? H.erroJson(res, 400, 'Preencha o usuário e a senha.') : voltaAoLogin(res, 'campos', next, usuarioDigitado);
+      return json ? H.erroJson(res, 400, dgIdiomaBackend.mensagem("Preencha o usuário e a senha.")) : voltaAoLogin(res, 'campos', next, usuarioDigitado);
     }
     const r = await auth.verificaSenha(usuarioDigitado, String(campos.senha), ip);
     if (r.ok) {
@@ -508,7 +510,7 @@ function criarServidor(opcoes) {
       const buf = await H.lerCorpo(req, 16 * 1024);
       campos = JSON.parse(buf.toString('utf8') || '{}');
     } catch (e) {
-      return H.erroJson(res, e.status || 400, 'Não entendi o pedido. Recarregue a página e tente de novo.');
+      return H.erroJson(res, e.status || 400, dgIdiomaBackend.mensagem("Não entendi o pedido. Recarregue a página e tente de novo."));
     }
     const r = await primeiroAcesso.consumir(campos && typeof campos === 'object' ? campos : {}, ip, req);
     const cab = { 'Cache-Control': 'no-store' };
@@ -539,7 +541,7 @@ function criarServidor(opcoes) {
 
   function agenteOuErro(res, id) {
     const a = registro.obter(id);
-    if (!a) { H.erroJson(res, 404, `Não existe agente com o id "${id}". Veja GET /api/v1/agents.`); return null; }
+    if (!a) { H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe agente com o id \"{p0}\". Veja GET /api/v1/agents.", {p0: (id)})); return null; }
     return a;
   }
 
@@ -547,7 +549,7 @@ function criarServidor(opcoes) {
     if (bruto == null || bruto === '') return pad;
     const n = Number(bruto);
     if (!Number.isFinite(n) || (min != null && n < min) || (max != null && n > max)) {
-      H.erroJson(res, 400, `O parâmetro "${nome}" precisa ser um número${min != null ? ` entre ${min} e ${max}` : ''}. Recebi: ${String(bruto).slice(0, 40)}.`);
+      H.erroJson(res, 400, dgIdiomaBackend.mensagem("O parâmetro \"{p0}\" precisa ser um número{p1}. Recebi: {p2}.", {p0: (nome), p1: (min != null ? ` entre ${min} e ${max}` : ''), p2: (String(bruto).slice(0, 40))}));
       return undefined;
     }
     return n;
@@ -555,7 +557,7 @@ function criarServidor(opcoes) {
 
   /** Gestão das chaves: só sessão de navegador. Nenhuma chave (nem a caixa de um agente) gerencia chaves. */
   async function chavesApiRota(req, res, url, sessao) {
-    if (sessao.via === 'caixa') return H.erroJson(res, 403, 'A caixa dos agentes não gerencia chaves de API. Isso é do dono, pela tela Suporte remoto.');
+    if (sessao.via === 'caixa') return H.erroJson(res, 403, dgIdiomaBackend.mensagem("A caixa dos agentes não gerencia chaves de API. Isso é do dono, pela tela Suporte remoto."));
     const m = req.method;
     const falha = (r) => H.erroJson(res, r.status, r.erro, r.como_resolver ? { como_resolver: r.como_resolver } : undefined);
     if (m === 'GET') return H.enviaJson(res, 200, { ok: true, chaves: chavesApi.listar(), escopos: ESCOPOS });
@@ -565,7 +567,7 @@ function criarServidor(opcoes) {
       const r = chavesApi.criar({ nome: corpo.nome, escopos: corpo.escopos, quem: sessao.usuario });
       if (!r.ok) return falha(r);
       log('info', `Chave de API ${r.chave.id} ("${r.chave.nome}") criada por ${sessao.usuario}, escopos: ${r.chave.escopos.join(', ')}.`);
-      return H.enviaJson(res, 201, { ok: true, token: r.token, chave: r.chave, aviso: 'Guarde este token agora: ele não aparece de novo. O sistema guarda só uma marca dele.' });
+      return H.enviaJson(res, 201, { ok: true, token: r.token, chave: r.chave, aviso: dgIdiomaBackend.mensagem("Guarde este token agora: ele não aparece de novo. O sistema guarda só uma marca dele.") });
     }
     if (m === 'DELETE') {
       const r = chavesApi.revogar(url.searchParams.get('id'), sessao.usuario);
@@ -607,31 +609,31 @@ function criarServidor(opcoes) {
           const corpo = await H.lerJson(req, 8 * 1024);
           return H.enviaJson(res, 200, { ok: true, ...await onboarding.solicitar(corpo, sessao.usuario) });
         }
-        return H.erroJson(res, 405, 'Use GET para acompanhar ou POST para criar pelo Admin.');
-      } catch (e) { return H.erroJson(res, e.status || 500, e.status ? e.message : 'Não consegui guardar o pedido. Peça ao Admin para conferir o espaço e as permissões do servidor.'); }
+        return H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use GET para acompanhar ou POST para criar pelo Admin."));
+      } catch (e) { return H.erroJson(res, e.status || 500, e.status ? e.message : dgIdiomaBackend.mensagem("Não consegui guardar o pedido. Peça ao Admin para conferir o espaço e as permissões do servidor.")); }
     }
 
     if (p === '/api/v1/onboarding/animacao-vista') {
       if (falhaDoRegistro(req, res, true)) return;
-      if (m !== 'POST') return H.erroJson(res, 405, 'Use POST com o id do pedido para marcar a animação como vista.');
+      if (m !== 'POST') return H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use POST com o id do pedido para marcar a animação como vista."));
       try {
         const corpo = await H.lerJson(req, 1024);
         return H.enviaJson(res, 200, { ok: true, ...onboarding.animacaoVista(corpo && corpo.id) });
-      } catch (e) { return H.erroJson(res, e.status || 500, e.status ? e.message : 'Não consegui guardar que a animação já tocou. Peça ao Admin para conferir o espaço e as permissões do servidor.'); }
+      } catch (e) { return H.erroJson(res, e.status || 500, e.status ? e.message : dgIdiomaBackend.mensagem("Não consegui guardar que a animação já tocou. Peça ao Admin para conferir o espaço e as permissões do servidor.")); }
     }
 
     if (p === '/api/v1/onboarding/cartao-dispensado') {
       if (falhaDoRegistro(req, res, true)) return;
-      if (m !== 'POST') return H.erroJson(res, 405, 'Use POST com o id do pedido para dispensar o cartão.');
+      if (m !== 'POST') return H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use POST com o id do pedido para dispensar o cartão."));
       try {
         const corpo = await H.lerJson(req, 1024);
         return H.enviaJson(res, 200, { ok: true, ...onboarding.dispensarCartao(corpo && corpo.id) });
-      } catch (e) { return H.erroJson(res, e.status || 500, e.status ? e.message : 'Não consegui guardar que o cartão foi dispensado. Peça ao Admin para conferir o espaço e as permissões do servidor.'); }
+      } catch (e) { return H.erroJson(res, e.status || 500, e.status ? e.message : dgIdiomaBackend.mensagem("Não consegui guardar que o cartão foi dispensado. Peça ao Admin para conferir o espaço e as permissões do servidor.")); }
     }
 
     if (ehRotaDiagnostico(p)) {
-      if (sessao.via === 'caixa') return H.erroJson(res, 403, 'O diagnóstico não é lido pela caixa dos agentes: ele é do dono da máquina e de quem tem a chave de suporte.');
-      if (m !== 'GET' && m !== 'HEAD') return H.erroJson(res, 405, 'O diagnóstico só se lê: use GET /api/v1/diagnostico.', { como_resolver: 'Troque o método para GET.' });
+      if (sessao.via === 'caixa') return H.erroJson(res, 403, dgIdiomaBackend.mensagem("O diagnóstico não é lido pela caixa dos agentes: ele é do dono da máquina e de quem tem a chave de suporte."));
+      if (m !== 'GET' && m !== 'HEAD') return H.erroJson(res, 405, dgIdiomaBackend.mensagem("O diagnóstico só se lê: use GET /api/v1/diagnostico."), { como_resolver: dgIdiomaBackend.mensagem("Troque o método para GET.") });
       return diagnostico.responder(req, res, url, { tipo: 'sessao', usuario: sessao.usuario });
     }
 
@@ -643,7 +645,7 @@ function criarServidor(opcoes) {
 
     if (p === '/api/v1/eu' && m === 'GET') return colabRotas.eu(res, sessao);
     if (p === '/api/v1/eu/senha') {
-      if (m !== 'POST') return H.erroJson(res, 405, 'Use POST com {"nova": "...", "confirmacao": "...", "atual": "..."}.');
+      if (m !== 'POST') return H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use POST com {\"nova\": \"...\", \"confirmacao\": \"...\", \"atual\": \"...\"}."));
       return colabRotas.trocarSenha(req, res, sessao);
     }
 
@@ -657,13 +659,13 @@ function criarServidor(opcoes) {
 
     if (p === '/api/v1/nao-lidas') {
       if (falhaDoRegistro(req, res, true)) return undefined;
-      if (m !== 'GET') return H.erroJson(res, 405, 'Use GET para ver quantas mensagens não lidas cada agente tem.');
+      if (m !== 'GET') return H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use GET para ver quantas mensagens não lidas cada agente tem."));
       try {
         let contagem = await naoLidas.contar(sessao.usuario);
         if (sessao.papel === 'colaborador') contagem = Object.fromEntries(Object.entries(contagem).filter(([slug]) => slug === sessao.agente));
         return H.enviaJson(res, 200, { ok: true, agentes: contagem });
       } catch (e) {
-        return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui contar as mensagens não lidas (${e.message}).`);
+        return H.erroJson(res, e.status || 500, e.status ? e.message : dgIdiomaBackend.mensagem("Não consegui contar as mensagens não lidas ({p0}).", {p0: (e.message)}));
       }
     }
 
@@ -674,9 +676,9 @@ function criarServidor(opcoes) {
 
     if (p === '/api/v1/uso') {
       if (falhaDoRegistro(req, res, true)) return undefined;
-      if (m !== 'GET') return H.erroJson(res, 405, 'Use GET para ver quanto da assinatura de cada agente já foi usado.');
+      if (m !== 'GET') return H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use GET para ver quanto da assinatura de cada agente já foi usado."));
       try { return H.enviaJson(res, 200, { ok: true, agentes: await uso.consultar(caixa.ehPedidoDaCaixa(req)) }); } catch (e) {
-        return H.erroJson(res, e.status || 500, `Não consegui juntar o uso das assinaturas (${e.message}).`);
+        return H.erroJson(res, e.status || 500, dgIdiomaBackend.mensagem("Não consegui juntar o uso das assinaturas ({p0}).", {p0: (e.message)}));
       }
     }
 
@@ -686,35 +688,35 @@ function criarServidor(opcoes) {
     }
     if (p === '/api/v1/estados') {
       if (falhaDoRegistro(req, res, true)) return undefined;
-      if (m !== 'GET') return H.erroJson(res, 405, 'Use GET para ver o estado de cada agente (trabalhando, precisa de você, terminou, ocioso ou sem sinal).');
-      if (sessao.via === 'caixa') return H.erroJson(res, 403, 'O estado dos agentes é só do dono, pelo painel. Um agente de trabalho enxerga só a própria casa.');
+      if (m !== 'GET') return H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use GET para ver o estado de cada agente (trabalhando, precisa de você, terminou, ocioso ou sem sinal)."));
+      if (sessao.via === 'caixa') return H.erroJson(res, 403, dgIdiomaBackend.mensagem("O estado dos agentes é só do dono, pelo painel. Um agente de trabalho enxerga só a própria casa."));
       try { return H.enviaJson(res, 200, { ok: true, agentes: await estados.todos(sessao.usuario) }); } catch (e) {
-        return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui montar o estado dos agentes (${e.message}).`);
+        return H.erroJson(res, e.status || 500, e.status ? e.message : dgIdiomaBackend.mensagem("Não consegui montar o estado dos agentes ({p0}).", {p0: (e.message)}));
       }
     }
     if (p === '/api/v1/modal-login/preferencia') {
-      if (sessao.via === 'caixa') return H.erroJson(res, 403, 'A escolha sobre o aviso de login dos agentes é só do dono, pelo painel.');
+      if (sessao.via === 'caixa') return H.erroJson(res, 403, dgIdiomaBackend.mensagem("A escolha sobre o aviso de login dos agentes é só do dono, pelo painel."));
       if (m === 'GET') {
         try { return H.enviaJson(res, 200, { ok: true, ...modalLoginPrefs.de(sessao.usuario) }); } catch (e) { return H.erroJson(res, e.status || 500, e.message); }
       }
-      if (m !== 'POST') return H.erroJson(res, 405, 'Use GET para ler e POST com {"vistos": ["id"], "nao_mostrar_mais": true} para guardar.');
+      if (m !== 'POST') return H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use GET para ler e POST com {\"vistos\": [\"id\"], \"nao_mostrar_mais\": true} para guardar."));
       let corpo;
       try { corpo = await H.lerJson(req, 4096); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
       try { return H.enviaJson(res, 200, { ok: true, ...modalLoginPrefs.grava(sessao.usuario, corpo) }); } catch (e) {
-        return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui guardar a escolha (${e.message}).`);
+        return H.erroJson(res, e.status || 500, e.status ? e.message : dgIdiomaBackend.mensagem("Não consegui guardar a escolha ({p0}).", {p0: (e.message)}));
       }
     }
 
     if (p === '/api/v1/push/preferencias') {
-      if (sessao.via === 'caixa') return H.erroJson(res, 403, 'As preferências de aviso do aparelho são só do dono, pelo painel.');
+      if (sessao.via === 'caixa') return H.erroJson(res, 403, dgIdiomaBackend.mensagem("As preferências de aviso do aparelho são só do dono, pelo painel."));
       if (m === 'GET') {
         try { return H.enviaJson(res, 200, { ok: true, preferencias: prefsAtencao.de(sessao.usuario) }); } catch (e) { return H.erroJson(res, e.status || 500, e.message); }
       }
-      if (m !== 'POST') return H.erroJson(res, 405, 'Use GET para ler e POST com {"precisa_de_voce": true, "terminou": false} para mudar.');
+      if (m !== 'POST') return H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use GET para ler e POST com {\"precisa_de_voce\": true, \"terminou\": false} para mudar."));
       let corpo;
       try { corpo = await H.lerJson(req, 1024); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
       try { return H.enviaJson(res, 200, { ok: true, preferencias: prefsAtencao.grava(sessao.usuario, corpo) }); } catch (e) {
-        return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui guardar a preferência (${e.message}).`);
+        return H.erroJson(res, e.status || 500, e.status ? e.message : dgIdiomaBackend.mensagem("Não consegui guardar a preferência ({p0}).", {p0: (e.message)}));
       }
     }
 
@@ -724,10 +726,10 @@ function criarServidor(opcoes) {
     }
 
     if (p === '/api/v1/manual' || p.startsWith('/api/v1/manual/')) {
-      if (m !== 'GET' && m !== 'HEAD') return H.erroJson(res, 405, `O manual é só para leitura: use GET em ${p.slice(0, 80)}.`, null, { Allow: 'GET, HEAD' });
+      if (m !== 'GET' && m !== 'HEAD') return H.erroJson(res, 405, dgIdiomaBackend.mensagem("O manual é só para leitura: use GET em {p0}.", {p0: (p.slice(0, 80))}), null, { Allow: 'GET, HEAD' });
       if (p === '/api/v1/manual') {
-        try { return H.enviaJson(res, 200, Object.assign({ ok: true }, manual.listar())); } catch (e) {
-          return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui listar o manual (${e.message}).`);
+        try { return H.enviaJson(res, 200, Object.assign({ ok: true }, manual.listar(idiomaDoPedido(req, config.idioma)))); } catch (e) {
+          return H.erroJson(res, e.status || 500, e.status ? e.message : dgIdiomaBackend.mensagem("Não consegui listar o manual ({p0}).", {p0: (e.message)}));
         }
       }
       const mm = /^\/api\/v1\/manual\/([^/]+)\.md$/.exec(p);
@@ -751,22 +753,22 @@ function criarServidor(opcoes) {
           return H.enviaJson(res, 200, { ok: true, alertas: loja.listar(), avisos: avisosPara(sessao, t.avisos) });
         }
         if (ar[3] === 'visto' && m === 'POST') {
-          if (!loja.reconhecer(ar[2])) return H.erroJson(res, 404, 'Esse alerta não existe nesta conversa. Atualize a página.');
+          if (!loja.reconhecer(ar[2])) return H.erroJson(res, 404, dgIdiomaBackend.mensagem("Esse alerta não existe nesta conversa. Atualize a página."));
           return H.enviaJson(res, 200, { ok: true });
         }
         if (ar[3] === 'mensagem' && m === 'GET') {
           const t = await conversa.thread(agente);
           const mensagem = loja.mensagem(ar[2]);
-          if (!mensagem) return H.erroJson(res, 404, 'Esse alerta não existe nesta conversa. Atualize a página.');
+          if (!mensagem) return H.erroJson(res, 404, dgIdiomaBackend.mensagem("Esse alerta não existe nesta conversa. Atualize a página."));
           // Carrega a origem e a sequência até o fim, sem lacuna na rolagem.
           const atuais = t.msgs.filter(x => x.ep >= mensagem.ep);
           if (!atuais.some(x => x.id === mensagem.id)) atuais.unshift(mensagem);
           return H.enviaJson(res, 200, { ok: true, mensagem, msgs: atuais, mais_antigas: t.msgs.some(x => x.ep < mensagem.ep), avisos: avisosPara(sessao, t.avisos) });
         }
-        return H.erroJson(res, 405, 'Método inválido para este alerta. Use GET para consultar ou POST para reconhecer.');
+        return H.erroJson(res, 405, dgIdiomaBackend.mensagem("Método inválido para este alerta. Use GET para consultar ou POST para reconhecer."));
       } catch (e) {
         log('erro', `Alertas de ${agente.slug}: ${m} ${p} falhou: ${e.message}. Confira a pasta de dados do Web.`);
-        return H.erroJson(res, 503, `Não consegui acessar os alertas. Tente novamente: ${e.message}`);
+        return H.erroJson(res, 503, dgIdiomaBackend.mensagem("Não consegui acessar os alertas. Tente novamente: {p0}", {p0: (e.message)}));
       }
     }
 
@@ -798,7 +800,7 @@ function criarServidor(opcoes) {
       else if (!sub && m === 'DELETE') r = await contaColab.cancelar(agente, sessao);
       else if (sub === 'codigo' && m === 'POST') r = await contaColab.enviarCodigo(agente, sessao, corpo, vale);
       else if (sub === 'oi' && m === 'POST') r = await contaColab.oi(agente, sessao);
-      if (!r) return H.erroJson(res, 405, `Método inválido para ${p}. Use GET, POST e DELETE em /login, e POST em /login/codigo e /login/oi.`);
+      if (!r) return H.erroJson(res, 405, dgIdiomaBackend.mensagem("Método inválido para {p0}. Use GET, POST e DELETE em /login, e POST em /login/codigo e /login/oi.", {p0: (p)}));
       if (r.sessaoVelha) return recusaSessaoVelha(res, sessao);
       return H.enviaJson(res, r.status, r.corpo);
     }
@@ -853,7 +855,7 @@ function criarServidor(opcoes) {
           if (url.searchParams.has('mensagem')) {
             const t = await conversa.thread(agente), id = url.searchParams.get('mensagem');
             const origem = t.msgs.find(x => x.id === id);
-            if (!origem) return H.erroJson(res, 404, 'A mensagem não está nesta sessão. Atualize a lista.');
+            if (!origem) return H.erroJson(res, 404, dgIdiomaBackend.mensagem("A mensagem não está nesta sessão. Atualize a lista."));
             return H.enviaJson(res, 200, { ok: true, mensagem: origem, msgs: t.msgs.filter(x => x.ep >= origem.ep) });
           }
           return H.enviaJson(res, 200, await compartilhados(agente, url.searchParams));
@@ -900,7 +902,7 @@ function criarServidor(opcoes) {
         // Só o dono para o agente: a autoria por turno não enxerga o que veio por Telegram ou canal.
         if (sessao.papel === 'colaborador') {
           log('aviso', `Parar ${agente.slug}: ${quem} barrado, só o dono pode parar.`);
-          return H.erroJson(res, 403, 'Só o dono do DG Claw pode parar o agente.', { codigo: 'SO_O_DONO' });
+          return H.erroJson(res, 403, dgIdiomaBackend.mensagem("Só o dono do DG Claw pode parar o agente."), { codigo: 'SO_O_DONO' });
         }
         if (!sessaoAindaVale(req, sessao)) return recusaSessaoVelha(res, sessao);
         const r = await conversa.parar(agente, quem);
@@ -912,10 +914,10 @@ function criarServidor(opcoes) {
         const abriu = !!corpo && corpo.abriu === true;
         const ep = corpo && typeof corpo.ep === 'number' ? corpo.ep : (abriu && (corpo.ep === undefined || corpo.ep === null) ? null : NaN);
         if (ep !== null && (!Number.isFinite(ep) || ep < 0)) {
-          return H.erroJson(res, 400, `O campo "ep" precisa ser um número maior ou igual a zero (o ep da última mensagem que apareceu na tela). Recebi: ${JSON.stringify(corpo && corpo.ep === undefined ? null : corpo && corpo.ep).slice(0, 40)}.`);
+          return H.erroJson(res, 400, dgIdiomaBackend.mensagem("O campo \"ep\" precisa ser um número maior ou igual a zero (o ep da última mensagem que apareceu na tela). Recebi: {p0}.", {p0: (JSON.stringify(corpo && corpo.ep === undefined ? null : corpo && corpo.ep).slice(0, 40))}));
         }
         try { return H.enviaJson(res, 200, { ok: true, visto_ep: naoLidas.marcar(sessao.usuario, agente.slug, ep, { abriu }) }); } catch (e) {
-          return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui guardar que a conversa foi lida (${e.message}).`);
+          return H.erroJson(res, e.status || 500, e.status ? e.message : dgIdiomaBackend.mensagem("Não consegui guardar que a conversa foi lida ({p0}).", {p0: (e.message)}));
         }
       }
       if (acao === 'nao-lido' && (m === 'POST' || m === 'DELETE')) {
@@ -923,7 +925,7 @@ function criarServidor(opcoes) {
           naoLidas.marcarNaoLida(sessao.usuario, agente.slug, m === 'POST');
           return H.enviaJson(res, 200, { ok: true, marcada_nao_lida: m === 'POST' });
         } catch (e) {
-          return H.erroJson(res, e.status || 500, e.status ? e.message : `Não consegui ${m === 'POST' ? 'marcar' : 'desmarcar'} a conversa como não lida (${e.message}).`);
+          return H.erroJson(res, e.status || 500, e.status ? e.message : dgIdiomaBackend.mensagem("Não consegui {p0} a conversa como não lida ({p1}).", {p0: (m === 'POST' ? 'marcar' : 'desmarcar'), p1: (e.message)}));
         }
       }
       if (acao === 'vendo' && m === 'POST') {
@@ -933,7 +935,7 @@ function criarServidor(opcoes) {
       if (acao === 'upload' && m === 'POST') return upload(req, res, agente, sessao);
       if (acao === 'comandos' && m === 'GET') return H.enviaJson(res, 200, Object.assign({ ok: true, agente: agente.slug }, await comandos.catalogo(agente)));
       if (acao === 'comando' && m === 'POST') return comandoPost(req, res, agente, sessao);
-      return H.erroJson(res, ['messages', 'stream', 'wait', 'send', 'upload', 'permissao', 'pergunta', 'reiniciar', 'parar', 'lido', 'nao-lido', 'vendo', 'comandos', 'comando', ''].includes(acao) ? 405 : 404, `Não existe ${m} ${p}.`);
+      return H.erroJson(res, ['messages', 'stream', 'wait', 'send', 'upload', 'permissao', 'pergunta', 'reiniciar', 'parar', 'lido', 'nao-lido', 'vendo', 'comandos', 'comando', ''].includes(acao) ? 405 : 404, dgIdiomaBackend.mensagem("Não existe {p0} {p1}.", {p0: (m), p1: (p)}));
     }
 
     mm = /^\/api\/v1\/media\/([0-9a-f]{16})\/visual$/.exec(p);
@@ -949,7 +951,7 @@ function criarServidor(opcoes) {
     }
     if (p === '/api/v1/sigilo/estado' && m === 'GET') return H.enviaJson(res, 200, Object.assign({ ok: true }, sigilo.estado()));
     if (p === '/api/v1/sigilo') {
-      if (m !== 'POST') return H.erroJson(res, 405, 'Use POST com {"textos": [...]}. O estado do modo escondido está em GET /api/v1/sigilo/estado.');
+      if (m !== 'POST') return H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use POST com {\"textos\": [...]}. O estado do modo escondido está em GET /api/v1/sigilo/estado."));
       let corpo;
       try { corpo = await H.lerJson(req, 4 * 1024 * 1024); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
       const v = sigilo.validaEntrada(corpo);
@@ -964,7 +966,7 @@ function criarServidor(opcoes) {
       if (r.erro) return H.erroJson(res, r.status, r.erro);
       return H.enviaJson(res, 200, Object.assign({ ok: true }, r));
     }
-    return H.erroJson(res, 404, `Não existe ${m} ${p}. A lista de rotas está no README do Web.`);
+    return H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe {p0} {p1}. A lista de rotas está no README do Web.", {p0: (m), p1: (p)}));
   }
 
   // O que só o dono deve ver não vai ao colaborador: diagnóstico técnico do runner (avisos da thread, motivo
@@ -1013,7 +1015,7 @@ function criarServidor(opcoes) {
     const q = url.searchParams;
     const since = numeroOuErro(res, 'since', q.get('since'), 0);
     if (since === undefined) return undefined;
-    if (!(since > 0)) return H.erroJson(res, 400, 'O parâmetro "since" é obrigatório: o epoch (número) a partir do qual procuro mensagem nova. Use o ep_enviado do /send.');
+    if (!(since > 0)) return H.erroJson(res, 400, dgIdiomaBackend.mensagem("O parâmetro \"since\" é obrigatório: o epoch (número) a partir do qual procuro mensagem nova. Use o ep_enviado do /send."));
     let timeout = numeroOuErro(res, 'timeout', q.get('timeout'), 25);
     if (timeout === undefined) return undefined;
     timeout = Math.max(1, Math.min(28, timeout));
@@ -1046,7 +1048,7 @@ function criarServidor(opcoes) {
     if (ultimo) { const n = Number(ultimo); if (Number.isFinite(n)) since = n; else log('aviso', `Stream de ${agente.slug}: Last-Event-ID inválido (${String(ultimo).slice(0, 30)}); uso o parâmetro since.`); }
     if (since == null && url.searchParams.get('since') != null && url.searchParams.get('since') !== '') {
       const n = Number(url.searchParams.get('since'));
-      if (!Number.isFinite(n)) return H.erroJson(res, 400, `O parâmetro "since" precisa ser o epoch (número) da última mensagem que você já tem. Recebi: ${url.searchParams.get('since').slice(0, 40)}.`);
+      if (!Number.isFinite(n)) return H.erroJson(res, 400, dgIdiomaBackend.mensagem("O parâmetro \"since\" precisa ser o epoch (número) da última mensagem que você já tem. Recebi: {p0}.", {p0: (url.searchParams.get('since').slice(0, 40))}));
       since = n;
     }
     if (since == null || since <= 0) since = Date.now() / 1000 - 60;
@@ -1077,7 +1079,7 @@ function criarServidor(opcoes) {
   }
   function recusaSessaoVelha(res, sessao) {
     log('aviso', `Pedido do colaborador ${sessao.usuario} recusado: a sessão deixou de valer enquanto o corpo chegava (acesso revogado ou convite reenviado).`);
-    return H.erroJson(res, 401, 'Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente.');
+    return H.erroJson(res, 401, dgIdiomaBackend.mensagem("Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente."));
   }
 
   async function lerEnvio(req, res) {
@@ -1166,7 +1168,7 @@ function criarServidor(opcoes) {
     if (!corpo) return undefined;
     const cid = corpo.cliente_id;
     if (cid != null && cid !== '' && !(typeof cid === 'string' && RX_CLIENTE_ID.test(cid))) {
-      return H.erroJson(res, 400, `O "cliente_id" veio como ${JSON.stringify(String(cid).slice(0, 80))}, que não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_". Nada foi enviado.`);
+      return H.erroJson(res, 400, dgIdiomaBackend.mensagem("O \"cliente_id\" veio como {p0}, que não vale: use de 8 a 64 caracteres entre letras, números, \"-\" e \"_\". Nada foi enviado.", {p0: (JSON.stringify(String(cid).slice(0, 80)))}));
     }
     // Anonimizar: TODO texto que chega ao agente passa pelo filtro, inclusive "//" (vira texto), comando de barra com
     // argumentos e legenda de anexo. Só fica de fora o comando que o Web executa e que não leva texto ao agente.
@@ -1188,7 +1190,7 @@ function criarServidor(opcoes) {
       }
     } catch (e) {
       log('erro', `Anonimizar: mensagem para ${agente.slug} recusada (${e.codigo || e.message}).`);
-      return H.erroJson(res, e.status || 500, e.status ? e.message : `Não enviei a mensagem porque não consegui trocar os dados pessoais dela: ${e.message}`, e.codigo ? { codigo: e.codigo } : undefined);
+      return H.erroJson(res, e.status || 500, e.status ? e.message : dgIdiomaBackend.mensagem("Não enviei a mensagem porque não consegui trocar os dados pessoais dela: {p0}", {p0: (e.message)}), e.codigo ? { codigo: e.codigo } : undefined);
     }
     // capturado ANTES das esperas do envio: uma entrega marcada durante a espera não é respondida por esta mensagem
     const entreguesAntes = pedidos.entreguesDe(agente.slug);
@@ -1206,7 +1208,7 @@ function criarServidor(opcoes) {
     if (!corpo) return undefined;
     const cid = corpo.cliente_id;
     if (cid != null && cid !== '' && !(typeof cid === 'string' && RX_CLIENTE_ID.test(cid))) {
-      return H.erroJson(res, 400, `O "cliente_id" veio como ${JSON.stringify(String(cid).slice(0, 80))}, que não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_". Nada foi enviado.`);
+      return H.erroJson(res, 400, dgIdiomaBackend.mensagem("O \"cliente_id\" veio como {p0}, que não vale: use de 8 a 64 caracteres entre letras, números, \"-\" e \"_\". Nada foi enviado.", {p0: (JSON.stringify(String(cid).slice(0, 80)))}));
     }
     // Argumentos de comando também chegam ao agente (skill, /compact foque em...). Monta UMA representação do que vai ao
     // runner, como conversa.comando interpreta ("comando" + "argumentos", senão "text"), filtra esse texto final e o devolve
@@ -1234,14 +1236,14 @@ function criarServidor(opcoes) {
   const gravaAnexo = opcoes.gravaAnexo || gravaAnexoReal;
 
   async function upload(req, res, agente, sessao) {
-    if (!agente.home_host) return H.erroJson(res, 503, `O agente ${agente.nome} não tem home_host no registro, então não há onde guardar anexos.`);
+    if (!agente.home_host) return H.erroJson(res, 503, dgIdiomaBackend.mensagem("O agente {p0} não tem home_host no registro, então não há onde guardar anexos.", {p0: (agente.nome)}));
     let mp;
     try { mp = await lerMultipart(req, config.maxUploadBytes); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
     const arq = mp.arquivos.find((a) => a.campo === 'file');
-    if (!arq || !arq.nome) return H.erroJson(res, 400, 'Mande o arquivo num multipart, no campo "file". Não veio nenhum arquivo.');
+    if (!arq || !arq.nome) return H.erroJson(res, 400, dgIdiomaBackend.mensagem("Mande o arquivo num multipart, no campo \"file\". Não veio nenhum arquivo."));
     const cid = mp.campos.cliente_id;
-    if (cid && !RX_CLIENTE_ID.test(cid)) return H.erroJson(res, 400, 'O "cliente_id" não vale: use de 8 a 64 caracteres entre letras, números, "-" e "_".');
-    if (!arq.dados.length) return H.erroJson(res, 400, `O arquivo "${arq.nome}" chegou com 0 byte. Escolha o arquivo de novo.`);
+    if (cid && !RX_CLIENTE_ID.test(cid)) return H.erroJson(res, 400, dgIdiomaBackend.mensagem("O \"cliente_id\" não vale: use de 8 a 64 caracteres entre letras, números, \"-\" e \"_\"."));
+    if (!arq.dados.length) return H.erroJson(res, 400, dgIdiomaBackend.mensagem("O arquivo \"{p0}\" chegou com 0 byte. Escolha o arquivo de novo.", {p0: (arq.nome)}));
     const soGuardar = /^(0|false|nao|não|no)$/i.test((mp.campos.enviar || '').trim());
     const souColab = ehColab(sessao);
     const nomeLimpo = conversa.validaControle(arq.nome, 'O nome do arquivo');
@@ -1270,7 +1272,7 @@ function criarServidor(opcoes) {
           }
         } catch (e) {
           log('aviso', `Upload para ${agente.slug} barrado: não consegui filtrar a legenda e o nome do arquivo (${e.codigo || e.message}). Nada foi enviado ao agente.`);
-          return { status: e.status || 503, corpo: { ok: false, erro: `${e.message} O arquivo não foi enviado ao agente.`, codigo: e.codigo || null, anonimizado: false } };
+          return { status: e.status || 503, corpo: { ok: false, erro: dgIdiomaBackend.mensagem("{p0} O arquivo não foi enviado ao agente.", {p0: (e.message)}), codigo: e.codigo || null, anonimizado: false } };
         }
       }
       if (anon.id) {
@@ -1288,7 +1290,7 @@ function criarServidor(opcoes) {
           destino = await gravaAnexo({ agente, pastas, nome: souColab ? `${crypto.randomBytes(4).toString('hex')}-${nomeEmDisco}` : nomeEmDisco, dados: arq.dados });
         } catch (e) {
           log('erro', `Upload para ${agente.slug}: não gravei em ${path.join(agente.home_host, ...pastas)}: ${e.message}`);
-          return { status: 500, corpo: { ok: false, erro: `Não consegui gravar o arquivo na casa de ${agente.nome}: ${e.message} Nada foi enviado ao agente.` } };
+          return { status: 500, corpo: { ok: false, erro: dgIdiomaBackend.mensagem("Não consegui gravar o arquivo na casa de {p0}: {p1} Nada foi enviado ao agente.", {p0: (agente.nome), p1: (e.message)}) } };
         }
       }
       const visto = paraContainer(destino, agente);
@@ -1315,8 +1317,8 @@ function criarServidor(opcoes) {
     let mp;
     try { mp = await lerMultipart(req, 25 * 1024 * 1024); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
     const a = mp.arquivos.find((x) => x.campo === 'audio');
-    if (!a) return H.erroJson(res, 400, 'Mande o áudio num multipart, no campo "audio".');
-    if (a.dados.length < 1024) return H.erroJson(res, 400, `O áudio chegou com ${a.dados.length} bytes, que é menos de 1 KB: a gravação veio vazia. Toque para falar, diga algo e toque de novo.`);
+    if (!a) return H.erroJson(res, 400, dgIdiomaBackend.mensagem("Mande o áudio num multipart, no campo \"audio\"."));
+    if (a.dados.length < 1024) return H.erroJson(res, 400, dgIdiomaBackend.mensagem("O áudio chegou com {p0} bytes, que é menos de 1 KB: a gravação veio vazia. Toque para falar, diga algo e toque de novo.", {p0: (a.dados.length)}));
     const r = await voz.transcrever(a.dados, a.nome, a.tipo);
     if (r.erro) return H.erroJson(res, r.status, r.erro);
     return H.enviaJson(res, 200, { ok: true, text: r.texto, bytes: a.dados.length, audio_id: null });
@@ -1329,10 +1331,10 @@ function criarServidor(opcoes) {
     const slug = sessao && sessao.papel === 'colaborador' ? sessao.agente
       : (typeof corpo.agent_id === 'string' ? corpo.agent_id : (registro.estado().agentes[0] || {}).slug);
     const agente = registro.obter(slug);
-    if (!agente) return H.erroJson(res, 404, `Não existe agente com o id "${String(slug).slice(0, 40)}".`);
+    if (!agente) return H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe agente com o id \"{p0}\".", {p0: (String(slug).slice(0, 40))}));
     const parte = corpo.parte == null ? 0 : corpo.parte;
     if (!Number.isInteger(parte) || parte < 0) {
-      return H.erroJson(res, 400, `O campo "parte" precisa ser um número inteiro a partir de 0 (o pedaço de voz pedido). Recebi ${JSON.stringify(parte).slice(0, 40)}. Nada foi falado.`);
+      return H.erroJson(res, 400, dgIdiomaBackend.mensagem("O campo \"parte\" precisa ser um número inteiro a partir de 0 (o pedaço de voz pedido). Recebi {p0}. Nada foi falado.", {p0: (JSON.stringify(parte).slice(0, 40))}));
     }
     const r = await voz.falar(agente, corpo.text, typeof corpo.voice_id === 'string' ? corpo.voice_id : null, parte);
     if (r.erro) return H.erroJson(res, r.status, r.erro);
@@ -1385,7 +1387,7 @@ function criarServidor(opcoes) {
 
   async function tratar(req, res) {
     let url;
-    try { url = new URL(req.url, 'http://local'); } catch (_) { return H.paginaErro(res, 400, 'Endereço inválido', 'Não entendi o endereço pedido.'); }
+    try { url = new URL(req.url, 'http://local'); } catch (_) { return H.paginaErro(res, 400, dgIdiomaBackend.mensagem("Endereço inválido"), dgIdiomaBackend.mensagem("Não entendi o endereço pedido.")); }
     const p = url.pathname;
     const m = req.method;
 
@@ -1395,9 +1397,9 @@ function criarServidor(opcoes) {
     }
     if (p === '/api/login-estado' && m === 'GET') {
       if (auth.semSenha) {
-        return H.enviaJson(res, 200, { ok: true, trancado: auth.trancado, sem_senha: true, usuario: auth.usuario, mensagem: 'Use o link de primeiro acesso que apareceu no fim da instalação. Se perdeu, rode no servidor: sudo dgclaw primeiro-acesso' });
+        return H.enviaJson(res, 200, { ok: true, trancado: auth.trancado, sem_senha: true, usuario: auth.usuario, mensagem: dgIdiomaBackend.mensagem("Use o link de primeiro acesso que apareceu no fim da instalação. Se perdeu, rode no servidor: sudo dgclaw primeiro-acesso") });
       }
-      return H.enviaJson(res, 200, { ok: true, trancado: auth.trancado, sem_senha: false, mensagem: auth.trancado ? `O acesso está trancado: ${auth.motivoTrancado} Rode o gerador de hash do instalador e coloque o resultado no web.env.` : null });
+      return H.enviaJson(res, 200, { ok: true, trancado: auth.trancado, sem_senha: false, mensagem: auth.trancado ? dgIdiomaBackend.mensagem("O acesso está trancado: {p0} Rode o gerador de hash do instalador e coloque o resultado no web.env.", {p0: (auth.motivoTrancado)}) : null });
     }
 
     // Documentação do diagnóstico: pública, sem chave nem sessão (só texto, nenhum dado da máquina).
@@ -1416,7 +1418,7 @@ function criarServidor(opcoes) {
     // Pedido interno da caixa de um agente: só rotas /api/ liberadas com caixa.permitir().
     const slugCaixa = caixa.ehPedidoDaCaixa(req);
     if (slugCaixa && !(p.startsWith('/api/') && caixa.rotaPermitida(p))) {
-      return H.erroJson(res, 403, `A rota ${p.slice(0, 120)} não está liberada para agentes. Só as rotas que a frente liberou com caixa.permitir() respondem pela caixa.`);
+      return H.erroJson(res, 403, dgIdiomaBackend.mensagem("A rota {p0} não está liberada para agentes. Só as rotas que a frente liberou com caixa.permitir() respondem pela caixa.", {p0: (p.slice(0, 120))}));
     }
 
     // Anonimização: tudo que o agente recebe pela caixa (tarefas, lembretes, avisos, foco...) passa pelo filtro dos valores
@@ -1438,13 +1440,13 @@ function criarServidor(opcoes) {
       const motivo = `Pedido recusado: a origem ${visto} não é a deste site. Abra o DG Claw pelo endereço normal e tente de novo.`;
       const jsonPedido = /application\/json/i.test(String(req.headers['content-type'] || '')) || /application\/json/i.test(String(req.headers.accept || ''));
       if (p === '/login' && !jsonPedido) return voltaAoLogin(res, 'origem', '/');
-      return querHtml(req) && !p.startsWith('/api/') ? H.paginaErro(res, 403, 'Pedido recusado', motivo) : H.erroJson(res, 403, motivo);
+      return querHtml(req) && !p.startsWith('/api/') ? H.paginaErro(res, 403, dgIdiomaBackend.mensagem("Pedido recusado"), motivo) : H.erroJson(res, 403, motivo);
     }
 
     // Marca (white label): rotas públicas, só GET/HEAD, sem sessão (o login precisa delas). Tudo vem validado de lib/marca.js.
     if ((m === 'GET' || m === 'HEAD') && (p === '/marca.css' || p === '/manifest.webmanifest' || p.startsWith('/marca/'))) {
       if (servirMarca(req, res, p)) return undefined;
-      return H.paginaErro(res, 404, 'Página não encontrada', 'Esse endereço não existe neste servidor.');
+      return H.paginaErro(res, 404, dgIdiomaBackend.mensagem("Página não encontrada"), dgIdiomaBackend.mensagem("Esse endereço não existe neste servidor."));
     }
 
     if (p === '/login' && m === 'GET') {
@@ -1460,7 +1462,7 @@ function criarServidor(opcoes) {
     if (p === '/primeiro-acesso' && (m === 'GET' || m === 'HEAD')) {
       if (!servirArquivo(req, res, path.join(config.publicDir, 'primeiro-acesso.html'), 'no-store')) {
         log('erro', `A tela de primeiro acesso não está instalada: falta ${path.join(config.publicDir, 'primeiro-acesso.html')}.`);
-        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de primeiro acesso não foi encontrado no servidor. Reinstale o DG Claw Web.');
+        H.paginaErro(res, 500, dgIdiomaBackend.mensagem("Tela não instalada"), dgIdiomaBackend.mensagem("O arquivo da tela de primeiro acesso não foi encontrado no servidor. Reinstale o DG Claw Web."));
       }
       return undefined;
     }
@@ -1499,7 +1501,7 @@ function criarServidor(opcoes) {
         // A sessão ainda existe? (o dono pode ter tido o aparelho removido por outra sessão, que encerra esta)
         if (!auth.sessaoDoPedido(req)) {
           log('aviso', `Pedido ${m} ${p.slice(0, 120)} de ${sessao.usuario} recusado: a sessão foi encerrada enquanto o corpo chegava. Nada foi feito.`);
-          return { status: 401, mensagem: 'A sua sessão foi encerrada enquanto o envio estava em andamento. Nada foi feito. Entre de novo com a senha.' };
+          return { status: 401, mensagem: dgIdiomaBackend.mensagem("A sua sessão foi encerrada enquanto o envio estava em andamento. Nada foi feito. Entre de novo com a senha.") };
         }
         // O que destrava (verificar) tem de poder ler o corpo com a sessão travada.
         if (!cadeado.livreTravado(m, p) && cadeado.travada(req, sessao)) {
@@ -1511,7 +1513,7 @@ function criarServidor(opcoes) {
     }
 
     if (p.startsWith('/api/')) {
-      if (!sessao) return H.erroJson(res, 401, 'Você precisa entrar para usar a API. Faça login em /login.');
+      if (!sessao) return H.erroJson(res, 401, dgIdiomaBackend.mensagem("Você precisa entrar para usar a API. Faça login em /login."));
       return api(req, res, url, sessao);
     }
 
@@ -1519,12 +1521,12 @@ function criarServidor(opcoes) {
     if (pp) {
       if (!sessao) {
         if (querHtml(req)) return semSessaoPagina(req, res, url);
-        return H.erroJson(res, 401, 'Você precisa entrar para abrir o painel. Faça login em /login.');
+        return H.erroJson(res, 401, dgIdiomaBackend.mensagem("Você precisa entrar para abrir o painel. Faça login em /login."));
       }
       if (!pp[2]) { res.writeHead(302, { Location: `/p/${pp[1]}/${url.search}` }); return res.end(); }
       // Os logs só existem na tela do Admin: nenhum painel os serve, e nenhum caminho por /p/ chega perto deles.
       if (RX_LOGS_NO_PAINEL.test(pp[2]) || RX_LOGS_NO_PAINEL.test(decodificaSeguro(pp[2]))) {
-        return H.erroJson(res, 403, 'Os logs só existem na tela do Admin');
+        return H.erroJson(res, 403, dgIdiomaBackend.mensagem("Os logs só existem na tela do Admin"));
       }
       // O painel do dono manda texto ao runner por conta própria (chat, recados, sessões): daqui em diante o turno
       // em curso deixa de ser de qualquer colaborador. A transcrição é a prova de verdade; isto é a segunda trava.
@@ -1561,7 +1563,7 @@ function criarServidor(opcoes) {
       if (sessao.via || !cadeado.travada(req, sessao)) { res.writeHead(302, { Location: destino, 'Cache-Control': 'no-store' }); return res.end(); }
       if (!servirArquivo(req, res, path.join(config.publicDir, 'cadeado.html'), 'no-store')) {
         log('erro', `A tela do cadeado não está instalada: falta ${path.join(config.publicDir, 'cadeado.html')}.`);
-        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela do cadeado não foi encontrado no servidor. Reinstale o DG Claw Web.');
+        H.paginaErro(res, 500, dgIdiomaBackend.mensagem("Tela não instalada"), dgIdiomaBackend.mensagem("O arquivo da tela do cadeado não foi encontrado no servidor. Reinstale o DG Claw Web."));
       }
       return undefined;
     }
@@ -1570,7 +1572,7 @@ function criarServidor(opcoes) {
       if (!sessao) return semSessaoPagina(req, res, url);
       if (!servirArquivo(req, res, path.join(config.publicDir, 'face-id.html'), 'no-store')) {
         log('erro', `A tela do Face ID não está instalada: falta ${path.join(config.publicDir, 'face-id.html')}.`);
-        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela do Face ID não foi encontrado no servidor. Reinstale o DG Claw Web.');
+        H.paginaErro(res, 500, dgIdiomaBackend.mensagem("Tela não instalada"), dgIdiomaBackend.mensagem("O arquivo da tela do Face ID não foi encontrado no servidor. Reinstale o DG Claw Web."));
       }
       return undefined;
     }
@@ -1587,7 +1589,7 @@ function criarServidor(opcoes) {
       if (sessao.papel !== 'colaborador') { res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' }); return res.end(); }
       if (!servirArquivo(req, res, path.join(config.publicDir, 'trocar-senha.html'), 'no-store')) {
         log('erro', `A tela de trocar senha não está instalada: falta ${path.join(config.publicDir, 'trocar-senha.html')}.`);
-        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de trocar senha não foi encontrado no servidor. Reinstale o DG Claw Web.');
+        H.paginaErro(res, 500, dgIdiomaBackend.mensagem("Tela não instalada"), dgIdiomaBackend.mensagem("O arquivo da tela de trocar senha não foi encontrado no servidor. Reinstale o DG Claw Web."));
       }
       return undefined;
     }
@@ -1596,7 +1598,7 @@ function criarServidor(opcoes) {
       if (!sessao) return semSessaoPagina(req, res, url);
       if (!servirArquivo(req, res, path.join(config.publicDir, 'colaboradores.html'), 'no-store')) {
         log('erro', `A tela de colaboradores não está instalada: falta ${path.join(config.publicDir, 'colaboradores.html')}.`);
-        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de colaboradores não foi encontrado no servidor. Reinstale o DG Claw Web.');
+        H.paginaErro(res, 500, dgIdiomaBackend.mensagem("Tela não instalada"), dgIdiomaBackend.mensagem("O arquivo da tela de colaboradores não foi encontrado no servidor. Reinstale o DG Claw Web."));
       }
       return undefined;
     }
@@ -1605,7 +1607,7 @@ function criarServidor(opcoes) {
       if (!sessao) return semSessaoPagina(req, res, url);
       if (!servirArquivo(req, res, path.join(config.publicDir, 'lembretes.html'), 'no-store')) {
         log('erro', `A tela de lembretes não está instalada: falta ${path.join(config.publicDir, 'lembretes.html')}.`);
-        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de lembretes não foi encontrado no servidor. Reinstale o DG Claw Web.');
+        H.paginaErro(res, 500, dgIdiomaBackend.mensagem("Tela não instalada"), dgIdiomaBackend.mensagem("O arquivo da tela de lembretes não foi encontrado no servidor. Reinstale o DG Claw Web."));
       }
       return undefined;
     }
@@ -1614,7 +1616,7 @@ function criarServidor(opcoes) {
       if (!sessao) return semSessaoPagina(req, res, url);
       if (!servirArquivo(req, res, path.join(config.publicDir, 'avisos.html'), 'no-store')) {
         log('erro', `A tela do quadro de avisos não está instalada: falta ${path.join(config.publicDir, 'avisos.html')}.`);
-        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela do quadro de avisos não foi encontrado no servidor. Reinstale o DG Claw Web.');
+        H.paginaErro(res, 500, dgIdiomaBackend.mensagem("Tela não instalada"), dgIdiomaBackend.mensagem("O arquivo da tela do quadro de avisos não foi encontrado no servidor. Reinstale o DG Claw Web."));
       }
       return undefined;
     }
@@ -1623,7 +1625,7 @@ function criarServidor(opcoes) {
       if (!sessao) return semSessaoPagina(req, res, url);
       if (!servirArquivo(req, res, path.join(config.publicDir, 'suporte.html'), 'no-store')) {
         log('erro', `A tela de suporte remoto não está instalada: falta ${path.join(config.publicDir, 'suporte.html')}.`);
-        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de suporte remoto não foi encontrado no servidor. Reinstale o DG Claw Web.');
+        H.paginaErro(res, 500, dgIdiomaBackend.mensagem("Tela não instalada"), dgIdiomaBackend.mensagem("O arquivo da tela de suporte remoto não foi encontrado no servidor. Reinstale o DG Claw Web."));
       }
       return undefined;
     }
@@ -1634,23 +1636,23 @@ function criarServidor(opcoes) {
       if (falhaDoRegistro(req, res, false)) return undefined;
       const slug = decodeURIComponent(pa[1]);
       if (!RX_SLUG_ROTA.test(slug) || !registro.obter(slug)) {
-        return H.paginaErro(res, 404, 'Agente não encontrado', `Não existe agente chamado "${H.escapaHtml(slug.slice(0, 40))}". Volte ao início para ver a lista.`);
+        return H.paginaErro(res, 404, dgIdiomaBackend.mensagem("Agente não encontrado"), dgIdiomaBackend.mensagem("Não existe agente chamado \"{p0}\". Volte ao início para ver a lista.", {p0: (H.escapaHtml(slug.slice(0, 40)))}));
       }
       // Colaborador: a fileira de troca de agente (#trocaBaixo) nem é enviada. Ele só tem este agente.
       if (ehColab(sessao) && servirConversaColab(req, res, m)) return undefined;
       if (!servirArquivo(req, res, path.join(config.publicDir, 'conversa.html'), 'no-store')) {
         log('erro', `A tela da conversa não está instalada: falta ${path.join(config.publicDir, 'conversa.html')}.`);
-        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela da conversa não foi encontrado no servidor. Reinstale o DG Claw Web.');
+        H.paginaErro(res, 500, dgIdiomaBackend.mensagem("Tela não instalada"), dgIdiomaBackend.mensagem("O arquivo da tela da conversa não foi encontrado no servidor. Reinstale o DG Claw Web."));
       }
       return undefined;
     }
 
     if ((p === '/logs' || p === '/logs/') && (m === 'GET' || m === 'HEAD')) {
       if (!sessao) return semSessaoPagina(req, res, url);
-      if (!logsAutorizado(sessao)) return H.paginaErro(res, 403, 'Acesso não liberado', 'Os logs dos agentes são só do dono do DG Claw, pela tela Logs do Admin.');
+      if (!logsAutorizado(sessao)) return H.paginaErro(res, 403, dgIdiomaBackend.mensagem("Acesso não liberado"), dgIdiomaBackend.mensagem("Os logs dos agentes são só do dono do DG Claw, pela tela Logs do Admin."));
       if (!servirArquivo(req, res, path.join(config.publicDir, 'logs.html'), 'no-store')) {
         log('erro', `A tela de logs não está instalada: falta ${path.join(config.publicDir, 'logs.html')}.`);
-        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de logs não foi encontrado no servidor. Reinstale o DG Claw Web.');
+        H.paginaErro(res, 500, dgIdiomaBackend.mensagem("Tela não instalada"), dgIdiomaBackend.mensagem("O arquivo da tela de logs não foi encontrado no servidor. Reinstale o DG Claw Web."));
       }
       return undefined;
     }
@@ -1659,7 +1661,7 @@ function criarServidor(opcoes) {
       if (!sessao) return semSessaoPagina(req, res, url);
       if (!servirArquivo(req, res, path.join(config.publicDir, 'seguranca.html'), 'no-store')) {
         log('erro', `A tela de segurança não está instalada: falta ${path.join(config.publicDir, 'seguranca.html')}.`);
-        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de segurança não foi encontrado no servidor. Reinstale o DG Claw Web.');
+        H.paginaErro(res, 500, dgIdiomaBackend.mensagem("Tela não instalada"), dgIdiomaBackend.mensagem("O arquivo da tela de segurança não foi encontrado no servidor. Reinstale o DG Claw Web."));
       }
       return undefined;
     }
@@ -1668,7 +1670,7 @@ function criarServidor(opcoes) {
       if (!sessao) return semSessaoPagina(req, res, url);
       if (!servirArquivo(req, res, path.join(config.publicDir, 'anonimizar.html'), 'no-store')) {
         log('erro', `A tela de anonimizar não está instalada: falta ${path.join(config.publicDir, 'anonimizar.html')}.`);
-        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de anonimizar documentos não foi encontrado no servidor. Reinstale o DG Claw Web.');
+        H.paginaErro(res, 500, dgIdiomaBackend.mensagem("Tela não instalada"), dgIdiomaBackend.mensagem("O arquivo da tela de anonimizar documentos não foi encontrado no servidor. Reinstale o DG Claw Web."));
       }
       return undefined;
     }
@@ -1677,7 +1679,7 @@ function criarServidor(opcoes) {
       if (!sessao) return semSessaoPagina(req, res, url);
       if (!servirArquivo(req, res, path.join(config.publicDir, 'conectar.html'), 'no-store')) {
         log('erro', `A tela de conectar conta não está instalada: falta ${path.join(config.publicDir, 'conectar.html')}.`);
-        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela de conectar conta não foi encontrado no servidor. Reinstale o DG Claw Web.');
+        H.paginaErro(res, 500, dgIdiomaBackend.mensagem("Tela não instalada"), dgIdiomaBackend.mensagem("O arquivo da tela de conectar conta não foi encontrado no servidor. Reinstale o DG Claw Web."));
       }
       return undefined;
     }
@@ -1686,7 +1688,7 @@ function criarServidor(opcoes) {
       if (!sessao) return semSessaoPagina(req, res, url);
       if (!servirArquivo(req, res, path.join(config.publicDir, 'mesa.html'), 'no-store')) {
         log('erro', `A tela da Mesa não está instalada: falta ${path.join(config.publicDir, 'mesa.html')}.`);
-        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela da Mesa de tarefas não foi encontrado no servidor. Reinstale o DG Claw Web.');
+        H.paginaErro(res, 500, dgIdiomaBackend.mensagem("Tela não instalada"), dgIdiomaBackend.mensagem("O arquivo da tela da Mesa de tarefas não foi encontrado no servidor. Reinstale o DG Claw Web."));
       }
       return undefined;
     }
@@ -1694,11 +1696,11 @@ function criarServidor(opcoes) {
     if ((p === '/manual' || p.startsWith('/manual/')) && (m === 'GET' || m === 'HEAD')) {
       if (!sessao) return semSessaoPagina(req, res, url);
       if (!/^\/manual\/?$|^\/manual\/(?:[a-z0-9-]+|README)\/?$/.test(p)) {
-        return H.paginaErro(res, 404, 'Página do manual não encontrada', 'Esse endereço não existe no manual. Abra /manual para ver a lista de páginas.');
+        return H.paginaErro(res, 404, dgIdiomaBackend.mensagem("Página do manual não encontrada"), dgIdiomaBackend.mensagem("Esse endereço não existe no manual. Abra /manual para ver a lista de páginas."));
       }
       if (!servirArquivo(req, res, path.join(config.publicDir, 'manual.html'), 'no-store')) {
         log('erro', `A tela do Manual não está instalada: falta ${path.join(config.publicDir, 'manual.html')}.`);
-        H.paginaErro(res, 500, 'Tela não instalada', 'O arquivo da tela do Manual não foi encontrado no servidor. Reinstale o DG Claw Web.');
+        H.paginaErro(res, 500, dgIdiomaBackend.mensagem("Tela não instalada"), dgIdiomaBackend.mensagem("O arquivo da tela do Manual não foi encontrado no servidor. Reinstale o DG Claw Web."));
       }
       return undefined;
     }
@@ -1711,17 +1713,17 @@ function criarServidor(opcoes) {
         if (ehHtml && !livre && !sessao) return semSessaoPagina(req, res, url);
         if (servirArquivo(req, res, arq)) return undefined;
       }
-      return H.paginaErro(res, 404, 'Página não encontrada', 'Esse endereço não existe neste servidor.');
+      return H.paginaErro(res, 404, dgIdiomaBackend.mensagem("Página não encontrada"), dgIdiomaBackend.mensagem("Esse endereço não existe neste servidor."));
     }
-    return H.erroJson(res, 405, `Não existe ${m} ${p}.`);
+    return H.erroJson(res, 405, dgIdiomaBackend.mensagem("Não existe {p0} {p1}.", {p0: (m), p1: (p)}));
   }
 
   const servidor = http.createServer((req, res) => {
-    tratar(req, res).catch((e) => {
+    idiomaContexto.executar(req, config.idioma, () => tratar(req, res).catch((e) => {
       log('erro', `Erro inesperado em ${req.method} ${String(req.url).split('?')[0]}: ${e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e}`);
-      if (!res.headersSent) H.erroJson(res, 500, 'Erro interno do servidor. O detalhe foi registrado no log; tente de novo e, se repetir, avise quem instalou.');
+      if (!res.headersSent) H.erroJson(res, 500, dgIdiomaBackend.mensagem("Erro interno do servidor. O detalhe foi registrado no log; tente de novo e, se repetir, avise quem instalou."));
       else res.destroy();
-    });
+    }));
   });
 
   servidor.on('upgrade', (req, socket, head) => {
@@ -1771,17 +1773,17 @@ function criarServidor(opcoes) {
   const servidorAdmin = http.createServer(async (req, res) => {
     try {
       let url;
-      try { url = new URL(req.url, 'http://local'); } catch (_) { return H.erroJson(res, 400, 'Não entendi o endereço pedido.'); }
+      try { url = new URL(req.url, 'http://local'); } catch (_) { return H.erroJson(res, 400, dgIdiomaBackend.mensagem("Não entendi o endereço pedido.")); }
       const p = url.pathname;
       if (p !== '/api/v1/colaboradores' && !p.startsWith('/api/v1/colaboradores/')) {
-        return H.erroJson(res, 404, `Este canal do servidor só atende /api/v1/colaboradores (recebi ${req.method} ${p.slice(0, 120)}). As outras rotas são do painel, no navegador.`);
+        return H.erroJson(res, 404, dgIdiomaBackend.mensagem("Este canal do servidor só atende /api/v1/colaboradores (recebi {p0} {p1}). As outras rotas são do painel, no navegador.", {p0: (req.method), p1: (p.slice(0, 120))}));
       }
       if (falhaDoRegistro(req, res, true)) return undefined;
       if (await colabRotas.tratar(req, res, url, sessaoDoHost())) return undefined;
-      return H.erroJson(res, 404, `Não existe ${req.method} ${p}.`);
+      return H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe {p0} {p1}.", {p0: (req.method), p1: (p)}));
     } catch (e) {
       log('erro', `Socket de administração: ${req.method} ${String(req.url).slice(0, 120)} falhou: ${e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e}`);
-      if (!res.headersSent) return H.erroJson(res, 500, 'Erro interno do servidor. O detalhe foi registrado no log do Web.');
+      if (!res.headersSent) return H.erroJson(res, 500, dgIdiomaBackend.mensagem("Erro interno do servidor. O detalhe foi registrado no log do Web."));
       res.destroy();
       return undefined;
     }

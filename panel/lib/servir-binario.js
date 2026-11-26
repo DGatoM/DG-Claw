@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 const fs = require('fs');
 const { disposicao } = require('./mime');
 
@@ -30,7 +31,7 @@ function servirBinario(res, r, comoAnexo) {
   const fluxo = fs.createReadStream(r.caminho);
   fluxo.on('error', (err) => {
     console.error('[painel] falhou ao servir arquivo:', r.caminho, err.message);
-    if (!res.headersSent) res.status(500).type('text/plain; charset=utf-8').send('Não consegui ler o arquivo do disco.');
+    if (!res.headersSent) res.status(500).type('text/plain; charset=utf-8').send(dgIdiomaBackend.texto("Não consegui ler o arquivo do disco."));
     else res.destroy();
   });
   fluxo.pipe(res);

@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Escrita de arquivo de segredo pelo DG Claw Web, que roda como root no host.
 //
 // Quem escreve como root numa pasta que outra pessoa alcança corre um risco
@@ -31,7 +32,7 @@ class ErroGravacao extends Error {
 
 function inteiroOuNull(v, nome) {
   if (v == null) return null;
-  if (!Number.isInteger(v) || v < 0) throw new ErroGravacao(`A opção ${nome} precisa ser um número inteiro (recebi ${JSON.stringify(v)}).`, 'OPCAO_INVALIDA');
+  if (!Number.isInteger(v) || v < 0) throw new ErroGravacao(dgIdiomaBackend.mensagem("A opção {p0} precisa ser um número inteiro (recebi {p1}).", {p0: (nome), p1: (JSON.stringify(v))}), 'OPCAO_INVALIDA');
   return v;
 }
 
@@ -48,7 +49,7 @@ function criaPastaSemAtalho(caminho, modo, uid, gid) {
     fs.fchownSync(fd, uid, gid);
     fs.fchmodSync(fd, modo);
   } catch (e) {
-    throw new ErroGravacao(`Não consegui criar a pasta ${caminho} (${e.code || e.name}). Se ela virou um atalho, o dono deve conferir o que o agente fez ali.`, 'FALHA_ESCRITA');
+    throw new ErroGravacao(dgIdiomaBackend.mensagem("Não consegui criar a pasta {p0} ({p1}). Se ela virou um atalho, o dono deve conferir o que o agente fez ali.", {p0: (caminho), p1: (e.code || e.name)}), 'FALHA_ESCRITA');
   } finally {
     if (fd != null) { try { fs.closeSync(fd); } catch (_) { /* já fechado */ } }
   }
@@ -58,15 +59,15 @@ function criaPastaSemAtalho(caminho, modo, uid, gid) {
 function conferePasta(p, uidPermitido) {
   let st;
   try { st = fs.lstatSync(p); } catch (e) {
-    throw new ErroGravacao(`A pasta ${p} não existe ou não pôde ser lida (${e.code || e.name}).`, 'PASTA_AUSENTE');
+    throw new ErroGravacao(dgIdiomaBackend.mensagem("A pasta {p0} não existe ou não pôde ser lida ({p1}).", {p0: (p), p1: (e.code || e.name)}), 'PASTA_AUSENTE');
   }
-  if (st.isSymbolicLink()) throw new ErroGravacao(`${p} é um atalho (link simbólico). Por segurança não gravo segredo passando por atalho.`, 'ATALHO');
-  if (!st.isDirectory()) throw new ErroGravacao(`${p} existe mas não é uma pasta.`, 'NAO_E_PASTA');
+  if (st.isSymbolicLink()) throw new ErroGravacao(dgIdiomaBackend.mensagem("{p0} é um atalho (link simbólico). Por segurança não gravo segredo passando por atalho.", {p0: (p)}), 'ATALHO');
+  if (!st.isDirectory()) throw new ErroGravacao(dgIdiomaBackend.mensagem("{p0} existe mas não é uma pasta.", {p0: (p)}), 'NAO_E_PASTA');
   if (st.uid !== 0 && st.uid !== uidPermitido) {
-    throw new ErroGravacao(`A pasta ${p} é do usuário ${st.uid}, que não é o root nem o dono do arquivo (${uidPermitido}). Outra pessoa poderia trocar o que tem dentro.`, 'PASTA_DE_OUTRO');
+    throw new ErroGravacao(dgIdiomaBackend.mensagem("A pasta {p0} é do usuário {p1}, que não é o root nem o dono do arquivo ({p2}). Outra pessoa poderia trocar o que tem dentro.", {p0: (p), p1: (st.uid), p2: (uidPermitido)}), 'PASTA_DE_OUTRO');
   }
   if (st.mode & 0o022) {
-    throw new ErroGravacao(`A pasta ${p} aceita escrita de grupo ou de outros (modo ${(st.mode & 0o777).toString(8)}). Deixe 700 ou 755 antes de gravar segredo nela.`, 'PASTA_ABERTA');
+    throw new ErroGravacao(dgIdiomaBackend.mensagem("A pasta {p0} aceita escrita de grupo ou de outros (modo {p1}). Deixe 700 ou 755 antes de gravar segredo nela.", {p0: (p), p1: ((st.mode & 0o777).toString(8))}), 'PASTA_ABERTA');
   }
   return st;
 }
@@ -106,37 +107,37 @@ function pastasDoCaminho(raizReal, pasta) {
 function gravaArquivoSeguro(caminho, conteudo, opcoes) {
   const o = opcoes || {};
   if (typeof caminho !== 'string' || !path.isAbsolute(caminho)) {
-    throw new ErroGravacao(`O destino precisa ser um caminho absoluto (recebi ${JSON.stringify(caminho)}).`, 'OPCAO_INVALIDA');
+    throw new ErroGravacao(dgIdiomaBackend.mensagem("O destino precisa ser um caminho absoluto (recebi {p0}).", {p0: (JSON.stringify(caminho))}), 'OPCAO_INVALIDA');
   }
   if (typeof o.raiz !== 'string' || !path.isAbsolute(o.raiz)) {
-    throw new ErroGravacao('Faltou a opção raiz (caminho absoluto da pasta que tem de conter o arquivo).', 'OPCAO_INVALIDA');
+    throw new ErroGravacao(dgIdiomaBackend.mensagem("Faltou a opção raiz (caminho absoluto da pasta que tem de conter o arquivo)."), 'OPCAO_INVALIDA');
   }
   const dados = Buffer.isBuffer(conteudo) ? conteudo : Buffer.from(String(conteudo == null ? '' : conteudo), 'utf8');
   let uid = inteiroOuNull(o.uid, 'uid');
   let gid = inteiroOuNull(o.gid, 'gid');
   let modo = inteiroOuNull(o.modo, 'modo');
-  if (modo != null && modo > 0o777) throw new ErroGravacao(`O modo ${modo.toString(8)} não vale para um arquivo de segredo.`, 'OPCAO_INVALIDA');
+  if (modo != null && modo > 0o777) throw new ErroGravacao(dgIdiomaBackend.mensagem("O modo {p0} não vale para um arquivo de segredo.", {p0: (modo.toString(8))}), 'OPCAO_INVALIDA');
 
   let raizReal;
   try { raizReal = fs.realpathSync(o.raiz); } catch (e) {
-    throw new ErroGravacao(`A raiz ${o.raiz} não existe ou não pôde ser lida (${e.code || e.name}).`, 'PASTA_AUSENTE');
+    throw new ErroGravacao(dgIdiomaBackend.mensagem("A raiz {p0} não existe ou não pôde ser lida ({p1}).", {p0: (o.raiz), p1: (e.code || e.name)}), 'PASTA_AUSENTE');
   }
   const destino = path.resolve(caminho);
   const pasta = path.dirname(destino);
   const nome = path.basename(destino);
   const pastas = pastasDoCaminho(raizReal, pasta);
   if (!pastas || destino === raizReal) {
-    throw new ErroGravacao(`O destino ${destino} fica fora da raiz permitida (${raizReal}).`, 'FORA_DA_RAIZ');
+    throw new ErroGravacao(dgIdiomaBackend.mensagem("O destino {p0} fica fora da raiz permitida ({p1}).", {p0: (destino), p1: (raizReal)}), 'FORA_DA_RAIZ');
   }
 
   // O destino que já existe manda no dono e no modo que faltaram.
   let atual = null;
   try { atual = fs.lstatSync(destino); } catch (e) {
-    if (e.code !== 'ENOENT') throw new ErroGravacao(`Não consegui conferir ${destino} (${e.code || e.name}).`, 'FALHA_ESCRITA');
+    if (e.code !== 'ENOENT') throw new ErroGravacao(dgIdiomaBackend.mensagem("Não consegui conferir {p0} ({p1}).", {p0: (destino), p1: (e.code || e.name)}), 'FALHA_ESCRITA');
   }
   if (atual) {
-    if (atual.isSymbolicLink()) throw new ErroGravacao(`${destino} é um atalho (link simbólico). Por segurança não gravo segredo nele.`, 'ATALHO');
-    if (!atual.isFile()) throw new ErroGravacao(`${destino} existe mas não é um arquivo comum.`, 'NAO_E_ARQUIVO');
+    if (atual.isSymbolicLink()) throw new ErroGravacao(dgIdiomaBackend.mensagem("{p0} é um atalho (link simbólico). Por segurança não gravo segredo nele.", {p0: (destino)}), 'ATALHO');
+    if (!atual.isFile()) throw new ErroGravacao(dgIdiomaBackend.mensagem("{p0} existe mas não é um arquivo comum.", {p0: (destino)}), 'NAO_E_ARQUIVO');
     if (uid == null) uid = atual.uid;
     if (gid == null) gid = atual.gid;
     if (modo == null) modo = atual.mode & 0o777;
@@ -151,9 +152,9 @@ function gravaArquivoSeguro(caminho, conteudo, opcoes) {
     const candidatas = criar.recursiva ? pastas.slice(1) : [pasta];
     for (const alvo of candidatas) {
       try { fs.lstatSync(alvo); continue; } catch (e) {
-        if (e.code !== 'ENOENT') throw new ErroGravacao(`Não consegui conferir a pasta ${alvo} (${e.code || e.name}).`, 'FALHA_ESCRITA');
+        if (e.code !== 'ENOENT') throw new ErroGravacao(dgIdiomaBackend.mensagem("Não consegui conferir a pasta {p0} ({p1}).", {p0: (alvo), p1: (e.code || e.name)}), 'FALHA_ESCRITA');
       }
-      if (pm == null || pu == null || pg == null) throw new ErroGravacao('Para criar a pasta preciso de pasta.modo, pasta.uid e pasta.gid.', 'OPCAO_INVALIDA');
+      if (pm == null || pu == null || pg == null) throw new ErroGravacao(dgIdiomaBackend.mensagem("Para criar a pasta preciso de pasta.modo, pasta.uid e pasta.gid."), 'OPCAO_INVALIDA');
       for (const p of pastas.slice(0, pastas.indexOf(alvo))) conferePasta(p, pu);
       criaPastaSemAtalho(alvo, pm, pu, pg);
     }
@@ -162,7 +163,7 @@ function gravaArquivoSeguro(caminho, conteudo, opcoes) {
   if (uid == null || gid == null) {
     let sp;
     try { sp = fs.lstatSync(pasta); } catch (e) {
-      throw new ErroGravacao(`A pasta ${pasta} não existe (${e.code || e.name}).`, 'PASTA_AUSENTE');
+      throw new ErroGravacao(dgIdiomaBackend.mensagem("A pasta {p0} não existe ({p1}).", {p0: (pasta), p1: (e.code || e.name)}), 'PASTA_AUSENTE');
     }
     if (uid == null) uid = sp.uid;
     if (gid == null) gid = sp.gid;
@@ -180,7 +181,7 @@ function gravaArquivoSeguro(caminho, conteudo, opcoes) {
     while (escrito < dados.length) {
       const n = fs.writeSync(fd, dados, escrito, dados.length - escrito, escrito);
       if (!(n > 0)) {
-        throw new ErroGravacao(`Não consegui gravar ${destino} por inteiro: escrevi ${escrito} de ${dados.length} bytes e o sistema parou de aceitar dados (disco cheio ou limite de tamanho). O arquivo não foi publicado; libere espaço e tente de novo.`, 'FALHA_ESCRITA');
+        throw new ErroGravacao(dgIdiomaBackend.mensagem("Não consegui gravar {p0} por inteiro: escrevi {p1} de {p2} bytes e o sistema parou de aceitar dados (disco cheio ou limite de tamanho). O arquivo não foi publicado; libere espaço e tente de novo.", {p0: (destino), p1: (escrito), p2: (dados.length)}), 'FALHA_ESCRITA');
       }
       escrito += n;
     }
@@ -192,7 +193,7 @@ function gravaArquivoSeguro(caminho, conteudo, opcoes) {
     for (const p of pastas) conferePasta(p, uid);
     if (o.exclusivo) {
       try { fs.linkSync(tmp, destino); } catch (e) {
-        if (e.code === 'EEXIST') throw new ErroGravacao(`${destino} já existe; não sobrescrevi.`, 'JA_EXISTE');
+        if (e.code === 'EEXIST') throw new ErroGravacao(dgIdiomaBackend.mensagem("{p0} já existe; não sobrescrevi.", {p0: (destino)}), 'JA_EXISTE');
         throw e;
       }
       fs.unlinkSync(tmp);
@@ -203,7 +204,7 @@ function gravaArquivoSeguro(caminho, conteudo, opcoes) {
     if (fd != null) { try { fs.closeSync(fd); } catch (_) { /* já fechado */ } }
     try { fs.unlinkSync(tmp); } catch (_) { /* não chegou a existir ou já foi trocado */ }
     if (e instanceof ErroGravacao) throw e;
-    throw new ErroGravacao(`Não consegui gravar ${destino} (${e.code || e.name}). Nada foi alterado no arquivo.`, 'FALHA_ESCRITA');
+    throw new ErroGravacao(dgIdiomaBackend.mensagem("Não consegui gravar {p0} ({p1}). Nada foi alterado no arquivo.", {p0: (destino), p1: (e.code || e.name)}), 'FALHA_ESCRITA');
   }
   // fsync da pasta: sem ele a troca de nome pode se perder numa queda de energia.
   try {

@@ -1,4 +1,7 @@
 'use strict';
+const dgUiText_sigilo_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiHtml_sigilo_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
+const dgUiLabel_sigilo_js = (el, fonte, atributo) => { if (globalThis.DGI18n) globalThis.DGI18n.rotulo(el, fonte, atributo); else if (atributo) el.setAttribute(atributo, fonte); else el.textContent = fonte; };
 /* sigilo.js: o modo escondido (botão do olho) da conversa. Esconde nomes, valores e contatos para
    mostrar a tela numa aula sem expor cliente. Contrato do servidor: web/docs/SIGILO.md.
 
@@ -262,7 +265,7 @@
       if (atual) return;
       const b = doc.createElement('button');
       b.type = 'button'; b.className = 'sigx'; b.setAttribute('data-sigx', '');
-      b.textContent = 'Esconder de novo';
+      dgUiLabel_sigilo_js(b, "Esconder de novo", null);
       (u.querySelector('.bub') || u).appendChild(b);
     }
 
@@ -398,7 +401,7 @@
             caps = { so_regex: !!d.so_regex, modelo: d.modelo || null };
           } catch (e) {
             parte.forEach((t) => { if (!motor.tem(t) || motor.situacao(t) === 'falhou') motor.registra(t, null); });
-            avisos.push('Não consegui analisar parte das mensagens (' + e.message + '). Elas continuam escondidas.');
+            avisos.push(dgUiText_sigilo_js("Não consegui analisar parte das mensagens (") + e.message + '). Elas continuam escondidas.');
           } finally {
             parte.forEach((t) => { emVoo.delete(t); fila.delete(t); });
           }
@@ -433,15 +436,15 @@
       const mostra = ligado && caps.so_regex === true;
       aviso.hidden = !mostra;
     }
-    const EXPLICA = 'Sem chave de modelo, só o filtro automático (e-mail, valor, CPF, telefone, chave) esconde. ' +
-      'Nomes de pessoas e empresas passam. Para ligar o completo, peça ao Admin: "liga o modo escondido completo". ' +
-      'Ele copia a chave ANTHROPIC_API_KEY ou OPENAI_API_KEY do cofre para o web.env.';
+    const EXPLICA = dgUiText_sigilo_js("Sem chave de modelo, só o filtro automático (e-mail, valor, CPF, telefone, chave) esconde. ") +
+      dgUiText_sigilo_js("Nomes de pessoas e empresas passam. Para ligar o completo, peça ao Admin: \"liga o modo escondido completo\". ") +
+      dgUiText_sigilo_js("Ele copia a chave ANTHROPIC_API_KEY ou OPENAI_API_KEY do cofre para o web.env.");
     function criaAviso() {
       aviso = doc.createElement('div');
       aviso.id = 'sigAviso'; aviso.hidden = true;
       const b = doc.createElement('button');
       b.type = 'button'; b.setAttribute('aria-expanded', 'false');
-      b.textContent = 'Só o filtro automático: nomes passam. Toque para saber como ligar o completo.';
+      dgUiLabel_sigilo_js(b, "Só o filtro automático: nomes passam. Toque para saber como ligar o completo.", null);
       const p = doc.createElement('p'); p.textContent = EXPLICA; p.hidden = true;
       b.addEventListener('click', () => { p.hidden = !p.hidden; b.setAttribute('aria-expanded', String(!p.hidden)); });
       aviso.append(b, p);
@@ -505,10 +508,10 @@
       btn = doc.createElement('button');
       btn.id = 'btnSigilo'; btn.type = 'button'; btn.className = 'btn';
       btn.setAttribute('data-tour', 'sigilo');
-      btn.title = 'Modo escondido: esconde nomes, valores e contatos para mostrar a tela';
+      dgUiLabel_sigilo_js(btn, "Modo escondido: esconde nomes, valores e contatos para mostrar a tela", "title");
       btn.setAttribute('aria-label', btn.title);
       btn.setAttribute('aria-pressed', 'false');
-      btn.innerHTML = '<svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-eye"/></svg> <span class="lbl">mostrando</span>';
+      btn.innerHTML = dgUiHtml_sigilo_js("<svg class=\"ds-ico\" aria-hidden=\"true\"><use href=\"/ds/icones.svg#i-eye\"/></svg> <span class=\"lbl\"><!--dg-i18n:2b963bfc3f6f-->mostrando<!--/dg-i18n--></span>");
       if (tools) tools.insertBefore(btn, doc.getElementById('btnLer') || (doc.getElementById('btnLembretes') || {}).nextSibling || tools.firstChild); else (doc.getElementById('cabecalho') || corpo).appendChild(btn);
       btn.addEventListener('click', () => liga(!ligado));
       criaAviso();
@@ -530,12 +533,12 @@
       modelo: () => caps.modelo,
       /** Passo do tour (conversa.js chama ao montar a visita guiada). */
       passoTour() {
-        const modelo = caps.so_regex === false && caps.modelo ? 'O modelo ativo agora é o ' + caps.modelo + '.'
-          : (caps.so_regex === true ? 'Agora só o filtro automático está ligado (falta chave de modelo): nomes de pessoas e empresas passam.' : 'Ligue o modo para ver qual modelo está ativo.');
+        const modelo = caps.so_regex === false && caps.modelo ? dgUiText_sigilo_js("O modelo ativo agora é o ") + caps.modelo + '.'
+          : (caps.so_regex === true ? dgUiText_sigilo_js("Agora só o filtro automático está ligado (falta chave de modelo): nomes de pessoas e empresas passam.") : dgUiText_sigilo_js("Ligue o modo para ver qual modelo está ativo."));
         return {
           alvo: '#btnSigilo', titulo: 'Modo escondido (olhinho)',
           oque: 'O botão do olho esconde nomes, empresas, valores, e-mails, telefones, documentos e chaves de todas as mensagens da tela, trocando por asteriscos.',
-          como: 'Um filtro automático pega e-mail, valor, CPF, CNPJ, telefone e chave na hora. Um modelo de IA aponta o resto (nomes e empresas) e o mesmo nome some em todas as mensagens. ' + modelo + ' Toque num texto escondido para mostrar só aquela mensagem, e em "esconder de novo" para voltar. Fotos e vídeos ficam borrados. Enquanto uma mensagem não foi analisada, aparece "escondendo…" em vez do texto.',
+          get como() { return dgUiText_sigilo_js("Um filtro automático pega e-mail, valor, CPF, CNPJ, telefone e chave na hora. Um modelo de IA aponta o resto (nomes e empresas) e o mesmo nome some em todas as mensagens. ") + modelo + dgUiText_sigilo_js(" Toque num texto escondido para mostrar só aquela mensagem, e em \"esconder de novo\" para voltar. Fotos e vídeos ficam borrados. Enquanto uma mensagem não foi analisada, aparece \"escondendo…\" em vez do texto."); },
           porque: 'Para mostrar a tela numa aula ou palestra sem expor cliente nem dado pessoal. É uma defesa, não uma garantia: confira a tela antes de gravar.',
         };
       },

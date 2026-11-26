@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Ponte para web/bin/entrega-segura.py: grava e lê arquivos na casa do agente descendo cada pasta com
 // O_NOFOLLOW (o agente pode trocar uma pasta por um atalho no meio da operação, e o Web roda como root).
 // Sem shell, argumentos em lista, ambiente mínimo.
@@ -22,7 +23,7 @@ function rodar(args, python) {
       try { r = JSON.parse(String(saida || '').trim().split('\n').pop()); } catch (_) { /* sem JSON */ }
       if (r && r.ok) return resolve(r);
       if (r && r.erro) return reject(new ErroEntrega(500, r.erro, r.codigo));
-      reject(new ErroEntrega(500, `Não consegui rodar a gravação segura de arquivos (${e ? (e.code || e.message) : 'sem resposta'}). Confira se o python3 está instalado no servidor. Nada foi gravado na pasta do agente.`, 'ENTREGA_FALHOU'));
+      reject(new ErroEntrega(500, dgIdiomaBackend.mensagem("Não consegui rodar a gravação segura de arquivos ({p0}). Confira se o python3 está instalado no servidor. Nada foi gravado na pasta do agente.", {p0: (e ? (e.code || e.message) : 'sem resposta')}), 'ENTREGA_FALHOU'));
     });
   });
 }

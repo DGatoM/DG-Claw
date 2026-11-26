@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("./idioma-contexto");
 // Estado dos lembretes de mensagem, isolado pelo workspace e pela conversa.
 const fs = require('fs');
 const path = require('path');
@@ -13,11 +14,11 @@ function criarAlertas(arquivo, conversa) {
   function ler() {
     try {
       const d = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
-      if (d.versao !== 1 || !Array.isArray(d.itens)) throw new Error('formato inválido');
+      if (d.versao !== 1 || !Array.isArray(d.itens)) throw new Error(dgIdiomaBackend.mensagem("formato inválido"));
       return d;
     } catch (e) {
       if (e.code === 'ENOENT') return { versao: 1, itens: [] };
-      throw new Error(`Não consegui ler os alertas em ${arquivo}: ${e.message}. Preserve o arquivo e confira o backup.`);
+      throw new Error(dgIdiomaBackend.mensagem("Não consegui ler os alertas em {p0}: {p1}. Preserve o arquivo e confira o backup.", {p0: (arquivo), p1: (e.message)}));
     }
   }
   function salvar(d) {
@@ -27,7 +28,7 @@ function criarAlertas(arquivo, conversa) {
       fs.writeFileSync(tmp, JSON.stringify(d), { mode: 0o600 });
       fs.renameSync(tmp, arquivo);
     } catch (e) {
-      throw new Error(`Não consegui guardar os alertas em ${arquivo}: ${e.message}. Confira espaço e permissões e tente novamente.`);
+      throw new Error(dgIdiomaBackend.mensagem("Não consegui guardar os alertas em {p0}: {p1}. Confira espaço e permissões e tente novamente.", {p0: (arquivo), p1: (e.message)}));
     }
   }
   function observar(mensagens) {

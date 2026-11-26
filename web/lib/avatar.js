@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Foto do agente cadastrada como URL de fora (https://...). No iPhone a mesma URL externa era
 // pedida várias vezes por página e a foto chegava a pintar pela metade (21/10/2026). Aqui o
 // servidor baixa uma vez, guarda em <dataDir>/avatares/ e entrega do mesmo domínio, inteira, com
@@ -33,12 +34,12 @@ function criarAvatar({ dataDir, log, buscar }) {
     if (emCurso.has(base)) return emCurso.get(base);
     const p = (async () => {
       const r = await baixar(urlExterna);
-      if (!r.ok) throw new Error(`o servidor da foto respondeu ${r.status}`);
+      if (!r.ok) throw new Error(dgIdiomaBackend.mensagem("o servidor da foto respondeu {p0}", {p0: (r.status)}));
       const tipo = String(r.headers.get('content-type') || '').split(';')[0].trim();
-      if (!RX_TIPO.test(tipo)) throw new Error(`a resposta não é uma foto aceita (Content-Type "${tipo || 'vazio'}"; aceito PNG, JPEG, WebP, GIF ou AVIF)`);
+      if (!RX_TIPO.test(tipo)) throw new Error(dgIdiomaBackend.mensagem("a resposta não é uma foto aceita (Content-Type \"{p0}\"; aceito PNG, JPEG, WebP, GIF ou AVIF)", {p0: (tipo || 'vazio')}));
       const buf = Buffer.from(await r.arrayBuffer());
-      if (!buf.length) throw new Error('a foto veio vazia');
-      if (buf.length > MAX_BYTES) throw new Error(`a foto tem ${buf.length} bytes e o limite é ${MAX_BYTES}`);
+      if (!buf.length) throw new Error(dgIdiomaBackend.mensagem("a foto veio vazia"));
+      if (buf.length > MAX_BYTES) throw new Error(dgIdiomaBackend.mensagem("a foto tem {p0} bytes e o limite é {p1}", {p0: (buf.length), p1: (MAX_BYTES)}));
       fs.mkdirSync(pasta, { recursive: true, mode: 0o700 });
       // temporário + rename: um pedido que chegue no meio nunca lê foto pela metade; o .tipo vai por último
       fs.writeFileSync(base + '.tmp', buf, { mode: 0o600 });
@@ -53,11 +54,11 @@ function criarAvatar({ dataDir, log, buscar }) {
   /** Entrega a foto de `agente` (precisa ter `avatar` https). Devolve {status,erro} se falhar. */
   async function servir(req, res, agente) {
     const url = agente.avatar;
-    if (!ehUrlDeFoto(url)) return { status: 404, erro: `O agente "${agente.slug}" não tem foto por endereço cadastrada. Veja GET /api/v1/agents.` };
+    if (!ehUrlDeFoto(url)) return { status: 404, erro: dgIdiomaBackend.mensagem("O agente \"{p0}\" não tem foto por endereço cadastrada. Veja GET /api/v1/agents.", {p0: (agente.slug)}) };
     let base;
     try { base = await garantir(agente.slug, url); } catch (e) {
       log('erro', `Avatar de ${agente.slug}: não consegui baixar ${url}: ${e.message}. Confira o endereço da foto no cadastro e a saída do servidor para a internet.`);
-      return { status: 502, erro: `Não consegui baixar a foto de ${agente.slug}: ${e.message}.` };
+      return { status: 502, erro: dgIdiomaBackend.mensagem("Não consegui baixar a foto de {p0}: {p1}.", {p0: (agente.slug), p1: (e.message)}) };
     }
     const tipo = fs.readFileSync(base + '.tipo', 'utf8').trim();
     const total = fs.statSync(base).size;

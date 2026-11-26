@@ -1,11 +1,12 @@
 /* Cache de metadados por conta, agente e aba. Os arquivos não entram no IndexedDB. */
 (function (raiz) {
   'use strict';
+const dgUiText_midias_cache_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
   const memoria = new Map();
   let banco;
   function abrirBanco() {
     if (!banco) banco = new Promise((resolve, reject) => {
-      if (!raiz.indexedDB) return reject(new Error('armazenamento local indisponível'));
+      if (!raiz.indexedDB) return reject(new Error(dgUiText_midias_cache_js("armazenamento local indisponível")));
       const r = raiz.indexedDB.open('dg-midias-v1', 1);
       r.onupgradeneeded = () => r.result.createObjectStore('abas');
       r.onsuccess = () => resolve(r.result);
@@ -57,10 +58,10 @@
         try {
           // Safari privado ou banco bloqueado não pode atrasar a consulta da rede.
           let timer;
-          const limite = new Promise((_, rejeita) => { timer = setTimeout(() => rejeita(new Error('cache local demorou a abrir')), 1200); });
+          const limite = new Promise((_, rejeita) => { timer = setTimeout(() => rejeita(new Error(dgUiText_midias_cache_js("cache local demorou a abrir"))), 1200); });
           try { aplicar(await Promise.race([guardar('get', chave), limite])); }
           finally { clearTimeout(timer); }
-        } catch (e) { d.avisoCache = 'Cache só nesta aba: ' + e.message; avisa(aba); }
+        } catch (e) { d.avisoCache = dgUiText_midias_cache_js("Cache só nesta aba: ") + e.message; avisa(aba); }
       })();
       return d.pronto;
     }
@@ -69,7 +70,7 @@
       const v = { itens, recente: d.recente, proximo: d.itens.length > 600 ? itens.at(-1).cursor : d.proximo, salvo: Date.now() };
       memoria.set(prefixo + aba, v);
       try { await guardar('put', prefixo + aba, v); }
-      catch (e) { d.avisoCache = 'Cache só nesta aba: ' + e.message; }
+      catch (e) { d.avisoCache = dgUiText_midias_cache_js("Cache só nesta aba: ") + e.message; }
     }
     async function pagina(aba, cursor, desde) {
       const q = new URLSearchParams({ tipo: aba, limite: '20', progressivo: '1' });
@@ -78,11 +79,11 @@
       const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 30000);
       try {
         const r = await pedir(base + '/compartilhados?' + q, { credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal });
-        let v; try { v = await r.json(); } catch (_) { throw new Error('o servidor não devolveu uma lista válida'); }
+        let v; try { v = await r.json(); } catch (_) { throw new Error(dgUiText_midias_cache_js("o servidor não devolveu uma lista válida")); }
         if (!r.ok || v.ok === false) {
           const e = new Error(v.error || v.erro || ('HTTP ' + r.status)); e.status = r.status; throw e;
         }
-        if (!Array.isArray(v.itens) || typeof v.recente !== 'string' || (v.proximo != null && typeof v.proximo !== 'string')) throw new Error('O servidor está atualizando a paginação. Tente novamente em instantes.');
+        if (!Array.isArray(v.itens) || typeof v.recente !== 'string' || (v.proximo != null && typeof v.proximo !== 'string')) throw new Error(dgUiText_midias_cache_js("O servidor está atualizando a paginação. Tente novamente em instantes."));
         return v;
       } finally { clearTimeout(timer); }
     }
@@ -102,7 +103,7 @@
             recente = recente || p.recente;
             d.itens = mescla(d.itens, p.itens || []); cursor = p.proximo;
             avisa(aba);
-            if (++voltas >= 50 && cursor) throw new Error('Há muitas novidades. Reabra a aba para continuar a atualização.');
+            if (++voltas >= 50 && cursor) throw new Error(dgUiText_midias_cache_js("Há muitas novidades. Reabra a aba para continuar a atualização."));
           } while (cursor && aberto);
           if (!cursor) d.recente = recente || d.recente;
           d.atualizado = Date.now(); await salvar(aba);

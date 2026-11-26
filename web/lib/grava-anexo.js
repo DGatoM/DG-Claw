@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Grava um anexo na casa do agente SEM privilégio. O Web roda como root no host e a casa é do agente (que roda
 // num container e pode trocar qualquer pasta dela por um atalho para fora). Gravar como root seguindo esse atalho
 // escreveria em /etc/cron.d, por exemplo. Aqui quem grava é um processo filho com o uid/gid do dono da casa:
@@ -18,15 +19,15 @@ function donoDaCasa(agente) {
   const home = agente.home_host;
   let st;
   try { st = fs.lstatSync(home); } catch (e) {
-    throw new ErroAnexo(`A casa do agente ${agente.nome} (${home}) não existe ou não pode ser lida (${e.code || e.name}). Confira o home_host no registro de agentes.`);
+    throw new ErroAnexo(dgIdiomaBackend.mensagem("A casa do agente {p0} ({p1}) não existe ou não pode ser lida ({p2}). Confira o home_host no registro de agentes.", {p0: (agente.nome), p1: (home), p2: (e.code || e.name)}));
   }
-  if (st.isSymbolicLink()) throw new ErroAnexo(`A casa do agente ${agente.nome} (${home}) é um atalho; recusei gravar por ele. Corrija o home_host no registro de agentes.`);
-  if (!st.isDirectory()) throw new ErroAnexo(`A casa do agente ${agente.nome} (${home}) não é uma pasta.`);
+  if (st.isSymbolicLink()) throw new ErroAnexo(dgIdiomaBackend.mensagem("A casa do agente {p0} ({p1}) é um atalho; recusei gravar por ele. Corrija o home_host no registro de agentes.", {p0: (agente.nome), p1: (home)}));
+  if (!st.isDirectory()) throw new ErroAnexo(dgIdiomaBackend.mensagem("A casa do agente {p0} ({p1}) não é uma pasta.", {p0: (agente.nome), p1: (home)}));
   if (st.uid === 0 || st.gid === 0) {
     // A casa do Admin é do root por padrão, e o Admin já roda como root no host: não há privilégio a mais para ganhar.
     // Agente de trabalho com casa de root é erro de registro (o Web gravaria como root numa pasta que o agente alcança).
     if (agente.tipo === 'admin') return { uid: st.uid, gid: st.gid, comoRoot: true };
-    throw new ErroAnexo(`A casa do agente ${agente.nome} (${home}) pertence ao root; recusei gravar anexo ali, porque o Web gravaria como root. Confira o home_host no registro de agentes.`);
+    throw new ErroAnexo(dgIdiomaBackend.mensagem("A casa do agente {p0} ({p1}) pertence ao root; recusei gravar anexo ali, porque o Web gravaria como root. Confira o home_host no registro de agentes.", {p0: (agente.nome), p1: (home)}));
   }
   return { uid: st.uid, gid: st.gid };
 }
@@ -70,9 +71,9 @@ function gravaComoRoot({ agente, pastas, nome, dados }) {
   for (const parte of pastas) {
     atual = path.join(atual, parte);
     let st = null;
-    try { st = fs.lstatSync(atual); } catch (e) { if (e.code !== 'ENOENT') throw new ErroAnexo(`Não consegui conferir ${atual} (${e.code || e.name}).`); }
-    if (st && st.isSymbolicLink()) throw new ErroAnexo(`${atual} é um atalho (link simbólico); recusei gravar por ele.`);
-    if (st && !st.isDirectory()) throw new ErroAnexo(`${atual} existe mas não é uma pasta.`);
+    try { st = fs.lstatSync(atual); } catch (e) { if (e.code !== 'ENOENT') throw new ErroAnexo(dgIdiomaBackend.mensagem("Não consegui conferir {p0} ({p1}).", {p0: (atual), p1: (e.code || e.name)})); }
+    if (st && st.isSymbolicLink()) throw new ErroAnexo(dgIdiomaBackend.mensagem("{p0} é um atalho (link simbólico); recusei gravar por ele.", {p0: (atual)}));
+    if (st && !st.isDirectory()) throw new ErroAnexo(dgIdiomaBackend.mensagem("{p0} existe mas não é uma pasta.", {p0: (atual)}));
     if (!st) fs.mkdirSync(atual, { mode: 0o755 });
   }
   const ext = path.extname(nome);
@@ -83,12 +84,12 @@ function gravaComoRoot({ agente, pastas, nome, dados }) {
     let fd;
     try { fd = fs.openSync(alvo, flags, 0o644); } catch (e) {
       if (e.code === 'EEXIST') continue;
-      throw new ErroAnexo(`Não consegui criar ${alvo} (${e.code || e.name}).`);
+      throw new ErroAnexo(dgIdiomaBackend.mensagem("Não consegui criar {p0} ({p1}).", {p0: (alvo), p1: (e.code || e.name)}));
     }
     try { fs.writeSync(fd, dados, 0, dados.length, 0); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
     return alvo;
   }
-  throw new ErroAnexo('Não achei um nome livre para o arquivo.');
+  throw new ErroAnexo(dgIdiomaBackend.mensagem("Não achei um nome livre para o arquivo."));
 }
 
 /**
@@ -100,7 +101,7 @@ function gravaAnexo({ agente, pastas, nome, dados }) {
     let dono;
     try { dono = donoDaCasa(agente); } catch (e) { reject(e); return; }
     if (dono.comoRoot) {
-      try { resolve(gravaComoRoot({ agente, pastas, nome, dados: Buffer.from(dados) })); } catch (e) { reject(e instanceof ErroAnexo ? e : new ErroAnexo(`Não consegui gravar o arquivo (${e.code || e.message}).`)); }
+      try { resolve(gravaComoRoot({ agente, pastas, nome, dados: Buffer.from(dados) })); } catch (e) { reject(e instanceof ErroAnexo ? e : new ErroAnexo(dgIdiomaBackend.mensagem("Não consegui gravar o arquivo ({p0}).", {p0: (e.code || e.message)}))); }
       return;
     }
     pastas = migraUploadsDoRoot(agente, dono, pastas);
@@ -111,16 +112,16 @@ function gravaAnexo({ agente, pastas, nome, dados }) {
     const saida = [];
     let terminou = false;
     const fim = (fn, v) => { if (terminou) return; terminou = true; clearTimeout(relogio); fn(v); };
-    const relogio = setTimeout(() => { filho.kill('SIGKILL'); fim(reject, new ErroAnexo(`O gravador demorou mais de ${TEMPO_FILHO_MS / 1000} s e foi interrompido.`)); }, TEMPO_FILHO_MS);
+    const relogio = setTimeout(() => { filho.kill('SIGKILL'); fim(reject, new ErroAnexo(dgIdiomaBackend.mensagem("O gravador demorou mais de {p0} s e foi interrompido.", {p0: (TEMPO_FILHO_MS / 1000)}))); }, TEMPO_FILHO_MS);
     filho.stdout.on('data', (c) => saida.push(c));
     filho.stderr.on('data', () => { /* sem detalhe de arquivo no log */ });
     filho.stdin.on('error', () => { /* o filho pode ter fechado antes de ler tudo; o resultado vem do close */ });
-    filho.on('error', (e) => fim(reject, new ErroAnexo(`Não consegui iniciar o gravador como o dono da casa (uid ${dono.uid}, gid ${dono.gid}): ${e.code || e.name}.`)));
+    filho.on('error', (e) => fim(reject, new ErroAnexo(dgIdiomaBackend.mensagem("Não consegui iniciar o gravador como o dono da casa (uid {p0}, gid {p1}): {p2}.", {p0: (dono.uid), p1: (dono.gid), p2: (e.code || e.name)}))));
     filho.on('close', (codigo) => {
       let r = null;
       try { r = JSON.parse(Buffer.concat(saida).toString('utf8')); } catch (_) { /* sem JSON */ }
       if (codigo === 0 && r && r.ok === true) return fim(resolve, r.caminho);
-      return fim(reject, new ErroAnexo(r && r.erro ? r.erro : `O gravador terminou com código ${codigo} sem explicar.`));
+      return fim(reject, new ErroAnexo(r && r.erro ? r.erro : dgIdiomaBackend.mensagem("O gravador terminou com código {p0} sem explicar.", {p0: (codigo)})));
     });
     filho.stdin.end(JSON.stringify({ home: agente.home_host, pastas, nome, dados: Buffer.from(dados).toString('base64') }));
   });

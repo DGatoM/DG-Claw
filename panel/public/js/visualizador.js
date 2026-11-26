@@ -1,3 +1,5 @@
+const dgHtmlFull_visualizador = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, "");
+const dgTextFull_visualizador = fonte => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.t(trecho)) : fonte;
 // visualizador.js — a janela que abre por cima da tela para ver UM arquivo.
 //
 // POR QUE ELE NÃO MORA DENTRO DA ABA APPS, QUE FOI ONDE NASCEU. A aba Pasta
@@ -68,12 +70,12 @@
       // botão de baixar continua ali embaixo em todos os casos.
       return `<iframe class="dgv-pdf" src="${url}" title="${nome}"></iframe>`;
     }
-    return `<div class="dgv-sem-previa">
-        <strong>Este formato não abre dentro do navegador.</strong>
-        <p>Arquivo <code>${esc(item.ext || 'sem extensão')}</code>. Nenhum navegador mostra este tipo de arquivo
+    return dgHtmlFull_visualizador(`<div class="dgv-sem-previa">
+        <strong><!--dg-i18n:ce9db45aa473-->Este formato não abre dentro do navegador.<!--/dg-i18n--></strong>
+        <p><!--dg-i18n:ba8a452f2f83-->Arquivo<!--/dg-i18n--> <code>${esc(item.ext || dgTextFull_visualizador("sem extensão"))}</code><!--dg-i18n:dee1a27f1455-->. Nenhum navegador mostra este tipo de arquivo
            por conta própria, e eu prefiro dizer isso a te deixar olhando para uma janela cinza.
-           Baixe o arquivo e abra no programa que já está no seu computador.</p>
-      </div>`;
+           Baixe o arquivo e abra no programa que já está no seu computador.<!--/dg-i18n--></p>
+      </div>`);
   }
 
   /**
@@ -90,17 +92,17 @@
 
     const fundo = document.createElement('div');
     fundo.className = 'dgv-fundo';
-    fundo.innerHTML = `
+    fundo.innerHTML = dgHtmlFull_visualizador(`
       <div class="dgv-janela" role="dialog" aria-modal="true" aria-label="${esc(item.nome)}">
         <header class="dgv-topo">
           <span class="dgv-nome" title="${esc(item.nome)}">${esc(item.nome)}</span>
           <span class="dgv-bytes">${esc(bytes(item.bytes))}</span>
           <a class="dgv-baixar" href="${esc(item.url)}" download="${esc(item.nome)}"
-             title="Salva o arquivo no seu computador, do jeito que ele está na pasta do agente.">baixar</a>
-          <button type="button" class="dgv-x" aria-label="Fechar" title="Fechar (Esc)">&times;</button>
+             data-dg-i18n-title="96c586f406c5" title="Salva o arquivo no seu computador, do jeito que ele está na pasta do agente."><!--dg-i18n:8b0ded274a36-->baixar<!--/dg-i18n--></a>
+          <button type="button" class="dgv-x" data-dg-i18n-aria-label="0f2bd88ef0ac" aria-label="Fechar" data-dg-i18n-title="e439f8753d9d" title="Fechar (Esc)">&times;</button>
         </header>
         <div class="dgv-corpo">${corpo(item)}</div>
-      </div>`;
+      </div>`);
     document.body.appendChild(fundo);
 
     const tecla = (ev) => { if (ev.key === 'Escape') fechar(); };

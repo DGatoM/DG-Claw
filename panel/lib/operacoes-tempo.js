@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 'use strict';
 // operacoes-tempo.js: leitura da cadência dos timers do systemd (durações, dias, horários esperados) e cor do ledger.
 
@@ -115,15 +116,15 @@ function listaHumana(nomes) {
 // ─── o que o JOB_RESULT quer dizer, em português ──────────────────────────────
 
 const RESULTADO = {
-  done: { cor: 'verde', titulo: 'Rodou e deu certo' },
-  failed: { cor: 'vermelho', titulo: 'Falhou: o programa terminou com erro' },
-  timeout: { cor: 'vermelho', titulo: 'Falhou: passou do tempo máximo e foi interrompida' },
-  dependency: { cor: 'vermelho', titulo: 'Não rodou: uma peça de que ela depende falhou antes' },
-  canceled: { cor: 'amarelo', titulo: 'Foi cancelada antes de terminar (normalmente por um reinício do sistema)' },
-  skipped: { cor: 'amarelo', titulo: 'Não rodou: a condição para começar não foi atendida' },
-  assert: { cor: 'vermelho', titulo: 'Não rodou: uma checagem obrigatória falhou' },
-  invalid: { cor: 'vermelho', titulo: 'Não rodou: a configuração dela está inválida' },
-  unsupported: { cor: 'vermelho', titulo: 'Não rodou: o sistema não sabe executar este tipo de rotina' },
+  done: { cor: 'verde', titulo: dgIdiomaBackend.texto("Rodou e deu certo") },
+  failed: { cor: 'vermelho', titulo: dgIdiomaBackend.texto("Falhou: o programa terminou com erro") },
+  timeout: { cor: 'vermelho', titulo: dgIdiomaBackend.texto("Falhou: passou do tempo máximo e foi interrompida") },
+  dependency: { cor: 'vermelho', titulo: dgIdiomaBackend.texto("Não rodou: uma peça de que ela depende falhou antes") },
+  canceled: { cor: 'amarelo', titulo: dgIdiomaBackend.texto("Foi cancelada antes de terminar (normalmente por um reinício do sistema)") },
+  skipped: { cor: 'amarelo', titulo: dgIdiomaBackend.texto("Não rodou: a condição para começar não foi atendida") },
+  assert: { cor: 'vermelho', titulo: dgIdiomaBackend.texto("Não rodou: uma checagem obrigatória falhou") },
+  invalid: { cor: 'vermelho', titulo: dgIdiomaBackend.texto("Não rodou: a configuração dela está inválida") },
+  unsupported: { cor: 'vermelho', titulo: dgIdiomaBackend.texto("Não rodou: o sistema não sabe executar este tipo de rotina") },
 };
 
 /** Status do ledger do pulso traduzido em cor. Desconhecido = null (não muda o quadradinho). */

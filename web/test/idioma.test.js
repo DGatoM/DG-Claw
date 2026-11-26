@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { execFileSync } = require('node:child_process');
 const I = require('../public/ds/idioma');
 const C = require('../public/ds/idiomas');
 const { carregaConfig, lerEnvArquivo } = require('../lib/config');
@@ -11,6 +12,13 @@ const { renderizarIdioma } = require('../lib/idioma');
 const { subirWeb, pastaTemp } = require('./ajuda');
 const pub = path.join(__dirname, '..', 'public');
 const chave = fonte => Object.keys(C).find(k => C[k]['pt-BR'] === fonte);
+
+test('bundle público corresponde aos catálogos versionados e todos os parâmetros são preservados', () => {
+  const resultado = execFileSync(process.execPath, [path.join(__dirname, '../../scripts/idiomas.mjs'), '--verificar'], { encoding: 'utf8' });
+  assert.match(resultado, /bundle em dia/);
+  const parametros = s => (s.match(/\{\{[^}]+\}\}|\{[a-z_][a-z_0-9]*\}/g) || []).sort();
+  for (const v of Object.values(C)) assert.deepEqual(parametros(v.en), parametros(v['pt-BR']), v['pt-BR']);
+});
 
 test('idioma é uma allowlist: cookie explícito vence padrão; conteúdo arbitrário não vira idioma', () => {
   assert.equal(I.doCookie('outro=1; dgclaw_idioma=pt-BR; a=2', 'en'), 'pt-BR');
@@ -91,6 +99,17 @@ test('HTTP: inglês por instalação, português explícito e assets públicos s
     assert.match(pt.texto, /lang="pt-BR"/); assert.match(pt.texto, /-->Usuário<!--/);
     for (const asset of ['idioma.js', 'idiomas.js', 'idioma.css']) assert.equal((await s.c.get('/ds/' + asset)).status, 200);
     assert.equal((await s.c.get('/api/v1/agents', { headers: { Cookie: 'dgclaw_idioma=en' } })).status, 401);
+    const negado = await s.c.get('/api/v1/agents');
+    assert.equal(negado.json.erro, 'You need to sign in to use the API. Sign in at /login.');
+    assert.equal(negado.headers['content-language'], 'en');
+    const campos = await s.c.post('/login', { json: {} });
+    assert.equal(campos.status, 400);
+    assert.equal(campos.json.erro, 'Enter your username and password.');
+    const senha = await s.c.post('/login', { json: { usuario: 'teste', senha: 'fixture-incorreta' } });
+    assert.equal(senha.status, 401);
+    assert.equal(senha.json.erro, 'Incorrect username or password.');
+    const camposPt = await s.c.post('/login', { json: {}, headers: { Cookie: 'dgclaw_idioma=pt-BR' } });
+    assert.equal(camposPt.json.erro, 'Preencha o usuário e a senha.');
     await s.login();
     const en2 = await s.c.get('/login.html'); assert.match(en2.texto, /lang="en"/);
   } finally { await s.fechar(); }

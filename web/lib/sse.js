@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Server-Sent Events: stream da conversa de um agente (eventos ola, msgs, atividade).
 
 const TICK_MS = 700;
@@ -58,13 +59,13 @@ function abrirStream({ req, res, agente, since, fontes, log, tickMs, valeAinda, 
   const sessaoCaiu = () => {
     if (valeAinda && !valeAinda()) {
       log('aviso', `Stream de ${agente.slug} fechado: a sessão de quem ouvia deixou de valer (expirou, saiu ou perdeu o acesso).`);
-      try { sse(res, 'sessao_encerrada', { motivo: 'Sua sessão não vale mais. Entre de novo.' }); } catch (_) { /* conexão já caiu */ }
+      try { sse(res, 'sessao_encerrada', { motivo: dgIdiomaBackend.mensagem("Sua sessão não vale mais. Entre de novo.") }); } catch (_) { /* conexão já caiu */ }
       encerra();
       return true;
     }
     // Cadeado (Face ID): a sessão travou por falta de uso. Avisa a tela e para de entregar a conversa.
     if (travadoAgora && travadoAgora()) {
-      try { sse(res, 'travado', { erro: 'A tela travou por falta de uso. Destrave com o Face ID ou entre com a senha.', travado: true }); } catch (_) { /* conexão já caiu */ }
+      try { sse(res, 'travado', { erro: dgIdiomaBackend.mensagem("A tela travou por falta de uso. Destrave com o Face ID ou entre com a senha."), travado: true }); } catch (_) { /* conexão já caiu */ }
       encerra();
       return true;
     }

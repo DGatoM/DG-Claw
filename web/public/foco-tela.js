@@ -1,4 +1,6 @@
 'use strict';
+const dgUiText_foco_tela_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiLabel_foco_tela_js = (el, fonte, atributo, valores) => { if (globalThis.DGI18n) globalThis.DGI18n.rotulo(el, fonte, atributo, valores); else { const texto = fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m, k) => valores && Object.hasOwn(valores, k) ? String(valores[k]) : m); if (atributo) el.setAttribute(atributo, texto); else el.textContent = texto; } };
 const dgTexto_foco_tela = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* foco-tela.js: o "Modo foco" na conversa, a lista curta que o agente monta e o dono tica.
 
@@ -34,7 +36,7 @@ const dgTexto_foco_tela = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte
   const ordenados = lista => (lista.itens || []).slice().sort((a, b) => (a.ordem || 0) - (b.ordem || 0) || (a.id || 0) - (b.id || 0));
 
   const EXEMPLO = {
-    titulo: 'Foco de hoje', versao: 0,
+    get titulo() { return dgUiText_foco_tela_js("Foco de hoje"); }, versao: 0,
     itens: [
       { id: 1, texto: 'Revisar o contrato da Vitória', feito: true, ordem: 1 },
       { id: 2, texto: 'Ligar pro Fernando', feito: false, ordem: 2 },
@@ -153,7 +155,7 @@ const dgTexto_foco_tela = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte
       posiciona();
       const aberto = estaAberto();
       if (!l && est.erro) {
-        rotulo.textContent = 'Foco indisponível';
+        dgUiLabel_foco_tela_js(rotulo, "Foco indisponível", null);
         placar.textContent = '';
         avisoEl.textContent = est.erro;
         avisoEl.title = est.erro;
@@ -169,13 +171,13 @@ const dgTexto_foco_tela = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte
       barra.hidden = tudoFeito; okEl.hidden = !tudoFeito;
       btnConclui.disabled = est.concluindo;
       rotulo.textContent = l.titulo || 'Foco';
-      placar.textContent = c.feitos + ' de ' + c.total;
+      dgUiLabel_foco_tela_js(placar, "{p0} de {p1}", null, {p0: c.feitos, p1: c.total});
       seta.innerHTML = dsIcone(aberto ? 'chevron-up' : 'chevron-down');
       btnAbre.setAttribute('aria-expanded', aberto ? 'true' : 'false');
-      btnAbre.title = aberto ? 'Recolher a lista' : 'Abrir a lista';
+      btnAbre.title = aberto ? 'Recolher a lista' : dgUiText_foco_tela_js("Abrir a lista");
       enche.style.width = c.pct + '%';
       barra.setAttribute('aria-valuenow', String(c.pct));
-      barra.setAttribute('aria-label', c.feitos + ' de ' + c.total + ' feitos');
+      barra.setAttribute('aria-label', c.feitos + dgUiText_foco_tela_js(" de ") + c.total + ' feitos');
       limpa(ul);
       for (const it of ordenados(l)) {
         const li = h('li', 'foco-item' + (it.feito ? ' feito' : ''));
@@ -207,21 +209,21 @@ const dgTexto_foco_tela = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte
     function recebe(d) {
       if (!d || (d.agente && d.agente !== agente)) return;
       if (d.lista) { aplica(d.lista); return; }
-      const motivo = d.erro || 'o servidor mandou o foco sem a lista e sem dizer o motivo';
+      const motivo = d.erro || dgUiText_foco_tela_js("o servidor mandou o foco sem a lista e sem dizer o motivo");
       console.warn('foco: o stream avisou que não leu a lista de ' + agente + ': ' + motivo);
-      est.erro = 'Não consegui ler a lista do foco: ' + motivo;
+      est.erro = dgUiText_foco_tela_js("Não consegui ler a lista do foco: ") + motivo;
       desenha();
     }
 
     async function pede(url, init) {
       let r;
       try { r = await amb.fetch(url, Object.assign({ cache: 'no-store', credentials: 'same-origin' }, init)); }
-      catch (e) { throw new Error('o app não respondeu (' + (e.message || 'sem rede') + ')'); }
+      catch (e) { throw new Error(dgUiText_foco_tela_js("o app não respondeu (") + (e.message || dgUiText_foco_tela_js("sem rede")) + ')'); }
       let d = null;
       try { d = await r.json(); } catch (e) { d = null; }
       if (!r.ok || (d && d.ok === false)) {
         const base = (d && d.erro) || ('a API respondeu ' + r.status);
-        const erro = new Error(r.status === 401 ? base + ' (entre de novo: a sessão expirou)' : base);
+        const erro = new Error(r.status === 401 ? base + dgUiText_foco_tela_js(" (entre de novo: a sessão expirou)") : base);
         erro.status = r.status; erro.dados = d;
         throw erro;
       }
@@ -234,7 +236,7 @@ const dgTexto_foco_tela = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte
         if (d.lista) aplica(d.lista);
       } catch (e) {
         console.warn('foco: GET ' + URL_LISTA + ' falhou:', e.message);
-        est.erro = 'Não consegui carregar o foco: ' + e.message + '. Recarregue a página.';
+        est.erro = dgUiText_foco_tela_js("Não consegui carregar o foco: ") + e.message + dgUiText_foco_tela_js('. Recarregue a página.');
         desenha();
       }
     }
@@ -259,7 +261,7 @@ const dgTexto_foco_tela = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte
         // volta ao estado anterior, a não ser que uma lista nova já tenha trazido outro valor
         const atual = est.lista && est.lista.itens.find(i => i.id === id);
         if (atual && atual.feito === novo) atual.feito = antes;
-        est.aviso = 'Não consegui ' + (novo ? 'marcar' : 'desmarcar') + ' o item: ' + e.message + '. Tente de novo.';
+        est.aviso = dgUiText_foco_tela_js("Não consegui ") + (novo ? 'marcar' : 'desmarcar') + ' o item: ' + e.message + dgUiText_foco_tela_js('. Tente de novo.');
         desenha();
       }
     }
@@ -274,19 +276,19 @@ const dgTexto_foco_tela = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte
         const v = est.lista && typeof est.lista.versao === 'number' ? '?versao=' + est.lista.versao : '';
         const d = await pede(URL_LISTA + v, { method: 'DELETE' });
         est.concluindo = false;
-        if (!d.lista) throw new Error('o servidor não devolveu a lista atualizada');
+        if (!d.lista) throw new Error(dgUiText_foco_tela_js("o servidor não devolveu a lista atualizada"));
         aplica(d.lista);
         desenha();
       } catch (e) {
         est.concluindo = false;
         if (e.status === 409 && e.dados && e.dados.lista) {
           aplica(e.dados.lista);
-          est.aviso = 'A lista mudou enquanto você olhava; confira os itens novos antes de concluir.';
+          est.aviso = dgUiText_foco_tela_js("A lista mudou enquanto você olhava; confira os itens novos antes de concluir.");
           desenha();
           return;
         }
         console.warn('foco: DELETE ' + URL_LISTA + ' falhou:', e.message);
-        est.aviso = 'Não consegui concluir a lista: ' + e.message + '. Ela continua aqui; toque em Concluir de novo para tentar.';
+        est.aviso = dgUiText_foco_tela_js("Não consegui concluir a lista: ") + e.message + dgUiText_foco_tela_js('. Ela continua aqui; toque em Concluir de novo para tentar.');
         desenha();
       }
     }
@@ -309,7 +311,7 @@ const dgTexto_foco_tela = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte
     btnConclui.addEventListener('click', conclui);
     btnAjuda.addEventListener('click', () => {
       if (win.DGTour) win.DGTour.inicia({ passos: [passoTutorial()] });
-      else { est.aviso = 'A visita guiada não carregou. Recarregue a página e tente de novo.'; desenha(); }
+      else { est.aviso = dgUiText_foco_tela_js("A visita guiada não carregou. Recarregue a página e tente de novo."); desenha(); }
     });
     if (win.addEventListener) {
       win.addEventListener('resize', () => { if (!raizEl.hidden) desenha(); });

@@ -1,4 +1,8 @@
 'use strict';
+const dgUiLabel_menu_lado_js = (el, fonte, atributo, valores) => { if (globalThis.DGI18n) globalThis.DGI18n.rotulo(el, fonte, atributo, valores); else { const texto = fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m, k) => valores && Object.hasOwn(valores, k) ? String(valores[k]) : m); if (atributo) el.setAttribute(atributo, texto); else el.textContent = texto; } };
+const dgUiText_menu_lado_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiHtml_menu_lado_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
+const dgUiFragment_menu_lado_js = (fonte, valores, original) => globalThis.DGI18n ? globalThis.DGI18n.fragmento(fonte, valores) : original();
 const dgTexto_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* menu-lado.js: o menu do agente na tela de conversa (gaveta no celular, barra fixa no computador).
@@ -200,21 +204,21 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
     if (o.colaborador) {
       return [{
         alvo: '#mlMoldura', antes: abre, titulo: 'O menu',
-        oque: 'A foto e o nome de ' + nome + ', o agente com quem você conversa, e as páginas dele: a Conversa, as Sessões de trabalho, as páginas do painel (Rotinas, Memória, Pasta e as outras, reunidas em grupos que abrem e fecham) e Conectar conta.',
-        como: (o.naConversa ? 'O item Conversa (esta tela) fica no alto.' : 'O item Conversa, no alto, leva de volta ao chat.') + ' Cada página do painel abre na mesma janela. Conectar conta serve para ligar a sua conta de IA ao agente, quando ele ainda não tem uma. Face ID liga a trava do app neste aparelho. No fim do menu, o botão Sair encerra a sua sessão.',
+        get oque() { return dgUiText_menu_lado_js("A foto e o nome de ") + nome + dgUiText_menu_lado_js(", o agente com quem você conversa, e as páginas dele: a Conversa, as Sessões de trabalho, as páginas do painel (Rotinas, Memória, Pasta e as outras, reunidas em grupos que abrem e fecham) e Conectar conta."); },
+        get como() { return (o.naConversa ? dgUiText_menu_lado_js("O item Conversa (esta tela) fica no alto.") : dgUiText_menu_lado_js("O item Conversa, no alto, leva de volta ao chat.")) + dgUiText_menu_lado_js(" Cada página do painel abre na mesma janela. Conectar conta serve para ligar a sua conta de IA ao agente, quando ele ainda não tem uma. Face ID liga a trava do app neste aparelho. No fim do menu, o botão Sair encerra a sua sessão."); },
         porque: 'Você tem acesso a tudo deste agente. Os outros agentes e as configurações do sistema inteiro (chaves, colaboradores, cofre) ficam com o dono.',
       }];
     }
     const passos = [{
       alvo: '#mlMoldura', antes: abre, titulo: 'O menu do agente',
-      oque: 'A foto, o nome e as páginas de ' + nome + ', sempre no lado esquerdo. No computador ele fica aberto o tempo todo; no celular abre pelo botão de menu (as três linhas).',
-      como: (o.naConversa ? 'O item Conversa (esta tela) fica no alto.' : 'O item Conversa, no alto, leva de volta ao chat.') +
-        ' Os outros itens levam à Mesa, às Sessões de trabalho dele, à Tela (o navegador dele, onde você faz os logins), aos Lembretes, aos Avisos, ao Suporte remoto, à Segurança, à Anonimizar (documentos sem dados pessoais), aos Logs (só no Admin: o histórico do que cada agente fez), a Conectar conta (onde você conecta a conta do Claude de cada agente), ao Face ID (a trava do app com o rosto ou a digital, ligada aparelho por aparelho) e às páginas do painel dele. O Tutorial, aqui em cima, repete esta visita.',
+      get oque() { return dgUiText_menu_lado_js("A foto, o nome e as páginas de ") + nome + dgUiText_menu_lado_js(", sempre no lado esquerdo. No computador ele fica aberto o tempo todo; no celular abre pelo botão de menu (as três linhas)."); },
+      get como() { return (o.naConversa ? dgUiText_menu_lado_js("O item Conversa (esta tela) fica no alto.") : dgUiText_menu_lado_js("O item Conversa, no alto, leva de volta ao chat.")) +
+        dgUiText_menu_lado_js(" Os outros itens levam à Mesa, às Sessões de trabalho dele, à Tela (o navegador dele, onde você faz os logins), aos Lembretes, aos Avisos, ao Suporte remoto, à Segurança, à Anonimizar (documentos sem dados pessoais), aos Logs (só no Admin: o histórico do que cada agente fez), a Conectar conta (onde você conecta a conta do Claude de cada agente), ao Face ID (a trava do app com o rosto ou a digital, ligada aparelho por aparelho) e às páginas do painel dele. O Tutorial, aqui em cima, repete esta visita."); },
       porque: 'Assim a conversa e o painel de cada agente ficam no mesmo lugar, sem link escondido.',
     }];
     if (o.comTroca) {
       passos.push({
-        alvo: '#mlTroca', antes: abre, titulo: dgTexto_menu_lado('Trocar de agente'),
+        alvo: '#mlTroca', antes: abre, titulo: 'Trocar de agente',
         oque: 'Um seletor com todos os agentes que trabalham para você, cada um com a sua foto. O Admin vem primeiro, com o selo "admin"; o agente em que você está aparece marcado com "aqui".',
         como: 'Toque em "trocar de agente" e escolha um da lista: a conversa e o menu passam a ser dele. Cada agente tem a própria conversa e a própria memória.',
         porque: 'Você escolhe com quem falar sem sair desta tela. O Admin cuida da instalação e dos ajustes; os outros fazem o trabalho do dia a dia.',
@@ -228,7 +232,7 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
     };
     passos.push({
       alvo: '[data-tour="gm-painel"]', antes: abre, titulo: 'Os grupos do menu',
-      oque: 'As páginas de ' + nome + ' estão reunidas em grupos que abrem e fecham: Perfil do agente, Dia a dia, Ferramentas, Operação e Segurança. Conversa, Mesa e Pasta do agente ficam sempre à vista, e Como funciona e Socorro ficam soltos no fim.',
+      get oque() { return dgUiText_menu_lado_js("As páginas de ") + nome + dgUiText_menu_lado_js(" estão reunidas em grupos que abrem e fecham: Perfil do agente, Dia a dia, Ferramentas, Operação e Segurança. Conversa, Mesa e Pasta do agente ficam sempre à vista, e Como funciona e Socorro ficam soltos no fim."); },
       como: 'Toque no nome de um grupo para abrir ou fechar. O grupo da página em que você está abre sozinho, e o menu lembra neste aparelho quais você deixou abertos. Uma bolinha no nome do grupo avisa que há algo esperando você lá dentro, mesmo com ele fechado. Um grupo só aparece se ele tiver algo para você.',
       porque: 'Eram mais de vinte itens em fila. Agrupados, o que você usa todo dia fica à mão e o resto fica a um toque.',
     });
@@ -268,12 +272,12 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
   function seloDe(a, aqui) {
     if (!a || aqui) return null;
     if (a.estado === 'precisa_de_voce') {
-      return { tipo: 'precisa', rotulo: 'precisa de você' + (a.resumo ? ': ' + a.resumo : ''), resumo: a.resumo || '' };
+      return { tipo: 'precisa', rotulo: dgUiText_menu_lado_js("precisa de você") + (a.resumo ? ': ' + a.resumo : ''), resumo: a.resumo || '' };
     }
     const n = a.nao_lidas;
     const temN = typeof n === 'number' && isFinite(n) && n > 0;
-    if (temN) return { tipo: 'nao_lido', rotulo: n + (n === 1 ? ' mensagem não lida' : ' mensagens não lidas') + (a.mais ? ' ou mais' : ''), n };
-    if (a.marcada_nao_lida === true) return { tipo: 'marcada', rotulo: 'marcada como não lida' };
+    if (temN) return { tipo: 'nao_lido', rotulo: n + (n === 1 ? dgUiText_menu_lado_js(" mensagem não lida") : dgUiText_menu_lado_js(" mensagens não lidas")) + (a.mais ? ' ou mais' : ''), n };
+    if (a.marcada_nao_lida === true) return { tipo: 'marcada', rotulo: dgUiText_menu_lado_js("marcada como não lida") };
     if (a.estado === 'trabalhando') return { tipo: 'trabalhando', rotulo: 'trabalhando' };
     return null;
   }
@@ -297,7 +301,7 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
       `${aqui ? ' aria-current="page"' : ''}>` +
       `<span class="ml-mini" style="background:${esc(a.cor || '#2f9e5e')}">${fotoDe(a)}</span>` +
       `<span class="ml-quem"><b>${esc(a.nome)}</b><small>${esc(sub)}</small></span>` +
-      `${aqui ? '<span class="ml-aqui">aqui</span>' : ''}` +
+      `${aqui ? dgUiHtml_menu_lado_js("<span class=\"ml-aqui\"><!--dg-i18n:7d6a4e354a4d-->aqui<!--/dg-i18n--></span>") : ''}` +
       `${horaCurta(a.ultima_ts) ? `<span class="ml-hora">${esc(horaCurta(a.ultima_ts))}</span>` : ''}` +
       `${seloMenu(a, aqui)}</a>`;
     if (aqui) return link;
@@ -306,9 +310,9 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
     const id = esc(a.id);
     return `<div class="ml-linha">${link}` +
       `<button type="button" class="ml-mais" data-mais="${id}" aria-haspopup="true" aria-expanded="${a.acoes_abertas ? 'true' : 'false'}" ` +
-      `aria-label="Mais ações de ${esc(a.nome)}" title="Mais ações">⋯</button>` +
+      (dgUiHtml_menu_lado_js("aria-label=\"Mais ações de ") + (esc(a.nome)) + dgUiHtml_menu_lado_js("\" title=\"Mais ações\" data-dg-i18n-title=\"85e1f8ccb430\">⋯</button>")) +
       `<div class="ml-acoes"${a.acoes_abertas ? '' : ' hidden'}>` +
-      `<button type="button" data-nao-lida="${id}" data-ligar="${marcada ? '0' : '1'}">${marcada ? 'Desmarcar como não lida' : 'Marcar como não lida'}</button></div></div>`;
+      `<button type="button" data-nao-lida="${id}" data-ligar="${marcada ? '0' : '1'}">${marcada ? dgUiText_menu_lado_js("Desmarcar como não lida") : dgUiText_menu_lado_js("Marcar como não lida")}</button></div></div>`;
   }
 
   /* Bolinha de não lidas. `a.nao_lidas` é número (a contagem do servidor), `a.mais` marca "passou do teto".
@@ -317,7 +321,7 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
     const n = a.nao_lidas;
     if (aqui || typeof n !== 'number' || !isFinite(n) || n <= 0) return '';
     const texto = (a.mais || n > 99) ? '99+' : String(n);
-    const rot = n + (n === 1 ? ' mensagem não lida' : ' mensagens não lidas') + (a.mais ? ' ou mais' : '');
+    const rot = n + (n === 1 ? dgUiText_menu_lado_js(" mensagem não lida") : dgUiText_menu_lado_js(" mensagens não lidas")) + (a.mais ? ' ou mais' : '');
     return `<span class="ml-nl" role="img" aria-label="${esc(rot)}">${texto}</span>`;
   }
 
@@ -357,8 +361,8 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
     const dia0 = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
     const dias = Math.round((dia0(d) - dia0(hoje)) / 86400000);
     const hora = p2(d.getHours()) + ':' + p2(d.getMinutes());
-    if (dias === 0) return 'hoje ' + hora;
-    if (dias === 1) return 'amanhã ' + hora;
+    if (dias === 0) return dgUiText_menu_lado_js("hoje ") + hora;
+    if (dias === 1) return dgUiText_menu_lado_js("amanhã ") + hora;
     if (dias > 1 && dias < 7) return ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', dgTexto_menu_lado('sáb')][d.getDay()] + ' ' + hora;
     return p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + ' ' + hora;
   }
@@ -366,10 +370,10 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
   /* Uma mini barra. janela = { usado_pct, zera_em, vencida } ou null (não medido: "sem dado", nunca 0%). */
   function miniBarraUso(rotulo, janela, agora) {
     if (!janela || typeof janela.usado_pct !== 'number' || !isFinite(janela.usado_pct)) {
-      return `<div class="ml-uso-lin"><span class="ml-uso-rot">${esc(rotulo)}</span><span class="ml-uso-bar"><i style="width:0"></i></span><span class="ml-uso-pct sem">sem dado</span></div>`;
+      return (dgUiHtml_menu_lado_js("<div class=\"ml-uso-lin\"><span class=\"ml-uso-rot\">") + (esc(rotulo)) + dgUiHtml_menu_lado_js("</span><span class=\"ml-uso-bar\"><i style=\"width:0\"></i></span><span class=\"ml-uso-pct sem\"><!--dg-i18n:c5df0bcfdaaa-->sem dado<!--/dg-i18n--></span></div>"));
     }
     if (janela.vencida) {
-      return `<div class="ml-uso-lin" title="Zerou em ${esc(quandoZeraUso(janela.zera_em, agora))}. A nova medição chega na próxima resposta do agente."><span class="ml-uso-rot">${esc(rotulo)}</span><span class="ml-uso-bar"><i style="width:0"></i></span><span class="ml-uso-pct sem">zerou</span></div>`;
+      return (dgUiHtml_menu_lado_js("<div class=\"ml-uso-lin\" title=\"Zerou em ") + (esc(quandoZeraUso(janela.zera_em, agora))) + dgUiHtml_menu_lado_js(". A nova medição chega na próxima resposta do agente.\"><span class=\"ml-uso-rot\">") + (esc(rotulo)) + dgUiHtml_menu_lado_js("</span><span class=\"ml-uso-bar\"><i style=\"width:0\"></i></span><span class=\"ml-uso-pct sem\"><!--dg-i18n:de2d098c4b9d-->zerou<!--/dg-i18n--></span></div>"));
     }
     const pct = Math.max(0, Math.min(100, janela.usado_pct));
     const txt = (Number.isInteger(pct) ? String(pct) : pct.toFixed(1).replace('.', ',')) + '%';
@@ -380,14 +384,14 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
   /* Um agente na lista de uso. entrada = { uso, motivo? } ou { uso:null, erro }. */
   function itemUso(a, entrada, agora) {
     const nome = `<b class="ml-uso-nome">${esc(a.nome || a.id)}</b>`;
-    if (!entrada) return `<div class="ml-uso-ag">${nome}<div class="ml-uso-nota">Sem resposta do servidor sobre este agente.</div></div>`;
+    if (!entrada) return (dgUiHtml_menu_lado_js("<div class=\"ml-uso-ag\">") + (nome) + dgUiHtml_menu_lado_js("<div class=\"ml-uso-nota\"><!--dg-i18n:1653ee3e5612-->Sem resposta do servidor sobre este agente.<!--/dg-i18n--></div></div>"));
     if (entrada.erro || !entrada.uso) {
-      return `<div class="ml-uso-ag">${nome}${miniBarraUso('5 h', null)}${miniBarraUso('Sem', null)}` +
-        `<div class="ml-uso-nota">${esc(entrada.erro || 'Sem dado de uso.')}</div></div>`;
+      return `<div class="ml-uso-ag">${nome}${miniBarraUso('5 h', null)}${miniBarraUso(dgUiText_menu_lado_js("Sem"), null)}` +
+        `<div class="ml-uso-nota">${esc(entrada.erro || dgUiText_menu_lado_js("Sem dado de uso."))}</div></div>`;
     }
     const u = entrada.uso;
     const nota = entrada.motivo ? `<div class="ml-uso-nota">${esc(entrada.motivo)}</div>` : '';
-    return `<div class="ml-uso-ag">${nome}${miniBarraUso('5 h', u.sessao_5h, agora)}${miniBarraUso('Sem', u.semanal, agora)}${nota}</div>`;
+    return `<div class="ml-uso-ag">${nome}${miniBarraUso('5 h', u.sessao_5h, agora)}${miniBarraUso(dgUiText_menu_lado_js("Sem"), u.semanal, agora)}${nota}</div>`;
   }
 
   function linksPainel(a) {
@@ -402,9 +406,9 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
     if (env.standalone) return { tipo: 'instalado', texto: '' };
     if (env.promptGuardado) return { tipo: 'prompt', texto: '' };
     if (env.ios) {
-      return { tipo: 'ios', texto: 'Toque em Compartilhar (o quadrado com a seta para cima) e depois em Adicionar à Tela de Início.' };
+      return { tipo: 'ios', texto: dgUiText_menu_lado_js("Toque em Compartilhar (o quadrado com a seta para cima) e depois em Adicionar à Tela de Início.") };
     }
-    return { tipo: 'sem', texto: 'Este navegador não oferece a instalação por aqui. No Chrome ou no Edge, abra o menu do navegador e procure Instalar app. No Firefox para computador, o recurso não existe.' };
+    return { tipo: 'sem', texto: dgUiText_menu_lado_js("Este navegador não oferece a instalação por aqui. No Chrome ou no Edge, abra o menu do navegador e procure Instalar app. No Firefox para computador, o recurso não existe.") };
   }
 
   if (!raiz.document) return { GRUPOS_MENU, GRUPO_CONEXOES, montaItens, organizaMenu, menuHtml, grupoHtml, grupoDaChave, corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SUPORTE, LINK_MANUAL, LINK_SEGURANCA, LINK_CONECTAR, LINK_FACEID, LINK_COLABORADOR, LINK_ANONIMIZAR, LINK_LOGS, mostraLogs, linkSessoes, linkTela, itemAgente, bolinhaMenu, seloDe, totalNaoLidas, totalPrecisam, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
@@ -430,7 +434,7 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
     if (!sec) return;
     const r = instrucaoInstalar({ standalone: ehStandalone(), ios: ehIos(), promptGuardado: !!promptGuardado });
     sec.hidden = r.tipo === 'instalado';
-    $('mlInstalarSub').textContent = r.tipo === 'prompt' ? 'atalho na tela, abre sem barra do navegador'
+    $('mlInstalarSub').textContent = r.tipo === 'prompt' ? dgUiText_menu_lado_js("atalho na tela, abre sem barra do navegador")
       : 'como colocar na tela inicial';
   }
 
@@ -448,10 +452,10 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
     try {
       await p.prompt();
       const esc_ = await p.userChoice;
-      mostraCaixa(esc_ && esc_.outcome === 'accepted' ? '' : 'Tudo bem. Se mudar de ideia, o item continua aqui no menu.');
+      mostraCaixa(esc_ && esc_.outcome === 'accepted' ? '' : dgUiText_menu_lado_js("Tudo bem. Se mudar de ideia, o item continua aqui no menu."));
     } catch (e) {
       console.warn('menu-lado: o navegador recusou abrir a instalação:', e.message);
-      mostraCaixa('O navegador não abriu a instalação (' + e.message + '). Tente pelo menu do navegador, em Instalar app.');
+      mostraCaixa(dgUiText_menu_lado_js("O navegador não abriu a instalação (") + e.message + dgUiText_menu_lado_js("). Tente pelo menu do navegador, em Instalar app."));
     }
     pintaInstalar();
   }
@@ -461,8 +465,8 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
     const caixa = $('mlLista'), troca = $('mlTroca');
     if (erro) {
       troca.hidden = false;
-      caixa.innerHTML = `<div class="ml-vazio" role="alert">Não consegui listar os agentes: ${esc(erro)}. ` +
-        '<button type="button" id="mlRecarrega">Recarregar a lista</button></div>';
+      caixa.innerHTML = (dgUiHtml_menu_lado_js("<div class=\"ml-vazio\" role=\"alert\">") + dgUiFragment_menu_lado_js("Não consegui listar os agentes: {v0}.", {v0: erro}, () => `Não consegui listar os agentes: ${esc(erro)}.`) + dgUiHtml_menu_lado_js(" ")) +
+        dgUiHtml_menu_lado_js("<button type=\"button\" id=\"mlRecarrega\"><!--dg-i18n:70c95ed87563-->Recarregar a lista<!--/dg-i18n--></button></div>");
       $('mlRecarrega').onclick = recarrega.bind(null, ag);
       return;
     }
@@ -489,7 +493,7 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
       btn.insertBefore(aten, btn.querySelector('.ml-seta'));
     }
     aten.style.display = precisam > 0 ? '' : 'none';
-    aten.setAttribute('aria-label', precisam + (precisam === 1 ? ' agente precisa de você' : ' agentes precisam de você'));
+    aten.setAttribute('aria-label', precisam + (precisam === 1 ? dgUiText_menu_lado_js(" agente precisa de você") : dgUiText_menu_lado_js(" agentes precisam de você")));
     let marca = $('mlTrocaNl');
     if (!marca) {
       marca = document.createElement('span');
@@ -498,7 +502,7 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
     }
     marca.style.display = total > 0 ? '' : 'none';
     marca.textContent = total > 99 ? '99+' : String(total);
-    marca.setAttribute('aria-label', total + (total === 1 ? ' mensagem não lida' : ' mensagens não lidas') + ' em outros agentes');
+    marca.setAttribute('aria-label', total + (total === 1 ? dgUiText_menu_lado_js(" mensagem não lida") : dgUiText_menu_lado_js(" mensagens não lidas")) + ' em outros agentes');
   }
 
   /* Contagens de não lidas por agente (slug -> objeto do servidor). Guardadas aqui para a lista de 30 s
@@ -539,10 +543,10 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
       const ordem = lista.map(a => a.id).filter(id => slugs.includes(id)).concat(slugs.filter(id => !nomes.has(id)));
       caixa.innerHTML = ordem.length
         ? ordem.map(id => itemUso(nomes.get(id) || { id, nome: id }, d.agentes[id], Date.now())).join('')
-        : '<div class="ml-vazio">Nenhum agente no registro.</div>';
+        : dgUiHtml_menu_lado_js("<div class=\"ml-vazio\"><!--dg-i18n:4dc2a27aa399-->Nenhum agente no registro.<!--/dg-i18n--></div>");
     } catch (e) {
       console.warn('menu-lado: não consegui ler o uso das assinaturas:', e.message);
-      caixa.innerHTML = `<div class="ml-vazio" role="alert">Não consegui ver o uso das assinaturas: ${esc(e.message)}. Feche e abra esta seção para tentar de novo.</div>`;
+      caixa.innerHTML = (dgUiHtml_menu_lado_js("<div class=\"ml-vazio\" role=\"alert\">") + dgUiFragment_menu_lado_js("Não consegui ver o uso das assinaturas: {v0}. Feche e abra esta seção para tentar de novo.", {v0: e.message}, () => `Não consegui ver o uso das assinaturas: ${esc(e.message)}. Feche e abra esta seção para tentar de novo.`) + dgUiHtml_menu_lado_js("</div>"));
     }
   }
 
@@ -599,8 +603,8 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
       let b = el.querySelector('.sx-bol');
       if (n > 0 && !b) { b = document.createElement('i'); b.className = 'sx-bol'; b.setAttribute('aria-hidden', 'true'); el.appendChild(b); }
       if (b) b.hidden = !(n > 0);
-      if (el.id === 'mlSessoes') seloDoGrupo(el, n, n + (n === 1 ? ' pedido esperando você nas Sessões' : ' pedidos esperando você nas Sessões'));
-      el.title = n > 0 ? 'Sessões (' + n + (n === 1 ? ' pedido esperando você)' : ' pedidos esperando você)') : dgTexto_menu_lado('Sessões de trabalho deste agente');
+      if (el.id === 'mlSessoes') seloDoGrupo(el, n, n + (n === 1 ? dgUiText_menu_lado_js(" pedido esperando você nas Sessões") : dgUiText_menu_lado_js(" pedidos esperando você nas Sessões")));
+      (n > 0 ? dgUiLabel_menu_lado_js(el, "Sessões ({p0}{p1}", "title", {p0: n, p1: n === 1 ? dgUiText_menu_lado_js(" pedido esperando você)") : dgUiText_menu_lado_js(" pedidos esperando você)")}) : dgUiLabel_menu_lado_js(el, "Sessões de trabalho deste agente", "title", {}));
     });
     let avisouPedidos = false;
     const atualiza = () => {
@@ -713,13 +717,13 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
       const slug = acao.dataset.naoLida, ligar = acao.dataset.ligar === '1';
       acao.disabled = true;
       try {
-        if (typeof opcoes.marcarNaoLida !== 'function') throw new Error('esta tela não sabe marcar como não lida');
+        if (typeof opcoes.marcarNaoLida !== 'function') throw new Error(dgUiText_menu_lado_js("esta tela não sabe marcar como não lida"));
         await opcoes.marcarNaoLida(slug, ligar);
         acoesAbertaDe = null;
       } catch (e) {
         console.warn('menu-lado: não consegui ' + (ligar ? 'marcar' : 'desmarcar') + ' ' + slug + ' como não lida:', e.message);
         acao.disabled = false;
-        acao.textContent = 'Não consegui: ' + e.message;
+        dgUiLabel_menu_lado_js(acao, "Não consegui: {p0}", null, {p0: e.message});
         return;
       }
       repinta();
@@ -748,7 +752,7 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
     const colab = ehColaborador();
     $('mlMoldura').innerHTML = `<span class="ml-foto" style="background:${esc(ag.cor || '#2f9e5e')}">${fotoDe(ag)}</span>`;
     $('mlNome').textContent = ag.nome;
-    $('mlSub').textContent = ag.tipo === 'admin' ? 'administrador do servidor'
+    $('mlSub').textContent = ag.tipo === 'admin' ? dgUiText_menu_lado_js("administrador do servidor")
       : (ag.subtitulo || [ag.provedor, ag.modelo].filter(Boolean).join(' · '));
     document.documentElement.classList.add('ml-ativo');
 
@@ -793,7 +797,7 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
       const a = document.createElement('a');
       a.className = 'ml-tab'; a.id = 'gmIrConversa';
       a.href = ag.id ? '/a/' + encodeURIComponent(ag.id) : '/';
-      a.innerHTML = '<span class="ml-ico" aria-hidden="true">'+icoHtml('i-message')+'</span>Conversa';
+      a.innerHTML = '<span class="ml-ico" aria-hidden="true">'+icoHtml('i-message')+dgUiHtml_menu_lado_js("</span><!--dg-i18n:2377f109281b-->Conversa<!--/dg-i18n-->");
       irConversa.replaceWith(a);
     } else {
       irConversa.onclick = () => opcoes.fecha();
@@ -815,7 +819,7 @@ const dgHtml_menu_lado = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
     marca.insertBefore(p, $('mlSub').nextSibling);
     fetch('/api/v1/eu', { cache: 'no-store', credentials: 'same-origin' })
       .then(async r => { const d = await r.json().catch(() => null); if (!r.ok || !d) throw new Error('a API respondeu ' + r.status); return d; })
-      .then(d => { p.textContent = 'Você: ' + (d.nome ? d.nome + ' (' + d.usuario + ')' : d.usuario); })
+      .then(d => { dgUiLabel_menu_lado_js(p, "Você: {p0}", null, {p0: d.nome ? d.nome + ' (' + d.usuario + ')' : d.usuario}); })
       .catch(e => { console.warn('menu-lado: não consegui saber quem está logado (' + e.message + '); o menu segue sem o nome.'); });
   }
 

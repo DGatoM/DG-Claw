@@ -7,11 +7,12 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
-**Primeira etapa de idiomas Português / English.** O login, a navegação e as telas
-passam a compartilhar um catálogo e um seletor de idioma por navegador. A troca
-preserva campos preenchidos e a conversa aberta. Mensagens dinâmicas e manuais
-ainda não catalogados continuam no idioma original; não é tradução integral.
-O [guia de idiomas](docs/IDIOMAS.md) explica a cobertura e as pendências.
+**Interface em Português / English.** O Web e o painel compartilham um seletor de
+idioma por navegador, incluindo textos dinâmicos, visitas guiadas, erros próprios
+e os 13 capítulos do manual. A troca preserva campos preenchidos e a conversa
+aberta. Nomes, mensagens, arquivos, comandos e diagnósticos externos continuam
+como foram recebidos. Tradução do manual desatualizada mostra um aviso e a fonte
+portuguesa atual. O [guia de idiomas](docs/IDIOMAS.md) explica a manutenção.
 
 ### Como atualizar
 

@@ -1,3 +1,6 @@
+const dgTextFull_tutoriais = fonte => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.t(trecho)) : fonte;
+const dgPhraseFull_tutoriais = (fonte, valores) => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.frase(trecho, valores)) : fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m,k) => valores && Object.hasOwn(valores,k) ? String(valores[k]) : m);
+const dgBindFull_tutoriais = (el, fonte, atributo, valores) => { if (globalThis.DGI18n) return globalThis.DGI18n.rotulo(el,fonte,atributo,valores); const valor=dgPhraseFull_tutoriais(fonte,valores); if(atributo) el.setAttribute(atributo,valor); else el.textContent=valor; };
 // tutoriais.js — a visita guiada das abas que o js/app.js desenha.
 //
 // POR QUE ESTE ARQUIVO EXISTE. O painel tem treze abas. Três delas (Apps, Pasta e
@@ -476,8 +479,8 @@
       b.type = 'button';
       b.className = 'app-ajuda-secao';
       b.textContent = '?';
-      b.setAttribute('aria-label', 'O que é esta seção');
-      b.title = 'O que é esta seção, e como a conta é feita';
+      dgBindFull_tutoriais(b,"O que é esta seção","aria-label");
+      dgBindFull_tutoriais(b,"O que é esta seção, e como a conta é feita","title",undefined);
       b.addEventListener('click', () => abrir(s.aba, s.chave));
       titulo.appendChild(b);
     }

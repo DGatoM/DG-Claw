@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // A conversa de um agente: achar o transcript da sessão principal, montar a thread,
 // calcular a atividade, enviar mensagens (envelope) e o rótulo do provedor.
 
@@ -57,7 +58,7 @@ function validaControle(valor, rotulo, { normalizarCR } = {}) {
   const cod = m[0].charCodeAt(0);
   const u = 'U+' + cod.toString(16).toUpperCase().padStart(4, '0');
   const nome = NOME_CONTROLE[cod] ? ` (${NOME_CONTROLE[cod]})` : '';
-  return { erro: `${rotulo} tem o caractere de controle ${u}${nome} na posição ${m.index + 1}, que o terminal do agente entenderia como tecla apertada. Apague esse caractere (só a quebra de linha e o tab valem) e envie de novo. Nada foi enviado.` };
+  return { erro: dgIdiomaBackend.mensagem("{p0} tem o caractere de controle {p1}{p2} na posição {p3}, que o terminal do agente entenderia como tecla apertada. Apague esse caractere (só a quebra de linha e o tab valem) e envie de novo. Nada foi enviado.", {p0: (rotulo), p1: (u), p2: (nome), p3: (m.index + 1)}) };
 }
 
 /**
@@ -299,14 +300,14 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       let c;
       if (eRollout) {
         const raizes = raizesDeRollout(agente);
-        if (!raizes.length) c = { erro: `Recusei ler ${arquivo}: o registro de ${agente.nome} não tem home_host para conferir. Nada foi lido.` };
+        if (!raizes.length) c = { erro: dgIdiomaBackend.mensagem("Recusei ler {p0}: o registro de {p1} não tem home_host para conferir. Nada foi lido.", {p0: (arquivo), p1: (agente.nome)}) };
         else {
           const tent = raizes.map((r) => confinar(arquivo, r, 'o registro Codex'));
           c = tent.find((t) => !t.erro) || tent[0];
         }
       } else {
         const raiz = agente.transcripts_dir;
-        c = raiz ? confinar(arquivo, raiz, 'o transcript do Claude') : { erro: `Recusei ler ${arquivo}: o registro de ${agente.nome} não tem transcripts_dir para conferir. Nada foi lido.` };
+        c = raiz ? confinar(arquivo, raiz, 'o transcript do Claude') : { erro: dgIdiomaBackend.mensagem("Recusei ler {p0}: o registro de {p1} não tem transcripts_dir para conferir. Nada foi lido.", {p0: (arquivo), p1: (agente.nome)}) };
       }
       if (c.erro) {
         avisos.push(c.erro);
@@ -428,14 +429,14 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
         // A conta ESTAVA conectada e a credencial morreu: a sessão tem conversa e volta por retomada.
         // Alerta próprio (não 'sem_login') para a tela dizer o que aconteceu e desde quando.
         est = { estado: 'sem_sinal', acao: null, detalhe: null, ultimo_sinal: ultimo, alerta: 'login_expirado',
-                motivo: e.error ? String(e.error) : `O login da conta de ${agente.nome} expirou.`,
+                motivo: e.error ? String(e.error) : dgIdiomaBackend.mensagem("O login da conta de {p0} expirou.", {p0: (agente.nome)}),
                 expirou_em: typeof e.loginExpiradoEm === 'string' ? e.loginExpiradoEm : null,
                 provedor: /codex/i.test(String(agente.provedor || '')) ? 'codex' : 'claude' };
       } else if (e.status === 'errored' && e.statusReason === 'runner:sem-login') {
         // O motor não tem conta conectada: a tela oferece o cartão de login.
-        est = { estado: 'sem_sinal', acao: null, detalhe: null, ultimo_sinal: ultimo, alerta: 'sem_login', motivo: e.error ? String(e.error) : `${agente.nome} não está logado no Claude/Codex.` };
+        est = { estado: 'sem_sinal', acao: null, detalhe: null, ultimo_sinal: ultimo, alerta: 'sem_login', motivo: e.error ? String(e.error) : dgIdiomaBackend.mensagem("{p0} não está logado no Claude/Codex.", {p0: (agente.nome)}) };
       } else {
-        est = { estado: 'sem_sinal', acao: null, detalhe: null, ultimo_sinal: ultimo, alerta: null, motivo: `O runner informa o status "${e.status}" para ${agente.nome}, então não sei se ele está trabalhando.` };
+        est = { estado: 'sem_sinal', acao: null, detalhe: null, ultimo_sinal: ultimo, alerta: null, motivo: dgIdiomaBackend.mensagem("O runner informa o status \"{p0}\" para {p1}, então não sei se ele está trabalhando.", {p0: (e.status), p1: (agente.nome)}) };
       }
     }
     const chave = `${est.estado}|${est.acao}|${est.alerta}`;
@@ -464,7 +465,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     const em = rotulosEmAndamento.get(agente.slug);
     if (em) return em;
     const promessa = (async () => {
-      const espera = new Promise((resolve) => { setTimeout(() => resolve({ ok: false, erro: 'demorou mais de 1,5 s' }), 1500).unref(); });
+      const espera = new Promise((resolve) => { setTimeout(() => resolve({ ok: false, erro: dgIdiomaBackend.mensagem("demorou mais de 1,5 s") }), 1500).unref(); });
       let r;
       try {
         r = await Promise.race([runner.provedor(agente, 1500), espera]);
@@ -560,7 +561,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       const r = await Promise.race([existente.promessa, limite]);
       clearTimeout(espera);
       if (r === 'tempo') {
-        return { status: 409, corpo: { ok: false, erro: `Já existe um envio com o cliente_id ${clienteId} em andamento há mais de 30 s e ele ainda não respondeu. Não mandei de novo para não duplicar: confira a conversa antes de tentar outra vez.`, cliente_id: clienteId } };
+        return { status: 409, corpo: { ok: false, erro: dgIdiomaBackend.mensagem("Já existe um envio com o cliente_id {p0} em andamento há mais de 30 s e ele ainda não respondeu. Não mandei de novo para não duplicar: confira a conversa antes de tentar outra vez.", {p0: (clienteId)}), cliente_id: clienteId } };
       }
       if (r && r.status < 300) {
         log('info', `${rota} repetido para ${agente.slug} (cliente_id ${clienteId}): devolvi a resposta do envio que já tinha saído.`);

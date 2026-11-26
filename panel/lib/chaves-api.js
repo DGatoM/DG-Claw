@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 // chaves-api.js — as chaves de API do painel (Bearer): como OUTRO assistente opera
 // este agente sem abrir a tela.
 //
@@ -122,7 +123,7 @@ function buildChavesApi(config) {
     }
     return {
       ok: true, id: registro.id, nome: registro.nome, token, ultimos4: registro.ultimos4,
-      aviso: 'Guarde este token agora: ele não aparece de novo. O painel guarda só uma marca dele, e ninguém consegue recuperá-lo depois.',
+      aviso: dgIdiomaBackend.mensagem("Guarde este token agora: ele não aparece de novo. O painel guarda só uma marca dele, e ninguém consegue recuperá-lo depois."),
     };
   }
 
@@ -141,7 +142,7 @@ function buildChavesApi(config) {
       console.error(`[painel] chaves de API: não consegui anotar a revogação em ${ARQUIVO}: ${err.message}`);
       return recusa(`Não consegui anotar a revogação: ${err.message}`, 500);
     }
-    return { ok: true, id: alvo.id, nome: alvo.nome, aviso: `A chave "${alvo.nome}" deixou de valer agora.` };
+    return { ok: true, id: alvo.id, nome: alvo.nome, aviso: dgIdiomaBackend.mensagem("A chave \"{p0}\" deixou de valer agora.",{p0:(alvo.nome)}) };
   }
 
   /**

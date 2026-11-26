@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Modo foco: lista curta do que o dono quer fechar agora, uma por agente. O agente monta,
 // o dono tica na tela. Estado em <dir>/<slug>.json (gravação atômica, modo 0600), com a
 // lista, os contadores de id e os últimos 1000 eventos. Contrato em docs/MODO-FOCO.md.
@@ -85,7 +86,7 @@ function criarFoco({ dir, tz, log, registro, gravaRetrato, push, quemChamou, ago
       const d = JSON.parse(bruto);
       if (!ehObjeto(d) || !Array.isArray(d.itens) || !Array.isArray(d.eventos)
         || !Number.isInteger(d.proximo_item_id) || !Number.isInteger(d.proximo_evento_id) || !Number.isInteger(d.versao)) {
-        throw new Error('formato inesperado');
+        throw new Error(dgIdiomaBackend.mensagem("formato inesperado"));
       }
       return d;
     } catch (e) {
@@ -238,7 +239,7 @@ function criarFoco({ dir, tz, log, registro, gravaRetrato, push, quemChamou, ago
     const nome = (registro && registro.obter(slug) && registro.obter(slug).nome) || slug;
     const n = d.itens.length;
     Promise.resolve()
-      .then(() => push.enviar({ titulo: `🎯 ${nome} montou seu foco`, corpo: `${n} ${n === 1 ? 'item' : 'itens'}`, tag: `foco-${slug}`, url: `/a/${slug}` }))
+      .then(() => push.enviar({ titulo: dgIdiomaBackend.mensagem("🎯 {p0} montou seu foco", {p0: (nome)}), corpo: `${n} ${n === 1 ? 'item' : 'itens'}`, tag: `foco-${slug}`, url: `/a/${slug}` }))
       .then((r) => { if (r && r.falhas && r.falhas.length) avisa(`Foco de ${slug}: aviso no celular com ${r.falhas.length} falha(s): ${r.falhas.map(f => `${f.servico || '?'} ${f.status || ''} ${f.motivo || ''}`.trim()).join('; ')}.`); })
       .catch((e) => avisa(`Foco de ${slug}: não consegui mandar o aviso no celular (${e.message}). A lista foi gravada normalmente.`));
   }
@@ -321,7 +322,7 @@ function criarFoco({ dir, tz, log, registro, gravaRetrato, push, quemChamou, ago
           if (bruto !== null) {
             if (!/^\d+$/.test(bruto)) throw falta(400, `O parâmetro "versao" precisa ser um inteiro maior ou igual a zero. Recebi: ${bruto.slice(0, 40)}. Use o campo "versao" de GET /api/v1/foco/${slug}.`);
             if (Number(bruto) !== versao(slug)) {
-              H.erroJson(res, 409, `A lista de ${slug} mudou desde a versão ${bruto} (agora está na ${versao(slug)}). Nada foi apagado: confira os itens atuais e peça de novo com a versão nova.`, { lista: lista(slug) });
+              H.erroJson(res, 409, dgIdiomaBackend.mensagem("A lista de {p0} mudou desde a versão {p1} (agora está na {p2}). Nada foi apagado: confira os itens atuais e peça de novo com a versão nova.", {p0: (slug), p1: (bruto), p2: (versao(slug))}), { lista: lista(slug) });
               return true;
             }
           }
@@ -354,7 +355,7 @@ function criarFoco({ dir, tz, log, registro, gravaRetrato, push, quemChamou, ago
         H.erroJson(res, e.status, e.message);
       } else {
         (log || H.logPadrao)('erro', `Foco ${req.method} ${p}: falha inesperada (${e.stack || e.message})`);
-        H.erroJson(res, 500, `Falha inesperada no modo foco: ${e.message}. Tente de novo; se repetir, veja o log do Web.`);
+        H.erroJson(res, 500, dgIdiomaBackend.mensagem("Falha inesperada no modo foco: {p0}. Tente de novo; se repetir, veja o log do Web.", {p0: (e.message)}));
       }
       return true;
     }

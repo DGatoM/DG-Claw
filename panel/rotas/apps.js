@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 const { servirBinario } = require('../lib/servir-binario');
 
 // Aba Apps: os aplicativos que o agente opera e o link de compartilhamento.
@@ -19,7 +20,7 @@ module.exports = function registrar(router, ctx) {
     try {
       res.json(apps.listar());
     } catch (e) {
-      res.status(500).json({ error: `Nao consegui ler a lista de apps: ${e.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Nao consegui ler a lista de apps: {p0}", {p0: (e.message)}) });
     }
   });
 
@@ -27,7 +28,7 @@ module.exports = function registrar(router, ctx) {
     try {
       responderApps(res, apps.projetos(req.params.app));
     } catch (e) {
-      res.status(500).json({ error: `Nao consegui listar os conteudos: ${e.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Nao consegui listar os conteudos: {p0}", {p0: (e.message)}) });
     }
   });
 
@@ -35,7 +36,7 @@ module.exports = function registrar(router, ctx) {
     try {
       responderApps(res, apps.projeto(req.params.app, req.params.slug));
     } catch (e) {
-      res.status(500).json({ error: `Nao consegui abrir o conteudo: ${e.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Nao consegui abrir o conteudo: {p0}", {p0: (e.message)}) });
     }
   });
 
@@ -43,7 +44,7 @@ module.exports = function registrar(router, ctx) {
     try {
       responderApps(res, apps.assets(req.params.app, req.params.slug));
     } catch (e) {
-      res.status(500).json({ error: `Nao consegui listar o material: ${e.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Nao consegui listar o material: {p0}", {p0: (e.message)}) });
     }
   });
 
@@ -51,7 +52,7 @@ module.exports = function registrar(router, ctx) {
     try {
       responderApps(res, apps.arquivo(req.params.app, req.params.slug, req.params.nome));
     } catch (e) {
-      res.status(500).json({ error: `Nao consegui ler o arquivo: ${e.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Nao consegui ler o arquivo: {p0}", {p0: (e.message)}) });
     }
   });
 
@@ -62,7 +63,7 @@ module.exports = function registrar(router, ctx) {
     try {
       servirBinario(res, apps.assetBinario(req.params.app, req.params.slug, req.params.nome), false);
     } catch (e) {
-      res.status(500).type('text/plain; charset=utf-8').send(`Não consegui abrir o material: ${e.message}`);
+      res.status(500).type('text/plain; charset=utf-8').send(dgIdiomaBackend.texto("Não consegui abrir o material: {p0}", {p0: (e.message)}));
     }
   });
 
@@ -87,7 +88,7 @@ module.exports = function registrar(router, ctx) {
       res.json(r);
     } catch (e) {
       console.error('[painel] erro ao compartilhar:', e);
-      res.status(500).json({ error: `Nao consegui gerar o link: ${e.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Nao consegui gerar o link: {p0}", {p0: (e.message)}) });
     }
   });
 };

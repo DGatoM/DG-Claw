@@ -99,6 +99,12 @@ echo "bancada do verificador (manual falso):" >&2
 M="$TMP/m"; novo_manual "$M"
 caso "manual falso em dia" 0 "manual em dia" DOCS_MANUAL_DIR="$M" DOCS_INVENTARIO_ARQUIVO="$INV"
 
+# O renderer do manual EN aceita âncora PT explícita, sem abrir HTML arbitrário.
+cp -r "$M" "$TMP/m-en"
+printf '\n## English heading {#ancora-pt}\n' >>"$TMP/m-en/guia.md"
+printf '\n[English](guia.md#ancora-pt)\n' >>"$TMP/m-en/README.md"
+caso "ancora explicita do manual traduzido passa" 0 "manual em dia" DOCS_MANUAL_DIR="$TMP/m-en" DOCS_INVENTARIO_ARQUIVO="$INV"
+
 # item novo no codigo, sem doc
 node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1]));j.comandos.push({id:"dgclaw agente sumir",origem:"bin/dgclaw:99"});require("fs").writeFileSync(process.argv[2],JSON.stringify(j))' "$INV" "$TMP/inv-novo.json"
 caso "item novo sem doc reprova" 1 "dgclaw agente sumir" DOCS_MANUAL_DIR="$M" DOCS_INVENTARIO_ARQUIVO="$TMP/inv-novo.json"

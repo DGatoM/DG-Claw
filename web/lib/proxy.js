@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Proxy /p/<slug>/* para o painel do agente em 127.0.0.1:<porta_painel>.
 // Só chega aqui quem tem sessão (o server.js confere antes). Acrescenta os cabeçalhos de
 // confiança X-DGClaw-Proxy (segredo) e X-DGClaw-Usuario, e apaga os que vieram do navegador.
@@ -51,17 +52,17 @@ function criarProxy({ config, registro, log, cofreRotas }) {
 
   function lerSegredo(agente) {
     const arq = agente.proxy_segredo_arquivo;
-    if (!arq) return { erro: `O agente ${agente.nome} não tem proxy_segredo_arquivo no registro; sem o segredo o painel não confia no Web. Rode o instalador para configurar o painel.` };
+    if (!arq) return { erro: dgIdiomaBackend.mensagem("O agente {p0} não tem proxy_segredo_arquivo no registro; sem o segredo o painel não confia no Web. Rode o instalador para configurar o painel.", {p0: (agente.nome)}) };
     try {
       const st = fs.statSync(arq);
       const c = cacheSegredo.get(arq);
       if (c && c.mtimeMs === st.mtimeMs) return { segredo: c.valor };
       const valor = fs.readFileSync(arq, 'utf8').trim();
-      if (!valor) return { erro: `O arquivo do segredo do painel de ${agente.nome} (${arq}) está vazio.` };
+      if (!valor) return { erro: dgIdiomaBackend.mensagem("O arquivo do segredo do painel de {p0} ({p1}) está vazio.", {p0: (agente.nome), p1: (arq)}) };
       cacheSegredo.set(arq, { mtimeMs: st.mtimeMs, valor });
       return { segredo: valor };
     } catch (e) {
-      return { erro: `Não consegui ler o segredo do painel de ${agente.nome} (${arq}): ${e.code || e.name}. Confira se o arquivo existe e se este serviço roda como root.` };
+      return { erro: dgIdiomaBackend.mensagem("Não consegui ler o segredo do painel de {p0} ({p1}): {p2}. Confira se o arquivo existe e se este serviço roda como root.", {p0: (agente.nome), p1: (arq), p2: (e.code || e.name)}) };
     }
   }
 
@@ -70,8 +71,8 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     const est = registro.estado();
     if (!est.ok) return { status: 503, motivo: est.erro };
     const agente = est.agentes.find((a) => a.slug === slug);
-    if (!agente) return { status: 404, motivo: `Não existe agente com o nome "${slug}".` };
-    if (!agente.porta_painel) return { status: 404, motivo: `${agente.nome} não tem painel (porta_painel vazia no registro). A conversa fica em /a/${agente.slug}.` };
+    if (!agente) return { status: 404, motivo: dgIdiomaBackend.mensagem("Não existe agente com o nome \"{p0}\".", {p0: (slug)}) };
+    if (!agente.porta_painel) return { status: 404, motivo: dgIdiomaBackend.mensagem("{p0} não tem painel (porta_painel vazia no registro). A conversa fica em /a/{p1}.", {p0: (agente.nome), p1: (agente.slug)}) };
     const s = lerSegredo(agente);
     if (s.erro) { log('erro', s.erro); return { status: 500, motivo: s.erro }; }
     return { agente, segredo: s.segredo };

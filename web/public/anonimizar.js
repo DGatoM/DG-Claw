@@ -1,4 +1,6 @@
 'use strict';
+const dgUiText_anonimizar_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiHtml_anonimizar_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 const dgTexto_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* anonimizar.js: a tela "Anonimizar documentos" (/anonimizar): liga e desliga por agente, instala o detector de
@@ -14,6 +16,7 @@ const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fo
 })(this, function (raiz) {
   const esc = s => String(s == null ? '' : s)
     .replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fragmentoUI = fonte => raiz.DGI18n ? raiz.DGI18n.fragmento(fonte) : esc(fonte);
   const BASE = '/api/v1/anonimizar';
   const POLL_MS = 3000;
 
@@ -28,14 +31,14 @@ const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fo
 
   /* Texto do nível do detector. */
   function rotuloNivel(nivel) {
-    if (nivel === 'completo') return 'Completo: procura nomes de pessoas, empresas e endereços, além dos números de documento, telefone e e-mail. Lê texto, PDF, Word e Excel.';
-    if (nivel === 'leitores') return 'Leitores instalados: lê texto, PDF, Word e Excel e troca números de documento, telefone e e-mail. Nomes e endereços NÃO são procurados.';
-    if (nivel === 'regex') return 'Básico: só arquivos de texto (txt, md, csv, json), e só números de documento, telefone e e-mail. Nomes e endereços NÃO são procurados.';
-    return 'O motor de anonimização não respondeu.';
+    if (nivel === 'completo') return dgUiText_anonimizar_js("Completo: procura nomes de pessoas, empresas e endereços, além dos números de documento, telefone e e-mail. Lê texto, PDF, Word e Excel.");
+    if (nivel === 'leitores') return dgUiText_anonimizar_js("Leitores instalados: lê texto, PDF, Word e Excel e troca números de documento, telefone e e-mail. Nomes e endereços NÃO são procurados.");
+    if (nivel === 'regex') return dgUiText_anonimizar_js("Básico: só arquivos de texto (txt, md, csv, json), e só números de documento, telefone e e-mail. Nomes e endereços NÃO são procurados.");
+    return dgUiText_anonimizar_js("O motor de anonimização não respondeu.");
   }
 
   function mbParaTexto(mb) {
-    if (typeof mb !== 'number' || !isFinite(mb)) return 'não medida';
+    if (typeof mb !== 'number' || !isFinite(mb)) return dgUiText_anonimizar_js("não medida");
     return mb >= 1024 ? (mb / 1024).toFixed(1).replace('.', ',') + ' GB' : Math.round(mb) + ' MB';
   }
 
@@ -60,14 +63,14 @@ const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fo
      ele ainda mostra a tentativa anterior; quem diz que está instalando é a unidade do sistema (em_andamento). */
   function textoInstalacao(inst) {
     const pedido = inst && (inst.nivel || (inst.arquivo && inst.arquivo.nivel_pedido));
-    const nome = pedido === 'completo' ? 'o detector completo (cerca de 2 GB)' : pedido === 'leitores' ? 'os leitores (cerca de 30 MB)' : 'o detector';
+    const nome = pedido === 'completo' ? dgUiText_anonimizar_js("o detector completo (cerca de 2 GB)") : pedido === 'leitores' ? dgUiText_anonimizar_js("os leitores (cerca de 30 MB)") : 'o detector';
     return 'Instalando ' + nome + '… isso leva alguns minutos e roda sozinho no servidor. Pode sair desta tela.';
   }
   function erroInstalacao(inst) {
     const a = (inst && inst.arquivo) || {};
     if (inst && inst.em_andamento) return '';
     if (typeof a.erro === 'string' && a.erro) {
-      return 'A última instalação (' + (a.nivel_pedido || 'detector') + ') falhou: ' + a.erro + ' Tente de novo; se repetir, peça ao Admin para ver o registro da unidade dgclaw-anonimizar-instalar.';
+      return dgUiText_anonimizar_js("A última instalação (") + (a.nivel_pedido || 'detector') + ') falhou: ' + a.erro + dgUiText_anonimizar_js(" Tente de novo; se repetir, peça ao Admin para ver o registro da unidade dgclaw-anonimizar-instalar.");
     }
     return '';
   }
@@ -76,8 +79,8 @@ const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fo
   function configErroHtml(e) {
     const c = e && e.config_erro;
     if (!c) return '';
-    return '<div class="an-aviso-real" role="alert"><b>A configuração da anonimização está ilegível.</b><br>' + esc(c.mensagem) +
-      '<br>Arquivo: <code>' + esc(c.caminho) + '</code><br>' + esc(c.o_que_fazer) + '</div>';
+    return dgUiHtml_anonimizar_js("<div class=\"an-aviso-real\" role=\"alert\"><b><!--dg-i18n:19be45378164-->A configuração da anonimização está ilegível.<!--/dg-i18n--></b><br>") + esc(c.mensagem) +
+      dgUiHtml_anonimizar_js("<br><!--dg-i18n:01b27f9c9a53-->Arquivo:<!--/dg-i18n--> <code>") + esc(c.caminho) + '</code><br>' + esc(c.o_que_fazer) + '</div>';
   }
 
   function detectorHtml(e) {
@@ -88,21 +91,21 @@ const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fo
     if (!d.nivel) {
       h += '<p class="an-aviso-real" role="alert">' + esc(rotuloNivel(null)) + (d.erro ? ' ' + esc(d.erro) : '') + '</p>';
     } else {
-      h += '<p><b>Nível atual:</b> ' + esc(rotuloNivel(d.nivel)) + '</p>';
+      h += dgUiHtml_anonimizar_js("<p><b><!--dg-i18n:9813ee80b213-->Nível atual:<!--/dg-i18n--></b> ") + esc(rotuloNivel(d.nivel)) + '</p>';
     }
-    h += '<p class="an-fraco">Memória livre agora: ' + esc(mbParaTexto(ram.disponivel_mb)) + ' de ' + esc(mbParaTexto(ram.total_mb)) + '.</p>';
+    h += dgUiHtml_anonimizar_js("<p class=\"an-fraco\"><!--dg-i18n:511a2551391d-->Memória livre agora:<!--/dg-i18n--> ") + esc(mbParaTexto(ram.disponivel_mb)) + dgUiText_anonimizar_js(" de ") + esc(mbParaTexto(ram.total_mb)) + '.</p>';
     if (inst.em_andamento) {
-      h += '<div class="an-barra" role="progressbar" aria-label="Instalando o detector"><i></i></div><p>' + esc(textoInstalacao(inst)) + '</p>';
+      h += dgUiHtml_anonimizar_js("<div class=\"an-barra\" role=\"progressbar\" aria-label=\"Instalando o detector\" data-dg-i18n-aria-label=\"8e21cca20765\"><i></i></div><p>") + esc(textoInstalacao(inst)) + '</p>';
     }
     const erro = erroInstalacao(inst);
     if (erro) h += '<p class="an-aviso-real" role="alert">' + esc(erro) + '</p>';
     const bloqueia = inst.em_andamento ? ' disabled' : '';
     const botoes = [];
     if (d.nivel === 'regex' || !d.nivel) {
-      botoes.push('<button type="button" class="an-btn an-pri" data-an="instalar" data-nivel="leitores"' + bloqueia + '>Instalar leitores (cerca de 30 MB)</button>');
+      botoes.push('<button type="button" class="an-btn an-pri" data-an="instalar" data-nivel="leitores"' + bloqueia + dgUiHtml_anonimizar_js("><!--dg-i18n:47501844b2c0-->Instalar leitores (cerca de 30 MB)<!--/dg-i18n--></button>"));
     }
     if (d.nivel !== 'completo') {
-      botoes.push('<button type="button" class="an-btn' + (d.nivel === 'leitores' ? ' an-pri' : '') + '" data-an="instalar" data-nivel="completo"' + bloqueia + '>Instalar o detector completo (cerca de 2 GB, precisa de uns 2,5 GB de memória livre)</button>');
+      botoes.push('<button type="button" class="an-btn' + (d.nivel === 'leitores' ? ' an-pri' : '') + '" data-an="instalar" data-nivel="completo"' + bloqueia + dgUiHtml_anonimizar_js("><!--dg-i18n:64f945c4e32d-->Instalar o detector completo (cerca de 2 GB, precisa de uns 2,5 GB de memória livre)<!--/dg-i18n--></button>"));
     }
     if (botoes.length) h += '<div class="an-acoes">' + botoes.join('') + '</div>';
     return h + '<p class="an-msg" id="anDetMsg" role="status" hidden></p>';
@@ -112,32 +115,32 @@ const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fo
     const ligado = !!(c && c.ligado);
     const linhas = OPCOES.map(([k, rot, dica]) =>
       '<label class="an-linha-op"><input type="checkbox" data-an="opcao" data-campo="' + k + '"' + (c && c[k] ? ' checked' : '') + '>' +
-      '<span>' + esc(rot) + '<br><small class="an-fraco">' + esc(dica) + '</small></span></label>').join('');
+      '<span>' + fragmentoUI(rot) + '<br><small class="an-fraco">' + fragmentoUI(dica) + '</small></span></label>').join('');
     const sel = (campo, lista, rot, dica) =>
-      '<label class="an-campo">' + esc(rot) + '<small>' + esc(dica) + '</small><select data-an="opcao" data-campo="' + campo + '">' +
-      lista.map(([v, t]) => '<option value="' + v + '"' + (c && c[campo] === v ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select></label>';
+      '<label class="an-campo">' + fragmentoUI(rot) + '<small>' + fragmentoUI(dica) + '</small><select data-an="opcao" data-campo="' + campo + '">' +
+      lista.map(([v, t]) => '<option value="' + v + '"' + (c && c[campo] === v ? ' selected' : '') + '>' + fragmentoUI(t) + '</option>').join('') + '</select></label>';
     return '<article class="an-card" data-slug="' + esc(a.slug) + '">' +
       '<div class="an-topo"><h3>' + esc(a.nome) + '</h3>' +
       '<label class="an-chave"><input type="checkbox" data-an="ligado"' + (ligado ? ' checked' : '') + dgHtml_anonimizar("><span><!--dg-i18n:f2a70b9715ac-->Anonimizar documentos<!--/dg-i18n--></span></label></div>") +
       '<p class="an-fraco">' + (a.documentos === 1 ? '1 documento anonimizado' : (a.documentos || 0) + ' documentos anonimizados') + '</p>' +
-      '<details class="an-op"><summary>Opções</summary><div class="an-opcoes">' + linhas +
-      sel('sem_detector', SEM_DETECTOR, 'Sem o detector de nomes', 'O que fazer quando o detector completo não está instalado.') +
-      sel('nao_anonimizavel', NAO_ANONIMIZAVEL, 'Se não der para anonimizar', 'Imagem, áudio, vídeo e formatos que o filtro não lê.') +
+      dgUiHtml_anonimizar_js("<details class=\"an-op\"><summary><!--dg-i18n:eadb377837ef-->Opções<!--/dg-i18n--></summary><div class=\"an-opcoes\">") + linhas +
+      sel('sem_detector', SEM_DETECTOR, "Sem o detector de nomes", "O que fazer quando o detector completo não está instalado.") +
+      sel('nao_anonimizavel', NAO_ANONIMIZAVEL, "Se não der para anonimizar", "Imagem, áudio, vídeo e formatos que o filtro não lê.") +
       '</div></details><p class="an-msg" role="status" hidden></p></article>';
   }
 
   function documentosHtml(docs) {
-    if (!docs.length) return '<p class="an-vazio">Nenhum documento anonimizado para este agente.</p>';
+    if (!docs.length) return dgUiHtml_anonimizar_js("<p class=\"an-vazio\"><!--dg-i18n:ad4d24005e2d-->Nenhum documento anonimizado para este agente.<!--/dg-i18n--></p>");
     return docs.map(d => '<div class="an-doc" data-id="' + esc(d.id) + '"><div class="an-doc-nome">' + esc(d.nome_original) +
-      '<small>' + esc(dataCurta(d.criado_em)) + ' · ' + esc(textoContagem(d.total)) + ' · código ' + esc(d.id) + '</small></div>' +
+      '<small>' + esc(dataCurta(d.criado_em)) + ' · ' + esc(textoContagem(d.total)) + dgUiText_anonimizar_js(" · código ") + esc(d.id) + '</small></div>' +
       '<button type="button" class="an-btn an-perigo" data-an="apagar" data-id="' + esc(d.id) + dgHtml_anonimizar("\"><!--dg-i18n:7d2434081ba5-->Apagar<!--/dg-i18n--></button></div>")).join('');
   }
 
   function tabelaHtml(entradas) {
-    if (!entradas.length) return '<p class="an-vazio">A tabela deste agente está vazia.</p>';
-    return '<p class="an-aviso-real">Estes são os dados reais. Feche a tabela quando terminar de conferir.</p><div class="an-tab">' +
-      entradas.map(e => '<b>' + esc(e.marcador) + '</b><span>' + (e.apagado ? '<i class="an-fraco">apagado (o número não será reaproveitado)</i>' : esc(e.valor)) + '</span>').join('') + '</div>' +
-      '<div class="an-acoes"><button type="button" class="an-btn" data-an="fechar-tabela">Esconder a tabela</button></div>';
+    if (!entradas.length) return dgUiHtml_anonimizar_js("<p class=\"an-vazio\"><!--dg-i18n:dedfbeb8c1e8-->A tabela deste agente está vazia.<!--/dg-i18n--></p>");
+    return dgUiHtml_anonimizar_js("<p class=\"an-aviso-real\"><!--dg-i18n:97c36e406cb0-->Estes são os dados reais. Feche a tabela quando terminar de conferir.<!--/dg-i18n--></p><div class=\"an-tab\">") +
+      entradas.map(e => '<b>' + esc(e.marcador) + '</b><span>' + (e.apagado ? dgUiHtml_anonimizar_js("<i class=\"an-fraco\"><!--dg-i18n:5c730036474a-->apagado (o número não será reaproveitado)<!--/dg-i18n--></i>") : esc(e.valor)) + '</span>').join('') + '</div>' +
+      dgUiHtml_anonimizar_js("<div class=\"an-acoes\"><button type=\"button\" class=\"an-btn\" data-an=\"fechar-tabela\"><!--dg-i18n:eca935cdd829-->Esconder a tabela<!--/dg-i18n--></button></div>");
   }
 
   /* ── Tutorial ─────────────────────────────────────────────────────────── */
@@ -154,11 +157,11 @@ const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fo
       oque: 'Um cartão por agente, com o interruptor e as opções dele.',
       como: 'O interruptor liga e desliga na hora. Em Opções você escolhe o que mais trocar (valores, datas, empresas), se o que você digita também é trocado e o que fazer quando não dá para anonimizar um arquivo. Cada mudança é salva sozinha.',
       porque: 'Cada agente trabalha com dados diferentes: o que é sensível para um pode ser público para outro.' },
-    teste: { alvo: '#secTeste', titulo: dgTexto_anonimizar('Testar com um texto'),
+    teste: { alvo: '#secTeste', titulo: 'Testar com um texto',
       oque: 'Uma caixa para ver o filtro funcionando sem enviar nada a ninguém.',
       como: 'Cole um texto e toque em Testar. Os marcadores aparecem destacados. Nada é gravado: a tabela do teste é temporária.',
       porque: 'Você confere, antes de confiar, se o filtro acha os dados do seu tipo de documento.' },
-    docs: { alvo: '#secDocs', titulo: dgTexto_anonimizar('Documentos anonimizados'),
+    docs: { alvo: '#secDocs', titulo: 'Documentos anonimizados',
       oque: 'A lista do que já passou pelo filtro, por agente: nome original, data e quantos dados foram trocados.',
       como: 'Apagar um documento tira da tabela os marcadores que nenhum outro documento usa. Ver tabela mostra os dados reais, só para você conferir. Os valores nunca aparecem na lista.',
       porque: 'Dá para limpar o que não precisa mais ficar guardado. Atenção: sem a tabela, não há como voltar os dados reais de um arquivo antigo.' },
@@ -171,7 +174,7 @@ const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fo
     const s = document.createElement('script');
     s.src = '/tour.js';
     s.onload = fn;
-    s.onerror = () => alert('A visita guiada não carregou. Recarregue a página e tente de novo.');
+    s.onerror = () => alert(dgUiText_anonimizar_js("A visita guiada não carregou. Recarregue a página e tente de novo."));
     document.head.appendChild(s);
   }
   function tutorial() { comTour(() => raiz.DGTour.inicia({ passos: passosDaPagina() })); }
@@ -191,8 +194,8 @@ const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fo
         headers: corpo === undefined ? {} : { 'Content-Type': 'application/json' },
         body: corpo === undefined ? undefined : JSON.stringify(corpo),
       });
-    } catch (e) { throw new Error('não consegui falar com o servidor (' + e.message + ')'); }
-    if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); throw new Error('sua sessão expirou'); }
+    } catch (e) { throw new Error(dgUiText_anonimizar_js("não consegui falar com o servidor (") + e.message + ')'); }
+    if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); throw new Error(dgUiText_anonimizar_js("sua sessão expirou")); }
     const d = await r.json().catch(() => null);
     if (!r.ok || !d || d.ok === false) throw new Error((d && d.erro) || ('o servidor respondeu ' + r.status));
     return d;
@@ -214,17 +217,17 @@ const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fo
     if (est.instalando && !andamento) {
       est.instalando = false;
       const erro = erroInstalacao(est.estado.instalacao);
-      aviso($('anDetMsg'), erro ? '' : 'Instalação concluída.', 'ok');
+      aviso($('anDetMsg'), erro ? '' : dgUiText_anonimizar_js("Instalação concluída."), 'ok');
     }
     if (andamento) est.instalando = true;
   }
 
   function pintaAgentes() {
     const ags = est.estado.agentes;
-    $('anAgentes').innerHTML = ags.length ? ags.map(a => agenteHtml(a, est.configs[a.slug])).join('') : '<p class="an-vazio">Nenhum agente de trabalho ainda.</p>';
+    $('anAgentes').innerHTML = ags.length ? ags.map(a => agenteHtml(a, est.configs[a.slug])).join('') : dgUiHtml_anonimizar_js("<p class=\"an-vazio\"><!--dg-i18n:8415f5402c74-->Nenhum agente de trabalho ainda.<!--/dg-i18n--></p>");
     const opcoes = ags.map(a => '<option value="' + esc(a.slug) + '">' + esc(a.nome) + '</option>').join('');
     const t = $('anTesteAgente'); const guardadoT = t.value;
-    t.innerHTML = '<option value="">Opções padrão</option>' + opcoes; if (guardadoT) t.value = guardadoT;
+    t.innerHTML = dgUiHtml_anonimizar_js("<option value=\"\"><!--dg-i18n:4030acd2cf86-->Opções padrão<!--/dg-i18n--></option>") + opcoes; if (guardadoT) t.value = guardadoT;
     const d = $('anDocsAgente'); const guardadoD = d.value || est.docsSlug;
     d.innerHTML = opcoes;
     if (guardadoD && ags.some(a => a.slug === guardadoD)) d.value = guardadoD;
@@ -241,7 +244,7 @@ const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fo
       if (!silencioso) { pintaAgentes(); await carregaDocs(); }
     } catch (e) {
       if (!silencioso || !est.estado) {
-        aviso($('anMsgGeral'), 'Não consegui carregar a tela: ' + e.message + '. Recarregue a página; se continuar, peça ao Admin para conferir o painel.', 'erro');
+        aviso($('anMsgGeral'), dgUiText_anonimizar_js("Não consegui carregar a tela: ") + e.message + dgUiText_anonimizar_js('. Recarregue a página; se continuar, peça ao Admin para conferir o painel.'), 'erro');
         $('anMsgGeral').hidden = false;
       }
     }
@@ -258,7 +261,7 @@ const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fo
       $('anDocsAcoes').hidden = !d.documentos.length;
     } catch (e) {
       $('anDocs').innerHTML = '';
-      aviso($('anDocsMsg'), 'Não consegui listar os documentos: ' + e.message, 'erro');
+      aviso($('anDocsMsg'), dgUiText_anonimizar_js("Não consegui listar os documentos: ") + e.message, 'erro');
     }
   }
 
@@ -270,7 +273,7 @@ const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fo
       aviso(msg, 'Salvo.', 'ok');
       const a = est.estado.agentes.find(x => x.slug === slug); if (a) a.ligado = d.config.ligado;
     } catch (e) {
-      aviso(msg, 'Não salvei: ' + e.message, 'erro');
+      aviso(msg, dgUiText_anonimizar_js("Não salvei: ") + e.message, 'erro');
       const antigo = est.configs[slug] || {};
       for (const [k, v] of Object.entries(mudanca)) {
         const el = k === 'ligado' ? card.querySelector('[data-an=ligado]') : card.querySelector('[data-campo="' + k + '"]');
@@ -305,7 +308,7 @@ const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fo
         if (/forcar/.test(e.message) && confirm(e.message + '\n\nInstalar assim mesmo?')) {
           try { await api('POST', '/detector/instalar', { nivel, forcar: true }); est.instalando = true; await carregaEstado(true); return; } catch (e2) { e = e2; }
         }
-        aviso($('anDetMsg'), 'Não consegui iniciar a instalação: ' + e.message, 'erro');
+        aviso($('anDetMsg'), dgUiText_anonimizar_js("Não consegui iniciar a instalação: ") + e.message, 'erro');
         bt.disabled = false;
       }
       return;
@@ -325,13 +328,13 @@ const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fo
       try {
         const r = acao === 'apagar' ? await api('DELETE', '/' + encodeURIComponent(slug) + '/documentos/' + encodeURIComponent(bt.dataset.id))
           : await api('DELETE', '/' + encodeURIComponent(slug) + '/documentos');
-        aviso($('anDocsMsg'), acao === 'apagar' ? 'Documento apagado. Saíram da tabela ' + r.removidos_da_tabela + ' marcador(es) que ninguém mais usa.' : 'Tudo apagado: ' + r.apagados + ' documento(s) e a tabela.', 'ok');
+        aviso($('anDocsMsg'), acao === 'apagar' ? dgUiText_anonimizar_js("Documento apagado. Saíram da tabela ") + r.removidos_da_tabela + dgUiText_anonimizar_js(" marcador(es) que ninguém mais usa.") : 'Tudo apagado: ' + r.apagados + ' documento(s) e a tabela.', 'ok');
         const a = est.estado.agentes.find(x => x.slug === slug);
         await carregaEstado(false);
         if (a) $('anDocsAgente').value = slug;
         await carregaDocs();
       } catch (e) {
-        aviso($('anDocsMsg'), 'Não apaguei: ' + e.message, 'erro');
+        aviso($('anDocsMsg'), dgUiText_anonimizar_js("Não apaguei: ") + e.message, 'erro');
         bt.disabled = false;
       }
       return;
@@ -341,7 +344,7 @@ const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fo
       try {
         const d = await api('GET', '/' + encodeURIComponent(slug) + '/tabela');
         $('anTabela').innerHTML = tabelaHtml(d.entradas); $('anTabela').hidden = false;
-      } catch (e) { aviso($('anDocsMsg'), 'Não abri a tabela: ' + e.message, 'erro'); }
+      } catch (e) { aviso($('anDocsMsg'), dgUiText_anonimizar_js("Não abri a tabela: ") + e.message, 'erro'); }
       return;
     }
     if (acao === 'fechar-tabela') { $('anTabela').hidden = true; $('anTabela').innerHTML = ''; }
@@ -351,7 +354,7 @@ const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fo
     const texto = $('anTesteTexto').value;
     const saida = $('anTesteSaida'); const msg = $('anTesteMsg');
     aviso(msg, '');
-    if (!texto.trim()) { aviso(msg, 'Escreva ou cole um texto para testar.', 'erro'); return; }
+    if (!texto.trim()) { aviso(msg, dgUiText_anonimizar_js("Escreva ou cole um texto para testar."), 'erro'); return; }
     $('anTesteBtn').disabled = true;
     try {
       const corpo = { texto };
@@ -361,7 +364,7 @@ const dgHtml_anonimizar = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fo
       aviso(msg, textoContagem(d.total) + '.' + (d.aviso ? ' ' + d.aviso : ''), d.aviso ? 'erro' : 'ok');
     } catch (e) {
       saida.hidden = true;
-      aviso(msg, 'Não consegui testar: ' + e.message, 'erro');
+      aviso(msg, dgUiText_anonimizar_js("Não consegui testar: ") + e.message, 'erro');
     } finally { $('anTesteBtn').disabled = false; }
   };
 

@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Mesa de tarefas: o que cada agente está fazendo, numa tela só. Contrato em web/docs/MESA.md.
 // Estado em <dados>/mesa/tarefas.json (0600, substituição atômica). Arquivo inválido nunca é
 // sobrescrito: todas as rotas respondem 503 com o motivo até alguém corrigir.
@@ -260,7 +261,7 @@ function criarMesa(opcoes) {
     try {
       const d = JSON.parse(texto);
       if (!d || d.versao !== 1 || !Array.isArray(d.tarefas) || !Number.isInteger(d.proximo_id) || d.proximo_id < 1) {
-        throw new Error('formato inesperado (esperava {"versao":1,"proximo_id":N,"tarefas":[...]})');
+        throw new Error(dgIdiomaBackend.mensagem("formato inesperado (esperava {\"versao\":1,\"proximo_id\":N,\"tarefas\":[...]})"));
       }
       dados = d; assinatura = atual; falha = null; ultimaFalhaLogada = null;
       return true;
@@ -339,7 +340,7 @@ function criarMesa(opcoes) {
     if (!avisarDono) return;
     const ag = registro.obter(agenteSlug);
     const nome = ag ? ag.nome : agenteSlug;
-    const aviso = { titulo: t.estado === 'travada' ? `${nome} travou` : `${nome} precisa de você`, corpo: motivo, tag: `mesa-${t.id}`, url: `/mesa#t${t.id}` };
+    const aviso = { titulo: t.estado === 'travada' ? `${nome} travou` : dgIdiomaBackend.mensagem("{p0} precisa de você", {p0: (nome)}), corpo: motivo, tag: `mesa-${t.id}`, url: `/mesa#t${t.id}` };
     Promise.resolve().then(() => avisarDono(aviso)).catch((e) => log('aviso', `Não consegui avisar o dono da tarefa #${t.id} (${e.message}). A tarefa continua no topo da mesa em /mesa.`));
   }
 
@@ -454,9 +455,9 @@ function criarMesa(opcoes) {
     let agente;
     if (quem.tipo === 'agente') {
       if (corpo.agente !== undefined && corpo.agente !== null && corpo.agente !== quem.slug) {
-        return { status: 403, erro: `O agente ${quem.slug} só pode criar tarefa para si mesmo (o pedido veio com agente ${JSON.stringify(String(corpo.agente).slice(0, 40))}). Tire o campo "agente" ou use o seu.` };
+        return { status: 403, erro: dgIdiomaBackend.mensagem("O agente {p0} só pode criar tarefa para si mesmo (o pedido veio com agente {p1}). Tire o campo \"agente\" ou use o seu.", {p0: (quem.slug), p1: (JSON.stringify(String(corpo.agente).slice(0, 40)))}) };
       }
-      if (!slugs.includes(quem.slug)) return { status: 403, erro: `O agente ${quem.slug} não está no registro de agentes deste Web. Peça ao dono para conferir o registro.` };
+      if (!slugs.includes(quem.slug)) return { status: 403, erro: dgIdiomaBackend.mensagem("O agente {p0} não está no registro de agentes deste Web. Peça ao dono para conferir o registro.", {p0: (quem.slug)}) };
       agente = quem.slug;
     } else if (!ehTexto(corpo.agente) || !corpo.agente) {
       erros.agente = `obrigatório: diga para qual agente é a tarefa (${slugs.join(', ')})`;
@@ -469,7 +470,7 @@ function criarMesa(opcoes) {
     if (Object.keys(erros).length) return { status: 400, erros };
 
     const estado = v.estado || 'fazendo';
-    if (PEDEM_MOTIVO.has(estado) && !v.motivo) return { status: 400, erros: { motivo: `obrigatório quando o estado é ${estado}` } };
+    if (PEDEM_MOTIVO.has(estado) && !v.motivo) return { status: 400, erros: { motivo: dgIdiomaBackend.mensagem("obrigatório quando o estado é {p0}", {p0: (estado)}) } };
     const id = dados.proximo_id;
     const t = {
       id, agente, titulo: v.titulo, origem: v.origem, tipo: v.tipo || 'outro', estado,
@@ -500,10 +501,10 @@ function criarMesa(opcoes) {
 
   function editar(req, t, corpo, quem, ms, comoDelete) {
     if (quem.tipo === 'agente' && t.agente !== quem.slug) {
-      return { status: 403, erro: `A tarefa #${t.id} é do agente ${t.agente}; o agente ${quem.slug} só mexe nas próprias. Peça ao dono ou ao ${t.agente}.` };
+      return { status: 403, erro: dgIdiomaBackend.mensagem("A tarefa #{p0} é do agente {p1}; o agente {p2} só mexe nas próprias. Peça ao dono ou ao {p3}.", {p0: (t.id), p1: (t.agente), p2: (quem.slug), p3: (t.agente)}) };
     }
     if (!concordaVersao(req, t, corpo)) {
-      return { status: 412, erro: `A tarefa #${t.id} mudou desde a versão ${JSON.stringify(String(req.headers['if-match'] !== undefined ? req.headers['if-match'] : corpo.se_versao).replace(/"/g, ''))} (agora é a ${t.versao}). Releia a tarefa e refaça a mudança.`, extra: { tarefa: calculaLeitura(t, ms, true) } };
+      return { status: 412, erro: dgIdiomaBackend.mensagem("A tarefa #{p0} mudou desde a versão {p1} (agora é a {p2}). Releia a tarefa e refaça a mudança.", {p0: (t.id), p1: (JSON.stringify(String(req.headers['if-match'] !== undefined ? req.headers['if-match'] : corpo.se_versao).replace(/"/g, ''))), p2: (t.versao)}), extra: { tarefa: calculaLeitura(t, ms, true) } };
     }
     let entrada;
     let motivoCancel = null;
@@ -512,8 +513,8 @@ function criarMesa(opcoes) {
       const m = textoCampo(corpo.motivo, 'motivo', LIMITES.motivo, { anulavel: true }, {});
       motivoCancel = m || null;
       entrada = { erros: {}, v: { estado: 'cancelada' } };
-      if (corpo.motivo !== undefined && corpo.motivo !== null && !ehTexto(corpo.motivo)) return { status: 400, erros: { motivo: 'precisa ser texto' } };
-      if (ehTexto(corpo.motivo) && umaLinha(corpo.motivo).length > LIMITES.motivo) return { status: 400, erros: { motivo: `passou de ${LIMITES.motivo} caracteres` } };
+      if (corpo.motivo !== undefined && corpo.motivo !== null && !ehTexto(corpo.motivo)) return { status: 400, erros: { motivo: dgIdiomaBackend.mensagem("precisa ser texto") } };
+      if (ehTexto(corpo.motivo) && umaLinha(corpo.motivo).length > LIMITES.motivo) return { status: 400, erros: { motivo: dgIdiomaBackend.mensagem("passou de {p0} caracteres", {p0: (LIMITES.motivo)}) } };
     } else {
       entrada = normalizaEntrada(corpo, 'editar');
       if (corpo.agente !== undefined && corpo.agente !== t.agente) entrada.erros.agente = `o agente de uma tarefa não muda (é ${t.agente}). Crie outra tarefa para ${ehTexto(corpo.agente) ? corpo.agente.slice(0, 40) : 'o outro agente'}`;
@@ -601,11 +602,11 @@ function criarMesa(opcoes) {
 
     try {
       if (resto === 'docs.md') {
-        if (m !== 'GET') { H.erroJson(res, 405, 'Use GET para ler a documentação da Mesa.'); return true; }
+        if (m !== 'GET') { H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use GET para ler a documentação da Mesa.")); return true; }
         let texto;
         try { texto = fs.readFileSync(docsPath); } catch (e) {
           log('erro', `Não achei a documentação da Mesa em ${docsPath} (${e.code || e.message}). Reinstale o DG Claw Web.`);
-          H.erroJson(res, 500, 'A documentação da Mesa não está instalada neste servidor. Reinstale o DG Claw Web.');
+          H.erroJson(res, 500, dgIdiomaBackend.mensagem("A documentação da Mesa não está instalada neste servidor. Reinstale o DG Claw Web."));
           return true;
         }
         res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Length': texto.length, 'Cache-Control': 'no-store' });
@@ -620,7 +621,7 @@ function criarMesa(opcoes) {
       }
       const permitidos = id === null ? ['GET', 'POST'] : ['GET', 'PATCH', 'DELETE'];
       if (!permitidos.includes(m)) {
-        H.erroJson(res, 405, id === null ? 'Use GET para listar a mesa ou POST para criar uma tarefa.' : 'Use GET para ler, PATCH para mudar ou DELETE para cancelar a tarefa.');
+        H.erroJson(res, 405, id === null ? dgIdiomaBackend.mensagem("Use GET para listar a mesa ou POST para criar uma tarefa.") : dgIdiomaBackend.mensagem("Use GET para ler, PATCH para mudar ou DELETE para cancelar a tarefa."));
         return true;
       }
 
@@ -632,10 +633,10 @@ function criarMesa(opcoes) {
       if (m === 'POST' || m === 'PATCH' || m === 'DELETE') {
         try { corpo = await H.lerJson(req, MAX_CORPO); } catch (e) {
           if (!e.status) throw e;
-          H.erroJson(res, e.status, e.status === 413 ? `O corpo do pedido passou de ${MAX_CORPO / 1024} KB. Mande menos texto, passos ou links por vez.` : e.message);
+          H.erroJson(res, e.status, e.status === 413 ? dgIdiomaBackend.mensagem("O corpo do pedido passou de {p0} KB. Mande menos texto, passos ou links por vez.", {p0: (MAX_CORPO / 1024)}) : e.message);
           return true;
         }
-        if (Array.isArray(corpo)) { H.erroJson(res, 400, 'O corpo precisa ser um objeto JSON ({...}), não uma lista.'); return true; }
+        if (Array.isArray(corpo)) { H.erroJson(res, 400, dgIdiomaBackend.mensagem("O corpo precisa ser um objeto JSON ({...}), não uma lista.")); return true; }
         // lerJson foi assíncrono: outro pedido pode ter mexido na mesa nesse meio tempo
         if (!carregar()) { H.erroJson(res, 503, falha); return true; }
       }
@@ -645,14 +646,14 @@ function criarMesa(opcoes) {
         return true;
       }
       const t = dados.tarefas.find((x) => x.id === id);
-      if (!t) { H.erroJson(res, 404, `Não existe a tarefa #${id}. Veja as tarefas em GET /api/v1/tarefas (as fechadas há muito tempo saem da mesa).`); return true; }
+      if (!t) { H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe a tarefa #{p0}. Veja as tarefas em GET /api/v1/tarefas (as fechadas há muito tempo saem da mesa).", {p0: (id)})); return true; }
       if (m === 'GET') { H.enviaJson(res, 200, { ok: true, tarefa: calculaLeitura(t, ms, true) }); return true; }
       responde(res, editar(req, t, corpo, quem, ms, m === 'DELETE'));
       return true;
     } catch (e) {
       if (e.status === 503) { H.erroJson(res, 503, e.message); return true; }
       log('erro', `Falha inesperada na Mesa em ${req.method} ${p}: ${e.stack || e.message}. Mande esta linha ao suporte.`);
-      H.erroJson(res, 500, 'Erro interno ao tratar a tarefa. O erro foi registrado no log do Web; tente de novo.');
+      H.erroJson(res, 500, dgIdiomaBackend.mensagem("Erro interno ao tratar a tarefa. O erro foi registrado no log do Web; tente de novo."));
       return true;
     }
   }

@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 /**
  * rotas-painel.js: as rotas da reorganização do painel (frente B, 01/10/2026).
  *
@@ -42,7 +43,7 @@ function registrar(router, { CONFIG, pulso, serverDir, diagnostico }) {
       res.json({ ...doSistema, rotinasDoUsuario: (rotinasDoUsuario || []).length });
     } catch (e) {
       console.error('[painel] /api/operacoes quebrou:', e);
-      res.status(500).json({ error: `Não consegui montar as operações: ${e.message}`, howToFix: 'Recarregue a página. Se continuar, o registro do painel diz o motivo.' });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui montar as operações: {p0}", {p0: (e.message)}), howToFix: dgIdiomaBackend.texto("Recarregue a página. Se continuar, o registro do painel diz o motivo.") });
     }
   });
 
@@ -58,7 +59,7 @@ function registrar(router, { CONFIG, pulso, serverDir, diagnostico }) {
       });
     } catch (e) {
       console.error('[painel] /api/rotinas/usuario quebrou:', e);
-      res.status(500).json({ error: `Não consegui ler as suas rotinas: ${e.message}`, howToFix: 'Recarregue a página.' });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui ler as suas rotinas: {p0}", {p0: (e.message)}), howToFix: 'Recarregue a página.' });
     }
   });
 
@@ -67,7 +68,7 @@ function registrar(router, { CONFIG, pulso, serverDir, diagnostico }) {
       res.json(memoria.cerebro());
     } catch (e) {
       console.error('[painel] /api/cerebro quebrou:', e);
-      res.status(500).json({ error: `Não consegui ler a memória dele: ${e.message}`, howToFix: 'Recarregue a página. Se continuar, avise quem cuida do sistema.' });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui ler a memória dele: {p0}", {p0: (e.message)}), howToFix: dgIdiomaBackend.texto("Recarregue a página. Se continuar, avise quem cuida do sistema.") });
     }
   });
 

@@ -39,12 +39,22 @@ personalizada permanecem no idioma original. A frase e o slogan de fábrica do l
 têm tradução. Mudar a interface não muda os prompts, a identidade nem o idioma de
 resposta dos agentes. Esse último pertence à configuração de cada agente.
 
-Esta é uma primeira migração, com 532 entradas: templates das telas Web e painel,
-navegação comum, rótulos, acessibilidade, autenticação Web e cartão Claude/Codex.
-Há mensagens dinâmicas, explicações extensas, tutoriais, erros do servidor e manuais
-ainda em português. Texto não catalogado aparece como está; esta versão não deve
-ser apresentada como tradução integral do produto. O inventário e a finalização
-desses textos são condição para oferecer uma instalação integralmente em inglês.
+A cobertura inclui as telas Web, as abas do painel, mensagens próprias de interface,
+visitas guiadas, erros e orientações HTTP, e os 13 capítulos do manual do usuário.
+Os catálogos por domínio ficam em `web/i18n/*.json`; o bundle público é gerado a
+partir deles. Não há serviço externo de tradução nem tradução de dados da pessoa.
+
+O manual mantém os mesmos endereços e âncoras nos dois idiomas. Cada tradução
+registra o SHA-256 da fonte portuguesa em `docs/manual/en/fontes.json`. Se a fonte
+mudar, faltar tradução ou houver um atalho para fora da pasta, a leitura em inglês
+mostra um aviso e o documento português atual. Atualize o hash somente depois de
+revisar a tradução: recalcular o manifesto sozinho esconderia uma tradução antiga.
+
+Comandos, nomes de arquivos e campos da API conservam sua grafia original. A CLI,
+os logs operacionais e a referência técnica da API continuam no idioma da fonte.
+Detalhes recebidos de processos, do sistema e dos provedores são preservados.
+Uma mudança nova do produto deve trazer seus textos de interface para o catálogo;
+fonte ainda não catalogada permanece visível, em vez de gerar uma tela vazia.
 
 ## Atualizações e contribuição
 
@@ -58,11 +68,12 @@ Não há garantia de ausência de conflitos antes da incorporação no projeto o
 
 ```sh
 node scripts/idiomas.mjs --adicionar "Texto em português" "English text"
+node scripts/idiomas.mjs --compilar
 node scripts/idiomas.mjs --verificar
 node --test web/test/idioma.test.js
 ```
 
-O comando devolve a chave e o marcador. No HTML próprio do produto, marque o texto
+O comando devolve a chave. No HTML próprio do produto, marque o texto
 com `<!--dg-i18n:chave-->Texto em português<!--/dg-i18n-->`. Para atributos use
 `data-dg-i18n-title`, `data-dg-i18n-aria-label`, `data-dg-i18n-placeholder` ou
 `data-dg-i18n-alt`, mantendo o atributo português como fallback. O título usa
@@ -74,7 +85,8 @@ No JavaScript de interface, use `DGI18n.t(fonte)` na renderização e
 `DGI18n.frase(fonte, { valor })` para interpolação nomeada. Escape normalmente
 qualquer valor que vá para HTML. Para rótulos que já existem e precisam mudar
 sem reconstruir seus elementos, use `DGI18n.rotulo(elemento, fonte, atributo)`
-ou `DGI18n.fragmento(fonte)`. Este último gera somente um trecho de texto escapado.
+ou `DGI18n.fragmento(fonte, { valor })`. Este último gera texto escapado e mantém
+os parâmetros separados da fonte para a troca ao vivo.
 Nunca passe mensagens, documentos ou outros dados da pessoa como fonte de tradução.
 Não localize constantes de protocolo, nomes de rotas, slugs, chaves JSON ou comandos.
 
@@ -82,6 +94,13 @@ Elementos com `data-dg-i18n-ignore`, histórico `#wrap`, campos editáveis e blo
 código não são percorridos. Não há varredura por palavras, MutationObserver global,
 tradução automática externa, `eval`, escrita de prompt ou alteração de autenticação.
 Os dados da marca são interpolados depois de traduzir o template de fábrica.
+
+No servidor, `web/lib/idioma-contexto.js` isola cada requisição com
+`AsyncLocalStorage`. `mensagem(fonte, parâmetros)` conserva o texto PT para
+comparações e logs e registra a tradução daquela mensagem própria para a resposta
+HTTP. `texto()` destina-se à apresentação imediata de fontes próprias. Mensagens
+externas não são fontes de tradução. Os gravadores isolados não dependem do
+catálogo: seus diagnósticos são devolvidos como dados, no idioma original.
 
 ### Provas
 
@@ -95,11 +114,14 @@ opcional de QA; não adiciona dependência de produção:
 ```sh
 npm install --prefix /tmp/dgclaw-i18n-qa --ignore-scripts jsdom@26.1.0
 NODE_PATH=/tmp/dgclaw-i18n-qa/node_modules node qa/idiomas.cjs
+NODE_PATH=/tmp/dgclaw-i18n-qa/node_modules node qa/painel-idiomas.cjs
 ```
 
-Uma prova visual no navegador e uma conferência dos fluxos restantes continuam
-necessárias antes da publicação para clientes. HTML renderizado e teste de DOM
-não provam login real, conta conectada nem resposta de agente.
+O QA cobre troca PT/EN, marca, nome do agente, rascunho, primeiro acesso fictício,
+controles da conversa sem substituir mensagens ou áudio, decisões de permissão
+e o campo multipart `arquivo` em inglês. Os testes HTTP cobrem erros de login e
+recusa de APIs sem sessão. HTML renderizado e teste de DOM não provam login real
+de uma instalação, conta conectada nem resposta de agente.
 
 ## Conexões da configuração
 

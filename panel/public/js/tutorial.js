@@ -1,3 +1,7 @@
+const dgHtmlFull_tutorial = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, "");
+const dgTextFull_tutorial = fonte => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.t(trecho)) : fonte;
+const dgPhraseFull_tutorial = (fonte, valores) => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.frase(trecho, valores)) : fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m,k) => valores && Object.hasOwn(valores,k) ? String(valores[k]) : m);
+const dgBindFull_tutorial = (el, fonte, atributo, valores) => { if (globalThis.DGI18n) return globalThis.DGI18n.rotulo(el,fonte,atributo,valores); const valor=dgPhraseFull_tutorial(fonte,valores); if(atributo) el.setAttribute(atributo,valor); else el.textContent=valor; };
 // tutorial.js — a visita guiada, com holofote, que toda tela deste painel tem.
 //
 // POR QUE ELE SAIU DE DENTRO DA ABA APPS. O motor nasceu lá, e quando a aba Pasta
@@ -47,22 +51,22 @@
 
     const fundo = document.createElement('div');
     fundo.className = 'app-tut-fundo';
-    fundo.innerHTML = `
+    fundo.innerHTML = dgHtmlFull_tutorial(`
       <div class="app-tut-holofote" hidden></div>
       <div class="app-tut-balao" role="dialog" aria-modal="true" aria-labelledby="app-tut-titulo">
-        <button type="button" class="app-tut-x" aria-label="Fechar o tutorial">&times;</button>
+        <button type="button" class="app-tut-x" data-dg-i18n-aria-label="2164ee0ad9e4" aria-label="Fechar o tutorial">&times;</button>
         <h4 id="app-tut-titulo"></h4>
         <p class="app-tut-corpo"></p>
-        <p class="app-tut-porque"><strong>Por que está aqui:</strong> <span></span></p>
+        <p class="app-tut-porque"><strong><!--dg-i18n:e64923a456ba-->Por que está aqui:<!--/dg-i18n--></strong> <span></span></p>
         <div class="app-tut-rodape">
           <span class="app-tut-conta"></span>
           <span class="app-tut-botoes">
             <button type="button" class="app-tut-pular">Pular</button>
-            <button type="button" class="app-tut-voltar">Voltar</button>
-            <button type="button" class="app-tut-proximo">Próximo</button>
+            <button type="button" class="app-tut-voltar"><!--dg-i18n:59dc926760d0-->Voltar<!--/dg-i18n--></button>
+            <button type="button" class="app-tut-proximo"><!--dg-i18n:4a1772b0c06a-->Próximo<!--/dg-i18n--></button>
           </span>
         </div>
-      </div>`;
+      </div>`);
     document.body.appendChild(fundo);
 
     const holofote = fundo.querySelector('.app-tut-holofote');
@@ -115,14 +119,14 @@
       const passo = passos[i];
       const el = passo.alvo ? document.querySelector(passo.alvo) : null;
       if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      balao.querySelector('#app-tut-titulo').textContent = passo.titulo;
-      balao.querySelector('.app-tut-corpo').textContent = passo.corpo;
-      balao.querySelector('.app-tut-porque span').textContent = passo.porque;
-      balao.querySelector('.app-tut-conta').textContent = `${i + 1} de ${passos.length}`;
+      dgBindFull_tutorial(balao.querySelector('#app-tut-titulo'),passo.titulo,undefined,undefined);
+      dgBindFull_tutorial(balao.querySelector('.app-tut-corpo'),passo.corpo,undefined,undefined);
+      dgBindFull_tutorial(balao.querySelector('.app-tut-porque span'),passo.porque,undefined,undefined);
+      dgBindFull_tutorial(balao.querySelector('.app-tut-conta'),"{v0} de {v1}",undefined,{v0:(i + 1),v1:(passos.length)});
       balao.querySelector('.app-tut-voltar').disabled = i === 0;
       // Pular fica sempre na fileira, menos no último passo (ali já existe o "Entendi").
       balao.querySelector('.app-tut-pular').hidden = i === passos.length - 1;
-      balao.querySelector('.app-tut-proximo').textContent = i === passos.length - 1 ? 'Entendi' : 'Próximo';
+      dgBindFull_tutorial(balao.querySelector('.app-tut-proximo'),i === passos.length - 1 ? dgTextFull_tutorial("Entendi") : dgTextFull_tutorial("Próximo"),undefined);
       // Espera o scroll suave assentar antes de medir o alvo.
       posicionar();
       setTimeout(posicionar, 320);

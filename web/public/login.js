@@ -1,4 +1,6 @@
 'use strict';
+const dgUiLabel_login_js = (el, fonte, atributo, valores) => { if (globalThis.DGI18n) globalThis.DGI18n.rotulo(el, fonte, atributo, valores); else { const texto = fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m, k) => valores && Object.hasOwn(valores, k) ? String(valores[k]) : m); if (atributo) el.setAttribute(atributo, texto); else el.textContent = texto; } };
+
 const dgTexto_login = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 const dgHtml_login = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* login.js: preenche o destino (?next=) e a mensagem de erro (?erro=).
@@ -13,8 +15,8 @@ const dgHtml_login = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) 
   /* O servidor manda um código curto em ?erro=. Códigos conhecidos viram frase;
      qualquer outro vira a frase genérica (texto vindo da barra de endereço
      nunca é mostrado como está). */
-  const ERRADO = dgTexto_login('Usuário ou senha incorretos. Confira e tente de novo.');
-  const LIMITE = dgTexto_login('Muitas tentativas seguidas. Espere alguns minutos e tente de novo.');
+  const ERRADO = 'Usuário ou senha incorretos. Confira e tente de novo.';
+  const LIMITE = 'Muitas tentativas seguidas. Espere alguns minutos e tente de novo.';
   const FRASES = {
     credenciais: ERRADO,
     invalido: ERRADO,
@@ -23,16 +25,16 @@ const dgHtml_login = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) 
     limite: LIMITE,
     bloqueado: LIMITE,
     muitas: LIMITE,
-    sessao: dgTexto_login('Sua sessão acabou. Entre de novo para continuar.'),
-    expirada: dgTexto_login('Sua sessão acabou. Entre de novo para continuar.'),
-    campos: dgTexto_login('Preencha o usuário e a senha.'),
-    vencida: dgTexto_login('A senha temporária venceu. Peça ao dono do ') + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + dgTexto_login(' um convite novo.'),
-    origem: dgTexto_login('Não deu para confirmar de onde veio o pedido. Recarregue a página e tente de novo.'),
+    sessao: 'Sua sessão acabou. Entre de novo para continuar.',
+    expirada: 'Sua sessão acabou. Entre de novo para continuar.',
+    campos: 'Preencha o usuário e a senha.',
+    vencida: 'A senha temporária venceu. Peça ao dono do ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' um convite novo.',
+    origem: 'Não deu para confirmar de onde veio o pedido. Recarregue a página e tente de novo.',
   };
   if (q.has('erro')) {
     const cod = (q.get('erro') || '').toLowerCase();
     const caixa = document.getElementById('erro');
-    const mensagem = FRASES[cod] || dgTexto_login('Não foi possível entrar. Confira os dados e tente de novo.');
+    const mensagem = FRASES[cod] || 'Não foi possível entrar. Confira os dados e tente de novo.';
     if (window.DGI18n) window.DGI18n.rotulo(caixa, mensagem);
     else caixa.textContent = mensagem;
     caixa.hidden = false;
@@ -69,7 +71,7 @@ const dgHtml_login = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) 
   });
   window.addEventListener('pageshow', (ev) => {
     if (!ev.persisted) return;
-    entrar.disabled = false; entrar.textContent = dgTexto_login('Entrar');
+    entrar.disabled = false; dgUiLabel_login_js(entrar, "Entrar", null, {});
   });
 
   /* Instalação sem senha ainda: avisa (em tom neutro, não de erro) para usar o link de primeiro acesso. */

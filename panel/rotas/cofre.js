@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 // Cofre do agente e chaves de API do painel.
 
 module.exports = function registrar(router, ctx) {
@@ -27,7 +28,7 @@ module.exports = function registrar(router, ctx) {
     try {
       res.json(cofre.estado());
     } catch (e) {
-      res.status(500).json({ error: `Não consegui abrir o cofre: ${e.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui abrir o cofre: {p0}", {p0: (e.message)}) });
     }
   });
 
@@ -52,7 +53,7 @@ module.exports = function registrar(router, ctx) {
       const aplicado = cofre.aplicar();
       if (aplicado && aplicado.erro) {
         return res.status(aplicado.status || 500).json({
-          error: `A chave foi guardada. ${aplicado.erro}`,
+          error: dgIdiomaBackend.mensagem("A chave foi guardada. {p0}",{p0:(aplicado.erro)}),
           howToFix: aplicado.howToFix || 'Guardar já foi feito; falta só reiniciar o agente (aba Cofre, "aplicar e reiniciar").',
           guardado,
           aplicado: { ok: false, erro: aplicado.erro },
@@ -62,7 +63,7 @@ module.exports = function registrar(router, ctx) {
     } catch (e) {
       // A mensagem de exceção NÃO leva o corpo do pedido junto, e é por isso que
       // este catch não faz `JSON.stringify(req.body)`: o valor da chave está lá.
-      res.status(500).json({ error: `Não consegui guardar a chave: ${e.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui guardar a chave: {p0}", {p0: (e.message)}) });
     }
   });
 
@@ -70,7 +71,7 @@ module.exports = function registrar(router, ctx) {
     try {
       responderCofre(res, cofre.revogar(req.query.envName || '', CONFIG.creatorName || 'Dono'));
     } catch (e) {
-      res.status(500).json({ error: `Não consegui revogar a chave: ${e.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui revogar a chave: {p0}", {p0: (e.message)}) });
     }
   });
 
@@ -89,7 +90,7 @@ module.exports = function registrar(router, ctx) {
       }
       res.json(r);
     } catch (e) {
-      res.status(500).json({ error: `Não consegui aplicar o cofre: ${e.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui aplicar o cofre: {p0}", {p0: (e.message)}) });
     }
   });
 
@@ -102,8 +103,8 @@ module.exports = function registrar(router, ctx) {
   function soHumano(req, res, next) {
     if (req.dgclawAuth && req.dgclawAuth.tipo === 'chave-api') {
       return res.status(403).json({
-        error: 'Uma chave de API não pode criar, listar nem revogar chaves de API.',
-        howToFix: 'Faça isto pela aba Cofre do painel (entrando com a senha).',
+        error: dgIdiomaBackend.mensagem("Uma chave de API não pode criar, listar nem revogar chaves de API."),
+        howToFix: dgIdiomaBackend.texto("Faça isto pela aba Cofre do painel (entrando com a senha)."),
       });
     }
     next();
@@ -113,7 +114,7 @@ module.exports = function registrar(router, ctx) {
     try {
       res.json({ chaves: chavesApi.listar() });
     } catch (e) {
-      res.status(500).json({ error: `Não consegui listar as chaves de API: ${e.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui listar as chaves de API: {p0}", {p0: (e.message)}) });
     }
   });
 
@@ -122,7 +123,7 @@ module.exports = function registrar(router, ctx) {
       const r = chavesApi.criar({ nome: (req.body || {}).nome, quem: quemFez(req) });
       responderCofre(res, r);
     } catch (e) {
-      res.status(500).json({ error: `Não consegui criar a chave de API: ${e.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui criar a chave de API: {p0}", {p0: (e.message)}) });
     }
   });
 
@@ -130,7 +131,7 @@ module.exports = function registrar(router, ctx) {
     try {
       responderCofre(res, chavesApi.revogar(req.query.id || '', quemFez(req)));
     } catch (e) {
-      res.status(500).json({ error: `Não consegui revogar a chave de API: ${e.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui revogar a chave de API: {p0}", {p0: (e.message)}) });
     }
   });
 };

@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Colaboradores: pessoas convidadas pelo dono para UM agente de trabalho (docs em web/docs/COLABORADORES.md).
 // Guardados em <dataDir>/colaboradores.json (modo 600, gravação atômica). O Web é o único escritor: as
 // gravações passam por uma fila em memória. Revogar é datar (revogado_em), nunca apagar o registro.
@@ -71,7 +72,7 @@ function criarColaboradores({ config, log, agora, gerarHash }) {
     if (marca === mtimeVisto) return;
     try {
       const j = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
-      if (!j || typeof j !== 'object' || !Array.isArray(j.colaboradores)) throw new Error('o conteúdo não tem a lista "colaboradores"');
+      if (!j || typeof j !== 'object' || !Array.isArray(j.colaboradores)) throw new Error(dgIdiomaBackend.mensagem("o conteúdo não tem a lista \"colaboradores\""));
       lista = j.colaboradores.filter((c) => c && typeof c === 'object' && typeof c.id === 'string' && typeof c.email === 'string' && typeof c.agente === 'string');
       if (lista.length !== j.colaboradores.length) log('aviso', `Em ${arquivo}, ${j.colaboradores.length - lista.length} registro(s) sem id, e-mail ou agente foram ignorados (o arquivo não foi alterado).`);
       ilegivel = null;

@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 // conversa.js — A conversa do dono com o agente, para a aba Conversa do painel.
 //
 // A REGRA QUE MANDA AQUI: a conversa tem UMA FONTE SÓ, que é o transcript da sessão
@@ -465,7 +466,7 @@ function buildConversa(CONFIG, serverDir) {
       return {
         mensagens: [],
         transcript: caminho,
-        erro: `O extrator devolveu algo que não é JSON: ${(r.stdout || '').slice(0, 200)}`,
+        erro: dgIdiomaBackend.mensagem("O extrator devolveu algo que não é JSON: {p0}", {p0: ((r.stdout || '').slice(0, 200))}),
       };
     }
 
@@ -517,7 +518,7 @@ function buildConversa(CONFIG, serverDir) {
    */
   async function enviar(texto) {
     const limpo = String(texto || '').trim();
-    if (!limpo) return { ok: false, motivo: 'A mensagem veio vazia.' };
+    if (!limpo) return { ok: false, motivo: dgIdiomaBackend.mensagem("A mensagem veio vazia.") };
     _sequencia += 1;
     const envelope = montarEnvelope({
       from: DONO,
@@ -579,12 +580,12 @@ function buildConversa(CONFIG, serverDir) {
     }
     const { alcancou, status } = await estadoDoCard();
     if (!alcancou) {
-      return { ok: false, motivo: 'não consegui falar com a plataforma que hospeda o agente.' };
+      return { ok: false, motivo: dgIdiomaBackend.mensagem("não consegui falar com a plataforma que hospeda o agente.") };
     }
     // Já está de pé: acordar de novo derrubaria uma sessão viva para subir outra.
     if (ESTADOS[status]) return { ok: true, jaEstavaDePe: true };
     if (!RETOMAVEIS.has(status)) {
-      return { ok: false, motivo: `o card está em "${status}", que não é um estado de onde eu saiba retomar.` };
+      return { ok: false, motivo: dgIdiomaBackend.mensagem("o card está em \"{p0}\", que não é um estado de onde eu saiba retomar.", {p0: (status)}) };
     }
     try {
       const r = await fetch(`${alvo.base}/api/agents/${encodeURIComponent(alvo.card)}/resume`, {
@@ -606,7 +607,7 @@ function buildConversa(CONFIG, serverDir) {
       _transcript = { caminho: null, em: 0 };
       return { ok: true, status: corpo.data && corpo.data.status };
     } catch (e) {
-      return { ok: false, motivo: `a chamada para a plataforma falhou: ${e.message}` };
+      return { ok: false, motivo: dgIdiomaBackend.mensagem("a chamada para a plataforma falhou: {p0}",{p0:(e.message)}) };
     }
   }
 
@@ -627,7 +628,7 @@ function buildConversa(CONFIG, serverDir) {
   async function transcrever(audio, contentType) {
     const alvo = transcricaoConfigurada();
     if (!audio || audio.length < 1024) {
-      return { ok: false, motivo: 'o áudio veio vazio ou curto demais para transcrever.' };
+      return { ok: false, motivo: dgIdiomaBackend.mensagem("o áudio veio vazio ou curto demais para transcrever.") };
     }
     try {
       const r = await fetch(`${alvo.base}/api/agents/${encodeURIComponent(alvo.card)}/transcribe`, {
@@ -657,8 +658,8 @@ function buildConversa(CONFIG, serverDir) {
         if (r.status === 503) {
           return {
             ok: false,
-            motivo: 'o Bunker está sem transcritor configurado, então ninguém ali sabe virar áudio em texto.',
-            comoResolver: 'Configure a chave do Groq Whisper ou do ElevenLabs Scribe no Bunker.',
+            motivo: dgIdiomaBackend.mensagem("o Bunker está sem transcritor configurado, então ninguém ali sabe virar áudio em texto."),
+            comoResolver: dgIdiomaBackend.texto("Configure a chave do Groq Whisper ou do ElevenLabs Scribe no Bunker."),
           };
         }
         return {
@@ -671,13 +672,13 @@ function buildConversa(CONFIG, serverDir) {
       // pessoa achar que o botão não funcionou. Dizer que não veio fala é a
       // informação certa: o remédio é falar mais perto do microfone.
       if (!texto) {
-        return { ok: false, motivo: 'não veio fala nenhuma nesse áudio.', silencio: true };
+        return { ok: false, motivo: dgIdiomaBackend.mensagem("não veio fala nenhuma nesse áudio."), silencio: true };
       }
       return { ok: true, texto };
     } catch (e) {
       // O endereço entra na frase porque a falha mais comum daqui é estar
       // falando com a porta errada, e sem o endereço a pessoa não tem como ver isso.
-      return { ok: false, motivo: `a transcrição falhou ao falar com ${alvo.base}: ${e.message}` };
+      return { ok: false, motivo: dgIdiomaBackend.mensagem("a transcrição falhou ao falar com {p0}: {p1}", {p0: (alvo.base), p1: (e.message)}) };
     }
   }
 

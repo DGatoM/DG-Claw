@@ -1,4 +1,6 @@
 'use strict';
+const dgUiText_colaboradores_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiLabel_colaboradores_js = (el, fonte, atributo, valores) => { if (globalThis.DGI18n) globalThis.DGI18n.rotulo(el, fonte, atributo, valores); else { const texto = fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m, k) => valores && Object.hasOwn(valores, k) ? String(valores[k]) : m); if (atributo) el.setAttribute(atributo, texto); else el.textContent = texto; } };
 const dgTexto_colaboradores = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* colaboradores.js: a tela /colaboradores, só do dono. Convida, reenvia e revoga o colaborador de um agente.
    Consome só a API (GET/POST /api/v1/colaboradores, POST .../reenviar, DELETE .../<id>): contrato em
@@ -37,11 +39,11 @@ const dgTexto_colaboradores = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(f
         headers: corpo ? { 'Content-Type': 'application/json' } : undefined, body: corpo ? JSON.stringify(corpo) : undefined,
       });
     } catch (e) {
-      throw new Error('Não consegui falar com o servidor (' + e.message + '). Confira a internet e tente de novo.');
+      throw new Error(dgUiText_colaboradores_js("Não consegui falar com o servidor (") + e.message + dgUiText_colaboradores_js("). Confira a internet e tente de novo."));
     }
-    if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); throw new Error('Sua sessão acabou. Entre de novo.'); }
+    if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); throw new Error(dgUiText_colaboradores_js("Sua sessão acabou. Entre de novo.")); }
     const d = await r.json().catch(() => null);
-    if (!r.ok || !d || d.ok === false) throw new Error((d && d.erro) || ('O servidor respondeu ' + r.status + '. Tente de novo; se repetir, veja o log do Web.'));
+    if (!r.ok || !d || d.ok === false) throw new Error((d && d.erro) || ('O servidor respondeu ' + r.status + dgUiText_colaboradores_js('. Tente de novo; se repetir, veja o log do Web.')));
     return d;
   }
 
@@ -49,10 +51,10 @@ const dgTexto_colaboradores = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(f
   function mostraConvite(c, colab) {
     const st = $('coEmailStatus');
     if (c.email_enviado) {
-      st.textContent = 'O e-mail foi enviado para ' + colab.email + '. Se ele não chegar, mande o texto abaixo por WhatsApp.';
+      dgUiLabel_colaboradores_js(st, "O e-mail foi enviado para {p0}. Se ele não chegar, mande o texto abaixo por WhatsApp.", null, {p0: colab.email});
       st.className = 'co-status ok';
     } else {
-      st.textContent = 'O e-mail não saiu: ' + (c.email_motivo || 'motivo não informado') + ' Mande o texto abaixo por WhatsApp ou outro meio.';
+      st.textContent = dgUiText_colaboradores_js("O e-mail não saiu: ") + (c.email_motivo || dgUiText_colaboradores_js("motivo não informado")) + ' Mande o texto abaixo por WhatsApp ou outro meio.';
       st.className = 'co-status falha';
     }
     $('coTexto').value = c.texto;
@@ -69,7 +71,7 @@ const dgTexto_colaboradores = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(f
       m.textContent = 'Texto copiado.'; m.classList.add('ok');
     } catch (e) {
       $('coTexto').focus(); $('coTexto').select();
-      m.textContent = 'O navegador não deixou copiar sozinho (' + ((e && e.message) || 'sem permissão') + '). O texto ficou selecionado: toque e segure para copiar.';
+      dgUiLabel_colaboradores_js(m, "O navegador não deixou copiar sozinho ({p0}). O texto ficou selecionado: toque e segure para copiar.", null, {p0: (e && e.message) || dgUiText_colaboradores_js("sem permissão")});
       m.classList.add('erro');
     }
   }
@@ -78,7 +80,7 @@ const dgTexto_colaboradores = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(f
   function desenhaAgente() {
     const corpo = $('coCorpoAgente');
     $('coNomeAgente').textContent = est.agente ? nomeDoAgente(est.agente) : dgTexto_colaboradores('um agente');
-    if (!est.agente) { corpo.replaceChildren(el('p', 'co-fraco', 'Ainda não há agente de trabalho para convidar alguém. Peça ao Admin para criar o primeiro.')); return; }
+    if (!est.agente) { corpo.replaceChildren(el('p', 'co-fraco', dgUiText_colaboradores_js("Ainda não há agente de trabalho para convidar alguém. Peça ao Admin para criar o primeiro."))); return; }
     const ativos = est.colabs.filter(c => c.agente === est.agente && c.estado !== 'revogado');
     const f = formulario(ativos.length);
     if (!ativos.length) { corpo.replaceChildren(f); return; }
@@ -99,14 +101,14 @@ const dgTexto_colaboradores = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(f
       l.append(i);
       return [l, i];
     };
-    const [lMail, iMail] = campo('E-mail do colaborador', 'coEmail', 'email', { required: true, maxLength: 254, autocapitalize: 'none', spellcheck: false });
+    const [lMail, iMail] = campo(dgUiText_colaboradores_js("E-mail do colaborador"), 'coEmail', 'email', { required: true, maxLength: 254, autocapitalize: 'none', spellcheck: false });
     iMail.setAttribute('inputmode', 'email');
     const [lNome, iNome] = campo('Nome (opcional)', 'coNome', 'text', { maxLength: 80 });
     const b = el('button', 'co-btn co-pri', 'Convidar');
     b.type = 'submit';
     f.append(el('p', 'co-fraco', quantos
-      ? 'Para convidar mais uma pessoa para este agente, preencha abaixo. Ela recebe um e-mail com o link, o login e uma senha temporária.'
-      : 'Este agente ainda não tem colaborador. A pessoa recebe um e-mail com o link, o login e uma senha temporária.'), lMail, lNome, b);
+      ? dgUiText_colaboradores_js("Para convidar mais uma pessoa para este agente, preencha abaixo. Ela recebe um e-mail com o link, o login e uma senha temporária.")
+      : dgUiText_colaboradores_js("Este agente ainda não tem colaborador. A pessoa recebe um e-mail com o link, o login e uma senha temporária.")), lMail, lNome, b);
     f.addEventListener('submit', async ev => {
       ev.preventDefault();
       mostraErro('');
@@ -131,17 +133,17 @@ const dgTexto_colaboradores = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(f
   function cartaoAtual(c) {
     const box = el('div', 'co-atual');
     box.setAttribute('data-tour', 'co-atual');
-    const [rot, cls] = ROTULO[c.estado] || [c.estado, ''];
+    const [rot, cls] = dgUiText_colaboradores_js(ROTULO[c.estado]) || [c.estado, ''];
     const h = el('h3', '', c.nome || c.email);
     h.append(el('span', 'co-tag ' + cls, rot));
     const dl = el('dl', 'co-fatos');
     fato(dl, 'E-mail', c.email);
     fato(dl, 'Convidado em', quando(c.criado_em));
-    fato(dl, 'Último acesso', c.ultimo_login ? quando(c.ultimo_login) : 'ainda não entrou');
-    if (c.estado === 'aguardando_primeiro_acesso') fato(dl, 'Senha temporária', 'vale até ' + quando(c.temporaria_expira));
-    if (c.estado === 'temporaria_vencida') fato(dl, 'Senha temporária', 'venceu em ' + quando(c.temporaria_expira) + '. Mande o convite de novo.');
+    fato(dl, 'Último acesso', c.ultimo_login ? quando(c.ultimo_login) : dgUiText_colaboradores_js("ainda não entrou"));
+    if (c.estado === 'aguardando_primeiro_acesso') fato(dl, dgUiText_colaboradores_js("Senha temporária"), dgUiText_colaboradores_js("vale até ") + quando(c.temporaria_expira));
+    if (c.estado === 'temporaria_vencida') fato(dl, dgUiText_colaboradores_js("Senha temporária"), 'venceu em ' + quando(c.temporaria_expira) + dgUiText_colaboradores_js('. Mande o convite de novo.'));
     const acoes = el('div', 'co-acoes');
-    const reenviar = el('button', 'co-btn', 'Mandar convite de novo');
+    const reenviar = el('button', 'co-btn', dgUiText_colaboradores_js("Mandar convite de novo"));
     reenviar.type = 'button';
     reenviar.addEventListener('click', () => reenvia(c, reenviar));
     const revogar = el('button', 'co-btn co-perigo', 'Revogar acesso');
@@ -159,12 +161,12 @@ const dgTexto_colaboradores = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(f
       const d = await chama('POST', '/api/v1/colaboradores/' + encodeURIComponent(c.id) + '/reenviar');
       await carrega();
       mostraConvite(d.convite, d.colaborador);
-    } catch (e) { mostraErro(e.message); btn.disabled = false; btn.textContent = 'Mandar convite de novo'; }
+    } catch (e) { mostraErro(e.message); btn.disabled = false; dgUiLabel_colaboradores_js(btn, "Mandar convite de novo", null); }
   }
 
   /* Duas etapas: o primeiro toque pede a confirmação, o segundo revoga. */
   function confirmaRevogar(c, acoes, btn) {
-    btn.textContent = 'Confirmar: revogar agora';
+    dgUiLabel_colaboradores_js(btn, "Confirmar: revogar agora", null);
     btn.classList.add('co-confirma');
     const cancela = el('button', 'co-btn', dgTexto_colaboradores('Cancelar'));
     cancela.type = 'button';
@@ -177,23 +179,23 @@ const dgTexto_colaboradores = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(f
         await chama('DELETE', '/api/v1/colaboradores/' + encodeURIComponent(c.id));
         $('coConvite').hidden = true;
         await carrega();
-      } catch (e) { mostraErro(e.message); btn.disabled = false; cancela.disabled = false; btn.textContent = 'Confirmar: revogar agora'; }
+      } catch (e) { mostraErro(e.message); btn.disabled = false; cancela.disabled = false; dgUiLabel_colaboradores_js(btn, "Confirmar: revogar agora", null); }
     };
   }
 
   /* ── Lista de todos ─────────────────────────────────────────────────────── */
   function desenhaLista() {
     const caixa = $('coCartoes');
-    if (!est.colabs.length) { caixa.replaceChildren(el('p', 'co-fraco', 'Ninguém foi convidado ainda.')); return; }
+    if (!est.colabs.length) { caixa.replaceChildren(el('p', 'co-fraco', dgUiText_colaboradores_js("Ninguém foi convidado ainda."))); return; }
     caixa.replaceChildren(...est.colabs.map(c => {
       const card = el('div', 'co-card');
-      const [rot, cls] = ROTULO[c.estado] || [c.estado, ''];
+      const [rot, cls] = dgUiText_colaboradores_js(ROTULO[c.estado]) || [c.estado, ''];
       const h = el('h3', '', c.nome ? c.nome + ' (' + c.email + ')' : c.email);
       h.append(el('span', 'co-tag ' + cls, rot));
       const dl = el('dl', 'co-fatos');
       fato(dl, dgTexto_colaboradores('Agente'), nomeDoAgente(c.agente));
       fato(dl, 'Convidado em', quando(c.criado_em));
-      fato(dl, 'Último acesso', c.ultimo_login ? quando(c.ultimo_login) : 'ainda não entrou');
+      fato(dl, 'Último acesso', c.ultimo_login ? quando(c.ultimo_login) : dgUiText_colaboradores_js("ainda não entrou"));
       if (c.revogado_em) fato(dl, 'Revogado em', quando(c.revogado_em));
       card.append(h, dl);
       return card;
@@ -211,22 +213,22 @@ const dgTexto_colaboradores = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(f
     try {
       const d = await chama('GET', '/api/v1/agents');
       est.agentes = d.agentes;
-    } catch (e) { mostraErro('Não consegui carregar a lista de agentes. ' + e.message); $('coCorpoAgente').replaceChildren(); return; }
+    } catch (e) { mostraErro(dgUiText_colaboradores_js("Não consegui carregar a lista de agentes. ") + e.message); $('coCorpoAgente').replaceChildren(); return; }
     const trabalho = est.agentes.filter(a => a.tipo !== 'admin');
     const sel = $('coSeletor');
     sel.replaceChildren(...trabalho.map(a => { const o = el('option', '', a.nome); o.value = a.id; return o; }));
     const pedido = new URLSearchParams(location.search).get('agente');
     if (pedido && !trabalho.some(a => a.id === pedido)) {
       mostraErro(pedido === 'admin' || est.agentes.some(a => a.id === pedido && a.tipo === 'admin')
-        ? 'O Admin nunca pode ser compartilhado: ele mexe no servidor inteiro. Escolha um agente de trabalho.'
-        : 'Não existe o agente "' + pedido.slice(0, 40) + '". Escolha um da lista.');
+        ? dgUiText_colaboradores_js("O Admin nunca pode ser compartilhado: ele mexe no servidor inteiro. Escolha um agente de trabalho.")
+        : dgUiText_colaboradores_js("Não existe o agente \"") + pedido.slice(0, 40) + '". Escolha um da lista.');
     }
     est.agente = trabalho.some(a => a.id === pedido) ? pedido : (trabalho[0] ? trabalho[0].id : null);
     if (est.agente) sel.value = est.agente;
     sel.hidden = trabalho.length < 2;
     sel.parentElement.hidden = trabalho.length < 2;
     sel.addEventListener('change', () => { est.agente = sel.value; $('coConvite').hidden = true; mostraErro(''); history.replaceState(null, '', '/colaboradores?agente=' + encodeURIComponent(est.agente)); desenhaAgente(); });
-    try { await carrega(); } catch (e) { mostraErro('Não consegui carregar os colaboradores. ' + e.message); $('coCorpoAgente').replaceChildren(); $('coCartoes').replaceChildren(); }
+    try { await carrega(); } catch (e) { mostraErro(dgUiText_colaboradores_js("Não consegui carregar os colaboradores. ") + e.message); $('coCorpoAgente').replaceChildren(); $('coCartoes').replaceChildren(); }
   }
 
   $('coCopiar').addEventListener('click', copia);
@@ -241,7 +243,7 @@ const dgTexto_colaboradores = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(f
         porque: 'A pessoa usa este agente por inteiro: a conversa, as sessões, as rotinas, a memória, os arquivos e a Tela. Não vê o Admin nem outros agentes, e o cofre, as chaves de API, a troca da conta de IA, as credenciais dos canais e a senha da Tela continuam com você.' },
       { alvo: '[data-tour="co-form"]', titulo: 'Convidar mais uma pessoa',
         oque: 'O e-mail da pessoa (que será o login dela) e, se quiser, o nome.',
-        como: 'Ao tocar em Convidar, o ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' gera uma senha temporária que vale 7 dias e tenta mandar um e-mail com o link. No primeiro acesso a pessoa cria a senha dela.',
+        get como() { return 'Ao tocar em Convidar, o ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + dgUiText_colaboradores_js(" gera uma senha temporária que vale 7 dias e tenta mandar um e-mail com o link. No primeiro acesso a pessoa cria a senha dela."); },
         porque: 'O e-mail só sai se o servidor de e-mail estiver configurado (opcional). Se não estiver, a tela mostra o texto pronto para você mandar por WhatsApp. Um e-mail que já é colaborador de outro agente é recusado, porque cada pessoa acessa um agente só.' },
       { alvo: '[data-tour="co-atual"]', titulo: 'Convite de novo e revogar',
         oque: 'Os dois botões de cada colaborador do agente.',
@@ -255,14 +257,14 @@ const dgTexto_colaboradores = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(f
         porque: 'O servidor guarda só um resumo da senha, que não dá para ler de volta. Perdeu o texto? Use Mandar convite de novo.' },
     ],
     lista: [
-      { alvo: '#coLista', titulo: dgTexto_colaboradores('Todos os colaboradores'),
+      { alvo: '#coLista', titulo: 'Todos os colaboradores',
         oque: 'Todo mundo que já foi convidado, de todos os agentes, inclusive os acessos revogados.',
         como: 'Cada cartão mostra o agente, o estado, quando a pessoa foi convidada e entrou pela última vez, e a data da revogação, se houve.',
         porque: 'Fica o histórico de quem já teve acesso a quê, sem apagar nada.' },
     ],
   };
   function comTour(passos) {
-    if (!window.DGTour) { mostraErro('A visita guiada não carregou. Recarregue a página e tente de novo.'); return; }
+    if (!window.DGTour) { mostraErro(dgUiText_colaboradores_js("A visita guiada não carregou. Recarregue a página e tente de novo.")); return; }
     window.DGTour.inicia({ passos: passos.filter(p => { const e = document.querySelector(p.alvo); return e && e.offsetParent !== null; }) });
   }
   function tutorial() { comTour([].concat(PASSOS.agente, PASSOS.convite, PASSOS.lista)); }

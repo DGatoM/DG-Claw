@@ -282,7 +282,7 @@ test('parar: a tela diz "não sei se chegou" em erro de rede/corte e em 504 INCE
   const fs = require('node:fs');
   const path = require('node:path');
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'conversa.js'), 'utf8');
-  assert.match(js, /if \(!e\.status \|\| \(e\.status === 504 && e\.codigo === 'INCERTO'\) \|\| \(e\.status >= 500 && !reconhecido\)\) mostraSempre\(fErro, 'Não sei se o pedido de parar chegou a '/);
+  assert.match(js, /if \(!e\.status \|\| \(e\.status === 504 && e\.codigo === 'INCERTO'\) \|\| \(e\.status >= 500 && !reconhecido\)\) mostraSempre\(fErro, dgUiText_conversa_js\("Não sei se o pedido de parar chegou a "/);
 });
 
 test('parar: 404 sem corpo e 500 com code NO_PTY não são diagnóstico: 504 INCERTO', async () => {

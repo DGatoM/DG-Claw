@@ -116,7 +116,8 @@ function mundo() {
   const ctx = vm.createContext({ document: doc, window: {}, console: { warn: (...a) => avisos.push(a.join(' ')), error: (...a) => erros.push(a.join(' ')) }, NA_PLATAFORMA: true,
     rotuloDaAba: () => '', tutorialDaCasca: () => {}, moveEstadoParaConteudo: () => {} });
   const corte = (de, ate) => app.slice(app.indexOf(de), app.indexOf(ate));
-  vm.runInContext(corte('function sairDoCarregando', '// Monta o cabeçalho e o menu da casca na hora') + corte('function montaCascaCedo', 'function ligaExtrasDaCasca'), ctx);
+  const idioma = app.split('\n').filter(l => /^const dg/.test(l)).join('\n') + '\n';
+  vm.runInContext(idioma + corte('function sairDoCarregando', '// Monta o cabeçalho e o menu da casca na hora') + corte('function montaCascaCedo', 'function ligaExtrasDaCasca'), ctx);
   return { ctx, classes, avisos, erros, inseridos };
 }
 {
@@ -131,7 +132,7 @@ function mundo() {
   ok(!m.classes.has('carregando'), 'saída 2: init que falha tira o carregando');
   ok(m.erros.length === 1 && m.erros[0].includes('o servidor não respondeu'), 'saída 2: console.error com o motivo');
   ok(aviso && aviso.attrs.role === 'alert' && aviso.filhos.some((f) => typeof f === 'string' && f.includes('o servidor não respondeu') && f.includes('O que fazer')), 'saída 2: mensagem em português na própria tela, com a causa e o que fazer');
-  ok(app.includes('titulo.textContent') && !/aviso\.innerHTML/.test(app), 'saída 2: o motivo entra como texto (sem innerHTML)');
+  ok(aviso && !Object.hasOwn(aviso, 'innerHTML') && aviso.filhos.some(f => f && typeof f === 'object' && typeof f.textContent === 'string' && f.textContent.length > 0), 'saída 2: o motivo entra como texto (sem innerHTML)');
 }
 {
   const m = mundo();

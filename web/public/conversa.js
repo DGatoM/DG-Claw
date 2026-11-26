@@ -1,4 +1,9 @@
 'use strict';
+const dgUiPhrase_conversa_audit = (fonte, valores) => globalThis.DGI18n ? globalThis.DGI18n.frase(fonte, valores) : fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m, k) => Object.hasOwn(valores, k) ? String(valores[k]) : m);
+const dgUiText_conversa_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiHtml_conversa_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
+const dgUiFragment_conversa_js = (fonte, valores, original) => globalThis.DGI18n ? globalThis.DGI18n.fragmento(fonte, valores) : original();
+const dgUiLabel_conversa_js = (el, fonte, atributo, valores) => { if (globalThis.DGI18n) globalThis.DGI18n.rotulo(el, fonte, atributo, valores); else { const texto = fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m, k) => valores && Object.hasOwn(valores, k) ? String(valores[k]) : m); if (atributo) el.setAttribute(atributo, texto); else el.textContent = texto; } };
 const dgTexto_conversa = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 const dgHtml_conversa = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* conversa.js: a tela de conversa do DG Claw Web.
@@ -52,7 +57,7 @@ function mostraErroTela(titulo, texto, agentes) {
   for (const a of agentes || []) {
     const l = document.createElement('a');
     l.href = '/a/' + encodeURIComponent(a.id);
-    l.textContent = 'Abrir ' + a.nome;
+    dgUiLabel_conversa_js(l, "Abrir {p0}", null, {p0: a.nome});
     links.appendChild(l);
     links.appendChild(document.createTextNode('  '));
   }
@@ -95,22 +100,22 @@ async function boot() {
       throw new Error((d && d.erro) || ('a API respondeu ' + r.status));
     }
   } catch (e) {
-    mostraErroTela('Não consegui listar os agentes',
-                   e.message + '. Recarregue a página; se continuar, avise quem cuida do servidor.');
+    mostraErroTela(dgUiText_conversa_js("Não consegui listar os agentes"),
+                   e.message + dgUiText_conversa_js('. Recarregue a página; se continuar, avise quem cuida do servidor.'));
     return;
   }
   const lista = Array.isArray(d.agentes) ? d.agentes : [];
   if (!lista.length) {
-    mostraErroTela('Nenhum agente por aqui ainda',
-                   'O servidor não devolveu nenhum agente. Peça para cadastrarem um e recarregue.');
+    mostraErroTela(dgUiText_conversa_js("Nenhum agente por aqui ainda"),
+                   dgUiText_conversa_js("O servidor não devolveu nenhum agente. Peça para cadastrarem um e recarregue."));
     return;
   }
   const slug = slugDaUrl();
   if (!slug) { location.replace('/a/' + encodeURIComponent(lista[0].id)); return; }
   const ag = lista.find(a => a.id === slug);
   if (!ag) {
-    mostraErroTela('Não achei o agente "' + slug + '"',
-                   'Esse endereço não corresponde a nenhum agente cadastrado. Escolha um da lista:',
+    mostraErroTela(dgUiText_conversa_js("Não achei o agente \"") + slug + '"',
+                   dgUiText_conversa_js("Esse endereço não corresponde a nenhum agente cadastrado. Escolha um da lista:"),
                    lista);
     return;
   }
@@ -250,7 +255,7 @@ const API_ANON = '/api/v1/anonimizar/' + encodeURIComponent(AGENTE.id);
     })
     .catch(e => console.warn('anonimizar: não consegui ler a configuração (' + e.message + ').'));
 })();
-if (window.DGOnboarding) window.DGOnboarding.iniciar({ agente: AGENTE, enviar: texto => new Promise((resolve, reject) => { enviarTexto(texto, null, { aoEntregar: (ok, motivo) => ok ? resolve() : reject(new Error(motivo || 'O Admin não recebeu a mensagem.')) }); }), refazer: () => render({ semRolar: true }) });
+if (window.DGOnboarding) window.DGOnboarding.iniciar({ agente: AGENTE, enviar: texto => new Promise((resolve, reject) => { enviarTexto(texto, null, { aoEntregar: (ok, motivo) => ok ? resolve() : reject(new Error(motivo || dgUiText_conversa_js("O Admin não recebeu a mensagem."))) }); }), refazer: () => render({ semRolar: true }) });
 if (window.DGBarra && !COLAB) window.DGBarra.liga(entrada, { url: API + '/comandos' });   // lista de comandos ao digitar /
 let novasAbaixo = 0, setaVisivel = false;   // a seta pro fim e o contador dela
 /* mp3 de 0,08s em silêncio: é o que destrava o áudio no iOS dentro do gesto. */
@@ -289,7 +294,7 @@ document.documentElement.style.setProperty('--accent', AGENTE.cor || '#2f9e5e');
 document.title = AGENTE.nome + ' - ' + dsMarca.nome;
 $('nomeAgente').textContent = AGENTE.nome;
 pintaAvatar(avEl, AGENTE);
-entrada.placeholder = 'Escrever para ' + AGENTE.nome;
+dgUiLabel_conversa_js(entrada, "Escrever para {p0}", "placeholder", {p0: AGENTE.nome});
 if (EH_ADMIN) $('avisoAdmin').hidden = false;
 if (!caps.microfone) document.documentElement.classList.add('sem-mic');
 if (!caps.voz) document.documentElement.classList.add('sem-voz');
@@ -336,41 +341,41 @@ function atvFrase(est) {
   const nome = AGENTE.nome;
   const ha = iso => { const t = Date.parse(iso || ''); return isFinite(t) ? atvDuracao(atvAgoraMs() - t) : null; };
   if (est.alerta === 'sem_login') {
-    return { nome: nome + ' sem sinal: falta conectar a conta', acao: '', classe: 'atv-cinza',
+    return { nome: nome + dgUiText_conversa_js(" sem sinal: falta conectar a conta"), acao: '', classe: 'atv-cinza',
              titulo: est.motivo || '' };
   }
   if (est.alerta === 'login_expirado') {
     const h = atvHora(est.expirou_em || est.desde);
-    return { nome: nome + ' parado: o login expirou' + (h ? ' às ' + h : ''), acao: '', classe: 'atv-cinza',
+    return { nome: nome + dgUiText_conversa_js(" parado: o login expirou") + (h ? dgUiText_conversa_js(" às ") + h : ''), acao: '', classe: 'atv-cinza',
              titulo: est.motivo || '' };
   }
   if (est.estado === 'sem_sinal') {
     const h = atvHora(est.ultimo_sinal);
-    return { nome: nome + ' sem sinal' + (h ? ' desde ' + h : ''), acao: '', classe: 'atv-cinza',
+    return { nome: nome + dgUiText_conversa_js(" sem sinal") + (h ? dgUiText_conversa_js(" desde ") + h : ''), acao: '', classe: 'atv-cinza',
              titulo: est.motivo || '' };
   }
   const d = ha(est.desde);
   if (est.alerta === 'permissao') {
-    return { nome: nome + ' esperando a sua permissão', acao: est.detalhe ? est.detalhe.split('\n')[0].slice(0, 80) : '',
+    return { nome: nome + dgUiText_conversa_js(" esperando a sua permissão"), acao: est.detalhe ? est.detalhe.split('\n')[0].slice(0, 80) : '',
              classe: 'atv-alerta', titulo: est.detalhe || '' };
   }
   if (est.alerta === 'pergunta') {
-    return { nome: nome + ' fez uma pergunta para você', acao: '', classe: 'atv-alerta', titulo: 'O agente abriu uma pergunta de escolha e está parado até ela ser respondida' };
+    return { nome: nome + dgUiText_conversa_js(" fez uma pergunta para você"), acao: '', classe: 'atv-alerta', get titulo() { return dgUiText_conversa_js("O agente abriu uma pergunta de escolha e está parado até ela ser respondida"); } };
   }
   if (est.alerta === 'ferramenta_longa') {
-    return { nome: nome, acao: (est.detalhe || est.acao) + ' rodando' + (d ? ' há ' + d : ''), classe: 'atv-alerta',
+    return { nome: nome, acao: (est.detalhe || est.acao) + dgUiText_conversa_js(" rodando") + (d ? dgUiText_conversa_js(" há ") + d : ''), classe: 'atv-alerta',
              titulo: est.detalhe || '' };
   }
   if (est.alerta === 'sem_escrita') {
     const sem = ha(est.ultimo_sinal);
-    return { nome: nome + ' sem escrever' + (sem ? ' há ' + sem : ''), acao: '', classe: 'atv-alerta',
-             titulo: 'Sem nada escrito no registro da sessão' };
+    return { nome: nome + dgUiText_conversa_js(" sem escrever") + (sem ? dgUiText_conversa_js(" há ") + sem : ''), acao: '', classe: 'atv-alerta',
+             get titulo() { return dgUiText_conversa_js("Sem nada escrito no registro da sessão"); } };
   }
   const longa = est.acao !== 'pensando' && est.desde &&
     atvAgoraMs() - Date.parse(est.desde) >= 60000;
   const oQue = est.detalhe || est.acao;
-  return { nome: nome + ' está trabalhando',
-           acao: oQue + (longa && d ? ', há ' + d : ''),
+  return { nome: nome + dgUiText_conversa_js(" está trabalhando"),
+           acao: oQue + (longa && d ? dgUiText_conversa_js(", há ") + d : ''),
            base: oQue, classe: longa ? 'atv-longa' : '', titulo: est.detalhe || '' };
 }
 function pintaAtividade() {
@@ -394,7 +399,7 @@ function pintaAtividade() {
     // toque: o detalhe (ex.: "Bash: npm test, há 40 s") no lugar da linha
     const d = Date.parse(est.desde || '');
     const detalhe = est.detalhe || est.acao || est.motivo || f.nome;
-    atvNomeEl.textContent = detalhe + (est.detalhe && isFinite(d) ? ', há ' + atvDuracao(atvAgoraMs() - d) : '');
+    atvNomeEl.textContent = detalhe + (est.detalhe && isFinite(d) ? dgUiText_conversa_js(", há ") + atvDuracao(atvAgoraMs() - d) : '');
     atvSepEl.hidden = true;
     atvAcaoEl.textContent = '';
     return;
@@ -443,15 +448,15 @@ if (atividadeEl) {
       let esperaMs = 3000;
       try {
         const d = await api(API + '/parar', { method: 'POST', body: {}, timeoutMs: 15000 });
-        if (d && d.ok === true) mostraSempre(fAviso, d.mensagem || ('Mandei um Esc para ' + AGENTE.nome + '.'));
-        else mostraSempre(fErro, 'A resposta do Parar de ' + AGENTE.nome + ' veio incompleta. Olhe a conversa antes de apertar de novo: dois Esc seguidos podem travar a sessão.');
+        if (d && d.ok === true) mostraSempre(fAviso, d.mensagem || (dgUiText_conversa_js("Mandei um Esc para ") + AGENTE.nome + '.'));
+        else mostraSempre(fErro, dgUiText_conversa_js("A resposta do Parar de ") + AGENTE.nome + dgUiText_conversa_js(" veio incompleta. Olhe a conversa antes de apertar de novo: dois Esc seguidos podem travar a sessão."));
       } catch (e) {
         const espere = e.dados && typeof e.dados.espere_s === 'number' ? e.dados.espere_s : null;
         if (e.status === 429 && espere !== null) esperaMs = Math.ceil(espere * 1000) + 100;
         // Sem status HTTP (rede, corte, prazo) ou 504 INCERTO: o Esc pode ter chegado; não diga que falhou.
         const reconhecido = ['MUITO_RAPIDO', 'NO_PTY', 'NAO_TRABALHANDO', 'COMPACTANDO', 'ESPERANDO_DECISAO', 'RESPOSTA_EM_ANDAMENTO', 'SO_O_DONO', 'RUNNER_FORA', 'RUNNER_ANTIGO', 'AGENTE_DE_OUTRO_RUNNER', 'RECUSADO'].includes(e.codigo);
-        if (!e.status || (e.status === 504 && e.codigo === 'INCERTO') || (e.status >= 500 && !reconhecido)) mostraSempre(fErro, 'Não sei se o pedido de parar chegou a ' + AGENTE.nome + '. Olhe a conversa antes de apertar de novo.');
-        else mostraSempre(fErro, 'Não consegui parar ' + AGENTE.nome + ': ' + e.message);
+        if (!e.status || (e.status === 504 && e.codigo === 'INCERTO') || (e.status >= 500 && !reconhecido)) mostraSempre(fErro, dgUiText_conversa_js("Não sei se o pedido de parar chegou a ") + AGENTE.nome + dgUiText_conversa_js('. Olhe a conversa antes de apertar de novo.'));
+        else mostraSempre(fErro, dgUiText_conversa_js("Não consegui parar ") + AGENTE.nome + ': ' + e.message);
       } finally {
         // A trava de 3 s conta desde o clique; a espera do 429 conta desde a resposta.
         const atraso = esperaMs === 3000 ? Math.max(0, 3000 - (Date.now() - inicio)) : esperaMs;
@@ -499,7 +504,7 @@ function lcEl_(tag, classe, texto) {
 
 function lcDesenha() {
   if (!lc.aberto) { lcEl.hidden = true; lc.chave = ''; return; }
-  if (!LC) { mostraErro('O cartão de login não carregou. Recarregue a página.'); lcEl.hidden = true; return; }
+  if (!LC) { mostraErro(dgUiText_conversa_js("O cartão de login não carregou. Recarregue a página.")); lcEl.hidden = true; return; }
   const v = lc.carregando
     ? { fase: 'carregando', provedor: LC.nomeProvedor(lc.dados && lc.dados.provedor), titulo: 'Conferindo a conta…', texto: '', passos: [], aviso: 'Conferindo a conta' }
     : lcVisao();
@@ -527,7 +532,7 @@ function lcDesenha() {
     corpo.push(ol);
   }
   if (v.link) {
-    const a = lcEl_('a', 'lc-btn lc-link', 'Abrir a página de login');
+    const a = lcEl_('a', 'lc-btn lc-link', dgUiText_conversa_js("Abrir a página de login"));
     a.href = v.link; a.target = '_blank'; a.rel = 'noopener noreferrer';
     corpo.push(a);
   }
@@ -538,7 +543,7 @@ function lcDesenha() {
     corpo.push(linha);
   }
   if (v.campoCodigo) {
-    const rot = lcEl_('label', 'lc-rotulo', 'Cole aqui o código que aparece no fim');
+    const rot = lcEl_('label', 'lc-rotulo', dgUiText_conversa_js("Cole aqui o código que aparece no fim"));
     rot.htmlFor = 'lcCodigo';
     const campo = document.createElement('input');
     campo.type = 'text'; campo.id = 'lcCodigo'; campo.className = 'lc-campo';
@@ -547,7 +552,7 @@ function lcDesenha() {
     campo.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); lcEnviaCodigo(); } });
     campo.addEventListener('focus', () => lcTrazCampo(campo));
     const linha = lcEl_('div', 'lc-linha');
-    linha.append(campo, lcBotao('Enviar código', 'lc-principal', lcEnviaCodigo));
+    linha.append(campo, lcBotao(dgUiText_conversa_js("Enviar código"), 'lc-principal', lcEnviaCodigo));
     corpo.push(rot, linha);
   }
   if (lc.erro) {
@@ -557,7 +562,7 @@ function lcDesenha() {
   }
   const pe = lcEl_('div', 'lc-pe');
   if (v.botao) pe.append(lcBotao(lc.ocupado && v.fase === 'inicio' ? dgTexto_conversa('Conectando…') : v.botao, 'lc-principal', lcComeca));
-  if (v.entrarDeNovo) pe.append(lcBotao('Entrar de novo', 'lc-leve', lcComeca));
+  if (v.entrarDeNovo) pe.append(lcBotao(dgUiText_conversa_js("Entrar de novo"), 'lc-leve', lcComeca));
   if (v.cancelar) pe.append(lcBotao(dgTexto_conversa('Cancelar'), 'lc-leve', lcCancela));
   if (v.fechar) pe.append(lcBotao(dgTexto_conversa('Fechar'), 'lc-leve', () => lcFecha(true)));
   if (pe.childElementCount) corpo.push(pe);
@@ -648,7 +653,7 @@ async function lcConfere() {
   } catch (e) {
     if (!lc.aberto) return;
     lc.carregando = false;
-    lc.erro = 'Não consegui conferir o login: ' + e.message;
+    lc.erro = dgUiText_conversa_js("Não consegui conferir o login: ") + e.message;
     lcDesenha();
   } finally { lc.conferindo = false; }
 }
@@ -661,7 +666,7 @@ function lcConcluiu() {
   // EXPIRADO não há oi: o runner reinicia a mesma sessão e entrega o recado "login-reconectado".
   if (!lc.expirado) {
     api(LOGIN_API + '/oi', { method: 'POST', body: {}, timeoutMs: 75000 })
-      .catch(e => mostraAviso('A conta foi conectada, mas não consegui pedir o oi do agente: ' + e.message + '. Escreva um oi na conversa.'));
+      .catch(e => mostraAviso(dgUiText_conversa_js("A conta foi conectada, mas não consegui pedir o oi do agente: ") + e.message + '. Escreva um oi na conversa.'));
   }
   lc.fechaTimer = setTimeout(() => { lc.fechaTimer = null; lcFecha(false); }, 1500);
 }
@@ -674,7 +679,7 @@ async function lcComeca() {
     lc.dados = d; lc.iniciado = true; lc.carregando = false;
     lcAgenda();
   } catch (e) {
-    lc.erro = 'Não consegui começar o login: ' + e.message;
+    lc.erro = dgUiText_conversa_js("Não consegui começar o login: ") + e.message;
   } finally { lc.ocupado = false; lcDesenha(); }
 }
 
@@ -682,13 +687,13 @@ async function lcEnviaCodigo() {
   if (lc.ocupado) return;
   const campo = document.getElementById('lcCodigo');
   const codigo = campo ? campo.value.trim() : '';
-  if (!codigo) { lc.erro = 'Cole o código que a página mostrou no fim do login.'; lcDesenha(); if (campo) campo.focus(); return; }
+  if (!codigo) { lc.erro = dgUiText_conversa_js("Cole o código que a página mostrou no fim do login."); lcDesenha(); if (campo) campo.focus(); return; }
   lc.codigo = codigo; lc.ocupado = true; lc.erro = ''; lcDesenha();
   try {
     await api(LOGIN_API + '/codigo', { method: 'POST', body: { codigo }, timeoutMs: 20000 });
     lc.codigo = '';
   } catch (e) {
-    lc.erro = 'Não consegui enviar o código: ' + e.message;
+    lc.erro = dgUiText_conversa_js("Não consegui enviar o código: ") + e.message;
   } finally { lc.ocupado = false; lcDesenha(); }
   if (!lc.erro) lcConfere();
 }
@@ -700,7 +705,7 @@ async function lcCancela() {
     await api(LOGIN_API, { method: 'DELETE', timeoutMs: 20000 });
   } catch (e) {
     lc.ocupado = false;
-    lc.erro = 'Não consegui cancelar o login: ' + e.message;
+    lc.erro = dgUiText_conversa_js("Não consegui cancelar o login: ") + e.message;
     lcDesenha();
     return;
   }
@@ -713,7 +718,7 @@ async function lcCopia(texto) {
     lc.copiado = true; lc.erro = '';
     setTimeout(() => { lc.copiado = false; lcDesenha(); }, 2000);
   } catch (e) {
-    lc.erro = 'Não consegui copiar sozinho (' + e.message + '). Toque no código, segure e escolha copiar.';
+    lc.erro = dgUiText_conversa_js("Não consegui copiar sozinho (") + e.message + dgUiText_conversa_js("). Toque no código, segure e escolha copiar.");
   }
   lcDesenha();
 }
@@ -724,7 +729,7 @@ function lcAbre(manual, semConferir) {
   // Colaborador conecta a conta pela página Conectar conta (que confere no servidor se o agente está sem conta).
   // Aqui só avisa, uma vez, em vez de abrir o cartão do dono.
   if (window.DGPapel && window.DGPapel.colaborador) {
-    if (!lcAvisouColab) { lcAvisouColab = true; mostraAviso('O agente ainda não tem uma conta de IA conectada. Você pode conectar a sua em Conectar conta, no menu. Se o login expirou e a conta não é sua, avise o dono do ' + dsMarca.nome + '.'); }
+    if (!lcAvisouColab) { lcAvisouColab = true; mostraAviso(dgUiText_conversa_js("O agente ainda não tem uma conta de IA conectada. Você pode conectar a sua em Conectar conta, no menu. Se o login expirou e a conta não é sua, avise o dono do ") + dsMarca.nome + '.'); }
     return;
   }
   if (lc.aberto) { if (manual) { lc.manual = true; lc.dispensado = false; } lcDesenha(); return; }
@@ -880,8 +885,8 @@ function leComecaVolta() {
     const v = PURO.avaliaVolta({ marco, ultimoAgora, vivas, foto: window.atividadeFoto, agenteId: AGENTE.id, streamAberto, decorridoMs: Date.now() - ini });
     vivas = v.vivas; ultimoAgora = v.ultimoAgora;
     if (v.acao === 'voltou') return lePronto();
-    if (v.acao === 'login_expirado' || v.acao === 'sem_login') return leNaoVoltou(v.motivo || 'A conta continua sem login. Reconecte de novo.');
-    if (v.acao === 'indeterminado') return leNaoVoltou('A tela não consegue confirmar a volta (conversa-puro.js não carregou). Recarregue a página.');
+    if (v.acao === 'login_expirado' || v.acao === 'sem_login') return leNaoVoltou(v.motivo || dgUiText_conversa_js("A conta continua sem login. Reconecte de novo."));
+    if (v.acao === 'indeterminado') return leNaoVoltou(dgUiText_conversa_js("A tela não consegue confirmar a volta (conversa-puro.js não carregou). Recarregue a página."));
     if (Date.now() - ini > LE.PRAZO_VOLTA_MS) return leNaoVoltou('');
     le.timer = setTimeout(olha, 2000);
   };
@@ -900,7 +905,7 @@ function lePronto() {
 
 function leReiniciar() {
   if (!reiniciaSessao) {
-    le.erro = 'O botão de reiniciar não carregou nesta página. Recarregue a página ou use o menu da conversa, "Reiniciar a sessão".';
+    le.erro = dgUiText_conversa_js("O botão de reiniciar não carregou nesta página. Recarregue a página ou use o menu da conversa, \"Reiniciar a sessão\".");
     leDesenha();
     return;
   }
@@ -921,11 +926,11 @@ function leSincroniza() {
 
 /* Mensagem recusada com LOGIN_EXPIRADO: a pessoa acabou de tentar falar, então abre mesmo se dispensou. */
 function leAbreAoRecusar() {
-  if (!LE || !leDlg) { mostraErro('O login da conta expirou, mas o pop-up de reconectar não carregou. Recarregue a página e use o cartão de login.'); return; }
+  if (!LE || !leDlg) { mostraErro(dgUiText_conversa_js("O login da conta expirou, mas o pop-up de reconectar não carregou. Recarregue a página e use o cartão de login.")); return; }
   const est = leEstAtual();
   if (le.aberto) return;
   if (est && LE.expirado(est)) { lc.expirado = true; }
-  if (leModalLoginAtivo()) { mostraErro('O login da conta expirou. Reconecte pelo cartão de login no fim da conversa ou pela página Conectar conta, no menu.'); return; }
+  if (leModalLoginAtivo()) { mostraErro(dgUiText_conversa_js("O login da conta expirou. Reconecte pelo cartão de login no fim da conversa ou pela página Conectar conta, no menu.")); return; }
   leAbre();
 }
 
@@ -977,8 +982,8 @@ function pcDesenha(pedido, abrindo) {
     return e;
   };
   pcEl.textContent = '';
-  pcEl.appendChild(filho('strong', 'pc-titulo', 'O agente está esperando a sua permissão'));
-  pcEl.appendChild(filho('p', 'pc-texto', AGENTE.nome + ' quer fazer isto e parou até você decidir:'));
+  pcEl.appendChild(filho('strong', 'pc-titulo', dgUiText_conversa_js("O agente está esperando a sua permissão")));
+  pcEl.appendChild(filho('p', 'pc-texto', AGENTE.nome + dgUiText_conversa_js(" quer fazer isto e parou até você decidir:")));
   pcEl.appendChild(filho('pre', 'pc-pedido', TR.descricaoPedido(pedido)));
   if (pc.erro) pcEl.appendChild(filho('p', 'pc-erro', pc.erro));
   const linha = filho('div', 'pc-botoes');
@@ -992,8 +997,8 @@ function pcDesenha(pedido, abrindo) {
   linha.appendChild(botao('Aprovar', 'pc-aprova', 'aprovar'));
   linha.appendChild(botao('Negar', 'pc-nega', 'negar'));
   pcEl.appendChild(linha);
-  const msg = pc.decidido ? (pc.decidido === 'aprovar' ? 'Aprovado. Aguardando o agente continuar…' : 'Negado. Aguardando o agente continuar…')
-    : (pc.ocupado ? 'Enviando a sua decisão…' : '');
+  const msg = pc.decidido ? (pc.decidido === 'aprovar' ? dgUiText_conversa_js("Aprovado. Aguardando o agente continuar…") : dgUiText_conversa_js("Negado. Aguardando o agente continuar…"))
+    : (pc.ocupado ? dgUiText_conversa_js("Enviando a sua decisão…") : '');
   const vivo = filho('p', 'pc-status', msg);
   vivo.setAttribute('role', 'status');
   pcEl.appendChild(vivo);
@@ -1010,7 +1015,7 @@ async function pcDecide(decisao) {
     await api(API + '/permissao', { method: 'POST', body: pc.id ? { decisao, tool_use_id: pc.id } : { decisao }, timeoutMs: 20000 });
     pc.decidido = decisao;
   } catch (e) {
-    pc.erro = 'Não consegui enviar a decisão: ' + e.message;
+    pc.erro = dgUiText_conversa_js("Não consegui enviar a decisão: ") + e.message;
   } finally {
     pc.ocupado = false;
     pcSincroniza();
@@ -1067,12 +1072,12 @@ function pqDesenha(perg, abrindo) {
   };
   const travado = pq.ocupado || !!pq.feito;
   pqEl.textContent = '';
-  pqEl.appendChild(filho('strong', 'pc-titulo', AGENTE.nome + ' fez uma pergunta para você'));
+  pqEl.appendChild(filho('strong', 'pc-titulo', AGENTE.nome + dgUiText_conversa_js(" fez uma pergunta para você")));
   if (!perg) {
-    pqEl.appendChild(filho('p', 'pc-texto', 'Não consegui ler a pergunta para mostrar as escolhas aqui. Responda pelo terminal do agente, na aba Sessões.'));
+    pqEl.appendChild(filho('p', 'pc-texto', dgUiText_conversa_js("Não consegui ler a pergunta para mostrar as escolhas aqui. Responda pelo terminal do agente, na aba Sessões.")));
     const sess = $('btnSessoes');
     if (sess && !sess.hidden && sess.getAttribute('href') && sess.getAttribute('href') !== '#') {
-      const a = filho('a', 'pc-btn pc-nega pq-link', 'Abrir a aba Sessões');
+      const a = filho('a', 'pc-btn pc-nega pq-link', dgUiText_conversa_js("Abrir a aba Sessões"));
       a.href = sess.getAttribute('href');
       pqEl.appendChild(a);
     }
@@ -1080,7 +1085,7 @@ function pqDesenha(perg, abrindo) {
     pqEl.classList.toggle('entra', !!abrindo);
     return;
   }
-  pqEl.appendChild(filho('p', 'pc-texto', 'Ele parou até você responder. Mensagens enviadas pelo chat ficam bloqueadas enquanto isso.'));
+  pqEl.appendChild(filho('p', 'pc-texto', dgUiText_conversa_js("Ele parou até você responder. Mensagens enviadas pelo chat ficam bloqueadas enquanto isso.")));
   const atualizaEnvio = () => { if (pq.btnEnvia) pq.btnEnvia.disabled = travado || !pqCompleto(perg); };
   perg.perguntas.forEach((q, i) => {
     const caixa = filho('fieldset', 'pq-bloco');
@@ -1115,8 +1120,8 @@ function pqDesenha(perg, abrindo) {
     if (campoTexto) {
       campoTexto.type = 'text';
       campoTexto.maxLength = 2000;
-      campoTexto.placeholder = 'Outra resposta (escreva em uma linha)';
-      campoTexto.setAttribute('aria-label', 'Outra resposta para a pergunta ' + (i + 1));
+      dgUiLabel_conversa_js(campoTexto, "Outra resposta (escreva em uma linha)", "placeholder");
+      dgUiLabel_conversa_js(campoTexto, "Outra resposta para a pergunta {p0}", "aria-label", {p0: i + 1});
       campoTexto.value = pq.texto[i];
       campoTexto.addEventListener('input', () => {
         pq.texto[i] = campoTexto.value;
@@ -1134,13 +1139,13 @@ function pqDesenha(perg, abrindo) {
   if (pq.noTerminal) {
     const sess = $('btnSessoes');
     if (sess && !sess.hidden && sess.getAttribute('href') && sess.getAttribute('href') !== '#') {
-      const a = filho('a', 'pc-btn pc-nega pq-link', 'Abrir a aba Sessões');
+      const a = filho('a', 'pc-btn pc-nega pq-link', dgUiText_conversa_js("Abrir a aba Sessões"));
       a.href = sess.getAttribute('href');
       pqEl.appendChild(a);
     }
   }
   const linha = filho('div', 'pc-botoes');
-  const envia = filho('button', 'pc-btn pc-aprova', 'Enviar resposta');
+  const envia = filho('button', 'pc-btn pc-aprova', dgUiText_conversa_js("Enviar resposta"));
   envia.type = 'button';
   envia.addEventListener('click', () => pqEnvia(perg, false));
   const cancela = filho('button', 'pc-btn pc-nega', 'Cancelar pergunta');
@@ -1152,9 +1157,9 @@ function pqDesenha(perg, abrindo) {
   linha.appendChild(cancela);
   pqEl.appendChild(linha);
   atualizaEnvio();
-  const msg = pq.feito === 'cancelada' ? 'Pergunta cancelada. Aguardando o agente continuar…'
-    : pq.feito ? 'Resposta enviada. Aguardando o agente continuar…'
-    : (pq.ocupado ? 'Enviando a sua resposta (leva alguns segundos)…' : '');
+  const msg = pq.feito === 'cancelada' ? dgUiText_conversa_js("Pergunta cancelada. Aguardando o agente continuar…")
+    : pq.feito ? dgUiText_conversa_js("Resposta enviada. Aguardando o agente continuar…")
+    : (pq.ocupado ? dgUiText_conversa_js("Enviando a sua resposta (leva alguns segundos)…") : '');
   const vivo = filho('p', 'pc-status', msg);
   vivo.setAttribute('role', 'status');
   pqEl.appendChild(vivo);
@@ -1177,7 +1182,7 @@ async function pqEnvia(perg, cancelar) {
     await api(API + '/pergunta', { method: 'POST', body, timeoutMs: 45000 });
     pq.feito = cancelar ? 'cancelada' : 'respondida';
   } catch (e) {
-    pq.erro = 'Não consegui ' + (cancelar ? 'cancelar' : 'enviar') + ' a resposta: ' + e.message;
+    pq.erro = dgUiText_conversa_js("Não consegui ") + (cancelar ? 'cancelar' : 'enviar') + ' a resposta: ' + e.message;
     // Terminal já mexeu na pergunta: o chat não pode mais responder, só o terminal.
     pq.noTerminal = e.codigo === 'PERGUNTA_JA_MEXIDA';
     if (pq.noTerminal && e.dados && e.dados.howToFix) pq.erro += ' ' + e.dados.howToFix;
@@ -1220,7 +1225,7 @@ function filaSincroniza() {
       const quando = new Date(x.em);
       const horaItem = quando.toTimeString().slice(0, 5);
       pendentes.push({
-        n: ++seqPendente, texto: x.texto || ('Mensagem enviada às ' + horaItem + ' ainda na fila. O texto não está disponível nesta tela agora.'), estado: 'enviada', erro: null, cid: novoClienteId(),
+        n: ++seqPendente, texto: x.texto || (dgUiText_conversa_js("Mensagem enviada às ") + horaItem + dgUiText_conversa_js(" ainda na fila. O texto não está disponível nesta tela agora.")), estado: 'enviada', erro: null, cid: novoClienteId(),
         criadoEm: x.em, epLocal: x.em / 1000, ep: x.em / 1000 - 2, tentativa: 1,
         hhmm: quando.toTimeString().slice(0, 5), dia: quando.toLocaleDateString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR')),
         fila: 'resposta', filaEm: x.em, msgId: x.msg, daFila: true,
@@ -1253,14 +1258,14 @@ let filaReavalia = null;
 
 /* O estado de descanso da tela depende do stream: sem ele as mensagens novas
    não chegam sozinhas, e a pessoa precisa ler isso (sem animação nenhuma). */
-const ESTADOS_CONEXAO = ['pronto', dgTexto_conversa('conectando…'), 'reconectando…', 'conferindo agente…', 'agente sem sinal', 'esperando a sua permissão', 'esperando a sua resposta'];
+const ESTADOS_CONEXAO = ['pronto', dgTexto_conversa('conectando…'), 'reconectando…', dgUiText_conversa_js("conferindo agente…"), dgUiText_conversa_js("agente sem sinal"), dgUiText_conversa_js("esperando a sua permissão"), dgUiText_conversa_js("esperando a sua resposta")];
 function estadoOcioso() {
   if (!streamAberto) return setEstado(jaConectou ? 'reconectando…' : dgTexto_conversa('conectando…'));
   const est = window.atividadeFoto?.agentes?.[AGENTE.id];
-  if (!est) return setEstado('conferindo agente…');
-  if (est.alerta === 'permissao') return setEstado('esperando a sua permissão');
-  if (est.alerta === 'pergunta') return setEstado('esperando a sua resposta');
-  setEstado(est.estado === 'sem_sinal' ? 'agente sem sinal' : 'pronto', est.estado === 'sem_sinal');
+  if (!est) return setEstado(dgUiText_conversa_js("conferindo agente…"));
+  if (est.alerta === 'permissao') return setEstado(dgUiText_conversa_js("esperando a sua permissão"));
+  if (est.alerta === 'pergunta') return setEstado(dgUiText_conversa_js("esperando a sua resposta"));
+  setEstado(est.estado === 'sem_sinal' ? dgUiText_conversa_js("agente sem sinal") : 'pronto', est.estado === 'sem_sinal');
 }
 
 /* Ociosa = nada do ciclo em curso. Os estados de trabalho terminam em
@@ -1421,7 +1426,7 @@ function paragrafos(txt, fmt) {
     if (fmt === 'markdownv2') cod = cod.replace(/\\([`\\])/g, '$1');
     if (!cod) continue;
     html += `<div class="cod"><button type="button" class="codcopia" ` +
-            `aria-label="Copiar o texto do bloco" title="Copiar o texto do bloco">` +
+            `aria-label="${esc(dgUiText_conversa_js("Copiar o texto do bloco"))}" title="${esc(dgUiText_conversa_js("Copiar o texto do bloco"))}">` +
             `${ICONE_COPIAR}</button><pre>${esc(cod)}</pre></div>`;
   }
   return html;
@@ -1440,7 +1445,7 @@ function textoPuroEmParagrafos(txt) {
 const ROTULO_MIDIA = { photo: { ico: 'camera', txt: 'foto' }, video: { ico: 'video', txt: 'vídeo' },
                        document: { ico: 'file', txt: 'arquivo' }, voice: { ico: 'mic', txt: 'áudio' },
                        audio: { ico: 'mic', txt: 'áudio' } };
-const rotuloDe = (kind) => ROTULO_MIDIA[kind] || ROTULO_MIDIA.document;
+const rotuloDe = (kind) => dgUiText_conversa_js(ROTULO_MIDIA[kind]) || dgUiText_conversa_js(ROTULO_MIDIA.document);
 const rotuloHtml = (kind) => { const r = rotuloDe(kind); return dsIcone(r.ico) + ' ' + r.txt; };
 const rotuloTxt = (kind) => rotuloDe(kind).txt;
 const LEGENDAS_ANTIGAS = ['\u{1F4F7} foto', '\u{1F3AC} vídeo', '\u{1F4C4} arquivo', '\u{1F3A4} áudio'];
@@ -1479,12 +1484,12 @@ function htmlMidia(m) {
   }
   const legenda = esc(md.nome || '') + (md.bytes ? ' (' + tamanhoHumano(md.bytes) + ')' : '');
   if (md.thumb) {
-    return `<span class="midcx"><button class="mid" data-mid="${esc(md.id)}" aria-label="Abrir ${rotT}">` +
+    return `<span class="midcx"><button class="mid" data-mid="${esc(md.id)}" aria-label="${esc(dgUiText_conversa_js("Abrir "))}${rotT}">` +
            `<img loading="lazy" alt="${rotT}" src="${esc(md.thumb)}" ` +
            `onerror="semThumb(this)">` +
            `<span class="midfb">${rot} ${legenda}</span>` +
            (md.kind === 'video' ? `<span class="play" aria-hidden="true">${dsIcone('play')}</span>` : '') +
-           `<span class="lupa">${md.kind === 'video' ? 'vídeo' : 'toque para abrir'}</span></button>` +
+           `<span class="lupa">${md.kind === 'video' ? 'vídeo' : dgUiText_conversa_js("toque para abrir")}</span></button>` +
            `${botaoBaixaMidia(md, rotT)}</span>`;
   }
   return `<span class="midcx"><button class="mid semthumb" data-mid="${esc(md.id)}">` +
@@ -1523,7 +1528,7 @@ function cartaoArquivo(md, mid) {
    (botão dentro de botão não vale). */
 function botaoBaixaMidia(md, rot) {
   return `<a class="midbx" href="${esc(md.url)}" download="${esc(md.nome || '')}" ` +
-         `title="Baixar ${esc(md.nome || '')}" aria-label="Baixar ${esc(rot)}">${dsIcone('download')}</a>`;
+         `title="${esc(dgUiText_conversa_js("Baixar "))}${esc(md.nome || '')}" aria-label="${esc(dgUiText_conversa_js("Baixar "))}${esc(rot)}">${dsIcone('download')}</a>`;
 }
 
 /* Miniatura que não veio (documento que não é PDF, ou geração falhou): o balão
@@ -1571,18 +1576,18 @@ async function api(url, opt) {
     relogio = setTimeout(() => ctl.abort(), opt.timeoutMs);
   }
   const estourou = () => ctl && ctl.signal.aborted;
-  const msgEstouro = () => 'o app não respondeu em ' + Math.round(opt.timeoutMs / 1000) + ' s';
+  const msgEstouro = () => dgUiText_conversa_js("o app não respondeu em ") + Math.round(opt.timeoutMs / 1000) + ' s';
   try {
     let r;
     try {
       r = await fetch(url, init);
     } catch (e) {
       if (estourou()) throw new Error(msgEstouro());
-      throw new Error('o app não respondeu (' + (e.message || 'sem rede') + ')');
+      throw new Error(dgUiText_conversa_js("o app não respondeu (") + (e.message || dgUiText_conversa_js("sem rede")) + ')');
     }
     if (r.status === 401) {
       location.href = '/login?next=' + encodeURIComponent(AQUI);
-      throw new Error('sessão expirada');
+      throw new Error(dgUiText_conversa_js("sessão expirada"));
     }
     let d = null;
     try { d = await r.json(); } catch (e) { d = null; }
@@ -1607,9 +1612,32 @@ async function api(url, opt) {
 const nosThread = new Map();   // chave -> { html, el }
 const modelo = document.createElement('template');
 
+// Somente controles criados por este renderizador recebem vínculo de idioma.
+// O corpo das mensagens continua excluído de DGI18n.aplicar().
+function vincularControlesDaMensagem(no) {
+  const I = window.DGI18n;
+  if (!I || !no) return;
+  for (const b of no.querySelectorAll('button.mini.reenviar[data-pend], button.mini.descartar[data-pend]')) {
+    I.rotulo(b, b.classList.contains('reenviar') ? 'reenviar' : 'descartar');
+  }
+  for (const b of no.querySelectorAll('button.anon-btn[data-anon-final]')) {
+    I.rotulo(b, 'Baixar versão final');
+    I.rotulo(b, 'Baixa o arquivo com os dados reais no lugar dos marcadores', 'title');
+  }
+  for (const b of no.querySelectorAll('button.anon-btn[data-anon-ver]')) {
+    I.rotulo(b, b.getAttribute('aria-pressed') === 'true' ? 'Esconder os dados reais' : 'Ver com dados reais');
+  }
+  for (const b of no.querySelectorAll('button.fone[data-fone]')) {
+    I.rotulo(b, 'Ouvir de novo', 'title');
+    I.rotulo(b, 'Ouvir de novo', 'aria-label');
+  }
+}
+
 function criaNo(html) {
   modelo.innerHTML = html;
-  return modelo.content.firstElementChild;
+  const no = modelo.content.firstElementChild;
+  vincularControlesDaMensagem(no);
+  return no;
 }
 
 /* Nó refeito (a mensagem mudou) com um áudio em uso dentro: o player vivo vai
@@ -1631,24 +1659,24 @@ function metaPendente(p) {
     if (p.fila && TR) {
       const est = window.atividadeFoto && window.atividadeFoto.agentes ? window.atividadeFoto.agentes[AGENTE.id] : null;
       const t = TR.textoFila(p.fila, !!est && est.alerta === 'permissao', p.filaEm, atvAgoraMs());
-      if (t) return `<span class="meta fila" title="entregue ao agente, que ainda não chegou nela">${dsIcone('check')} ${esc(p.hhmm)} · ${esc(t)}</span>`;
+      if (t) return (dgUiHtml_conversa_js("<span class=\"meta fila\" title=\"entregue ao agente, que ainda não chegou nela\" data-dg-i18n-title=\"8324d22aa998\">") + (dsIcone('check')) + dgUiHtml_conversa_js(" ") + (esc(p.hhmm)) + dgUiHtml_conversa_js(" · ") + (esc(t)) + dgUiHtml_conversa_js("</span>"));
     }
-    return `<span class="meta" title="entregue">${dsIcone('check')} ${esc(p.hhmm)}</span>`;
+    return (dgUiHtml_conversa_js("<span class=\"meta\" title=\"entregue\" data-dg-i18n-title=\"7cb1783a0032\">") + (dsIcone('check')) + dgUiHtml_conversa_js(" ") + (esc(p.hhmm)) + dgUiHtml_conversa_js("</span>"));
   }
   if (p.estado === 'falhou' && p.recusado) {   // comando recusado: reenviar daria o mesmo erro
-    return `<span class="meta"><span style="color:#c0392b;font-weight:600">recusado</span> ` +
-           `${esc(p.erro || 'motivo desconhecido')} ` +
-           `<button class="mini descartar" data-pend="${p.n}">descartar</button></span>`;
+    return (dgUiHtml_conversa_js("<span class=\"meta\"><span style=\"color:#c0392b;font-weight:600\"><!--dg-i18n:281678796556-->recusado<!--/dg-i18n--></span> ")) +
+           `${esc(p.erro || dgUiText_conversa_js("motivo desconhecido"))} ` +
+           (dgUiHtml_conversa_js("<button class=\"mini descartar\" data-pend=\"") + (p.n) + dgUiHtml_conversa_js("\"><!--dg-i18n:53c4d9446622-->descartar<!--/dg-i18n--></button></span>"));
   }
   if (p.estado === 'falhou') {
     const ocupado = p.conferindo ? ' disabled' : '';
     return `<span class="meta"><span style="color:#c0392b;font-weight:600" ` +
-           `title="${esc(p.erro || 'motivo desconhecido')}">não foi enviada</span> ` +
-           `<button class="mini reenviar" data-pend="${p.n}"${ocupado}>reenviar</button> ` +
-           `<button class="mini descartar" data-pend="${p.n}"${ocupado}>descartar</button></span>`;
+           (dgUiHtml_conversa_js("title=\"") + (esc(p.erro || dgUiText_conversa_js("motivo desconhecido"))) + dgUiHtml_conversa_js("\"><!--dg-i18n:2c8b26fad72f-->não foi enviada<!--/dg-i18n--></span> ")) +
+           (dgUiHtml_conversa_js("<button class=\"mini reenviar\" data-pend=\"") + (p.n) + dgUiHtml_conversa_js("\"") + (ocupado) + dgUiHtml_conversa_js("><!--dg-i18n:977abca02388-->reenviar<!--/dg-i18n--></button> ")) +
+           (dgUiHtml_conversa_js("<button class=\"mini descartar\" data-pend=\"") + (p.n) + dgUiHtml_conversa_js("\"") + (ocupado) + dgUiHtml_conversa_js("><!--dg-i18n:53c4d9446622-->descartar<!--/dg-i18n--></button></span>"));
   }
   if (p.estado === 'fila') {
-    return '<span class="meta" title="sai assim que a parte anterior chegar">na fila…</span>';
+    return dgUiHtml_conversa_js("<span class=\"meta\" title=\"sai assim que a parte anterior chegar\" data-dg-i18n-title=\"a822f995c22b\"><!--dg-i18n:751b890830cc-->na fila…<!--/dg-i18n--></span>");
   }
   return dgHtml_conversa("<span class=\"meta\"><!--dg-i18n:b63dd292e4b3-->enviando…<!--/dg-i18n--></span>");
 }
@@ -1666,7 +1694,7 @@ function htmlSelo(m) {
   const nome = CANAIS_SELO[m.via];
   if (!nome) return '';
   const dono = ehDono(m);
-  const num = dono && m.via === 'whatsapp' && m.quem && /^\+?\d[\d ()-]*$/.test(m.quem) ? ' (número ' + m.quem + ')' : '';
+  const num = dono && m.via === 'whatsapp' && m.quem && /^\+?\d[\d ()-]*$/.test(m.quem) ? dgUiText_conversa_js(" (número ") + m.quem + ')' : '';
   const dica = dono ? 'Mensagem que veio pelo ' + nome + num : 'Resposta enviada pelo ' + nome;
   return `<span class="selo-canal ${esc(m.via)}" title="${esc(dica)}">${esc(nome)}</span>`;
 }
@@ -1693,7 +1721,7 @@ function htmlCorpo(m) {
     midia = htmlAnexosLocal(m.local.anexos);
   } else if (m.media) {
     midia = htmlMidia(m);
-  } else if (m.kind && m.kind !== 'text' && ROTULO_MIDIA[m.kind]) {
+  } else if (m.kind && m.kind !== 'text' && dgUiText_conversa_js(ROTULO_MIDIA[m.kind])) {
     // veio marcado como mídia e o arquivo não chegou até aqui: o rótulo explica o que era
     midia = `<span class="midia">${rotuloHtml(m.kind)} (não baixada)</span>`;
   }
@@ -1729,11 +1757,11 @@ function htmlCorpo(m) {
       const ver = anonVistos.has(String(m.id));
       if (ver) htmlLeg = textoPuroEmParagrafos(anonVistos.get(String(m.id)));
       anonBotoes += `<button type="button" class="anon-btn" data-anon-ver="${esc(m.id)}" aria-pressed="${ver}">` +
-        `${ver ? 'Esconder os dados reais' : 'Ver com dados reais'}</button>`;
+        `${ver ? dgUiText_conversa_js("Esconder os dados reais") : dgUiText_conversa_js("Ver com dados reais")}</button>`;
     }
     if (m.media && m.media.disponivel && m.media.kind === 'document') {
       anonBotoes += `<button type="button" class="anon-btn" data-anon-final="${esc(m.media.id)}" ` +
-        `title="Baixa o arquivo com os dados reais no lugar dos marcadores">Baixar versão final</button>`;
+        (dgUiHtml_conversa_js("title=\"Baixa o arquivo com os dados reais no lugar dos marcadores\" data-dg-i18n-title=\"bac8add3b49b\"><!--dg-i18n:c7c73784b1f4-->Baixar versão final<!--/dg-i18n--></button>"));
     }
   }
   const corpo = (leg ? doVisual + htmlLeg : doVisual) + (anonBotoes ? `<div class="anon-linha">${anonBotoes}</div>` : '');
@@ -1741,10 +1769,10 @@ function htmlCorpo(m) {
     ? `<span class="reac">${m.reacoes.map(esc).join(' ')}</span>` : '';
   // fone: ouvir esta fala de novo (só aparece com o modo de ouvir ligado, pelo CSS)
   const fone = ehAgente(m) && !m.pendente && m.id && leg && !ehVisual(m.media)
-    ? `<button class="fone" type="button" data-fone="${esc(m.id)}" aria-label="Ouvir de novo" title="Ouvir de novo">${dsIcone('headphones')}</button> ` : '';
+    ? (dgUiHtml_conversa_js("<button class=\"fone\" type=\"button\" data-fone=\"") + (esc(m.id)) + dgUiHtml_conversa_js("\" aria-label=\"Ouvir de novo\" data-dg-i18n-aria-label=\"5512a60e9ecf\" title=\"Ouvir de novo\" data-dg-i18n-title=\"5512a60e9ecf\">") + (dsIcone('headphones')) + dgUiHtml_conversa_js("</button> ")) : '';
   let meta = m.pendente ? metaPendente(m.local)
     : `<span class="meta">${fone}${m.editada ? 'editada · ' : ''}${esc(m.hhmm)}</span>`;
-  if (viaAudio) meta = meta.replace(/^<span class="meta"[^>]*>/, '$&<span title="Falado e transcrito automaticamente">' + dsIcone('mic') + '</span> · ');
+  if (viaAudio) meta = meta.replace(/^<span class="meta"[^>]*>/, dgUiHtml_conversa_js("$&<span title=\"Falado e transcrito automaticamente\" data-dg-i18n-title=\"8cdafe425fb6\">") + dsIcone('mic') + '</span> · ');
   return htmlSelo(m) + cita + midia + corpo + reac + meta;
 }
 
@@ -1755,7 +1783,7 @@ const trilhaAbertas = new Set();
 function htmlComando(i, aberto) {
   const t = i.trilha;
   const saida = t.saida ? `<pre class="tl-saida${t.erro ? ' erro' : ''}">${esc(t.saida)}${t.cortado ? '\n…' : ''}</pre>`
-    : `<div class="tl-vazio">${t.erro ? 'falhou, sem texto de saída' : 'sem saída'}</div>`;
+    : `<div class="tl-vazio">${t.erro ? dgUiText_conversa_js("falhou, sem texto de saída") : dgUiText_conversa_js("sem saída")}</div>`;
   return `<details class="tl-cmd${t.erro ? ' erro' : ''}" data-tl="${esc(i.id)}"${aberto ? ' open' : ''}>` +
     `<summary>${t.erro ? 'falhou: ' : 'rodou: '}${esc(t.titulo)}<span class="tl-hora">${esc(i.hhmm)}</span></summary>` +
     `<pre class="tl-cmdtxt">${esc(t.comando)}</pre>${saida}</details>`;
@@ -1778,8 +1806,8 @@ function htmlResultadoComando(m) {
   const erro = m.comando && m.comando.saida === 'stderr';
   const texto = String(m.text || '').trim();
   return `<div class="row her comando" data-msg="${esc(m.id)}"><details data-cmd="${esc(m.id)}"${comandoAbertos.has(m.id) ? ' open' : ''}>` +
-    `<summary>resultado do comando<span class="tl-hora">${esc(m.hhmm)}</span></summary>` +
-    `<pre class="cmd-saida${erro ? ' erro' : ''}">${texto ? esc(texto) : 'sem texto de saída'}</pre></details></div>`;
+    (dgUiHtml_conversa_js("<summary><!--dg-i18n:a0b55b44b34e-->resultado do comando<!--/dg-i18n--><span class=\"tl-hora\">") + (esc(m.hhmm)) + dgUiHtml_conversa_js("</span></summary>")) +
+    `<pre class="cmd-saida${erro ? ' erro' : ''}">${texto ? esc(texto) : dgUiText_conversa_js("sem texto de saída")}</pre></details></div>`;
 }
 wrap.addEventListener('toggle', ev => {
   const d = ev.target;
@@ -1795,9 +1823,9 @@ wrap.addEventListener('toggle', ev => {
 /* Conversa vazia: nunca tela em branco. */
 function htmlVazio() {
   return '<div class="vazio"><div class="vz-ico" aria-hidden="true">' + dsIcone('message') + '</div>' +
-    `<b>O ${esc(AGENTE.nome)} está acordando...</b>` +
-    '<small>Ele ainda não escreveu nada por aqui. Assim que responder, a conversa ' +
-    'aparece nesta tela sozinha. Você já pode mandar a primeira mensagem.</small></div>';
+    (dgUiHtml_conversa_js("<b>") + dgUiFragment_conversa_js("O {v0} está acordando...", {v0: AGENTE.nome}, () => `O ${esc(AGENTE.nome)} está acordando...`) + dgUiHtml_conversa_js("</b>")) +
+    dgUiHtml_conversa_js("<small><!--dg-i18n:82ffeb06d04b-->Ele ainda não escreveu nada por aqui. Assim que responder, a conversa<!--/dg-i18n--> ") +
+    dgUiHtml_conversa_js("<!--dg-i18n:eede74a5705d-->aparece nesta tela sozinha. Você já pode mandar a primeira mensagem.<!--/dg-i18n--></small></div>");
 }
 
 /* Dia e hora de cada mensagem no fuso de QUEM ESTÁ LENDO, a partir do ep. O servidor formata no
@@ -1868,9 +1896,9 @@ function render(opt) {
   const itens = [];            // [chave, html]
   if (todas.length) {
     itens.push(['topo', maisAntigas
-      ? `<div class="topo">${carregandoAntigas ? 'carregando mensagens antigas…'
-                                              : 'role para ver as antigas'}</div>`
-      : '<div class="topo">início da conversa</div>']);
+      ? `<div class="topo">${carregandoAntigas ? dgUiText_conversa_js("carregando mensagens antigas…")
+                                              : dgUiText_conversa_js("role para ver as antigas")}</div>`
+      : dgUiHtml_conversa_js("<div class=\"topo\"><!--dg-i18n:8420f58eec34-->início da conversa<!--/dg-i18n--></div>")]);
   }
   let dia = '', anterior = null;
   for (const bloco of (TR ? TR.agrupa(todas) : todas.map(x => ({ msg: x })))) {
@@ -1989,9 +2017,9 @@ function htmlVisual(m, md) {
   return `<div class="visb"><div class="vish">` +
     `<span class="vist">${dsIcone('chart')} <span class="visn" data-visn="${esc(md.id)}">${esc(tit)}</span></span>` +
     `<button type="button" class="visfull" data-visfull="${esc(md.id)}" ` +
-    `title="Abrir em tela cheia" aria-label="Abrir o visual em tela cheia">${dsIcone('expand')}</button>` +
+    (dgUiHtml_conversa_js("title=\"Abrir em tela cheia\" data-dg-i18n-title=\"71a398528c15\" aria-label=\"Abrir o visual em tela cheia\" data-dg-i18n-aria-label=\"285cbc212c5f\">") + (dsIcone('expand')) + dgUiHtml_conversa_js("</button>")) +
     `${botaoBaixaMidia(md, rotuloTxt('document'))}</div>` +
-    `<div class="visq" data-vis="${esc(md.id)}"><span class="visq-msg">carregando o visual…</span></div>` +
+    (dgUiHtml_conversa_js("<div class=\"visq\" data-vis=\"") + (esc(md.id)) + dgUiHtml_conversa_js("\"><span class=\"visq-msg\"><!--dg-i18n:34a83de39c22-->carregando o visual…<!--/dg-i18n--></span></div>")) +
     `</div>`;
 }
 
@@ -2019,8 +2047,8 @@ function mostraTarjaVisual(est, texto) {
 
 function semPronto(est) {
   if (est.pronto || est.falhou) return;
-  mostraTarjaVisual(est, 'O visual não respondeu em ' + (VIS_PRONTO_MS / 1000) +
-    ' s: o script dele travou ou o arquivo não é um visual. Use o botão de baixar para ver o arquivo.');
+  mostraTarjaVisual(est, dgUiText_conversa_js("O visual não respondeu em ") + (VIS_PRONTO_MS / 1000) +
+    dgUiText_conversa_js(" s: o script dele travou ou o arquivo não é um visual. Use o botão de baixar para ver o arquivo."));
   est.semPronto = true;
   console.warn('visual ' + est.md.id + ' (' + est.md.nome + '): sem "pronto" em ' +
                (VIS_PRONTO_MS / 1000) + ' s depois do load');
@@ -2123,14 +2151,14 @@ function limitesDe(mediaId) {
 
 /* Devolve { texto } limpo ou { motivo, msg } quando recusa. */
 function limpaPergunta(bruto) {
-  if (typeof bruto !== 'string') return { motivo: 'vazio', msg: 'O visual não mandou texto nenhum.' };
+  if (typeof bruto !== 'string') return { motivo: 'vazio', msg: dgUiText_conversa_js("O visual não mandou texto nenhum.") };
   const t = bruto.replace(/\r\n/g, '\n').replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, '')
     .replace(/\n{3,}/g, '\n\n').trim();
-  if (!t) return { motivo: 'vazio', msg: 'O pedido veio sem texto.' };
+  if (!t) return { motivo: 'vazio', msg: dgUiText_conversa_js("O pedido veio sem texto.") };
   if (t.length > VIS_PERG_MAX) {
-    return { motivo: 'longo', msg: 'O texto passa de ' + VIS_PERG_MAX + ' caracteres.' };
+    return { motivo: 'longo', msg: dgUiText_conversa_js("O texto passa de ") + VIS_PERG_MAX + ' caracteres.' };
   }
-  if (RX_HTML_PERG.test(t)) return { motivo: 'html', msg: 'O texto não pode ter HTML.' };
+  if (RX_HTML_PERG.test(t)) return { motivo: 'html', msg: dgUiText_conversa_js("O texto não pode ter HTML.") };
   return { texto: t };
 }
 
@@ -2176,12 +2204,12 @@ function fechaCofreDe(est) {
 
 function tratarCofre(est, d, id) {
   const v = window.campoCofre ? window.campoCofre.validaPedido(d) : null;
-  if (!v) return recusaCofre(est, id, 'indisponivel', 'A caixa de cofre não carregou. Recarregue a conversa.');
+  if (!v) return recusaCofre(est, id, 'indisponivel', dgUiText_conversa_js("A caixa de cofre não carregou. Recarregue a conversa."));
   if (v.erro) return recusaCofre(est, id, v.erro.motivo, v.erro.msg);
   if (document.visibilityState !== 'visible' || (!est.cheia && !est.noViewport)) {
-    return recusaCofre(est, id, 'fora', 'O visual não está à vista agora.');
+    return recusaCofre(est, id, 'fora', dgUiText_conversa_js("O visual não está à vista agora."));
   }
-  if (visCofres.has(est.md.id)) return recusaCofre(est, id, 'ocupado', 'Já tem uma caixa de cofre aberta neste visual.');
+  if (visCofres.has(est.md.id)) return recusaCofre(est, id, 'ocupado', dgUiText_conversa_js("Já tem uma caixa de cofre aberta neste visual."));
   const { nome, rotulo, ajuda } = v.ok;
   const el = document.createElement('div');
   el.className = 'viscofre' + (est.cheia ? ' viscofre-cheia' : '');
@@ -2199,7 +2227,7 @@ function tratarCofre(est, d, id) {
     aoCancelar: () => {
       fechaCofre(est.md.id);
       const alvo = alvoDoVisual(est);
-      if (alvo) recusaCofre(alvo, id, 'cancelado', 'Você cancelou.');
+      if (alvo) recusaCofre(alvo, id, 'cancelado', dgUiText_conversa_js("Você cancelou."));
     },
   });
   if (!est.cheia) {
@@ -2243,10 +2271,10 @@ function abreBarra(est, lim, id, texto) {
   const el = document.createElement('div');
   el.className = 'vispede' + (est.cheia ? ' vispede-cheia' : '');
   el.setAttribute('role', 'group');
-  el.setAttribute('aria-label', 'Confirmar envio do visual');
+  dgUiLabel_conversa_js(el, "Confirmar envio do visual", "aria-label");
   const rot = document.createElement('div');
   rot.className = 'vispede-rot';
-  rot.textContent = 'Mandar para o ' + AGENTE.nome + ':';
+  dgUiLabel_conversa_js(rot, "Mandar para o {p0}:", null, {p0: AGENTE.nome});
   const tx = document.createElement('div');
   tx.className = 'vispede-txt';
   tx.textContent = '“' + texto + '”';        // texto do iframe: nunca HTML
@@ -2255,13 +2283,13 @@ function abreBarra(est, lim, id, texto) {
   const ok = document.createElement('button');
   ok.type = 'button';
   ok.className = 'vispede-ok';
-  ok.textContent = dgTexto_conversa('Enviar');
+  dgUiLabel_conversa_js(ok, "Enviar", null, {});
   ok.disabled = true;
   const nao = document.createElement('button');
   nao.type = 'button';
   nao.className = 'vispede-nao';
   nao.innerHTML = dsIcone('x');
-  nao.setAttribute('aria-label', dgTexto_conversa('Cancelar'));
+  dgUiLabel_conversa_js(nao, "Cancelar", "aria-label", {});
   bts.append(ok, nao);
   el.append(rot, tx, bts);
   const b = { el, est, id, texto, relogio: setTimeout(() => { ok.disabled = false; }, VIS_PERG_ARMA_MS) };
@@ -2281,7 +2309,7 @@ function abreBarra(est, lim, id, texto) {
     if (lim.barra !== b) return;
     lim.pedidos = 0; lim.avisou = false;
     fechaBarra(lim);
-    recusaPergunta(est, id, 'cancelado', 'Você cancelou o envio.');
+    recusaPergunta(est, id, 'cancelado', dgUiText_conversa_js("Você cancelou o envio."));
   });
 }
 
@@ -2297,7 +2325,7 @@ function enviaPergunta(lim, b) {
       : Array.from(visEstados).find(e => e.md.id === est.md.id && e.win);
     if (!alvo) return;
     if (ok) enviaAoVisual(alvo, { tipo: 'pergunta-ok', id });
-    else recusaPergunta(alvo, id, 'envio', 'Não consegui mandar: ' + motivo);
+    else recusaPergunta(alvo, id, 'envio', dgUiText_conversa_js("Não consegui mandar: ") + motivo);
   };
   enviarTexto('[do visual ' + tituloDoEnvio(est) + '] ' + texto, null, { aoEntregar })
     .catch(e => console.warn('visual ' + est.md.id + ': o envio da pergunta falhou:', e));
@@ -2309,17 +2337,17 @@ function tratarPergunta(est, d, id) {
   const v = limpaPergunta(d.texto);
   if (!v.texto) return recusaPergunta(est, id, v.motivo, v.msg);
   if (document.visibilityState !== 'visible' || (!est.cheia && !est.noViewport)) {
-    return recusaPergunta(est, id, 'fora', 'O visual não está à vista agora.');
+    return recusaPergunta(est, id, 'fora', dgUiText_conversa_js("O visual não está à vista agora."));
   }
   const lim = limitesDe(est.md.id);
-  if (lim.barra) return recusaPergunta(est, id, 'ocupado', 'Já tem um pedido esperando sua confirmação.');
+  if (lim.barra) return recusaPergunta(est, id, 'ocupado', dgUiText_conversa_js("Já tem um pedido esperando sua confirmação."));
   if (lim.pedidos >= VIS_PERG_LIMITE) {
     if (!lim.avisou) {
       lim.avisou = true;
       console.warn('visual ' + est.md.id + ' (' + est.md.nome + '): ' + VIS_PERG_LIMITE +
                    ' pedidos sem nenhum toque do dono; recusando os próximos até ele tocar');
     }
-    return recusaPergunta(est, id, 'limite', 'Muitos pedidos sem resposta sua. Toque no visual de novo mais tarde.');
+    return recusaPergunta(est, id, 'limite', dgUiText_conversa_js("Muitos pedidos sem resposta sua. Toque no visual de novo mais tarde."));
   }
   if (Date.now() - lim.ultimo < VIS_PERG_RAPIDO_MS) {
     return recusaPergunta(est, id, 'rapido', 'Espere alguns segundos entre um pedido e outro.');
@@ -2375,7 +2403,7 @@ window.addEventListener('message', ev => {
     tratarCofreEstado(est, d);
   } else if (d.tipo === 'erro') {
     est.caixa.classList.add('on');
-    const msg = typeof d.msg === 'string' ? d.msg.slice(0, 400) : 'erro sem mensagem';
+    const msg = typeof d.msg === 'string' ? d.msg.slice(0, 400) : dgUiText_conversa_js("erro sem mensagem");
     const linha = Number(d.linha);
     const doServidor = isFinite(Number(d.status)) && d.status !== undefined && d.status !== null;
     if (doServidor) est.falhou = true;      // a página de erro da rota já explica dentro do iframe
@@ -2383,7 +2411,7 @@ window.addEventListener('message', ev => {
     console.warn('visual ' + est.md.id + ' (' + est.md.nome + '): ' + msg +
                  (isFinite(linha) && linha > 0 ? ' (linha ' + linha + ')' : ''));
     if (doServidor) return;
-    if (d.vazio === true) { est.falhou = true; mostraTarjaVisual(est, 'O visual chegou vazio: o arquivo não desenhou nada.'); return; }
+    if (d.vazio === true) { est.falhou = true; mostraTarjaVisual(est, dgUiText_conversa_js("O visual chegou vazio: o arquivo não desenhou nada.")); return; }
     mostraTarjaVisual(est, 'O visual teve um erro: ' + msg +
                            (isFinite(linha) && linha > 0 ? ' (linha ' + linha + ')' : ''));
   }
@@ -2408,7 +2436,7 @@ function montaTelaVisual() {
   visTelaEl = document.createElement('div');
   visTelaEl.id = 'visTela';
   visTelaEl.setAttribute('role', 'dialog');
-  visTelaEl.setAttribute('aria-label', 'Visual em tela cheia');
+  dgUiLabel_conversa_js(visTelaEl, "Visual em tela cheia", "aria-label");
   visTelaEl.innerHTML = '<div class="vtctopo"><span class="vtcnome" id="visTelaNome"></span>' +
     '<span id="visTelaBaixa"></span>' +
     dgHtml_conversa("<button type=\"button\" class=\"vtcfecha\" id=\"visTelaFecha\" aria-label=\"Fechar\" data-dg-i18n-aria-label=\"0f2bd88ef0ac\">") + dsIcone('x') + '</button></div>' +
@@ -2486,7 +2514,7 @@ wrap.addEventListener('click', ev => {
   if (!bt) return;
   const md = midias[bt.getAttribute('data-visfull')];
   if (md) abreTelaVisual(md);
-  else mostraErro('Não reconheci este visual para abrir em tela cheia. Recarregue a conversa.');
+  else mostraErro(dgUiText_conversa_js("Não reconheci este visual para abrir em tela cheia. Recarregue a conversa."));
 });
 
 const normaliza = s => String(s == null ? '' : s).trim().replace(/\s+/g, ' ');
@@ -2600,7 +2628,7 @@ async function carregar(primeiraVez) {
     }
     ok = true;
   } catch (e) {
-    mostraErro('Não consegui carregar a conversa: ' + e.message);
+    mostraErro(dgUiText_conversa_js("Não consegui carregar a conversa: ") + e.message);
     if (!carregouUmaVez) { carregouUmaVez = true; render(); }
   }
   return ok;
@@ -2624,7 +2652,7 @@ async function carregaAntigas() {
       ok = true;
     }
   } catch (e) {
-    mostraErro('Não consegui trazer as mensagens antigas: ' + e.message);
+    mostraErro(dgUiText_conversa_js("Não consegui trazer as mensagens antigas: ") + e.message);
   } finally {
     carregandoAntigas = false;
     render({ segurarPosicao: true });
@@ -2844,7 +2872,7 @@ const btnLbFechar = $('lbFechar');
 const lbTopo = lightbox.querySelector('.lbtopo');
 // o X vai pra esquerda, onde o polegar procura o "voltar" no iPhone
 if (lbTopo && lbTopo.firstElementChild !== btnLbFechar) lbTopo.prepend(btnLbFechar);
-btnLbFechar.setAttribute('aria-label', 'Fechar o arquivo e voltar pra conversa');
+dgUiLabel_conversa_js(btnLbFechar, "Fechar o arquivo e voltar pra conversa", "aria-label");
 
 function marcaHistorico() {
   try {
@@ -2877,8 +2905,8 @@ function cartaoDoc(md) {
   return `<div class="vcard"><div class="ico" aria-hidden="true">${ico}</div>` +
     `<b>${esc(md.nome || 'arquivo')}</b>` +
     `<small>${esc(tam)}${tam ? ' · ' : ''}Esse tipo de arquivo não abre aqui dentro.</small>` +
-    `<a href="${esc(md.url)}" target="_blank" rel="noopener">Abrir em outra aba</a>` +
-    `<a class="sec" href="${esc(md.url)}" download="${esc(md.nome || '')}">Baixar</a></div>`;
+    (dgUiHtml_conversa_js("<a href=\"") + (esc(md.url)) + dgUiHtml_conversa_js("\" target=\"_blank\" rel=\"noopener\"><!--dg-i18n:0e0b1accb69e-->Abrir em outra aba<!--/dg-i18n--></a>")) +
+    (dgUiHtml_conversa_js("<a class=\"sec\" href=\"") + (esc(md.url)) + dgUiHtml_conversa_js("\" download=\"") + (esc(md.nome || '')) + dgUiHtml_conversa_js("\"><!--dg-i18n:b45ae836a031-->Baixar<!--/dg-i18n--></a></div>"));
 }
 
 /* Zoom só da FOTO aberta no visor (a página nunca amplia; ver sem-zoom.js).
@@ -3035,7 +3063,7 @@ document.addEventListener('click', ev => {
 const baixaCache = {};
 function baixaNoPwaIos(url, nome) {
   // modo escondido ligado: a folha do iPhone mostraria o nome e a prévia do arquivo, que a tela esconde
-  if (document.body.classList.contains('sigilo')) { mostraAviso('Desligue o modo escondido (o olho) para baixar o arquivo.'); return Promise.resolve({ via: 'bloqueado' }); }
+  if (document.body.classList.contains('sigilo')) { mostraAviso(dgUiText_conversa_js("Desligue o modo escondido (o olho) para baixar o arquivo.")); return Promise.resolve({ via: 'bloqueado' }); }
   return PURO.baixarNoPwaIos(url, nome, {
     fetch: (u, o) => fetch(u, o), nav: navigator, cache: baixaCache,
     criarArquivo: (blob, n, tipo) => new File([blob], n, { type: tipo }),
@@ -3043,9 +3071,9 @@ function baixaNoPwaIos(url, nome) {
     semArquivoEmMemoria: /\/final\//.test(url),
     abrir: u => window.open(u, '_blank', 'noopener'),
   }).then(r => {
-    if (r.via === 'segundo-toque') mostraAviso('O arquivo está pronto. Toque em Baixar mais uma vez para salvar.');
-    else if (r.via === 'erro') mostraAviso('Não consegui baixar o arquivo (' + r.erro + ').');
-    else if (r.via === 'bloqueado') mostraAviso('O modo escondido foi ligado: o arquivo não foi aberto. Desligue o olho e baixe de novo.');
+    if (r.via === 'segundo-toque') mostraAviso(dgUiText_conversa_js("O arquivo está pronto. Toque em Baixar mais uma vez para salvar."));
+    else if (r.via === 'erro') mostraAviso(dgUiText_conversa_js("Não consegui baixar o arquivo (") + r.erro + ').');
+    else if (r.via === 'bloqueado') mostraAviso(dgUiText_conversa_js("O modo escondido foi ligado: o arquivo não foi aberto. Desligue o olho e baixe de novo."));
     return r;
   });
 }
@@ -3067,8 +3095,8 @@ async function copiaTexto(t) {
     setEstado('texto copiado');
     return true;
   } catch (e) {
-    mostraErro('O navegador não deixou copiar (' + e.message + '). Segure o texto ' +
-               'no balão e use o "Copiar" do sistema.');
+    mostraErro(dgUiText_conversa_js("O navegador não deixou copiar (") + e.message + '). Segure o texto ' +
+               dgUiText_conversa_js("no balão e use o \"Copiar\" do sistema."));
     return false;
   }
 }
@@ -3170,8 +3198,8 @@ function subirAnexo(a) {
     if (!vale()) return;
     prontoAnexo(a, d);
   };
-  xhr.onerror = () => falha('a rede caiu no meio do upload');
-  xhr.ontimeout = () => falha('o app não respondeu em 10 min');
+  xhr.onerror = () => falha(dgUiText_conversa_js("a rede caiu no meio do upload"));
+  xhr.ontimeout = () => falha(dgUiText_conversa_js("o app não respondeu em 10 min"));
   xhr.onabort = () => acaba();
   xhr.send(fd);
 }
@@ -3185,13 +3213,13 @@ function falhaAnexo(a, motivo) {
   const quem = '"' + a.nome + '"';
   if (enviarQuandoSubir) {
     enviarQuandoSubir = false;
-    mostraErro('A mensagem NÃO saiu: o anexo ' + quem + ' não subiu (' + motivo +
-               '). Toque em "tentar de novo" no cartão dele, ou tire ele no X, ' +
-               'e envie de novo.');
-    setEstado('anexo não subiu', true);
+    mostraErro('A mensagem NÃO saiu: o anexo ' + quem + dgUiText_conversa_js(" não subiu (") + motivo +
+               dgUiText_conversa_js("). Toque em \"tentar de novo\" no cartão dele, ou tire ele no X, ") +
+               dgUiText_conversa_js("e envie de novo."));
+    setEstado(dgUiText_conversa_js("anexo não subiu"), true);
   } else {
-    mostraErro('O anexo ' + quem + ' não subiu (' + motivo + '). Toque em ' +
-               '"tentar de novo" no cartão dele ou tire ele no X.');
+    mostraErro('O anexo ' + quem + dgUiText_conversa_js(" não subiu (") + motivo + '). Toque em ' +
+               dgUiText_conversa_js("\"tentar de novo\" no cartão dele ou tire ele no X."));
   }
   tocaSubidas();
 }
@@ -3229,17 +3257,17 @@ function tocaSubidas() {
 function enviarComAnexos() {
   const falhos = anexos.filter(a => a.estado === 'falhou');
   if (falhos.length) {
-    mostraErro('A mensagem não saiu: ' + (falhos.length === 1
-      ? 'o anexo "' + falhos[0].nome + '" não subiu'
-      : falhos.length + ' anexos não subiram (' + falhos.map(a => a.nome).join(', ') + ')') +
-      '. Toque em "tentar de novo" no cartão, ou tire no X, e envie de novo.');
+    mostraErro(dgUiText_conversa_js("A mensagem não saiu: ") + (falhos.length === 1
+      ? 'o anexo "' + falhos[0].nome + dgUiText_conversa_js("\" não subiu")
+      : falhos.length + dgUiText_conversa_js(" anexos não subiram (") + falhos.map(a => a.nome).join(', ') + ')') +
+      dgUiText_conversa_js('. Toque em "tentar de novo" no cartão, ou tire no X, e envie de novo.'));
     return;
   }
   if (anexos.every(a => a.estado === 'pronto')) { despachaAnexos(); return; }
   enviarQuandoSubir = true;
   mostraErro('');
   pintaInfoAnexos();
-  setEstado('esperando os anexos subirem…');
+  setEstado(dgUiText_conversa_js("esperando os anexos subirem…"));
 }
 
 /* Tudo subiu: o chip esvazia e vira um balão com o texto e as prévias. As URLs
@@ -3338,8 +3366,8 @@ function criaCartao(a) {
     `<div class="anxmid">${mid}<span class="anxest"></span></div>` +
     `<div class="anxnome" title="${esc(a.nome)}">${esc(a.nome)}</div>` +
     `<div class="anxtam">${esc(tamanhoHumano(a.bytes))}</div>` +
-    `<button class="anxde" type="button" hidden>tentar de novo</button>` +
-    `<button class="anxx" type="button" aria-label="Tirar ${esc(a.nome)} da mensagem">${dsIcone('x')}</button>`;
+    (dgUiHtml_conversa_js("<button class=\"anxde\" type=\"button\" hidden><!--dg-i18n:e3a74dbe55f0-->tentar de novo<!--/dg-i18n--></button>")) +
+    `<button class="anxx" type="button" aria-label="${esc(dgUiPhrase_conversa_audit("Tirar {nome} da mensagem", { nome: a.nome }))}">${dsIcone('x')}</button>`;
   // imagem que o navegador não desenha (HEIC no Chrome): fica o ícone, o envio segue
   const img = el.querySelector('img');
   if (img) {
@@ -3360,7 +3388,7 @@ function atualizaCartao(a) {
   if (a.estado === 'subindo') a.el.style.setProperty('--pct', (a.pct || 0) + '%');
   est.innerHTML = a.estado === 'subindo' ? a.pct + '%'
     : a.estado === 'espera' ? 'na fila'
-    : a.estado === 'falhou' ? dsIcone('alert') + ' não subiu' : dsIcone('check');
+    : a.estado === 'falhou' ? dsIcone('alert') + dgUiText_conversa_js(" não subiu") : dsIcone('check');
   a.el.title = a.estado === 'falhou' ? a.nome + ': ' + a.erro : a.nome;
   a.el.querySelector('.anxde').hidden = a.estado !== 'falhou';
 }
@@ -3378,19 +3406,19 @@ function pintaInfoAnexosTexto() {
   const n = anexos.length;
   const falhos = anexos.filter(a => a.estado === 'falhou');
   const faltam = anexos.filter(a => a.estado === 'subindo' || a.estado === 'espera').length;
-  let t = n === 1 ? '1 anexo' : n + ' anexos';
+  let t = n === 1 ? dgUiText_conversa_js("1 anexo") : n + dgUiText_conversa_js(" anexos");
   if (falhos.length) {
     t += ' · ' + falhos.map(a => a.nome + ': ' + a.erro).join(' · ');
   } else if (faltam) {
-    t += ' · ' + (n - faltam) + ' de ' + n + ' prontos, subindo o resto' +
-         (enviarQuandoSubir ? ' (a mensagem sai sozinha quando terminar)' : '');
+    t += ' · ' + (n - faltam) + dgUiText_conversa_js(" de ") + n + dgUiText_conversa_js(" prontos, subindo o resto") +
+         (enviarQuandoSubir ? dgUiText_conversa_js(" (a mensagem sai sozinha quando terminar)") : '');
     // arquivo grande (em pedaços): quanto já foi, em MB, que 1% de 500 MB demora
     const gr = anexos.find(a => a.estado === 'subindo' && a.subidos != null);
-    if (gr) t += ' · ' + gr.nome + ': ' + tamanhoHumano(gr.subidos) + ' de ' + tamanhoHumano(gr.bytes);
+    if (gr) t += ' · ' + gr.nome + ': ' + tamanhoHumano(gr.subidos) + dgUiText_conversa_js(" de ") + tamanhoHumano(gr.bytes);
   } else {
-    t += ' · prontos, Enter envia tudo junto';
+    t += dgUiText_conversa_js(" · prontos, Enter envia tudo junto");
   }
-  if (n >= MAX_ANEXOS) t += ' (máximo de ' + MAX_ANEXOS + ')';
+  if (n >= MAX_ANEXOS) t += dgUiText_conversa_js(" (máximo de ") + MAX_ANEXOS + ')';
   anexoInfo.textContent = t;
   anexoInfo.classList.toggle('erro', falhos.length > 0);
 }
@@ -3405,7 +3433,7 @@ function pintaAnexos() {
     atualizaCartao(a);
   }
   anexoChip.hidden = !anexos.length;
-  entrada.placeholder = anexos.length ? 'Legenda (opcional), Enter envia'
+  entrada.placeholder = anexos.length ? dgUiText_conversa_js("Legenda (opcional), Enter envia")
                                       : PLACEHOLDER_ORIGINAL;
   pintaInfoAnexos();
 }
@@ -3433,11 +3461,11 @@ function anexaArquivos(lista) {
   if (!fs.length) return;
   const recusados = [], deFora = [];
   for (const f of fs) {
-    const nome = f.name || 'sem nome';
+    const nome = f.name || dgUiText_conversa_js("sem nome");
     if (f.size === 0) { recusados.push('"' + nome + '" tem 0 byte'); continue; }
     if (f.size > TETO_UPLOAD) {
       recusados.push('"' + nome + '" tem ' + tamanhoHumano(f.size) +
-                     ' e o limite aqui é ' + Math.round(TETO_UPLOAD / 1048576) + ' MB');
+                     dgUiText_conversa_js(" e o limite aqui é ") + Math.round(TETO_UPLOAD / 1048576) + ' MB');
       continue;
     }
     if (anexos.length >= MAX_ANEXOS) { deFora.push(nome); continue; }
@@ -3450,13 +3478,13 @@ function anexaArquivos(lista) {
     });
   }
   const avisos = [];
-  if (recusados.length) avisos.push('Não anexei: ' + recusados.join('; ') + '.');
+  if (recusados.length) avisos.push(dgUiText_conversa_js("Não anexei: ") + recusados.join('; ') + '.');
   if (deFora.length) {
-    avisos.push('Cabem até ' + MAX_ANEXOS + ' anexos por mensagem e ' +
-                (deFora.length === 1 ? 'ficou de fora "' + deFora[0] + '"'
-                                     : 'ficaram de fora ' + deFora.length + ' (' +
+    avisos.push(dgUiText_conversa_js("Cabem até ") + MAX_ANEXOS + ' anexos por mensagem e ' +
+                (deFora.length === 1 ? dgUiText_conversa_js("ficou de fora \"") + deFora[0] + '"'
+                                     : dgUiText_conversa_js("ficaram de fora ") + deFora.length + ' (' +
                                        deFora.join(', ') + ')') +
-                '. Envie esta e mande o resto na próxima.');
+                dgUiText_conversa_js('. Envie esta e mande o resto na próxima.'));
   }
   if (avisos.length) mostraErro(avisos.join(' '));
   pintaAnexos();
@@ -3565,14 +3593,14 @@ if (btnNaoLida) btnNaoLida.onclick = () => {
   btnNaoLida.disabled = true;
   marcaNaoLida(AGENTE.id, true)
     .then(() => { abreMenu(true); })
-    .catch(e => mostraErro('Não consegui marcar a conversa como não lida: ' + e.message))
+    .catch(e => mostraErro(dgUiText_conversa_js("Não consegui marcar a conversa como não lida: ") + e.message))
     .finally(() => { btnNaoLida.disabled = false; });
 };
 function atualizaNaoLidas() {
   if (COLAB) return Promise.resolve();   // /api/v1/estados é do dono; o colaborador tem só uma conversa
   if (naoLidasEmVoo) return naoLidasEmVoo;
   naoLidasEmVoo = api('/api/v1/estados', { timeoutMs: 15000 }).then(d => {
-    if (!d || typeof d.agentes !== 'object' || !d.agentes) throw new Error('a resposta não trouxe o campo "agentes"');
+    if (!d || typeof d.agentes !== 'object' || !d.agentes) throw new Error(dgUiText_conversa_js("a resposta não trouxe o campo \"agentes\""));
     const novo = {};
     for (const slug of Object.keys(d.agentes)) {
       const n = d.agentes[slug];
@@ -3602,12 +3630,12 @@ function pintaBolinhaMenu() {
   /* Quem precisa de você ganha o selo âmbar com "!" (vale mais que a bolinha vermelha de não lidas). */
   btn.classList.toggle('precisa', precisam > 0);
   let partes = [];
-  if (precisam) partes.push(precisam + (precisam === 1 ? ' agente precisa de você' : ' agentes precisam de você'));
-  if (total) partes.push(total + (total === 1 ? ' mensagem não lida' : ' mensagens não lidas') + ' em outros agentes');
-  if (!total && !precisam) { if (b) b.remove(); btn.setAttribute('aria-label', dgTexto_conversa('Abrir o menu')); return; }
+  if (precisam) partes.push(precisam + (precisam === 1 ? dgUiText_conversa_js(" agente precisa de você") : dgUiText_conversa_js(" agentes precisam de você")));
+  if (total) partes.push(total + (total === 1 ? dgUiText_conversa_js(" mensagem não lida") : dgUiText_conversa_js(" mensagens não lidas")) + ' em outros agentes');
+  if (!total && !precisam) { if (b) b.remove(); dgUiLabel_conversa_js(btn, "Abrir o menu", "aria-label", {}); return; }
   if (!b) { b = document.createElement('span'); b.className = 'bolinha-menu'; b.setAttribute('aria-hidden', 'true'); btn.appendChild(b); }
   b.textContent = precisam ? '!' : '';
-  btn.setAttribute('aria-label', 'Abrir o menu, ' + partes.join(', '));
+  dgUiLabel_conversa_js(btn, "Abrir o menu, {p0}", "aria-label", {p0: partes.join(', ')});
 }
 
 let epLidoEnviado = 0, lidoTimer = null;
@@ -3688,7 +3716,7 @@ function pintaTrocaBaixo() {
       : '<span class="selo-trab" aria-hidden="true"></span>';
     return `<a href="/a/${encodeURIComponent(a.id)}" title="${esc(rot)}" ` +
       (atual ? `class="atual" aria-current="page" style="--cor-troca:${esc(a.cor || '#2f9e5e')}" ` : '') +
-      `aria-label="Abrir a conversa com ${esc(rot + aviso)}"><div class="av" style="background:${esc(a.cor || '#2f9e5e')}">${av}</div>` +
+      `aria-label="${esc(dgUiPhrase_conversa_audit("Abrir a conversa com {nome}", { nome: rot + aviso }))}"><div class="av" style="background:${esc(a.cor || '#2f9e5e')}">${av}</div>` +
       `${marcaSelo}</a>`;
   }).join('');
   centralizaTrocaBaixo();
@@ -3780,10 +3808,10 @@ function pintaMic() {
   btnMic.classList.toggle('gravando', gravando);
   btnMic.innerHTML = gravando ? dsIcone('stop') : dsIcone('mic');
   btnMic.setAttribute('aria-label', gravando
-    ? (continua ? 'Parar e enviar' : 'Parar e escrever no campo')
+    ? (continua ? dgUiText_conversa_js("Parar e enviar") : 'Parar e escrever no campo')
     : dgTexto_conversa('Gravar áudio'));
   btnEnviar.classList.toggle('direto', gravando);
-  btnEnviar.setAttribute('aria-label', gravando ? 'Parar e enviar direto' : dgTexto_conversa('Enviar'));
+  (gravando ? dgUiLabel_conversa_js(btnEnviar, "Parar e enviar direto", "aria-label", {}) : dgUiLabel_conversa_js(btnEnviar, "Enviar", "aria-label", {}));
   /* O estado vai dentro do campo (#micTxt) e o clipe vira um X que cancela a gravação. */
   if (micAbrindo) micTxt.textContent = 'abrindo o microfone…';
   else if (gravando) micTxt.textContent = '● ' + tempoGravando();
@@ -3791,10 +3819,8 @@ function pintaMic() {
   micTxt.classList.toggle('vivo', gravando && !micAbrindo);
   btnAnexo.classList.toggle('cancela', gravando);
   btnAnexo.innerHTML = gravando ? dsIcone('x') : dsIcone('paperclip');
-  btnAnexo.setAttribute('aria-label', gravando ? 'Cancelar a gravação'
-    : dgTexto_conversa('Anexar fotos, vídeos, áudios ou PDFs'));
-  btnAnexo.title = gravando ? 'Cancelar a gravação (nada é enviado)'
-    : dgTexto_conversa('Anexar fotos, vídeos, áudios ou PDFs (vários de uma vez)');
+  (gravando ? dgUiLabel_conversa_js(btnAnexo, "Cancelar a gravação", "aria-label", {}) : dgUiLabel_conversa_js(btnAnexo, "Anexar fotos, vídeos, áudios ou PDFs", "aria-label", {}));
+  (gravando ? dgUiLabel_conversa_js(btnAnexo, "Cancelar a gravação (nada é enviado)", "title", {}) : dgUiLabel_conversa_js(btnAnexo, "Anexar fotos, vídeos, áudios ou PDFs (vários de uma vez)", "title", {}));
   clearInterval(timerGravando);
   timerGravando = gravando && !micAbrindo ? setInterval(pintaMic, 500) : null;
 }
@@ -3814,8 +3840,8 @@ async function comecaGravar() {
   if (gravando || pedindoMic || gravacao) return;
   const mime = melhorMime();
   if (mime === null) {
-    mostraErro('Este navegador não grava áudio (sem MediaRecorder). ' +
-               'No iPhone use o Safari, ou escreva no campo de texto.');
+    mostraErro(dgUiText_conversa_js("Este navegador não grava áudio (sem MediaRecorder). ") +
+               dgUiText_conversa_js("No iPhone use o Safari, ou escreva no campo de texto."));
     return;
   }
   mostraErro('');
@@ -3829,12 +3855,12 @@ async function comecaGravar() {
   } catch (e) {
     const nome = e && e.name;
     if (nome === 'NotAllowedError' || nome === 'SecurityError') {
-      mostraErro('Microfone negado: libere o microfone para ' + location.host +
-                 ' nas permissões do navegador e recarregue esta página.');
+      mostraErro(dgUiText_conversa_js("Microfone negado: libere o microfone para ") + location.host +
+                 dgUiText_conversa_js(" nas permissões do navegador e recarregue esta página."));
     } else if (nome === 'NotFoundError') {
       mostraErro('Nenhum microfone encontrado neste aparelho.');
     } else {
-      mostraErro('Não consegui abrir o microfone (' + (nome || 'erro') + ': ' +
+      mostraErro(dgUiText_conversa_js("Não consegui abrir o microfone (") + (nome || 'erro') + ': ' +
                  (e && e.message) + ').');
     }
     setEstado('erro no microfone', true);
@@ -3850,7 +3876,7 @@ async function comecaGravar() {
     r = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
   } catch (e) {
     soltaMicrofone(g);
-    mostraErro('Não consegui iniciar a gravação (' + e.message + ').');
+    mostraErro(dgUiText_conversa_js("Não consegui iniciar a gravação (") + e.message + ').');
     setEstado('erro no microfone', true);
     filaRetoma();
     return;
@@ -3865,8 +3891,8 @@ async function comecaGravar() {
   };
   r.onerror = ev => {
     g.erro = (ev.error && ev.error.name) || 'erro';
-    mostraErro('A gravação falhou no meio (' + g.erro + '). O que já foi gravado vai ser enviado.');
-    setEstado('erro na gravação', true);
+    mostraErro(dgUiText_conversa_js("A gravação falhou no meio (") + g.erro + dgUiText_conversa_js("). O que já foi gravado vai ser enviado."));
+    setEstado(dgUiText_conversa_js("erro na gravação"), true);
   };
   r.onstop = () => {
     if (g.parado) return;
@@ -3900,7 +3926,7 @@ async function comecaGravar() {
     gravacao = null;
     soltaMicrofone(g);
     pintaMic();
-    mostraErro('Não consegui começar a gravar (' + e.message + ').');
+    mostraErro(dgUiText_conversa_js("Não consegui começar a gravar (") + e.message + ').');
     setEstado('erro no microfone', true);
     filaRetoma();
   }
@@ -3940,8 +3966,8 @@ async function paraEEnvia(direto) {
   pintaMic();
   filaRetoma();    // na hora, sem esperar a transcrição
   if (!blob || blob.size < 1024) {
-    mostraErro('A gravação saiu vazia (' + (blob ? blob.size : 0) + ' bytes). ' +
-               'Toque no microfone, espere aparecer "gravando", fale, e toque de novo.');
+    mostraErro(dgUiText_conversa_js("A gravação saiu vazia (") + (blob ? blob.size : 0) + ' bytes). ' +
+               dgUiText_conversa_js("Toque no microfone, espere aparecer \"gravando\", fale, e toque de novo."));
     estadoOcioso();
     return;
   }
@@ -3975,17 +4001,17 @@ async function transcreveAudio(item) {
   try {
     r = await fetch('/api/v1/transcribe', { method: 'POST', body: fd });
   } catch (e) {
-    throw new Error('a rede caiu antes da resposta (' + (e.message || 'sem rede') + ')');
+    throw new Error(dgUiText_conversa_js("a rede caiu antes da resposta (") + (e.message || dgUiText_conversa_js("sem rede")) + ')');
   }
   if (r.status === 401) {
     location.href = '/login?next=' + encodeURIComponent(AQUI);
-    throw new Error('a sessão expirou');
+    throw new Error(dgUiText_conversa_js("a sessão expirou"));
   }
   let d = null;
   try { d = await r.json(); } catch (e) { d = null; }
   if (r.ok && d && d.ok !== false) return (d.text || '').trim();
-  if (r.status === 413) throw new Error('o áudio passou do limite de tamanho (413)');
-  throw new Error((d && d.erro) || ('a API respondeu ' + r.status + ' sem explicar o motivo'));
+  if (r.status === 413) throw new Error(dgUiText_conversa_js("o áudio passou do limite de tamanho (413)"));
+  throw new Error((d && d.erro) || ('a API respondeu ' + r.status + dgUiText_conversa_js(" sem explicar o motivo")));
 }
 
 /* Transcreve e entrega o texto pelo caminho de sempre (campo ou envio direto). */
@@ -4001,9 +4027,9 @@ async function transcreveEEntrega(item) {
   try {
     texto = await transcreveAudio(item);
   } catch (e) {
-    erroComTentarDeNovo('Não consegui transcrever: ' + e.message +
-                        '. O áudio ficou guardado nesta tela até você sair dela.', item);
-    setEstado('erro na transcrição', true);
+    erroComTentarDeNovo(dgUiText_conversa_js("Não consegui transcrever: ") + e.message +
+                        dgUiText_conversa_js('. O áudio ficou guardado nesta tela até você sair dela.'), item);
+    setEstado(dgUiText_conversa_js("erro na transcrição"), true);
     return;
   } finally {
     transcrevendo = false;
@@ -4015,8 +4041,8 @@ async function transcreveEEntrega(item) {
 
 async function entregaTranscricao(texto, manda) {
   if (!texto) {
-    mostraErro('A transcrição voltou vazia: não ouvi fala nenhuma nesse áudio. ' +
-               'Fale mais perto do microfone.');
+    mostraErro(dgUiText_conversa_js("A transcrição voltou vazia: não ouvi fala nenhuma nesse áudio. ") +
+               dgUiText_conversa_js("Fale mais perto do microfone."));
     estadoOcioso();
     return;
   }
@@ -4029,7 +4055,7 @@ async function entregaTranscricao(texto, manda) {
     try { entrada.setSelectionRange(entrada.value.length, entrada.value.length); }
     catch (e) { /* campo sem seleção (raro): segue */ }
     vozNoCampo = true;
-    setEstado('transcrição no campo: revise e envie');
+    setEstado(dgUiText_conversa_js("transcrição no campo: revise e envie"));
     return;
   }
   // envio direto sem revisão: o agente fica sabendo que pode haver erro de transcrição
@@ -4096,8 +4122,8 @@ function marcaFalhou(p, motivo, prefixo) {
   p.estado = 'falhou';
   p.erro = motivo;
   render();
-  mostraErro((prefixo || 'Não consegui entregar a mensagem: ') + motivo +
-             '. Toque em "reenviar" no balão.');
+  mostraErro((prefixo || dgUiText_conversa_js("Não consegui entregar a mensagem: ")) + motivo +
+             dgUiText_conversa_js('. Toque em "reenviar" no balão.'));
   setEstado('erro no envio', true);
   btnEnviar.disabled = false;
   btnAnexo.disabled = false;
@@ -4172,7 +4198,7 @@ async function mandaTexto(pend, semEsperar) {
       if (pendentes.includes(pend) && pend.tentativa === tentativa) {
         pend.recusado = true;
         marcaFalhou(pend, motivo, 'Comando recusado: ');
-        mostraErro('Comando recusado: ' + motivo + ' Toque em "descartar" no balão.');
+        mostraErro('Comando recusado: ' + motivo + dgUiText_conversa_js(" Toque em \"descartar\" no balão."));
       }
       avisaEntrega(pend, false, motivo);
       return false;
@@ -4187,7 +4213,7 @@ async function mandaTexto(pend, semEsperar) {
         entrada.value = novo ? pend.texto + '\n' + entrada.value : pend.texto;
         ajustaCampo();
       } else if (quando) {
-        marcaFalhou(pend, e.message, 'Não consegui entregar a mensagem: ');
+        marcaFalhou(pend, e.message, dgUiText_conversa_js("Não consegui entregar a mensagem: "));
       }
       const how = e.dados && e.dados.howToFix ? ' ' + e.dados.howToFix : '';
       mostraErro(e.message + how);
@@ -4204,7 +4230,7 @@ async function mandaTexto(pend, semEsperar) {
       avisaEntrega(pend, false, e.message);
       return false;
     }
-    falhouTentativa(pend, tentativa, 'Não consegui entregar a mensagem: ', e.message);
+    falhouTentativa(pend, tentativa, dgUiText_conversa_js("Não consegui entregar a mensagem: "), e.message);
     if (e.codigo === 'LOGIN_EXPIRADO') leAbreAoRecusar();
     avisaEntrega(pend, false, e.message);
     return false;
@@ -4235,7 +4261,7 @@ async function reenviar(p) {
   if (p.estado !== 'falhou' || p.conferindo) return;
   p.conferindo = true;
   render();
-  setEstado('conferindo se já foi…');
+  setEstado(dgUiText_conversa_js("conferindo se já foi…"));
   await carregar(false);
   p.conferindo = false;
   limpaPendentes();
@@ -4307,7 +4333,7 @@ async function esperaPeloWait(since, limite) {
     try {
       d = await api(API + '/wait?since=' + encodeURIComponent(since) + '&timeout=25');
     } catch (e) {
-      mostraErro('Parei de esperar a resposta: ' + e.message);
+      mostraErro(dgUiText_conversa_js("Parei de esperar a resposta: ") + e.message);
       return false;
     }
     integra(d.msgs);
@@ -4412,8 +4438,8 @@ async function drena(g, corte) {
       resultado = await tocarMensagemNaFila(tocandoAgora, desde);
     } catch (e) {
       console.warn('fila de leitura: a leitura da mensagem ' + item.id + ' falhou:', e);
-      mostraAviso('Não consegui ler uma resposta em voz alta (' + e.message +
-                  '). O texto está na tela. Toque no fone do balão para tentar de novo.');
+      mostraAviso(dgUiText_conversa_js("Não consegui ler uma resposta em voz alta (") + e.message +
+                  dgUiText_conversa_js("). O texto está na tela. Toque no fone do balão para tentar de novo."));
     }
     if (!minha()) return;          // pausaram, pararam ou pularam: o novo dreno cuida do resto
     if (resultado === false) {
@@ -4470,7 +4496,7 @@ function filaRetoma() {
    descartado (ele pulou); mais novo fica. */
 function ouvirAPartirDe(item) {
   if (microfoneOcupado()) {
-    mostraAviso('Termine a gravação antes de ouvir de novo: o som entraria no áudio que você está gravando.');
+    mostraAviso(dgUiText_conversa_js("Termine a gravação antes de ouvir de novo: o som entraria no áudio que você está gravando."));
     return false;
   }
   const pos = id => msgs.findIndex(x => mesmoId(x.id, id));
@@ -4534,8 +4560,8 @@ function pintaFilaLeitura() {
     s.innerHTML = dsIcone(icone) + ' ' + esc(texto);
     bub.appendChild(s);
   };
-  marca(e.tocando, 'fila-tocando', 'volume', 'tocando agora');
-  marca(e.pausada, 'fila-pausada', 'pause', 'continua quando você enviar');
+  marca(e.tocando, 'fila-tocando', 'volume', dgUiText_conversa_js("tocando agora"));
+  marca(e.pausada, 'fila-pausada', 'pause', dgUiText_conversa_js("continua quando você enviar"));
   e.fila.forEach((id, i) => marca(id, 'fila-espera', 'hourglass', 'na fila (' + (i + 1) + ')'));
 }
 
@@ -4566,7 +4592,7 @@ async function esperaResposta(since) {
   esperando = true;
   pararPedido = false;
   btnParar.style.display = '';
-  btnParar.textContent = 'parar de esperar';
+  dgUiLabel_conversa_js(btnParar, "parar de esperar", null);
   setEstado('esperando a ' + AGENTE.nome + '…');
   const limite = Date.now() + LIMITE_ESPERA_MS;
   const temResposta = () => msgs.some(m => ehResposta(m, since));
@@ -4595,8 +4621,8 @@ async function esperaResposta(since) {
   btnParar.style.display = 'none';
   const respostas = msgs.filter(m => ehResposta(m, since));
   if (pararPedido) {
-    setEstado('parei de esperar');
-    mostraAviso('Parei de esperar. A mensagem foi entregue: a resposta aparece ' +
+    setEstado(dgUiText_conversa_js("parei de esperar"));
+    mostraAviso(dgUiText_conversa_js("Parei de esperar. A mensagem foi entregue: a resposta aparece ") +
                 'aqui sozinha quando ela mandar.');
   } else if (!respostas.length) {
     // sem faixa de propósito: a resposta chega sozinha pelo stream, e a escuta continua
@@ -4671,7 +4697,7 @@ async function pegaPedacoVoz(texto, i, sinal) {
   });
   if (r.status === 401) {
     location.href = '/login?next=' + encodeURIComponent(AQUI);
-    throw new Error('sessão expirada');
+    throw new Error(dgUiText_conversa_js("sessão expirada"));
   }
   if (!r.ok) {
     let motivo = 'a API respondeu ' + r.status;
@@ -4705,7 +4731,7 @@ function tocaPedaco(blob, inicio) {
     fimToque = fim;
     player.onended = fim;
     player.onerror = () => {
-      mostraAviso('O iPhone não tocou o áudio da resposta. O texto está na tela.');
+      mostraAviso(dgUiText_conversa_js("O iPhone não tocou o áudio da resposta. O texto está na tela."));
       fim(false);
     };
     player.src = url;
@@ -4724,7 +4750,7 @@ function tocaPedaco(blob, inicio) {
     if (p && p.catch) {
       p.catch(e => {
         mostraAviso('O iPhone bloqueou o som (' + e.message + '). Toque no ' +
-                    'microfone uma vez para liberar o áudio e tente de novo.');
+                    dgUiText_conversa_js("microfone uma vez para liberar o áudio e tente de novo."));
         fim(false);
       });
     }
@@ -4763,8 +4789,8 @@ async function tocarMensagemNaFila(item, desde) {
     } catch (e) {
       if (!viva()) return;
       // a resposta JÁ está na tela: isto é aviso, não é falha do ciclo
-      mostraAviso(e.name === 'TypeError' ? 'A resposta está na tela, mas não consegui gerar a voz: ' + e.message : e.message);
-      setEstado('resposta só em texto');
+      mostraAviso(e.name === 'TypeError' ? dgUiText_conversa_js("A resposta está na tela, mas não consegui gerar a voz: ") + e.message : e.message);
+      setEstado(dgUiText_conversa_js("resposta só em texto"));
       return;
     }
     if (!viva()) return;
@@ -4772,7 +4798,7 @@ async function tocarMensagemNaFila(item, desde) {
 
   falando = true;
   btnParar.style.display = '';
-  btnParar.textContent = 'parar de falar';
+  dgUiLabel_conversa_js(btnParar, "parar de falar", null);
   setEstado('falando…');
   const total = atual.partes;
   let inicio = desde.tempo || 0;
@@ -4801,8 +4827,8 @@ async function tocarMensagemNaFila(item, desde) {
       atual = await proximo;
     } catch (e) {
       if (!viva()) return;
-      mostraAviso('A voz parou no pedaço ' + (i + 2) + ' de ' + total + ': ' + e.message +
-                  ' O texto completo está na tela.');
+      mostraAviso(dgUiText_conversa_js("A voz parou no pedaço ") + (i + 2) + dgUiText_conversa_js(" de ") + total + ': ' + e.message +
+                  dgUiText_conversa_js(" O texto completo está na tela."));
       break;
     }
   }
@@ -4820,7 +4846,7 @@ wrap.addEventListener('click', ev => {
   const m = msgs.find(x => String(x.id) === bt.getAttribute('data-fone'));
   const texto = m && legendaUtil(m);
   if (!texto) {
-    mostraAviso('Não achei o texto desta mensagem para ler de novo. Recarregue a conversa.');
+    mostraAviso(dgUiText_conversa_js("Não achei o texto desta mensagem para ler de novo. Recarregue a conversa."));
     return;
   }
   destravarAudio();
@@ -4842,10 +4868,10 @@ wrap.addEventListener('click', async ev => {
       const id = ver.getAttribute('data-anon-ver');
       if (anonVistos.has(id)) { anonVistos.delete(id); render({ semRolar: true }); return; }
       const m = msgs.find(x => String(x.id) === id);
-      if (!m || !m.text) { mostraAviso('Não achei o texto desta mensagem. Recarregue a conversa.'); return; }
+      if (!m || !m.text) { mostraAviso(dgUiText_conversa_js("Não achei o texto desta mensagem. Recarregue a conversa.")); return; }
       const r = await fetch(API_ANON + '/reverter-texto', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ texto: m.text }) });
       const d = await r.json().catch(() => null);
-      if (!r.ok || !d || d.ok === false || typeof d.texto !== 'string') { mostraAviso('Não consegui mostrar os dados reais: ' + ((d && d.erro) || ('o app respondeu ' + r.status)) + '.'); return; }
+      if (!r.ok || !d || d.ok === false || typeof d.texto !== 'string') { mostraAviso(dgUiText_conversa_js("Não consegui mostrar os dados reais: ") + ((d && d.erro) || ('o app respondeu ' + r.status)) + '.'); return; }
       anonVistos.set(id, d.texto);
       render({ semRolar: true });
       return;
@@ -4859,7 +4885,7 @@ wrap.addEventListener('click', async ev => {
     const r = await fetch(urlFinal, { credentials: 'same-origin', cache: 'no-store' });
     if (!r.ok) {
       const d = await r.json().catch(() => null);
-      mostraAviso('Não consegui gerar a versão final: ' + ((d && d.erro) || ('o app respondeu ' + r.status)));
+      mostraAviso(dgUiText_conversa_js("Não consegui gerar a versão final: ") + ((d && d.erro) || ('o app respondeu ' + r.status)));
       return;
     }
     const nome = (/filename\*=UTF-8''([^;]+)/i.exec(r.headers.get('Content-Disposition') || '') || [])[1];
@@ -4871,7 +4897,7 @@ wrap.addEventListener('click', async ev => {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 30000);
   } catch (e) {
-    mostraAviso('Não consegui falar com o app para ' + (ver ? 'mostrar os dados reais' : 'gerar a versão final') + ' (' + e.message + ').');
+    mostraAviso(dgUiText_conversa_js("Não consegui falar com o app para ") + (ver ? dgUiText_conversa_js("mostrar os dados reais") : dgUiText_conversa_js("gerar a versão final")) + ' (' + e.message + ').');
   } finally {
     bt.disabled = false;
   }
@@ -4907,12 +4933,12 @@ entrada.addEventListener('keydown', ev => {
 function pintaLer() {
   document.body.classList.toggle('ler-on', lerRespostas);   // mostra os fones dos balões
   btnLer.classList.toggle('on', lerRespostas);
-  btnLer.title = lerRespostas ? 'Ler respostas em voz alta: ligado'
-                              : 'Ler respostas em voz alta: desligado';
+  btnLer.title = lerRespostas ? dgUiText_conversa_js("Ler respostas em voz alta: ligado")
+                              : dgUiText_conversa_js("Ler respostas em voz alta: desligado");
   btnLer.setAttribute('aria-pressed', String(lerRespostas));
-  btnLer.setAttribute('aria-label', 'Leitura em voz alta: ' + (lerRespostas ? 'ligada' : 'desligada'));
+  dgUiLabel_conversa_js(btnLer, lerRespostas ? "Leitura em voz alta: ligada" : "Leitura em voz alta: desligada", "aria-label");
   btnLer.innerHTML = (lerRespostas ? dsIcone('volume') : dsIcone('volume-off')) +
-    ' <span class="lbl">' + (lerRespostas ? 'ler: sim' : 'ler: não') + '</span>';
+    ' <span class="lbl">' + (lerRespostas ? dgUiText_conversa_js("ler: sim") : dgUiText_conversa_js("ler: não")) + '</span>';
 }
 btnLer.onclick = () => {
   destravarAudio();
@@ -4925,8 +4951,8 @@ btnLer.onclick = () => {
 function pintaContinua() {
   btnContinua.classList.toggle('on', continua);
   btnContinua.setAttribute('aria-pressed', String(continua));
-  btnContinua.setAttribute('aria-label', 'Conversa contínua: ' + (continua ? 'ligada' : 'desligada'));
-  btnContinua.innerHTML = dsIcone('repeat') + ' <span class="lbl">' + (continua ? 'contínua: sim' : 'contínua: não') + '</span>';
+  dgUiLabel_conversa_js(btnContinua, "Conversa contínua: {p0}", "aria-label", {p0: continua ? 'ligada' : 'desligada'});
+  btnContinua.innerHTML = dsIcone('repeat') + ' <span class="lbl">' + (continua ? dgUiText_conversa_js("contínua: sim") : dgUiText_conversa_js("contínua: não")) + '</span>';
 }
 btnContinua.onclick = () => {
   destravarAudio();
@@ -4944,13 +4970,13 @@ async function conferecota() {
       return;
     }
     if (d.pct >= (d.teto_pct || 97)) {
-      mostraAviso('A cota de voz está no limite (' + d.usado + ' de ' + d.limite +
-                  ' caracteres, ' + d.pct + '%). As respostas ficam só em texto ' +
-                  'até o mês virar.');
+      mostraAviso(dgUiText_conversa_js("A cota de voz está no limite (") + d.usado + dgUiText_conversa_js(" de ") + d.limite +
+                  ' caracteres, ' + d.pct + dgUiText_conversa_js("%). As respostas ficam só em texto ") +
+                  dgUiText_conversa_js("até o mês virar."));
     } else if (d.pct >= 90) {
-      mostraAviso('A cota de voz está em ' + d.pct + '% (' + d.usado + ' de ' +
-                  d.limite + ' caracteres). Perto do teto de ' +
-                  (d.teto_pct || 97) + '%, quando a voz para sozinha.');
+      mostraAviso(dgUiText_conversa_js("A cota de voz está em ") + d.pct + '% (' + d.usado + dgUiText_conversa_js(" de ") +
+                  d.limite + dgUiText_conversa_js(" caracteres). Perto do teto de ") +
+                  (d.teto_pct || 97) + dgUiText_conversa_js("%, quando a voz para sozinha."));
     }
   } catch (e) {
     console.warn('cota:', e.message);
@@ -4991,7 +5017,7 @@ function atualizaSeta() {
   if (fimNovas.textContent !== txt) fimNovas.textContent = txt;
   fimNovas.hidden = !novasAbaixo;
   const rot = novasAbaixo
-    ? 'Ir para o fim: ' + novasAbaixo + (novasAbaixo === 1 ? ' resposta nova' : ' respostas novas')
+    ? dgUiText_conversa_js("Ir para o fim: ") + novasAbaixo + (novasAbaixo === 1 ? ' resposta nova' : ' respostas novas')
     : dgTexto_conversa('Ir para a mensagem mais nova');
   if (btnFim.getAttribute('aria-label') !== rot) btnFim.setAttribute('aria-label', rot);
   if (apareceu) posicionaSeta();
@@ -5014,15 +5040,15 @@ function passosTutorial() {
   const passos = [
     ...window.DGMenuLado.passosMenu({ nome, abre: abreM, fecha: fechaM, comTroca: !COLAB && agentesMenu.length > 1, naConversa: true, colaborador: COLAB }),
     { alvo: '#chat', antes: fechaM, titulo: 'A conversa',
-      oque: 'Aqui aparece tudo o que você e ' + nome + ' já escreveram, na ordem, como num aplicativo de mensagens.',
+      get oque() { return dgUiText_conversa_js("Aqui aparece tudo o que você e ") + nome + dgUiText_conversa_js(" já escreveram, na ordem, como num aplicativo de mensagens."); },
       como: 'As respostas chegam sozinhas, sem precisar atualizar a página. Role para cima para ver as mensagens mais antigas; a seta no canto leva de volta para a mais nova. Quando uma mensagem veio ou foi respondida pelo WhatsApp ou pelo Telegram, ela ganha um selinho com o nome do canal; passe o dedo ou o mouse nele para ver os detalhes.',
       porque: 'É o histórico do seu trabalho com o agente. Nada se perde quando você fecha a tela.' },
     { alvo: '.campo', titulo: 'O campo de mensagem',
-      oque: 'O lugar onde você escreve para ' + nome + '.',
+      get oque() { return dgUiText_conversa_js("O lugar onde você escreve para ") + nome + '.'; },
       como: 'Escreva e aperte Enter (ou a seta verde) para enviar. Para pular de linha no computador, use Shift+Enter.',
       porque: 'Falar com o agente por texto é o jeito mais direto de pedir alguma coisa. Se o envio falhar, o balão fica marcado e você escolhe entre reenviar e descartar.' },
     { alvo: '.campo', titulo: 'Comandos com a barra',
-      oque: 'Quando a mensagem começa com / (uma barra), aparece uma lista de comandos que ' + nome + ' entende, como /compact, /context e as skills que ele tem instaladas.',
+      get oque() { return dgUiText_conversa_js("Quando a mensagem começa com / (uma barra), aparece uma lista de comandos que ") + nome + dgUiText_conversa_js(" entende, como /compact, /context e as skills que ele tem instaladas."); },
       como: 'Digite / e a lista abre acima do campo; continue digitando para filtrar. Use as setas e Enter, ou toque no item: o nome vai para o campo e você só acrescenta o que falta e envia. Os que não rodam por aqui aparecem apagados, com o motivo. Para mandar um texto que começa com barra, escreva // no começo.',
       porque: 'Assim você não precisa decorar os nomes. O que o terminal responde (por exemplo o /context) volta na conversa, num bloco fechado "resultado do comando".' },
     { alvo: '#btnAnexo', titulo: 'Anexos',
@@ -5030,8 +5056,8 @@ function passosTutorial() {
       como: 'Toque nele e escolha os arquivos (até 10 por mensagem), ou cole uma imagem direto no campo. Cada arquivo sobe em segundo plano e a mensagem sai quando todos estiverem prontos.',
       porque: 'Muita coisa é mais fácil de mostrar do que de explicar: um print de erro, um documento, uma foto.' },
     { alvo: document.querySelector('.dgcofre') ? '.dgcofre' : '#chat', titulo: 'A caixa de cofre',
-      oque: 'Quando ' + nome + ' precisa de uma senha ou chave de um serviço (OpenAI, Hostinger, Groq...), ele mostra aqui um cartão com um campo de senha, em vez de pedir para você colar a chave na conversa.',
-      como: 'Cole a chave no campo e toque em Salvar no cofre. O valor vai direto para o cofre de ' + nome + ' e não entra na conversa nem chega a ele; só o nome e o final da chave são avisados. Salvar reinicia ' + nome + ' para a chave valer, e a conversa continua de onde parou. O olho mostra o que você colou, e o Esc limpa o campo.',
+      get oque() { return 'Quando ' + nome + dgUiText_conversa_js(" precisa de uma senha ou chave de um serviço (OpenAI, Hostinger, Groq...), ele mostra aqui um cartão com um campo de senha, em vez de pedir para você colar a chave na conversa."); },
+      get como() { return dgUiText_conversa_js("Cole a chave no campo e toque em Salvar no cofre. O valor vai direto para o cofre de ") + nome + dgUiText_conversa_js(" e não entra na conversa nem chega a ele; só o nome e o final da chave são avisados. Salvar reinicia ") + nome + dgUiText_conversa_js(" para a chave valer, e a conversa continua de onde parou. O olho mostra o que você colou, e o Esc limpa o campo."); },
       porque: 'Tudo o que passa pela conversa fica guardado no histórico. Aqui a chave nunca passa por ele, e você pode trocar a chave quando quiser: o cartão avisa se já existe uma guardada.' },
   ];
   if (caps.microfone) {
@@ -5046,7 +5072,7 @@ function passosTutorial() {
       const el = $('atividade');
       el.hidden = false;
       el.className = '';
-      el.querySelector('.atv-nome').textContent = nome + ' está trabalhando';
+      dgUiLabel_conversa_js(el.querySelector('.atv-nome'), "{p0} está trabalhando", null, {p0: nome});
       el.querySelector('.atv-sep').hidden = false;
       el.querySelector('.atv-acao').textContent = 'lendo um arquivo (exemplo)';
     },
@@ -5060,7 +5086,7 @@ function passosTutorial() {
       const el = $('atividade');
       el.hidden = false;
       el.className = '';
-      el.querySelector('.atv-nome').textContent = nome + ' está trabalhando';
+      dgUiLabel_conversa_js(el.querySelector('.atv-nome'), "{p0} está trabalhando", null, {p0: nome});
       el.querySelector('.atv-sep').hidden = false;
       el.querySelector('.atv-acao').textContent = 'lendo um arquivo (exemplo)';
       $('btnPararAgente').hidden = false;
@@ -5080,25 +5106,25 @@ function passosTutorial() {
       porque: 'Trocar de agente com o polegar, sem abrir o menu.' });
   }
   if (!EH_ADMIN) {
-    passos.push({ alvo: '#mlPainel', antes: abreM, titulo: 'As páginas do painel de ' + nome,
-      oque: 'Status, Memória, Operações, Custos e as outras páginas que mostram como ' + nome + ' está, o que ele guarda e quanto gasta.',
+    passos.push({ alvo: '#mlPainel', antes: abreM, get titulo() { return dgUiText_conversa_js("As páginas do painel de ") + nome; },
+      get oque() { return dgUiText_conversa_js("Status, Memória, Operações, Custos e as outras páginas que mostram como ") + nome + dgUiText_conversa_js(" está, o que ele guarda e quanto gasta."); },
       como: 'Toque numa página e ela abre na mesma janela. Para voltar à conversa, use o item Conversa do menu do painel ou o voltar do navegador.',
       porque: 'A conversa serve para pedir coisas; as páginas do painel servem para acompanhar e ajustar o agente.' });
   }
   if (!$('mlConfig').hidden) {
-    passos.push({ alvo: '#mlConfig', antes: abreM, titulo: dgTexto_conversa('Configurações'),
-      oque: 'Hoje tem um item: Instalar o app, que coloca o ' + dsMarca.nome + ' como aplicativo na tela inicial do aparelho.',
+    passos.push({ alvo: '#mlConfig', antes: abreM, titulo: 'Configurações',
+      get oque() { return dgUiText_conversa_js("Hoje tem um item: Instalar o app, que coloca o ") + dsMarca.nome + dgUiText_conversa_js(" como aplicativo na tela inicial do aparelho."); },
       como: 'No Android e no computador, com Chrome ou Edge, o toque abre o pedido de instalação do navegador. No iPhone e no iPad, o item mostra o caminho: Compartilhar e depois Adicionar à Tela de Início. O item some sozinho quando o app já está instalado.',
       porque: 'O app instalado abre sem a barra do navegador e fica a um toque, como qualquer outro aplicativo.' });
   }
   if ($('mlSessao') && !$('mlSessao').hidden) {
     passos.push({ alvo: '#mlSessao', antes: abreM, titulo: 'Reiniciar a sessão',
-      oque: 'O botão que reinicia o processo de ' + nome + ' quando ele trava, sem você abrir terminal.',
+      get oque() { return dgUiText_conversa_js("O botão que reinicia o processo de ") + nome + dgUiText_conversa_js(" quando ele trava, sem você abrir terminal."); },
       como: 'Pede a sua confirmação, reinicia e mostra uma faixa no topo até ele voltar. A conversa continua de onde estava, porque o agente retoma a mesma sessão.',
       porque: 'Quando o agente para de responder, reiniciar costuma resolver, e aqui é um toque.' });
   }
   // O cartão de login da conversa é do dono; o colaborador conecta pela página Conectar conta (ver conectar.js).
-  if (!COLAB) passos.push({ alvo: '#loginCartao', titulo: dgTexto_conversa('Conectar a sua conta'),
+  if (!COLAB) passos.push({ alvo: '#loginCartao', titulo: 'Conectar a sua conta',
     antes: () => {
       if (lc.aberto) return;
       lc.demo = true; lc.aberto = true; lc.manual = true; lc.carregando = false; lc.iniciado = false;
@@ -5106,12 +5132,12 @@ function passosTutorial() {
       lcDesenha();
     },
     depois: () => { if (lc.demo) lcFecha(false); },
-    oque: 'Um cartão que aparece no fim da conversa quando ' + nome + ' ainda não tem a sua conta do Claude ou do Codex conectada. O que você vê agora é só um exemplo.',
-    como: 'Toque em Conectar, abra a página de login, entre com a sua conta e, no Claude, cole aqui o código que ela mostrar no fim. A tela confere sozinha e avisa quando terminar. Para abrir o cartão a qualquer hora, escreva /login no campo de mensagem e envie: nada vai para o agente. Se a conta JÁ estava conectada e o login expirou, a tela abre na frente um aviso "Seu login do Claude expirou" com os botões Reconectar conta, Reiniciar a sessão e Agora não; depois do login, ' + nome + ' volta sozinho, na mesma conversa.',
-    porque: 'Sem conta conectada o agente não consegue responder. Assim você resolve aqui mesmo, sem abrir terminal, e o que você mandou durante a queda não se perde: o campo guarda o texto e ' + nome + ' responde o que ficou pendente.' });
+    get oque() { return dgUiText_conversa_js("Um cartão que aparece no fim da conversa quando ") + nome + dgUiText_conversa_js(" ainda não tem a sua conta do Claude ou do Codex conectada. O que você vê agora é só um exemplo."); },
+    get como() { return dgUiText_conversa_js("Toque em Conectar, abra a página de login, entre com a sua conta e, no Claude, cole aqui o código que ela mostrar no fim. A tela confere sozinha e avisa quando terminar. Para abrir o cartão a qualquer hora, escreva /login no campo de mensagem e envie: nada vai para o agente. Se a conta JÁ estava conectada e o login expirou, a tela abre na frente um aviso \"Seu login do Claude expirou\" com os botões Reconectar conta, Reiniciar a sessão e Agora não; depois do login, ") + nome + ' volta sozinho, na mesma conversa.'; },
+    get porque() { return dgUiText_conversa_js("Sem conta conectada o agente não consegue responder. Assim você resolve aqui mesmo, sem abrir terminal, e o que você mandou durante a queda não se perde: o campo guarda o texto e ") + nome + ' responde o que ficou pendente.'; } });
   if ($('btnSessoes') && !$('btnSessoes').hidden) {
     passos.push({ alvo: '#btnSessoes', titulo: 'O botão Sessões',
-      oque: 'Um atalho para as sessões de trabalho de ' + nome + ': os cards que andam em paralelo com esta conversa. Uma bolinha vermelha avisa quando alguma espera uma decisão sua.',
+      get oque() { return dgUiText_conversa_js("Um atalho para as sessões de trabalho de ") + nome + dgUiText_conversa_js(": os cards que andam em paralelo com esta conversa. Uma bolinha vermelha avisa quando alguma espera uma decisão sua."); },
       como: 'Toque nele e a tela de Sessões abre dentro do painel do agente, na mesma janela. No celular o texto some e fica só o ícone do monitor.',
       porque: 'É o mini-Bunker do agente: você acompanha e cria trabalhos longos sem sair procurando no menu, e o botão fica no topo, em todas as telas.' });
   }
@@ -5121,7 +5147,7 @@ function passosTutorial() {
     como: 'Toque nele e a Mesa abre na mesma janela. Lá você acompanha o que está pendente e o que já foi feito.',
     porque: 'Você confere o andamento do trabalho sem sair procurando no menu.' });
   passos.push({ alvo: '#btnNaoLida', titulo: 'Os selos dos agentes e o "não lida"',
-    oque: 'Cada agente do menu e da fileira de avatares ganha um selo: pontinhos verdes quando está trabalhando, bolinha vermelha quando terminou e você ainda não leu, e um "!" laranja quando ele precisa de você (pede permissão, fez uma pergunta ou perdeu o login). Este botão marca a conversa de ' + nome + ' como não lida.',
+    get oque() { return dgUiText_conversa_js("Cada agente do menu e da fileira de avatares ganha um selo: pontinhos verdes quando está trabalhando, bolinha vermelha quando terminou e você ainda não leu, e um \"!\" laranja quando ele precisa de você (pede permissão, fez uma pergunta ou perdeu o login). Este botão marca a conversa de ") + nome + dgUiText_conversa_js(" como não lida."); },
     como: 'O selo vem do estado que o runner de cada agente informa, atualizado a cada 10 segundos com a tela aberta. A bolinha conta as respostas depois da última que você viu. Quem pede a sua atenção também pode mandar um aviso ao celular (ligue em "Ativar avisos neste aparelho"). Ao tocar em "não lida", o menu abre e a bolinha fica até você abrir a conversa de novo; nos outros agentes, use o ⋯ ou segure o dedo no nome.',
     porque: 'Com vários agentes trabalhando, você vê de relance quem espera por você e deixa para depois uma resposta que não quer ler agora, sem perder o fio.' });
   passos.push({ alvo: '#btnLembretes', titulo: 'O botão Lembretes',
@@ -5129,8 +5155,8 @@ function passosTutorial() {
     como: 'Toque nele e a lista abre na mesma janela. Lá você cria, confirma e apaga lembretes.',
     porque: 'Lembrete que insiste até você confirmar só ajuda se for fácil de achar, por isso fica no topo.' });
   }
-  if ($('btnAnon') && !$('btnAnon').hidden) passos.push({ alvo: '#btnAnon', titulo: dgTexto_conversa('Documentos anonimizados'),
-    oque: 'Um selo que aparece só quando a anonimização de documentos está ligada para ' + nome + '. Ele leva à tela Anonimizar.',
+  if ($('btnAnon') && !$('btnAnon').hidden) passos.push({ alvo: '#btnAnon', titulo: 'Documentos anonimizados',
+    get oque() { return dgUiText_conversa_js("Um selo que aparece só quando a anonimização de documentos está ligada para ") + nome + dgUiText_conversa_js(". Ele leva à tela Anonimizar."); },
     como: 'Os documentos que você manda pelo clipe passam por um filtro que troca nomes, CPF, telefone e outros dados por marcadores como [PESSOA_1]. O agente só vê os marcadores. Nas respostas dele, o botão "Ver com dados reais" mostra o texto de verdade e "Baixar versão final" entrega o arquivo com os dados reais.',
     porque: 'O agente e o modelo na nuvem trabalham sem receber os dados pessoais dos seus clientes, e você continua lendo tudo completo.' });
   if (window.DGSigilo) passos.push(window.DGSigilo.passoTour());
@@ -5143,7 +5169,7 @@ function passosTutorial() {
 
 function iniciaTutorial() {
   if (!window.DGTour) {
-    mostraErro('A visita guiada não carregou. Recarregue a página e tente de novo.');
+    mostraErro(dgUiText_conversa_js("A visita guiada não carregou. Recarregue a página e tente de novo."));
     return;
   }
   window.DGTour.inicia({ passos: passosTutorial(), aoFechar: () => abreMenu(false) });
@@ -5179,7 +5205,7 @@ const cacheMidias = typeof DGMidias !== 'undefined'
   ? DGMidias.criar({ conta: caps.conta, agente: AGENTE.id, base: API,
     mudou: aba => { if (aba === acAba) pintaAcervo(); } })
   : null;
-const ACERVO_SEM_MODULO = 'A página foi atualizada. Recarregue.';
+const ACERVO_SEM_MODULO = dgUiText_conversa_js("A página foi atualizada. Recarregue.");
 function dadosAcervo(aba) {
   return cacheMidias ? cacheMidias.estado(aba)
     : { itens: [], carregou: true, carregando: false, proximo: null, erro: ACERVO_SEM_MODULO };
@@ -5187,8 +5213,8 @@ function dadosAcervo(aba) {
 function pintaAcervo() {
   if (acPainel.hidden) return;
   const d = dadosAcervo(acAba);
-  $('acervoEstado').textContent = !cacheMidias ? ACERVO_SEM_MODULO : d.erro ? 'Não consegui atualizar: ' + d.erro :
-    (!d.carregou ? 'Carregando os itens recentes…' : d.itens.length + ' itens carregados' + (d.carregando ? ' · atualizando…' : '')) +
+  $('acervoEstado').textContent = !cacheMidias ? ACERVO_SEM_MODULO : d.erro ? dgUiText_conversa_js("Não consegui atualizar: ") + d.erro :
+    (!d.carregou ? dgUiText_conversa_js("Carregando os itens recentes…") : d.itens.length + ' itens carregados' + (d.carregando ? ' · atualizando…' : '')) +
     (d.avisoCache ? ' · ' + d.avisoCache : '');
   let html = acAba === 'midias' ? '<div class="acgrade">' : '';
   for (const it of d.itens) {
@@ -5199,12 +5225,12 @@ function pintaAcervo() {
       const img = md.disponivel && md.thumb ? `<img src="${esc(md.thumb)}" loading="lazy" decoding="async" width="320" height="320" alt="${esc(md.nome)}" onerror="this.hidden=true">` : '';
       corpo = `<button class="${acAba === 'midias' ? 'acfoto' : 'aclinha'}" data-midia="${esc(md.id)}">${dsIcone(md.kind === 'video' ? 'play' : 'paperclip')} ${esc(md.nome)}${img}</button>`;
     }
-    html += `<div class="acitem">${corpo}<button class="acir" data-origem="${esc(it.msg_id)}" title="Ir para a mensagem de origem">${esc(it.dia || '')} ${esc(it.hhmm || '')} ${dsIcone('reply')}</button></div>`;
+    html += (dgUiHtml_conversa_js("<div class=\"acitem\">") + (corpo) + dgUiHtml_conversa_js("<button class=\"acir\" data-origem=\"") + (esc(it.msg_id)) + dgUiHtml_conversa_js("\" title=\"Ir para a mensagem de origem\" data-dg-i18n-title=\"80572f15cbd9\">") + (esc(it.dia || '')) + dgUiHtml_conversa_js(" ") + (esc(it.hhmm || '')) + dgUiHtml_conversa_js(" ") + (dsIcone('reply')) + dgUiHtml_conversa_js("</button></div>"));
   }
   if (acAba === 'midias') html += '</div>';
-  if (d.erro && cacheMidias) html += '<button class="acmais" data-tentar>Atualizar novamente</button>';
+  if (d.erro && cacheMidias) html += dgUiHtml_conversa_js("<button class=\"acmais\" data-tentar><!--dg-i18n:4c2e886ec6a7-->Atualizar novamente<!--/dg-i18n--></button>");
   if (d.proximo) html += `<button class="acmais" data-mais ${d.carregando ? 'disabled' : ''}>${d.carregando ? dgTexto_conversa('Carregando…') : 'Carregar anteriores'}</button>`;
-  else if (cacheMidias && d.carregou && !d.itens.length) html += '<p>Nenhum item deste tipo na conversa disponível.</p>';
+  else if (cacheMidias && d.carregou && !d.itens.length) html += dgUiHtml_conversa_js("<p><!--dg-i18n:5c2149fe3e1f-->Nenhum item deste tipo na conversa disponível.<!--/dg-i18n--></p>");
   acLista.innerHTML = html;
 }
 function abreAcervo(aba = acAba) {
@@ -5233,13 +5259,13 @@ acLista.onclick = async e => {
     const porId = new Map([...(d.msgs || []), ...msgs].map(m => [m.id, m]));
     msgs = [...porId.values()].sort((a, b) => a.ep - b.ep); fechaAcervo(); render({ semRolar: true });
     const el = wrap.querySelector('[data-msg="' + CSS.escape(d.mensagem.id) + '"]');
-    if (!el) throw new Error('A mensagem não apareceu. Atualize a conversa.');
+    if (!el) throw new Error(dgUiText_conversa_js("A mensagem não apareceu. Atualize a conversa."));
     rolagem.mostra(el, { block: 'center' }); el.classList.add('alerta-destaque');
     setTimeout(() => el.classList.remove('alerta-destaque'), 3000);
   } catch (err) { mostraErro(err.message); }
 };
 function passoAcervo() {
-  return { alvo: '#acervoLista', antes: () => abreAcervo(), titulo: dgTexto_conversa('Mídias, links e arquivos'),
+  return { alvo: '#acervoLista', antes: () => abreAcervo(), titulo: 'Mídias, links e arquivos',
     oque: 'Tudo o que foi compartilhado na conversa disponível, separado por tipo.',
     como: 'O aparelho mostra o que já guardou e busca novidades em segundo plano. Carrega 20 por vez, até 60 itens ou 30 dias; role para buscar os anteriores. Só miniaturas aparecem na grade.',
     porque: 'Reabrir o painel fica rápido e economiza dados. O arquivo completo só abre quando você toca nele.' };
@@ -5272,11 +5298,11 @@ async function pulaParaMensagemDoLink() {
     msgs = [...porId.values()].sort((a, b) => a.ep - b.ep);
     render({ semRolar: true });
     const el = wrap.querySelector('[data-msg="' + CSS.escape(d.mensagem.id) + '"]');
-    if (!el) throw new Error('A mensagem não apareceu na tela. Atualize a conversa.');
+    if (!el) throw new Error(dgUiText_conversa_js("A mensagem não apareceu na tela. Atualize a conversa."));
     rolagem.mostra(el, { block: 'center' });
     el.classList.add('alerta-destaque');
     setTimeout(() => el.classList.remove('alerta-destaque'), 3000);
-  } catch (err) { mostraErro('Não consegui ir até a mensagem da entrega: ' + err.message); }
+  } catch (err) { mostraErro(dgUiText_conversa_js("Não consegui ir até a mensagem da entrega: ") + err.message); }
 }
 carregar(true).then(() => ligaStream()).then(pulaParaMensagemDoLink);
 ligaResync();
@@ -5297,7 +5323,7 @@ function desenhaAlertas() {
     if (alertasEmCurso.has(a.id)) continue;
     const b = document.createElement('button');
     b.type = 'button'; b.innerHTML = a.tipo === 'entrega' ? dsIcone('check-circle') : dsIcone('alert');
-    b.title = (a.tipo === 'entrega' ? 'Entrega pronta' : 'Pedido esperando sua decisão') + ': ir até a mensagem e retirar o aviso';
+    dgUiLabel_conversa_js(b, "{p0}: ir até a mensagem e retirar o aviso", "title", {p0: a.tipo === 'entrega' ? 'Entrega pronta' : dgUiText_conversa_js("Pedido esperando sua decisão")});
     b.setAttribute('aria-label', b.title);
     b.onclick = async () => {
       alertasRevisao++; alertasEmCurso.add(a.id); desenhaAlertas();
@@ -5310,7 +5336,7 @@ function desenhaAlertas() {
         maisAntigas = !!d.mais_antigas;
         render({ semRolar: true });
         const el = wrap.querySelector('[data-msg="' + CSS.escape(d.mensagem.id) + '"]');
-        if (!el) throw new Error('A mensagem não foi encontrada na tela. Tente novamente.');
+        if (!el) throw new Error(dgUiText_conversa_js("A mensagem não foi encontrada na tela. Tente novamente."));
         el.classList.add('alerta-destaque');
         rolagem.mostra(el, { block: 'center' });
         setTimeout(() => el.classList.remove('alerta-destaque'), 3000);
@@ -5339,7 +5365,7 @@ async function consultaAlertas() {
     const d = await api(API + '/alertas');
     if (revisao === alertasRevisao) { alertasLista = d.alertas || []; desenhaAlertas(); }
     if (d.avisos && d.avisos.length) mostraAviso(d.avisos.join(' '));
-  } catch (e) { mostraErro('Não consegui atualizar os alertas: ' + e.message); }
+  } catch (e) { mostraErro(dgUiText_conversa_js("Não consegui atualizar os alertas: ") + e.message); }
   finally { alertasLendo = false; }
 }
 consultaAlertas(); setInterval(consultaAlertas, 10000);
@@ -5378,7 +5404,7 @@ window.addEventListener('resize', posicionaAlertas);
     }
   }
   const esconde = () => { clearTimeout(sumir); clearTimeout(tempo); faixaR.hidden = true; faixaR.className = ''; };
-  const falha = causa => mostra('erro', 'Não consegui reiniciar a sessão de ' + AGENTE.nome + ': ' + causa, [
+  const falha = causa => mostra('erro', dgUiText_conversa_js("Não consegui reiniciar a sessão de ") + AGENTE.nome + ': ' + causa, [
     { rotulo: dgTexto_conversa('Fechar'), fn: esconde }, { rotulo: dgTexto_conversa('Tentar de novo'), fn: dispara }]);
 
   function acompanha(textoInicial) {
@@ -5388,29 +5414,29 @@ window.addEventListener('resize', posicionaAlertas);
     // e ainda mostrar o agente "vivo" (ou "sem login") de antes do reinício.
     const marco = atvAgoraMs() / 1000;
     let vivas = 0, ultimoAgora = null;
-    mostra('rodando', textoInicial || 'Reiniciando a sessão de ' + AGENTE.nome + '…');
+    mostra('rodando', textoInicial || dgUiText_conversa_js("Reiniciando a sessão de ") + AGENTE.nome + '…');
     const volta = () => {
       const v = PURO.avaliaVolta({ marco, ultimoAgora, vivas, foto: window.atividadeFoto, agenteId: AGENTE.id, streamAberto, decorridoMs: Date.now() - ini });
       vivas = v.vivas; ultimoAgora = v.ultimoAgora;
       if (v.acao === 'indeterminado') {
         emCurso = false;
-        mostra('ok', 'Pedi o reinício da sessão de ' + AGENTE.nome + ', mas não consigo confirmar quando ele volta (o arquivo conversa-puro.js não carregou). Recarregue a página para conferir.');
+        mostra('ok', dgUiText_conversa_js("Pedi o reinício da sessão de ") + AGENTE.nome + dgUiText_conversa_js(", mas não consigo confirmar quando ele volta (o arquivo conversa-puro.js não carregou). Recarregue a página para conferir."));
         sumir = setTimeout(esconde, 12000);
         return;
       }
       if (v.acao === 'sem_login' || v.acao === 'login_expirado') {
         emCurso = false;
-        return falha('o agente voltou, mas está sem a conta do Claude/Codex conectada. ' + (v.motivo || 'Conecte a conta pelo cartão que aparece na conversa.'));
+        return falha(dgUiText_conversa_js("o agente voltou, mas está sem a conta do Claude/Codex conectada. ") + (v.motivo || dgUiText_conversa_js("Conecte a conta pelo cartão que aparece na conversa.")));
       }
       if (v.acao === 'voltou') {
         emCurso = false;
-        mostra('ok', AGENTE.nome + ' voltou. A conversa continua daqui, de onde estava.');
+        mostra('ok', AGENTE.nome + dgUiText_conversa_js(" voltou. A conversa continua daqui, de onde estava."));
         sumir = setTimeout(esconde, 8000);
         return;
       }
       if (Date.now() - ini > 150000) {
         emCurso = false;
-        return falha('passaram 150 s e o agente não voltou a responder. Peça ao Admin para conferir o serviço dele (dgclaw status).');
+        return falha(dgUiText_conversa_js("passaram 150 s e o agente não voltou a responder. Peça ao Admin para conferir o serviço dele (dgclaw status)."));
       }
       tempo = setTimeout(volta, 2000);
     };
@@ -5420,7 +5446,7 @@ window.addEventListener('resize', posicionaAlertas);
   async function dispara() {
     if (emCurso) return;
     emCurso = true;
-    mostra('rodando', 'Reiniciando a sessão de ' + AGENTE.nome + '…');
+    mostra('rodando', dgUiText_conversa_js("Reiniciando a sessão de ") + AGENTE.nome + '…');
     try {
       await api(URL_REINICIO, { method: 'POST', body: {}, timeoutMs: 40000 });
     } catch (e) {

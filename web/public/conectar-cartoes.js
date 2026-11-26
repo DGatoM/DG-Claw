@@ -1,4 +1,5 @@
 'use strict';
+const dgUiText_conectar_cartoes_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 const dgTexto_conectar_cartoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* conectar-cartoes.js: os cartões de login (um por agente) e o fluxo de cada um, compartilhados pela página
    /conectar e pelo modal "Faça o login nos seus agentes" da conversa (modal-login.js).
@@ -41,7 +42,7 @@ const dgTexto_conectar_cartoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.
       r = await fetch(url, init);
       try { dados = await r.json(); } catch (e) { dados = null; }
     } catch (e) {
-      falhaRede = ctl.signal.aborted ? 'o painel não respondeu a tempo' : (e && e.message) || 'sem rede';
+      falhaRede = ctl.signal.aborted ? dgUiText_conectar_cartoes_js("o painel não respondeu a tempo") : (e && e.message) || dgUiText_conectar_cartoes_js("sem rede");
     } finally { clearTimeout(relogio); }
     if (!r) return { ok: false, status: 0, dados: null, erro: P.traduzErro(0, falhaRede, acao, nome, COLAB) };
     if (r.ok && !(dados && dados.ok === false)) return { ok: true, status: r.status, dados: dados || {}, erro: null };
@@ -142,14 +143,14 @@ const dgTexto_conectar_cartoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.
         corpo.push(ol);
       }
       if (v.link) {
-        const ab = el('a', 'cn-btn cn-principal cn-grande', 'Abrir a página de login');
+        const ab = el('a', 'cn-btn cn-principal cn-grande', dgUiText_conectar_cartoes_js("Abrir a página de login"));
         ab.href = v.link; ab.target = '_blank'; ab.rel = 'noopener noreferrer';
         corpo.push(ab);
-        corpo.push(botao(e.copiado ? 'Link copiado' : 'Copiar link', 'cn-leve', () => copiaLink(a), e.ocupado));
+        corpo.push(botao(e.copiado ? 'Link copiado' : dgUiText_conectar_cartoes_js("Copiar link"), 'cn-leve', () => copiaLink(a), e.ocupado));
       }
       if (v.codigoDispositivo) corpo.push(el('div', 'cn-dispositivo', v.codigoDispositivo));
       if (v.campoCodigo) {
-        const rot = el('label', 'cn-rotulo', 'Cole aqui o código');
+        const rot = el('label', 'cn-rotulo', dgUiText_conectar_cartoes_js("Cole aqui o código"));
         rot.htmlFor = prefixoId + a.id;
         const campo = document.createElement('input');
         campo.type = 'text'; campo.id = rot.htmlFor; campo.className = 'cn-campo';
@@ -172,17 +173,17 @@ const dgTexto_conectar_cartoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.
         g.dataset.tour = 'cn-gerar';
         pe.append(g);
       }
-      if (v.fase === 'sem_resposta') pe.append(botao('Conferir de novo', 'cn-principal', () => confere(a, true), e.conferindo));
+      if (v.fase === 'sem_resposta') pe.append(botao(dgUiText_conectar_cartoes_js("Conferir de novo"), 'cn-principal', () => confere(a, true), e.conferindo));
       if (v.entrarOutra) {
         if (e.confirmando) {
-          pe.append(el('p', 'cn-texto', 'Isso troca a conta de ' + v.nome + '. Continuar?'));
+          pe.append(el('p', 'cn-texto', dgUiText_conectar_cartoes_js("Isso troca a conta de ") + v.nome + '. Continuar?'));
           pe.append(botao('Sim, trocar a conta', 'cn-principal', () => { e.confirmando = false; comeca(a); }, e.ocupado));
           pe.append(botao(dgTexto_conectar_cartoes('Não'), 'cn-leve', () => { e.confirmando = false; desenhaCartao(a); }));
         } else {
-          pe.append(botao('Entrar com outra conta', 'cn-leve', () => { e.confirmando = true; desenhaCartao(a); }, e.ocupado));
+          pe.append(botao(dgUiText_conectar_cartoes_js("Entrar com outra conta"), 'cn-leve', () => { e.confirmando = true; desenhaCartao(a); }, e.ocupado));
         }
       }
-      if (v.novoLink) pe.append(botao('Gerar novo link', 'cn-leve', () => novoLink(a), e.ocupado));
+      if (v.novoLink) pe.append(botao(dgUiText_conectar_cartoes_js("Gerar novo link"), 'cn-leve', () => novoLink(a), e.ocupado));
       if (v.cancelar) pe.append(botao(dgTexto_conectar_cartoes('Cancelar'), 'cn-leve', () => cancela(a), e.ocupado));
       if (pe.childElementCount) corpo.push(pe);
       const vivo = el('p', 'cn-vivo', v.aviso || '');
@@ -284,7 +285,7 @@ const dgTexto_conectar_cartoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.
       if (e.ocupado) return;
       const campo = desenha ? lista.querySelector('#' + CSS.escape(prefixoId + a.id)) : null;
       const codigo = P.limpaCodigo(campo ? campo.value : '');
-      if (!codigo) { e.erro = 'Cole o código que a página mostrou no fim do login.'; desenhaCartao(a); if (campo) campo.focus(); return; }
+      if (!codigo) { e.erro = dgUiText_conectar_cartoes_js("Cole o código que a página mostrou no fim do login."); desenhaCartao(a); if (campo) campo.focus(); return; }
       e.ocupado = true; e.erro = '';
       e.geracao++;
       // o código sai do campo antes da chamada, com sucesso ou erro: não fica na tela nem em variável
@@ -306,7 +307,7 @@ const dgTexto_conectar_cartoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.
         e.copiado = true; e.erro = '';
         setTimeout(() => { e.copiado = false; desenhaCartao(a); }, 2000);
       } catch (err) {
-        e.erro = 'Não consegui copiar sozinho (' + ((err && err.message) || 'o navegador recusou') + '). Use o botão Abrir a página de login neste aparelho.';
+        e.erro = dgUiText_conectar_cartoes_js("Não consegui copiar sozinho (") + ((err && err.message) || 'o navegador recusou') + dgUiText_conectar_cartoes_js("). Use o botão Abrir a página de login neste aparelho.");
       }
       desenhaCartao(a);
     }

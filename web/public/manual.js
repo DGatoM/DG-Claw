@@ -1,4 +1,7 @@
 'use strict';
+const dgUiText_manual_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiPhrase_manual_js = (fonte, valores) => globalThis.DGI18n ? globalThis.DGI18n.frase(fonte, valores) : fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m, k) => Object.hasOwn(valores, k) ? String(valores[k]) : m);
+const dgUiHtml_manual_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* manual.js: a tela do Manual (/manual e /manual/<pagina>). Contrato da API em web/docs/MANUAL.md.
 
    A renderização do markdown é própria e fica fora do DOM (testada em web/test/manual-tela.test.js).
@@ -110,9 +113,13 @@
       const h = /^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(l);
       if (h) {
         const n = h[1].length;
-        if (n === 1 && titulo === null) titulo = h[2];
-        const id = idUnico(h[2].replace(/[`*]/g, ''));
-        saida.push(`<h${n} id="${esc(id)}">${emLinha(h[2])}</h${n}>`);
+        // O manual traduzido conserva a âncora portuguesa num sufixo estrito.
+        // O título continua passando pelo renderizador escapado; não aceitamos HTML.
+        const explicita = /^(.*?)\s+\{#([a-z0-9-]+)\}$/.exec(h[2]);
+        const texto = explicita ? explicita[1] : h[2];
+        if (n === 1 && titulo === null) titulo = texto;
+        const id = idUnico(explicita ? explicita[2] : texto.replace(/[`*]/g, ''));
+        saida.push(`<h${n} id="${esc(id)}">${emLinha(texto)}</h${n}>`);
         i++; continue;
       }
 
@@ -198,7 +205,7 @@
   async function pega(url) {
     let r;
     try { r = await fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json, text/markdown' } }); } catch (e) {
-      throw new Error(`Não consegui falar com o servidor (${e.message}). Confira a conexão e recarregue a página.`);
+      throw new Error(dgUiPhrase_manual_js("Não consegui falar com o servidor ({v0}). Confira a conexão e recarregue a página.", {v0: e.message}));
     }
     const tipo = r.headers.get('content-type') || '';
     if (!r.ok) {
@@ -210,36 +217,40 @@
   }
 
   function mostraErro(msg) {
-    $('mnDoc').innerHTML = `<div class="mn-erro"><p><strong>Não consegui abrir esta página do manual.</strong></p><p>${esc(msg)}</p>` +
-      '<p><a href="/manual">Voltar ao índice do manual</a></p></div>';
+    $('mnDoc').innerHTML = (dgUiHtml_manual_js("<div class=\"mn-erro\"><p><strong><!--dg-i18n:7668b6a2ad23-->Não consegui abrir esta página do manual.<!--/dg-i18n--></strong></p><p>") + (esc(msg)) + dgUiHtml_manual_js("</p>")) +
+      dgUiHtml_manual_js("<p><a href=\"/manual\"><!--dg-i18n:83a22d0be30f-->Voltar ao índice do manual<!--/dg-i18n--></a></p></div>");
   }
 
   function pintaLista() {
     const f = filtraPaginas(E.paginas, $('mnBusca').value);
-    $('mnPaginas').innerHTML = `<li><a href="/manual"${E.atual === '' ? ' aria-current="page"' : ''}>Índice</a></li>` +
+    $('mnPaginas').innerHTML = (dgUiHtml_manual_js("<li><a href=\"/manual\"") + (E.atual === '' ? ' aria-current="page"' : '') + dgUiHtml_manual_js("><!--dg-i18n:5145b3d5d7b9-->Índice<!--/dg-i18n--></a></li>")) +
       (f.length ? f.map(p => `<li><a href="/manual/${esc(p.nome)}"${p.nome === E.atual ? ' aria-current="page"' : ''}>${esc(p.titulo)}</a></li>`).join('')
-        : '<li class="mn-vazio">Nenhuma página com esse texto.</li>');
+        : dgUiHtml_manual_js("<li class=\"mn-vazio\"><!--dg-i18n:24a1bd93c9ab-->Nenhuma página com esse texto.<!--/dg-i18n--></li>"));
   }
 
-  async function abre() {
+  let abertura = 0;
+  async function abre(atualizarIdioma) {
+    const pedido = ++abertura;
     E.atual = paginaDoCaminho(location.pathname);
     document.documentElement.classList.add('mn');
-    $('mnLista').open = raiz.matchMedia('(min-width:900px)').matches || E.atual === '';
+    if (!atualizarIdioma) $('mnLista').open = raiz.matchMedia('(min-width:900px)').matches || E.atual === '';
     try {
       const lista = await pega('/api/v1/manual');
+      if (pedido !== abertura) return;
       E.paginas = lista.paginas || [];
       pintaLista();
       const md = await pega(`/api/v1/manual/${E.atual || 'README'}.md`);
+      if (pedido !== abertura) return;
       const r = renderiza(md);
-      $('mnDoc').innerHTML = (E.atual ? '<a class="mn-volta" href="/manual">Índice do manual</a>' : '') + r.html;
+      $('mnDoc').innerHTML = (E.atual ? dgUiHtml_manual_js("<a class=\"mn-volta\" href=\"/manual\"><!--dg-i18n:593418897ff4-->Índice do manual<!--/dg-i18n--></a>") : '') + r.html;
       document.title = (r.titulo ? r.titulo + ' - ' : '') + 'Manual - DG Claw';
       const alvo = location.hash && $(decodeURIComponent(location.hash.slice(1)));
-      if (alvo) alvo.scrollIntoView();
-    } catch (e) { mostraErro(e.message); }
+      if (alvo && !atualizarIdioma) alvo.scrollIntoView();
+    } catch (e) { if (pedido === abertura) mostraErro(e.message); }
   }
 
   raiz.DGManualTutorial = () => {
-    if (!raiz.DGTour) { mostraErro('A visita guiada não carregou (tour.js). Recarregue a página.'); return; }
+    if (!raiz.DGTour) { mostraErro(dgUiText_manual_js("A visita guiada não carregou (tour.js). Recarregue a página.")); return; }
     $('mnLista').open = true;
     raiz.DGTour.inicia({ passos: [
       { alvo: '#mnLista', titulo: 'A lista de páginas', oque: 'Todas as páginas do manual do DG Claw, com um campo de busca.',
@@ -253,6 +264,7 @@
 
   function boot() {
     $('mnBusca').addEventListener('input', pintaLista);
+    raiz.addEventListener('dgclaw:idioma', () => abre(true));
     abre();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 /**
  * memoria.js: o raio-X do cérebro do agente, e a edição à mão da memória dele.
  *
@@ -360,7 +361,7 @@ function buildMemoria(config) {
       const ult = diarios[diarios.length - 1];
       const [a, m, d] = ult.slice(0, 10).split('-');
       const c = cartao(`memory/${ult}`, edicoes, {
-        titulo: `Diário de ${d}/${m}/${a}`,
+        titulo: dgIdiomaBackend.texto("Diário de {p0}/{p1}/{p2}",{p0:(d),p1:(m),p2:(a)}),
         explica: EXPLICA.diario + ` São ${diarios.length} dias guardados.`,
         teto: 900,
       });
@@ -374,9 +375,9 @@ function buildMemoria(config) {
     const existe = (r) => { try { return fs.statSync(path.join(AGENT_DIR, r)).isFile(); } catch { return false; } };
     const identidade = ['SOUL.md', 'IDENTITY.md', 'PERSONALITY.md', 'CREATOR.md', 'ETHICS.md', 'LAWS.md'].filter(existe);
     const camadas = [
-      { id: 'trabalho', titulo: 'Memória de trabalho', explica: 'o que ele tem na cabeça agora; lida no começo de toda conversa',
+      { id: 'trabalho', titulo: dgIdiomaBackend.texto("Memória de trabalho"), explica: 'o que ele tem na cabeça agora; lida no começo de toda conversa',
         arquivos: wmRel ? 1 : 0, bytes: wmRel ? tam([wmRel]) : null },
-      { id: 'longa', titulo: 'Memória longa', explica: 'os fatos que ficam (MEMORY.md)',
+      { id: 'longa', titulo: dgIdiomaBackend.texto("Memória longa"), explica: 'os fatos que ficam (MEMORY.md)',
         arquivos: existe('MEMORY.md') ? 1 : 0, bytes: existe('MEMORY.md') ? tam(['MEMORY.md']) : null },
       { id: 'assuntos', titulo: 'Assuntos', explica: 'um arquivo por tema que ele separou (memory/)',
         arquivos: assuntos.length, bytes: assuntos.length ? tam(assuntos.map((n) => `memory/${n}`)) : null },
@@ -392,12 +393,12 @@ function buildMemoria(config) {
   /** Um arquivo inteiro, para o leitor. Devolve { erro, status } quando não dá. */
   function ler(pedido) {
     const rel = relativo(pedido);
-    if (!rel) return { status: 400, erro: 'O caminho do arquivo veio vazio ou inválido.', howToFix: 'Volte e abra o arquivo pela lista.' };
+    if (!rel) return { status: 400, erro: dgIdiomaBackend.mensagem("O caminho do arquivo veio vazio ou inválido."), howToFix: dgIdiomaBackend.texto("Volte e abra o arquivo pela lista.") };
     const recusa = explicarRecusa(rel);
-    if (recusa) return { status: 403, erro: `Este arquivo não abre pelo painel: ${recusa}.`, howToFix: 'Os arquivos de memória ficam na aba Memória.' };
+    if (recusa) return { status: 403, erro: dgIdiomaBackend.mensagem("Este arquivo não abre pelo painel: {p0}.", {p0: (recusa)}), howToFix: dgIdiomaBackend.texto("Os arquivos de memória ficam na aba Memória.") };
     const lido = lerSeguro(rel);
-    if (!lido) return { status: 404, erro: `Não achei o arquivo ${rel}.`, howToFix: 'Ele pode ter sido renomeado ou apagado pelo agente. Recarregue a lista.' };
-    if (lido.grande) return { status: 413, erro: 'O arquivo é grande demais para abrir aqui (passa de 2 MB).', howToFix: 'Peça a ele na Conversa o trecho que você quer ver.' };
+    if (!lido) return { status: 404, erro: dgIdiomaBackend.mensagem("Não achei o arquivo {p0}.", {p0: (rel)}), howToFix: dgIdiomaBackend.texto("Ele pode ter sido renomeado ou apagado pelo agente. Recarregue a lista.") };
+    if (lido.grande) return { status: 413, erro: dgIdiomaBackend.mensagem("O arquivo é grande demais para abrir aqui (passa de 2 MB)."), howToFix: dgIdiomaBackend.texto("Peça a ele na Conversa o trecho que você quer ver.") };
     const motivo = motivoNaoEditavel(rel, lido.st);
     const aviso = /(^|\/)working-memory\.md$/.test(rel)
       ? 'Esta memória é remontada toda manhã por uma rotina, e a linha "Agora" muda a cada batimento. '
@@ -452,28 +453,28 @@ function buildMemoria(config) {
    */
   function gravar({ path: pedido, conteudo, versaoLida } = {}, opcoes = {}) {
     const rel = relativo(pedido);
-    if (!rel) return { status: 400, erro: 'O caminho do arquivo veio vazio ou inválido.', howToFix: 'Feche o editor e abra o arquivo de novo pela lista.' };
-    if (typeof conteudo !== 'string') return { status: 400, erro: 'O texto do arquivo não chegou.', howToFix: 'Tente salvar de novo.' };
+    if (!rel) return { status: 400, erro: dgIdiomaBackend.mensagem("O caminho do arquivo veio vazio ou inválido."), howToFix: dgIdiomaBackend.texto("Feche o editor e abra o arquivo de novo pela lista.") };
+    if (typeof conteudo !== 'string') return { status: 400, erro: dgIdiomaBackend.mensagem("O texto do arquivo não chegou."), howToFix: dgIdiomaBackend.texto("Tente salvar de novo.") };
     if (typeof versaoLida !== 'string' || !versaoLida) {
-      return { status: 400, erro: 'Faltou dizer qual versão do arquivo você estava editando.', howToFix: 'Feche o editor, abra o arquivo de novo e refaça a edição.' };
+      return { status: 400, erro: dgIdiomaBackend.mensagem("Faltou dizer qual versão do arquivo você estava editando."), howToFix: dgIdiomaBackend.texto("Feche o editor, abra o arquivo de novo e refaça a edição.") };
     }
     const bytes = Buffer.byteLength(conteudo, 'utf8');
     if (bytes > TETO_GRAVACAO_BYTES) {
-      return { status: 413, erro: 'O texto passou de 1 MB, que é o teto para memória editada à mão.', howToFix: 'Memória boa é curta. Corte o que for histórico e salve de novo.' };
+      return { status: 413, erro: dgIdiomaBackend.mensagem("O texto passou de 1 MB, que é o teto para memória editada à mão."), howToFix: dgIdiomaBackend.texto("Memória boa é curta. Corte o que for histórico e salve de novo.") };
     }
-    if (conteudo.includes('\u0000')) return { status: 400, erro: 'O texto tem um caractere inválido (byte nulo).', howToFix: 'Cole o texto de novo a partir de um editor comum.' };
+    if (conteudo.includes('\u0000')) return { status: 400, erro: dgIdiomaBackend.mensagem("O texto tem um caractere inválido (byte nulo)."), howToFix: dgIdiomaBackend.texto("Cole o texto de novo a partir de um editor comum.") };
 
     const recusa = explicarRecusa(rel);
-    if (recusa) return { status: 403, erro: `Este arquivo não pode ser gravado pelo painel: ${recusa}.`, howToFix: 'Só a memória e a identidade dele se editam por aqui.' };
+    if (recusa) return { status: 403, erro: dgIdiomaBackend.mensagem("Este arquivo não pode ser gravado pelo painel: {p0}.", {p0: (recusa)}), howToFix: dgIdiomaBackend.texto("Só a memória e a identidade dele se editam por aqui.") };
     const lido = lerSeguro(rel);
-    if (!lido) return { status: 404, erro: `O arquivo ${rel} não existe mais.`, howToFix: 'Ele pode ter sido renomeado pelo agente. Copie o seu texto antes de fechar, e recarregue a lista.' };
-    if (lido.grande) return { status: 413, erro: 'O arquivo é grande demais para ser editado aqui.', howToFix: 'Peça a ele na Conversa a mudança que você quer.' };
+    if (!lido) return { status: 404, erro: dgIdiomaBackend.mensagem("O arquivo {p0} não existe mais.", {p0: (rel)}), howToFix: dgIdiomaBackend.texto("Ele pode ter sido renomeado pelo agente. Copie o seu texto antes de fechar, e recarregue a lista.") };
+    if (lido.grande) return { status: 413, erro: dgIdiomaBackend.mensagem("O arquivo é grande demais para ser editado aqui."), howToFix: dgIdiomaBackend.texto("Peça a ele na Conversa a mudança que você quer.") };
     const motivo = motivoNaoEditavel(rel, lido.st);
-    if (motivo) return { status: 403, erro: `Este arquivo não pode ser editado à mão: ${motivo}`, howToFix: 'Se a mudança é importante, peça a ele na Conversa.' };
+    if (motivo) return { status: 403, erro: dgIdiomaBackend.mensagem("Este arquivo não pode ser editado à mão: {p0}", {p0: (motivo)}), howToFix: dgIdiomaBackend.texto("Se a mudança é importante, peça a ele na Conversa.") };
 
     if (tipoDe(rel) === 'json') {
       try { JSON.parse(conteudo); } catch (e) {
-        return { status: 400, erro: `O texto não é JSON válido, então nada foi gravado (${e.message}).`, howToFix: 'Confira vírgulas, aspas e chaves. Uma vírgula sobrando depois do último item é o erro mais comum.' };
+        return { status: 400, erro: dgIdiomaBackend.mensagem("O texto não é JSON válido, então nada foi gravado ({p0}).", {p0: (e.message)}), howToFix: dgIdiomaBackend.texto("Confira vírgulas, aspas e chaves. Uma vírgula sobrando depois do último item é o erro mais comum.") };
       }
     }
 
@@ -481,8 +482,8 @@ function buildMemoria(config) {
     if (versaoAtual !== versaoLida) {
       return {
         status: 409,
-        erro: 'Este arquivo mudou enquanto você editava (quase sempre é ele escrevendo nele), então eu NÃO gravei por cima.',
-        howToFix: 'O seu texto continua no editor. Copie o que você mudou, carregue a versão nova e refaça a sua mudança nela.',
+        erro: dgIdiomaBackend.mensagem("Este arquivo mudou enquanto você editava (quase sempre é ele escrevendo nele), então eu NÃO gravei por cima."),
+        howToFix: dgIdiomaBackend.texto("O seu texto continua no editor. Copie o que você mudou, carregue a versão nova e refaça a sua mudança nela."),
         versaoAtual,
         atualizadoEm: lido.st.mtime.toISOString(),
       };
@@ -498,7 +499,7 @@ function buildMemoria(config) {
       backup = guardarCopia(rel, lido.conteudo, carimbo);
     } catch (e) {
       console.error(`[memoria] nao consegui guardar a copia de ${rel} antes de gravar: ${e.message}`);
-      return { status: 500, erro: 'Não consegui guardar a cópia de segurança do arquivo, então não gravei nada.', howToFix: 'Isto costuma ser disco cheio. Avise quem cuida do sistema; a sua edição continua no editor.' };
+      return { status: 500, erro: dgIdiomaBackend.mensagem("Não consegui guardar a cópia de segurança do arquivo, então não gravei nada."), howToFix: dgIdiomaBackend.texto("Isto costuma ser disco cheio. Avise quem cuida do sistema; a sua edição continua no editor.") };
     }
 
     // Gravação atômica: temporário na MESMA pasta (rename entre discos não é atômico).
@@ -521,7 +522,7 @@ function buildMemoria(config) {
     } catch (e) {
       try { fs.unlinkSync(tmp); } catch { /* o temporário pode nem ter nascido */ }
       console.error(`[memoria] falhou a gravacao de ${rel}: ${e.message}`);
-      return { status: 500, erro: `Não consegui gravar o arquivo (${e.code || e.message}). O original ficou como estava.`, howToFix: 'Tente de novo. Se continuar, avise quem cuida do sistema; a sua edição continua no editor.' };
+      return { status: 500, erro: dgIdiomaBackend.mensagem("Não consegui gravar o arquivo ({p0}). O original ficou como estava.", {p0: (e.code || e.message)}), howToFix: dgIdiomaBackend.texto("Tente de novo. Se continuar, avise quem cuida do sistema; a sua edição continua no editor.") };
     }
 
     let st;

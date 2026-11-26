@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Avisos no aparelho: Web Push com VAPID (RFC 8292) e conteúdo aes128gcm (RFC 8291), só com
 // node:crypto e node:https. Contrato e rotas em web/docs/AVISOS-NO-APARELHO.md.
 //
@@ -31,17 +32,17 @@ function hostPermitido(hostname) {
 /** Confere o endpoint de uma inscrição. Devolve { url } ou { erro } (em português). */
 function validaEndpoint(endpoint) {
   if (typeof endpoint !== 'string' || !endpoint || endpoint.length > 2000) {
-    return { erro: 'O "endpoint" da inscrição precisa ser um texto com o endereço https do serviço de push (até 2000 caracteres).' };
+    return { erro: dgIdiomaBackend.mensagem("O \"endpoint\" da inscrição precisa ser um texto com o endereço https do serviço de push (até 2000 caracteres).") };
   }
   let u;
   try { u = new URL(endpoint); } catch (e) {
-    return { erro: `O "endpoint" não é um endereço válido (${e.message}). Ative os avisos de novo no aparelho.` };
+    return { erro: dgIdiomaBackend.mensagem("O \"endpoint\" não é um endereço válido ({p0}). Ative os avisos de novo no aparelho.", {p0: (e.message)}) };
   }
   if (u.protocol !== 'https:' || u.username || u.password || (u.port && u.port !== '443')) {
-    return { erro: 'O "endpoint" precisa ser https, sem usuário nem porta diferente de 443.' };
+    return { erro: dgIdiomaBackend.mensagem("O \"endpoint\" precisa ser https, sem usuário nem porta diferente de 443.") };
   }
   if (!hostPermitido(u.hostname)) {
-    return { erro: `O serviço de push ${u.hostname.slice(0, 80)} não é um dos aceitos (fcm.googleapis.com, updates.push.services.mozilla.com, *.push.apple.com, *.notify.windows.com, *.push.services.mozilla.com).` };
+    return { erro: dgIdiomaBackend.mensagem("O serviço de push {p0} não é um dos aceitos (fcm.googleapis.com, updates.push.services.mozilla.com, *.push.apple.com, *.notify.windows.com, *.push.services.mozilla.com).", {p0: (u.hostname.slice(0, 80))}) };
   }
   return { url: u };
 }
@@ -120,7 +121,7 @@ function enviarHttps({ url, headers, corpo, timeoutMs }) {
       res.on('end', () => resolve({ status: res.statusCode, corpo: Buffer.concat(partes).toString('utf8') }));
       res.on('error', reject);
     });
-    req.on('timeout', () => req.destroy(new Error(`sem resposta em ${Math.round(timeoutMs / 1000)} s`)));
+    req.on('timeout', () => req.destroy(new Error(dgIdiomaBackend.mensagem("sem resposta em {p0} s", {p0: (Math.round(timeoutMs / 1000))}))));
     req.on('error', reject);
     req.end(corpo);
   });
@@ -154,7 +155,7 @@ function criarPush({ dataDir, log, agora, enviarHttp }) {
   }
 
   function erroChaves(causa) {
-    return new Error(`O arquivo de chaves dos avisos (${arqVapid}) não pôde ser lido (${causa}). Não apague: restaure do backup ou, se aceitar que todos os aparelhos ativem os avisos de novo, mova o arquivo e reinicie o Web.`);
+    return new Error(dgIdiomaBackend.mensagem("O arquivo de chaves dos avisos ({p0}) não pôde ser lido ({p1}). Não apague: restaure do backup ou, se aceitar que todos os aparelhos ativem os avisos de novo, mova o arquivo e reinicie o Web.", {p0: (arqVapid), p1: (causa)}));
   }
 
   function leChaves() {
@@ -188,7 +189,7 @@ function criarPush({ dataDir, log, agora, enviarHttp }) {
         grava(arqVapid, JSON.stringify(novo, null, 2) + '\n', true);
         log('info', `Criei o par de chaves dos avisos no aparelho em ${arqVapid}. Ele entra no backup; não apague.`);
       } catch (e) {
-        if (e.code !== 'EEXIST') throw new Error(`Não consegui criar as chaves dos avisos em ${arqVapid} (${e.code || e.message}). Confira a permissão e o espaço da pasta de dados do Web.`);
+        if (e.code !== 'EEXIST') throw new Error(dgIdiomaBackend.mensagem("Não consegui criar as chaves dos avisos em {p0} ({p1}). Confira a permissão e o espaço da pasta de dados do Web.", {p0: (arqVapid), p1: (e.code || e.message)}));
       }
       c = leChaves();
       if (!c) throw erroChaves('o arquivo sumiu logo depois de criado');
@@ -215,7 +216,7 @@ function criarPush({ dataDir, log, agora, enviarHttp }) {
 
   // ── inscrições ─────────────────────────────────────────────────────────────
   function erroInscricoes(causa) {
-    return new Error(`O arquivo de inscrições dos avisos (${arqInsc}) não pôde ser lido (${causa}). Não apague: restaure do backup ou, se aceitar que os aparelhos ativem os avisos de novo, mova o arquivo.`);
+    return new Error(dgIdiomaBackend.mensagem("O arquivo de inscrições dos avisos ({p0}) não pôde ser lido ({p1}). Não apague: restaure do backup ou, se aceitar que os aparelhos ativem os avisos de novo, mova o arquivo.", {p0: (arqInsc), p1: (causa)}));
   }
 
   function lerInscricoes() {
@@ -236,17 +237,17 @@ function criarPush({ dataDir, log, agora, enviarHttp }) {
 
   /** Valida o PushSubscription.toJSON() do navegador. */
   function validaInscricao(corpo) {
-    if (!corpo || typeof corpo !== 'object') return { erro: 'Mande o PushSubscription.toJSON() do navegador: endpoint e keys.p256dh/keys.auth.' };
+    if (!corpo || typeof corpo !== 'object') return { erro: dgIdiomaBackend.mensagem("Mande o PushSubscription.toJSON() do navegador: endpoint e keys.p256dh/keys.auth.") };
     const ep = validaEndpoint(corpo.endpoint);
     if (ep.erro) return { erro: ep.erro };
     const k = corpo.keys;
     const p256dh = k && typeof k.p256dh === 'string' && RX_B64URL.test(k.p256dh) ? deB64u(k.p256dh) : null;
     const auth = k && typeof k.auth === 'string' && RX_B64URL.test(k.auth) ? deB64u(k.auth) : null;
-    if (!p256dh || p256dh.length !== 65 || p256dh[0] !== 4) return { erro: 'A chave "keys.p256dh" precisa ser base64url de 65 bytes (ponto P-256). Ative os avisos de novo no aparelho.' };
-    if (!auth || auth.length !== 16) return { erro: 'O segredo "keys.auth" precisa ser base64url de 16 bytes. Ative os avisos de novo no aparelho.' };
+    if (!p256dh || p256dh.length !== 65 || p256dh[0] !== 4) return { erro: dgIdiomaBackend.mensagem("A chave \"keys.p256dh\" precisa ser base64url de 65 bytes (ponto P-256). Ative os avisos de novo no aparelho.") };
+    if (!auth || auth.length !== 16) return { erro: dgIdiomaBackend.mensagem("O segredo \"keys.auth\" precisa ser base64url de 16 bytes. Ative os avisos de novo no aparelho.") };
     let aparelho = null;
     if (corpo.aparelho != null) {
-      if (typeof corpo.aparelho !== 'string' || corpo.aparelho.trim().length > 60) return { erro: 'O nome do "aparelho" precisa ser um texto de até 60 caracteres.' };
+      if (typeof corpo.aparelho !== 'string' || corpo.aparelho.trim().length > 60) return { erro: dgIdiomaBackend.mensagem("O nome do \"aparelho\" precisa ser um texto de até 60 caracteres.") };
       aparelho = corpo.aparelho.trim() || null;
     }
     return { endpoint: corpo.endpoint, keys: { p256dh: k.p256dh, auth: k.auth }, aparelho };
@@ -331,10 +332,10 @@ function criarPush({ dataDir, log, agora, enviarHttp }) {
     const m = req.method;
     if (p !== '/api/v1/push' && !p.startsWith('/api/v1/push/')) return false;
     if (sessao && sessao.via === 'caixa') {
-      H.erroJson(res, 403, 'Os avisos no aparelho são do dono: um agente não usa as rotas /api/v1/push. Se precisa avisar o dono, use a frente que já envia o aviso (lembretes).');
+      H.erroJson(res, 403, dgIdiomaBackend.mensagem("Os avisos no aparelho são do dono: um agente não usa as rotas /api/v1/push. Se precisa avisar o dono, use a frente que já envia o aviso (lembretes)."));
       return true;
     }
-    const metodoErrado = (usar) => { H.erroJson(res, 405, `Use ${usar} em ${p}.`); return true; };
+    const metodoErrado = (usar) => { H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use {p0} em {p1}.", {p0: (usar), p1: (p)})); return true; };
 
     try {
       if (p === '/api/v1/push/chave') {
@@ -380,10 +381,10 @@ function criarPush({ dataDir, log, agora, enviarHttp }) {
       if (p === '/api/v1/push/inscricoes/remover') {
         if (m !== 'POST') return metodoErrado('POST');
         const c = await H.lerJson(req, 4 * 1024);
-        if (typeof c.endpoint !== 'string' && typeof c.id !== 'string') { H.erroJson(res, 400, 'Mande {"endpoint":"..."} ou {"id":"ins_..."} para dizer qual inscrição remover.'); return true; }
+        if (typeof c.endpoint !== 'string' && typeof c.id !== 'string') { H.erroJson(res, 400, dgIdiomaBackend.mensagem("Mande {\"endpoint\":\"...\"} ou {\"id\":\"ins_...\"} para dizer qual inscrição remover.")); return true; }
         const dados = lerInscricoes();
         const alvo = dados.itens.find((i) => (typeof c.id === 'string' && i.id === c.id) || (typeof c.endpoint === 'string' && i.endpoint === c.endpoint));
-        if (!alvo) { H.erroJson(res, 404, 'Não achei essa inscrição. Veja as existentes em GET /api/v1/push/inscricoes.'); return true; }
+        if (!alvo) { H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não achei essa inscrição. Veja as existentes em GET /api/v1/push/inscricoes.")); return true; }
         dados.itens = dados.itens.filter((i) => i.id !== alvo.id);
         salvarInscricoes(dados);
         log('info', `Aparelho ${alvo.id} (${servicoDe(alvo)}) saiu dos avisos.`);
@@ -395,18 +396,18 @@ function criarPush({ dataDir, log, agora, enviarHttp }) {
         if (m !== 'POST') return metodoErrado('POST');
         const c = await H.lerJson(req, 4 * 1024);
         const r = await enviar({ titulo: 'DG Claw', corpo: 'Aviso de teste: se você está lendo isto, os avisos neste aparelho funcionam.', tag: 'teste-aviso', url: '/' }, typeof c.endpoint === 'string' ? { endpoint: c.endpoint } : undefined);
-        if (r.inscricoes === 0) { H.erroJson(res, 409, 'Nenhum aparelho está com os avisos ativados. Toque em "Ativar avisos neste aparelho" e tente de novo.', r); return true; }
+        if (r.inscricoes === 0) { H.erroJson(res, 409, dgIdiomaBackend.mensagem("Nenhum aparelho está com os avisos ativados. Toque em \"Ativar avisos neste aparelho\" e tente de novo."), r); return true; }
         if (r.ok === 0 && r.falhas.length) {
           const f = r.falhas[0];
-          H.erroJson(res, 502, `O serviço de push recusou o aviso de teste (${f.servico || 'serviço desconhecido'}, status ${f.status == null ? 'sem resposta' : f.status}: ${f.motivo || 'sem motivo'}). Se persistir, desative e ative os avisos de novo no aparelho.`, r);
+          H.erroJson(res, 502, dgIdiomaBackend.mensagem("O serviço de push recusou o aviso de teste ({p0}, status {p1}: {p2}). Se persistir, desative e ative os avisos de novo no aparelho.", {p0: (f.servico || 'serviço desconhecido'), p1: (f.status == null ? 'sem resposta' : f.status), p2: (f.motivo || 'sem motivo')}), r);
           return true;
         }
-        if (r.ok === 0) { H.erroJson(res, 409, 'A inscrição deste aparelho tinha vencido e foi removida. Ative os avisos de novo e repita o teste.', r); return true; }
+        if (r.ok === 0) { H.erroJson(res, 409, dgIdiomaBackend.mensagem("A inscrição deste aparelho tinha vencido e foi removida. Ative os avisos de novo e repita o teste."), r); return true; }
         H.enviaJson(res, 200, { ok: true, inscricoes: r.inscricoes, enviados: r.ok, removidas: r.removidas, falhas: r.falhas });
         return true;
       }
 
-      H.erroJson(res, 404, `Não existe ${m} ${p}. As rotas estão em GET /api/v1/push/docs.md.`);
+      H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe {p0} {p1}. As rotas estão em GET /api/v1/push/docs.md.", {p0: (m), p1: (p)}));
       return true;
     } catch (e) {
       if (e.status) { H.erroJson(res, e.status, e.message); return true; }

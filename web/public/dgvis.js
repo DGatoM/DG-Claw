@@ -6,6 +6,9 @@
    confirma e envia é o app, com um toque do dono fora do iframe. */
 (function () {
   'use strict';
+const dgUiLabel_dgvis_js = (el, fonte, atributo, valores) => { if (globalThis.DGI18n) globalThis.DGI18n.rotulo(el, fonte, atributo, valores); else { const texto = fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m, k) => valores && Object.hasOwn(valores, k) ? String(valores[k]) : m); if (atributo) el.setAttribute(atributo, texto); else el.textContent = texto; } };
+const dgUiText_dgvis_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiHtml_dgvis_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
   var W = window, D = document, ROOT = D.documentElement;
   // O código da agente roda depois e pode sujar globais: guardo o que uso.
@@ -35,7 +38,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
   function emite(ev, v) {
     var l = ouvintes[ev];
     if (!l) return;
-    l.slice().forEach(function (fn) { try { fn(v); } catch (e) { reportaErro('um ouvinte do evento "' + ev + '" falhou: ' + (e && e.message ? e.message : e)); } });
+    l.slice().forEach(function (fn) { try { fn(v); } catch (e) { reportaErro(dgUiText_dgvis_js("um ouvinte do evento \"") + ev + '" falhou: ' + (e && e.message ? e.message : e)); } });
   }
   function on(ev, fn) {
     if (typeof fn !== 'function') return function () {};
@@ -79,20 +82,20 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
     if (t && t !== W && t.nodeType === 1) {
       var src = t.src || t.href || '';
       if (INJETADO.test(src)) return;
-      reportaErro('o visual tentou carregar ' + (src || 'um arquivo') + ' e não conseguiu: confira o endereço (' + CDNS + ').');
+      reportaErro('o visual tentou carregar ' + (src || 'um arquivo') + dgUiText_dgvis_js(" e não conseguiu: confira o endereço (") + CDNS + ').');
       return;
     }
-    var m = ev.message || 'erro sem mensagem';
-    if (m === 'Script error.') m = 'um script de fora do arquivo falhou (o navegador não diz o motivo)';
+    var m = ev.message || dgUiText_dgvis_js("erro sem mensagem");
+    if (m === 'Script error.') m = dgUiText_dgvis_js("um script de fora do arquivo falhou (o navegador não diz o motivo)");
     // a linha do navegador conta o documento montado (base + arquivo); o servidor diz
     // quantas linhas a base ocupa, e só erro do próprio documento é corrigido
     var ln = ev.lineno || 0, base = parseInt(D.documentElement.getAttribute('data-linhas-base'), 10);
     if (ln && base > 0 && (!ev.filename || ev.filename === W.location.href) && ln > base) ln -= base;
-    reportaErro('o JavaScript do visual falhou: ' + m, ln ? { linha: ln } : null);
+    reportaErro(dgUiText_dgvis_js("o JavaScript do visual falhou: ") + m, ln ? { linha: ln } : null);
   }, true);
   W.addEventListener('unhandledrejection', function (ev) {
     var r = ev.reason;
-    reportaErro('uma promessa do visual foi rejeitada: ' + (r && r.message ? r.message : Str(r)));
+    reportaErro(dgUiText_dgvis_js("uma promessa do visual foi rejeitada: ") + (r && r.message ? r.message : Str(r)));
   });
   // script que o proxy injeta (beacon do Cloudflare) não é do visual: bloqueado e calado
   var INJETADO = /cloudflareinsights\.com|\/cdn-cgi\//i;
@@ -101,9 +104,9 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
     var alvo = ev.blockedURI || 'um recurso';
     if (INJETADO.test(Str(ev.blockedURI) + ' ' + Str(ev.sourceFile))) return;
     var m;
-    if (dir.indexOf('connect-src') === 0) m = 'o visual tentou fazer um pedido de dados (fetch/XHR) para ' + alvo + ' e o sandbox bloqueou: ' + CDNS + '.';
-    else if (dir.indexOf('img-src') === 0 || dir.indexOf('media-src') === 0) m = 'o visual tentou carregar ' + alvo + ' e o sandbox bloqueou: imagens e mídia só entram embutidas em data: ou blob:.';
-    else if (dir.indexOf('form-action') === 0) m = 'o visual tentou enviar um formulário e o sandbox bloqueou: formulários não são permitidos.';
+    if (dir.indexOf('connect-src') === 0) m = dgUiText_dgvis_js("o visual tentou fazer um pedido de dados (fetch/XHR) para ") + alvo + ' e o sandbox bloqueou: ' + CDNS + '.';
+    else if (dir.indexOf('img-src') === 0 || dir.indexOf('media-src') === 0) m = 'o visual tentou carregar ' + alvo + dgUiText_dgvis_js(" e o sandbox bloqueou: imagens e mídia só entram embutidas em data: ou blob:.");
+    else if (dir.indexOf('form-action') === 0) m = dgUiText_dgvis_js("o visual tentou enviar um formulário e o sandbox bloqueou: formulários não são permitidos.");
     else m = 'o visual tentou carregar ' + alvo + ' e o sandbox bloqueou (' + dir + '): ' + CDNS + '.';
     reportaErro(m);
   });
@@ -201,7 +204,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
     return null;
   }
   function falhaPeca(el, nome, e) {
-    reportaErro('o dgvis não conseguiu montar ' + nome + ': ' + (e && e.message ? e.message : e) + '. Confira os atributos data-* dessa peça.');
+    reportaErro(dgUiText_dgvis_js("o dgvis não conseguiu montar ") + nome + ': ' + (e && e.message ? e.message : e) + dgUiText_dgvis_js('. Confira os atributos data-* dessa peça.'));
   }
   function numeraFilhos(el) {
     Arr.forEach.call(el.children, function (c, i) { c.style.setProperty('--k', i); });
@@ -210,7 +213,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
   function montaNumero(el) {
     var bruto = el.getAttribute('data-valor');
     var v = num(bruto);
-    if (!isFinite(v)) throw new Error('data-valor "' + bruto + '" não é um número');
+    if (!isFinite(v)) throw new Error('data-valor "' + bruto + dgUiText_dgvis_js("\" não é um número"));
     var rot = el.querySelector('.dv-rotulo'), leg = el.querySelector('.dv-legenda');
     var o = { casas: el.getAttribute('data-casas'), prefixo: el.getAttribute('data-prefixo') || '', sufixo: el.getAttribute('data-sufixo') || '', moeda: el.getAttribute('data-moeda') };
     if (o.casas == null && !o.moeda) o.casas = casasDe(bruto);
@@ -255,7 +258,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
     var o = { prefixo: el.getAttribute('data-prefixo') || '', sufixo: el.getAttribute('data-unidade') || el.getAttribute('data-sufixo') || '', casas: el.getAttribute('data-casas'), moeda: el.getAttribute('data-moeda') };
     if (o.casas == null && !o.moeda) { var mc = 0; filhos.forEach(function (f) { mc = M.max(mc, casasDe(f.getAttribute('data-valor'))); }); o.casas = mc; }
     var vals = filhos.map(function (f) { return num(f.getAttribute('data-valor')); });
-    if (vals.some(function (v) { return !isFinite(v); })) throw new Error('algum data-valor não é número');
+    if (vals.some(function (v) { return !isFinite(v); })) throw new Error(dgUiText_dgvis_js("algum data-valor não é número"));
     var mx = num(el.getAttribute('data-max'));
     if (!isFinite(mx) || mx <= 0) mx = M.max.apply(null, vals.concat([0])) || 1;
     var dest = filhos.some(function (f) { return f.hasAttribute('data-destaque'); });
@@ -300,9 +303,9 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
   var uid = 0;
   function montaLinhas(el) {
     var rot, ser;
-    try { rot = JS.parse(el.getAttribute('data-rotulos') || '[]'); } catch (e) { throw new Error('data-rotulos não é JSON válido (use aspas simples no atributo e aspas duplas dentro)'); }
-    try { ser = JS.parse(el.getAttribute('data-series') || '[]'); } catch (e) { throw new Error('data-series não é JSON válido'); }
-    if (!ser.length || !ser[0].valores || !ser[0].valores.length) throw new Error('data-series precisa de [{"nome":"…","valores":[…]}]');
+    try { rot = JS.parse(el.getAttribute('data-rotulos') || '[]'); } catch (e) { throw new Error(dgUiText_dgvis_js('data-rotulos não é JSON válido (use aspas simples no atributo e aspas duplas dentro)')); }
+    try { ser = JS.parse(el.getAttribute('data-series') || '[]'); } catch (e) { throw new Error(dgUiText_dgvis_js('data-series não é JSON válido')); }
+    if (!ser.length || !ser[0].valores || !ser[0].valores.length) throw new Error(dgUiText_dgvis_js('data-series precisa de [{"nome":"…","valores":[…]}]'));
     var o = { prefixo: el.getAttribute('data-prefixo') || '', sufixo: el.getAttribute('data-unidade') || el.getAttribute('data-sufixo') || '', casas: el.getAttribute('data-casas'), moeda: el.getAttribute('data-moeda') };
     var id = 'dvg' + (++uid), st = { larg: 0, feito: false };
     var tip, cruz, pts = [];
@@ -379,7 +382,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
     el.textContent = '';
     if (ser.length > 1) {
       var leg = D.createElement('div'); leg.className = 'dv-linhas-leg';
-      ser.forEach(function (sr, si) { var sp = D.createElement('span'); sp.style.setProperty('--cor', 'var(--dv-c' + ((si % 6) + 1) + ')'); sp.innerHTML = '<i></i>'; sp.appendChild(D.createTextNode(sr.nome || ('Série ' + (si + 1)))); leg.appendChild(sp); });
+      ser.forEach(function (sr, si) { var sp = D.createElement('span'); sp.style.setProperty('--cor', 'var(--dv-c' + ((si % 6) + 1) + ')'); sp.innerHTML = '<i></i>'; sp.appendChild(D.createTextNode(sr.nome || (dgUiText_dgvis_js("Série ") + (si + 1)))); leg.appendChild(sp); });
       el.appendChild(leg);
     }
     var box = D.createElement('div'); box.className = 'dv-svg-box'; el.appendChild(box);
@@ -400,7 +403,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
       var b = c.querySelector('b'), p = c.querySelector('p');
       return { ico: c.getAttribute('data-ico') || '', cor: c.getAttribute('data-cor') || '', t: b ? b.textContent : (p ? '' : c.textContent.trim()), p: p ? p.textContent : '' };
     });
-    if (itens.length < 2) throw new Error('o ciclo precisa de pelo menos 2 itens');
+    if (itens.length < 2) throw new Error(dgUiText_dgvis_js("o ciclo precisa de pelo menos 2 itens"));
     var centro = el.getAttribute('data-centro') || '', st = { modo: '', tam: 0 };
     function desenha() {
       var real = M.round(el.clientWidth);
@@ -421,7 +424,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
           ol.appendChild(li);
         });
         var v = D.createElement('li'); v.className = 'dv-volta'; v.style.setProperty('--k', itens.length);
-        var vb = D.createElement('b'); vb.textContent = 'e volta ao começo' + (itens[0].t ? ': ' + itens[0].t : ''); v.appendChild(vb);
+        var vb = D.createElement('b'); dgUiLabel_dgvis_js(vb, "e volta ao começo{p0}", null, {p0: itens[0].t ? ': ' + itens[0].t : ''}); v.appendChild(vb);
         ol.appendChild(v);
         el.appendChild(ol);
       } else {
@@ -506,7 +509,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
   function perguntar(texto, el) {
     texto = Str(texto == null ? '' : texto);
     if (!el || el.nodeType !== 1) el = null;
-    if (!emb) { if (el) pEstado(el, 'erro', 'só funciona dentro do DG Telegram', 3000); return -1; }
+    if (!emb) { if (el) pEstado(el, 'erro', dgUiText_dgvis_js("só funciona dentro do DG Telegram"), 3000); return -1; }
     if (!texto.trim()) { if (el) pEstado(el, 'erro', ROT_ERRO.vazio, 4000); return -1; }
     var id = ++perguntaSeq;
     pedidos[id] = { el: el };
@@ -518,7 +521,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
       el._dvT = setT(function () {
         el._dvT = 0;
         if (el._dvPedido === id && el.getAttribute('data-dv-pergunta') === 'espera') {
-          delete pedidos[id]; el._dvPedido = 0; pEstado(el, 'erro', 'o app não respondeu', 4000);
+          delete pedidos[id]; el._dvPedido = 0; pEstado(el, 'erro', dgUiText_dgvis_js("o app não respondeu"), 4000);
         }
       }, 6000);
     }
@@ -546,7 +549,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
       if (el) {
         el._dvPedido = 0;
         if (novo === 'ok') { pEstado(el, 'ok', 'enviado', 4000); marcaEscolha(el); }
-        else pEstado(el, 'erro', ROT_ERRO[motivo] || 'não foi enviado', 4000);
+        else pEstado(el, 'erro', ROT_ERRO[motivo] || dgUiText_dgvis_js("não foi enviado"), 4000);
       }
     }
     emite('pergunta', { id: id, estado: novo, motivo: motivo, el: el });
@@ -592,14 +595,14 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
     c.est.textContent = rot || '';
     if (rot) anuncia(rot);
     c.btn.disabled = st === 'espera';
-    c.btn.textContent = st === 'ok' ? 'Colar de novo' : 'Colar a chave';
+    c.btn.textContent = st === 'ok' ? dgUiText_dgvis_js("Colar de novo") : 'Colar a chave';
     if (ms) c.t = setT(function () { c.t = 0; cofreEstado(el, c.guardada ? 'ok' : 'pendente', c.guardada ? c.rotOk : ''); }, ms);
     agendaAltura();
   }
   function cofreRotOk() { return 'Guardada'; }
   function pedirCofre(el) {
     var c = el._dvCofre; if (!c) return -1;
-    if (!emb) { cofreEstado(el, 'erro', 'só funciona dentro do app', 4000); return -1; }
+    if (!emb) { cofreEstado(el, 'erro', dgUiText_dgvis_js("só funciona dentro do app"), 4000); return -1; }
     var id = ++cofreSeq;
     cofrePedidos[id] = { el: el };
     c.id = id;
@@ -609,7 +612,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
     c.t = setT(function () {
       c.t = 0;
       if (c.id === id && el.getAttribute('data-dv-cofre') === 'espera' && !c.aberta) {
-        delete cofrePedidos[id]; cofreEstado(el, 'erro', 'o app não respondeu', 4000);
+        delete cofrePedidos[id]; cofreEstado(el, 'erro', dgUiText_dgvis_js("o app não respondeu"), 4000);
       }
     }, 6000);
     return id;
@@ -621,7 +624,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
     el.textContent = '';
     if (!NOME_COFRE.test(nome)) {
       var e = D.createElement('div'); e.className = 'dv-cofre-erro'; e.setAttribute('role', 'alert');
-      e.textContent = 'dv-cofre: data-cofre="' + nome.slice(0, 40) + '" não é um nome de variável válido. Use letras maiúsculas, números e _ (por exemplo HOSTINGER_API_TOKEN).';
+      e.textContent = 'dv-cofre: data-cofre="' + nome.slice(0, 40) + dgUiText_dgvis_js("\" não é um nome de variável válido. Use letras maiúsculas, números e _ (por exemplo HOSTINGER_API_TOKEN).");
       el.appendChild(e); el.setAttribute('data-dv-cofre', 'erro');
       return null;
     }
@@ -662,7 +665,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
     if (c) {
       c.aberta = false;
       if (novo === 'ok') { c.guardada = true; c.rotOk = cofreRotOk(); cofreEstado(el, 'ok', c.rotOk); }
-      else cofreEstado(el, 'erro', typeof d.msg === 'string' && d.msg ? d.msg.slice(0, 200) : 'não guardou', 5000);
+      else cofreEstado(el, 'erro', typeof d.msg === 'string' && d.msg ? d.msg.slice(0, 200) : dgUiText_dgvis_js("não guardou"), 5000);
     }
     emite('cofre', { id: id, estado: novo, nome: c ? c.nome : p.nome, motivo: d.motivo ? Str(d.motivo) : '' });
   }
@@ -686,7 +689,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
 
   function montaAbas(el) {
     var paineis = Arr.filter.call(el.children, function (c) { return c.hasAttribute('data-aba'); });
-    if (!paineis.length) throw new Error('nenhum filho tem data-aba="Rótulo"');
+    if (!paineis.length) throw new Error(dgUiText_dgvis_js("nenhum filho tem data-aba=\"Rótulo\""));
     var base = 'dvab' + (++uid), tabs = [], atual = -1;
     var ini = M.max(1, M.min(paineis.length, parseInt(el.getAttribute('data-inicial'), 10) || 1)) - 1;
     var lista = D.createElement('div'); lista.className = 'dv-abas-lista'; lista.setAttribute('role', 'tablist');
@@ -732,7 +735,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
 
   function montaAcordeao(el) {
     var itens = Arr.filter.call(el.children, function (c) { return c.tagName === 'DETAILS'; });
-    if (!itens.length) throw new Error('nenhum filho é <details><summary>Título</summary>…</details>');
+    if (!itens.length) throw new Error(dgUiText_dgvis_js("nenhum filho é <details><summary>Título</summary>…</details>"));
     var unico = el.hasAttribute('data-unico');
     function corpoDe(det) { return det.querySelector(':scope > .dv-ac-corpo'); }
     function abre(det) {
@@ -757,7 +760,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
     }
     itens.forEach(function (det) {
       var sum = det.querySelector(':scope > summary');
-      if (!sum) throw new Error('um <details> está sem <summary>');
+      if (!sum) throw new Error(dgUiText_dgvis_js("um <details> está sem <summary>"));
       var corpo = D.createElement('div'); corpo.className = 'dv-ac-corpo';
       var dentro = D.createElement('div'); dentro.className = 'dv-ac-in';
       Arr.slice.call(det.childNodes).forEach(function (n) { if (n !== sum) dentro.appendChild(n); });
@@ -784,7 +787,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
       var raw = el.getAttribute(n);
       if (raw == null || raw === '') return pad;
       var v = num(raw);
-      if (!isFinite(v)) throw new Error(n + ' "' + raw + '" não é um número');
+      if (!isFinite(v)) throw new Error(n + ' "' + raw + dgUiText_dgvis_js("\" não é um número"));
       return v;
     }
     var mn = attr('data-min', 0), mx = attr('data-max', 100), pa = attr('data-passo', 1), v0 = attr('data-valor', mn);
@@ -818,7 +821,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
         Arr.forEach.call(D.querySelectorAll('[data-dv-mostra]'), function (m) { if (m.getAttribute('data-dv-mostra') === el.id) m.textContent = txt; });
       }
       if (avisa) {
-        try { el.dispatchEvent(new W.CustomEvent('dv-valor', { detail: { valor: v }, bubbles: true })); } catch (e) { reportaErro('um ouvinte do evento dv-valor falhou: ' + (e && e.message ? e.message : e)); }
+        try { el.dispatchEvent(new W.CustomEvent('dv-valor', { detail: { valor: v }, bubbles: true })); } catch (e) { reportaErro(dgUiText_dgvis_js("um ouvinte do evento dv-valor falhou: ") + (e && e.message ? e.message : e)); }
         emite('slider', { el: el, valor: v });
       }
     }
@@ -834,7 +837,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
 
   function montaOpcoes(el) {
     var botoes = Arr.filter.call(el.children, function (c) { return c.hasAttribute('data-pergunta'); });
-    if (!botoes.length) throw new Error('nenhum filho tem data-pergunta="texto que vai para a agente"');
+    if (!botoes.length) throw new Error(dgUiText_dgvis_js("nenhum filho tem data-pergunta=\"texto que vai para a agente\""));
     numeraFilhos(el);
     var tit = el.getAttribute('data-titulo');
     if (tit) {
@@ -854,7 +857,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
   };
   function montaPassosPlay(el) {
     var itens = Arr.slice.call(el.children), n = itens.length;
-    if (n < 2) throw new Error('data-play precisa de pelo menos 2 passos');
+    if (n < 2) throw new Error(dgUiText_dgvis_js('data-play precisa de pelo menos 2 passos'));
     var padMs = num(el.getAttribute('data-ms'));
     if (!isFinite(padMs) || padMs < 300) padMs = 2600;
     var loop = el.hasAttribute('data-loop');
@@ -866,7 +869,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
       var b = D.createElement('button'); b.type = 'button'; b.className = cls; b.setAttribute('aria-label', rot); b.innerHTML = ico;
       barra.appendChild(b); return b;
     }
-    var bAnt = botao('dv-ctl', 'Passo anterior', ICO.ant), bPlay = botao('dv-ctl dv-ctl-play', 'Tocar', ICO.toca), bProx = botao('dv-ctl', 'Próximo passo', ICO.prox);
+    var bAnt = botao('dv-ctl', 'Passo anterior', ICO.ant), bPlay = botao('dv-ctl dv-ctl-play', 'Tocar', ICO.toca), bProx = botao('dv-ctl', dgUiText_dgvis_js("Próximo passo"), ICO.prox);
     var cont = D.createElement('span'); cont.className = 'dv-contagem'; barra.appendChild(cont);
     el.parentNode.insertBefore(barra, el.nextSibling);
 
@@ -878,10 +881,10 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
         li.classList.toggle('dv-futuro', k > s.i);
         if (k === s.i) li.setAttribute('aria-current', 'step'); else li.removeAttribute('aria-current');
       });
-      cont.textContent = (s.i + 1) + ' de ' + n;
+      dgUiLabel_dgvis_js(cont, "{p0} de {p1}", null, {p0: s.i + 1, p1: n});
       bAnt.disabled = s.i === 0; bProx.disabled = s.i === n - 1;
       bPlay.innerHTML = s.tocando ? ICO.pausa : ICO.toca;
-      bPlay.setAttribute('aria-label', s.tocando ? 'Pausar' : 'Tocar');
+      bPlay.setAttribute('aria-label', s.tocando ? dgUiText_dgvis_js("Pausar") : 'Tocar');
     }
     function vai(k) {
       if (k < 0 || k >= n) return;
@@ -1089,7 +1092,7 @@ const dgTexto_dgvis = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : 
   W.addEventListener('load', function () {
     agendaAltura();
     setT(function () {
-      if (estaVazio()) reportaErro('o visual chegou vazio: o arquivo não desenhou nada (sem texto, canvas, svg ou imagem visível).', { vazio: true });
+      if (estaVazio()) reportaErro(dgUiText_dgvis_js("o visual chegou vazio: o arquivo não desenhou nada (sem texto, canvas, svg ou imagem visível)."), { vazio: true });
     }, 1500);
   });
 })();

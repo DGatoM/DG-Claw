@@ -1,8 +1,10 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 const fs = require('fs');
 const crypto = require('crypto');
 const path = require('path');
 const { COMO_RESOLVER } = require('./auth');
-const { renderizarIdioma } = require('../../web/lib/idioma');
+const { renderizarIdioma, idiomaDoPedido } = require('../../web/lib/idioma');
+const I = require('../../web/public/ds/idioma');
 
 // `getAuth` e não `auth`: o login é construído com esta função de renderização, então ela só
 // pode olhar o objeto de autenticação na hora do pedido.
@@ -31,8 +33,8 @@ module.exports = function buildHtmlTemplate({ BASE, CONFIG, serverDir, getAuth }
   const SLUG_DA_FACHADA = (BASE.match(/^\/p\/([^/]+)/) || [])[1] || CONFIG.agentSlug || '';
   const URL_CONVERSA = SLUG_DA_FACHADA ? `/a/${encodeURIComponent(SLUG_DA_FACHADA)}` : '/';
   const VOLTAR_HTML =
-    `<a class="btn-voltar" href="${URL_CONVERSA}" aria-label="voltar para a conversa">` +
-    '<svg class="ds-ico" aria-hidden="true" focusable="false"><use href="/ds/icones.svg#i-arrow-left"/></svg><span class="btn-voltar-texto">conversa</span></a>';
+    `<a class="btn-voltar" href="${URL_CONVERSA}" aria-label="voltar para a conversa" data-dg-i18n-aria-label="${crypto.createHash('sha256').update('voltar para a conversa').digest('hex').slice(0, 12)}">` +
+    '<svg class="ds-ico" aria-hidden="true" focusable="false"><use href="/ds/icones.svg#i-arrow-left"/></svg><span class="btn-voltar-texto">' + I.fragmento('conversa', 'pt-BR') + '</span></a>';
 
   // {{CASCA}}: o cabeçalho e o menu da Conversa também no painel (web/public/casca.js).
   // Só sob a plataforma (BASE preenchido): os arquivos são servidos pelo Web, na raiz da MESMA origem,
@@ -108,7 +110,7 @@ module.exports = function buildHtmlTemplate({ BASE, CONFIG, serverDir, getAuth }
   function renderHtmlTemplate(filePath) {
     return (req, res) => {
       const html = carregarTemplate(filePath);
-      if (html === null) return res.status(404).send('Nao encontrado.');
+      if (html === null) return res.status(404).send(dgIdiomaBackend.texto("Nao encontrado."));
       res.set('Cache-Control', 'no-store').type('html').send(renderizarIdioma(comVersao(html), req, process.env.DGCLAW_WEB_IDIOMA).split('{{MARCA_NOME}}').join('DG Claw'));
     };
   }
@@ -127,13 +129,13 @@ module.exports = function buildHtmlTemplate({ BASE, CONFIG, serverDir, getAuth }
   function renderLogin(req, res, o = {}) {
     const auth = getAuth();
     const html = carregarTemplate(LOGIN_HTML);
-    if (html === null) return res.status(404).send('Nao encontrado.');
+    if (html === null) return res.status(404).send(dgIdiomaBackend.texto("Nao encontrado."));
     const modo = auth.trancado ? 'trancado' : (auth.usuarioObrigatorio ? 'usuario' : 'senha');
     const erro = o.erro === 'bloqueado' ? `bloqueado:${o.min || 1}` : '';
     res.set('Cache-Control', 'no-store').status(o.status || 200).type('html').send(renderizarIdioma(comVersao(html), req, process.env.DGCLAW_WEB_IDIOMA).split('{{MARCA_NOME}}').join('DG Claw')
       .split('{{LOGIN_MODO}}').join(modo)
-      .split('{{LOGIN_MOTIVO}}').join(escHtml(auth.motivo || ''))
-      .split('{{LOGIN_COMO}}').join(escHtml(COMO_RESOLVER))
+      .split('{{LOGIN_MOTIVO}}').join(escHtml(I.t(auth.motivo || '', idiomaDoPedido(req, process.env.DGCLAW_WEB_IDIOMA))))
+      .split('{{LOGIN_COMO}}').join(escHtml(I.t(COMO_RESOLVER, idiomaDoPedido(req, process.env.DGCLAW_WEB_IDIOMA))))
       .split('{{LOGIN_ERRO}}').join(erro));
   }
 

@@ -1,3 +1,4 @@
+const dgReviewPanelUI_api = (s,p) => globalThis.DGI18n ? globalThis.DGI18n.frase(s,p) : s.replace(/\{([a-z_][a-z_0-9]*)\}/g,(m,k)=>p&&Object.hasOwn(p,k)?String(p[k]):m);
 // Prefixo do painel quando ele vive atrás de uma fachada (ex.: /agente/ana/painel).
 // index.html grava window.DGCLAW_BASE ANTES deste script carregar; vazio = raiz, igual
 // a sempre. Toda URL chamada por este arquivo precisa passar por aqui.
@@ -34,7 +35,7 @@ const API = {
     } catch (e) {
       // Sem rede ou painel fora do ar: antes isto virava uma exceção solta, que
       // ninguém pegava, e a tela parava no meio de um carregamento.
-      avisarErroApi(url, 0, { error: `não alcancei o painel (${e.message})`, howToFix: 'Confira a internet e recarregue a página.' });
+      avisarErroApi(url, 0, { error: dgReviewPanelUI_api("não alcancei o painel ({v0})",{v0:(e.message)}), howToFix: dgReviewPanelUI_api("Confira a internet e recarregue a página.") });
       return null;
     }
     if (res.status === 401) { window.location = BASE + '/login.html'; return null; }
@@ -64,7 +65,7 @@ const API = {
     try {
       res = await fetch(BASE + url, opcoes);
     } catch (e) {
-      return { ok: false, status: 0, corpo: { error: `Não alcancei o painel: ${e.message}`, howToFix: 'Confira a internet e tente de novo.' } };
+      return { ok: false, status: 0, corpo: { error: dgReviewPanelUI_api("Não alcancei o painel: {v0}",{v0:(e.message)}), howToFix: dgReviewPanelUI_api("Confira a internet e tente de novo.") } };
     }
     if (res.status === 401) { window.location = BASE + '/login.html'; return { ok: false, status: 401, corpo: {} }; }
     let corpo = {};
@@ -89,7 +90,7 @@ const API = {
         body: JSON.stringify(body || {}),
       });
     } catch (e) {
-      return { ok: false, status: 0, corpo: { error: `Não alcancei o painel: ${e.message}` } };
+      return { ok: false, status: 0, corpo: { error: dgReviewPanelUI_api("Não alcancei o painel: {v0}",{v0:(e.message)}) } };
     }
     if (res.status === 401) { window.location = BASE + '/login.html'; return { ok: false, status: 401, corpo: {} }; }
     let corpo = {};
@@ -121,7 +122,7 @@ const API = {
         body: blob,
       });
     } catch (e) {
-      return { ok: false, status: 0, corpo: { error: `Não alcancei o painel: ${e.message}` } };
+      return { ok: false, status: 0, corpo: { error: dgReviewPanelUI_api("Não alcancei o painel: {v0}",{v0:(e.message)}) } };
     }
     if (res.status === 401) { window.location = BASE + '/login.html'; return { ok: false, status: 401, corpo: {} }; }
     let corpo = {};

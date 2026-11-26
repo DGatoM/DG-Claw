@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 // operacoes-quadrados.js: o leitor do diário do systemd e do ledger, e a montagem dos quadradinhos.
 
 const { execFile } = require('child_process');
@@ -38,7 +39,7 @@ async function lerDiario(executar, padroes, desdeMs) {
 
   const r = await executar('journalctl', args, {});
   if (r.erro === 'ENOENT') {
-    return { eventos: [], motivo: 'esta máquina não tem o journalctl, então não há diário do sistema para ler o histórico' };
+    return { eventos: [], motivo: dgIdiomaBackend.mensagem("esta máquina não tem o journalctl, então não há diário do sistema para ler o histórico") };
   }
   const queixa = `${r.stderr}`;
   // Permissão faltando devolve motivo mesmo com linhas na saída: a leitura ficou parcial.
@@ -54,7 +55,7 @@ async function lerDiario(executar, padroes, desdeMs) {
   // Sem --quiet o journalctl escreve "-- No entries --" em stdout: não é evento nem erro.
   const linhasJson = r.stdout.split('\n').filter((l) => l.trim() && !l.startsWith('-- '));
   if (!r.ok && !linhasJson.length) {
-    return { eventos: [], motivo: `o journalctl não respondeu (${(queixa || r.erro || 'sem detalhe').trim().slice(0, 200)})` };
+    return { eventos: [], motivo: dgIdiomaBackend.mensagem("o journalctl não respondeu ({p0})", {p0: ((queixa || r.erro || 'sem detalhe').trim().slice(0, 200))}) };
   }
   const eventos = [];
   let ruins = 0;
@@ -137,7 +138,7 @@ function quadradosDeRotina({ eventos, ledger, chave, horario, desde, agora, ativ
   const semana = { rodadas: execucoes.length, falhas: 0, avisos: 0, faltas: 0 };
 
   for (const x of execucoes) {
-    const base = RESULTADO[x.resultado] || { cor: 'vermelho', titulo: 'Terminou com um resultado que o sistema não classificou' };
+    const base = RESULTADO[x.resultado] || { cor: 'vermelho', titulo: dgIdiomaBackend.texto("Terminou com um resultado que o sistema não classificou") };
     let cor = base.cor;
     let titulo = base.titulo;
     // A segunda opinião: o que o próprio script anotou enquanto rodava.
@@ -177,7 +178,7 @@ function quadradosDeRotina({ eventos, ledger, chave, horario, desde, agora, ativ
       if (buraco > folga) {
         faltas.push({
           t: execucoes[i - 1].fim + intervalo,
-          titulo: `Não rodou quando devia: ficou ${duracaoHumana(buraco)} sem rodar, e o combinado é a cada ${duracaoHumana(intervalo)}`,
+          titulo: dgIdiomaBackend.texto("Não rodou quando devia: ficou {p0} sem rodar, e o combinado é a cada {p1}",{p0:(duracaoHumana(buraco)),p1:(duracaoHumana(intervalo))}),
         });
       }
     }
@@ -185,7 +186,7 @@ function quadradosDeRotina({ eventos, ledger, chave, horario, desde, agora, ativ
     if (agora - ultima > folga) {
       faltas.push({
         t: ultima + intervalo,
-        titulo: `Está atrasada: a última vez foi ${haQuanto(ultima, agora)}, e o combinado é a cada ${duracaoHumana(intervalo)}`,
+        titulo: dgIdiomaBackend.texto("Está atrasada: a última vez foi {p0}, e o combinado é a cada {p1}",{p0:(haQuanto(ultima, agora)),p1:(duracaoHumana(intervalo))}),
       });
     }
   } else if (ativo && !intervalo) {
@@ -202,7 +203,7 @@ function quadradosDeRotina({ eventos, ledger, chave, horario, desde, agora, ativ
         if (agora - e < tolerancia) continue;
         const houve = execucoes.some((x) => x.ini >= e - 120000 && x.ini <= e + tolerancia);
         if (!houve) {
-          faltas.push({ t: e, titulo: 'Não rodou no horário marcado' });
+          faltas.push({ t: e, titulo: dgIdiomaBackend.texto("Não rodou no horário marcado") });
         }
       }
     }

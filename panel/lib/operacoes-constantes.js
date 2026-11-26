@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 'use strict';
 // operacoes-constantes.js: ids do journal, janelas de tempo e o agrupamento por propósito da aba Operações.
 
@@ -28,7 +29,7 @@ const HORAS_DE_SERVICO = 48;
 const GRUPOS = [
   {
     id: 'de-pe',
-    titulo: 'Mantém ele de pé',
+    titulo: dgIdiomaBackend.texto("Mantém ele de pé"),
     explica: 'As peças que fazem ele estar ligado e respondendo: o processo onde ele pensa, '
       + 'o vigia que o religa quando trava, o batimento que confere se ele responde e o '
       + 'recibo dos recados automáticos.',
@@ -53,12 +54,12 @@ const GRUPOS = [
 ];
 const GRUPO_PODERES = {
   id: 'poderes',
-  titulo: 'Poderes instalados',
+  titulo: dgIdiomaBackend.texto("Poderes instalados"),
   explica: 'As rotinas que vêm junto com cada poder que você ligou (por exemplo, publicar no Instagram).',
 };
 const GRUPO_OUTRAS = {
   id: 'outras',
-  titulo: 'Outras rotinas do sistema',
+  titulo: dgIdiomaBackend.texto("Outras rotinas do sistema"),
   explica: 'Rotinas do sistema que esta tela ainda não sabe agrupar. Elas são medidas igual às outras.',
 };
 

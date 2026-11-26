@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Cofre do agente gravado pelo DG Claw Web, no host (o painel de dentro do container só lê os nomes).
 //
 // Onde fica cada coisa (tudo no host; `<casa>` é a pasta do agente, a mesma do registro):
@@ -287,8 +288,8 @@ function criarCofreAgente({ config, log, reiniciar }) {
         ultimos4: registro.ultimos4,
         trocada,
         aviso: trocada
-          ? 'A chave foi trocada, mas o agente ainda está usando a antiga: ele só lê o cofre quando inicia.'
-          : 'A chave foi guardada, mas o agente ainda não a tem: ele só lê o cofre quando inicia.',
+          ? dgIdiomaBackend.mensagem("A chave foi trocada, mas o agente ainda está usando a antiga: ele só lê o cofre quando inicia.")
+          : dgIdiomaBackend.mensagem("A chave foi guardada, mas o agente ainda não a tem: ele só lê o cofre quando inicia."),
       };
     });
   }

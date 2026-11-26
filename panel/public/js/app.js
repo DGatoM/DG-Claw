@@ -1,3 +1,8 @@
+const dgHtmlFull_app = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, "");
+const dgTextFull_app = fonte => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.t(trecho)) : fonte;
+const dgPhraseFull_app = (fonte, valores) => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.frase(trecho, valores)) : fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m,k) => valores && Object.hasOwn(valores,k) ? String(valores[k]) : m);
+const dgFragFull_app = (fonte, valores) => globalThis.DGI18n ? globalThis.DGI18n.fragmento(fonte, valores) : dgPhraseFull_app(fonte,valores).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;", "'":"&#39;"}[c]));
+const dgBindFull_app = (el, fonte, atributo, valores) => { if (globalThis.DGI18n) return globalThis.DGI18n.rotulo(el,fonte,atributo,valores); const valor=dgPhraseFull_app(fonte,valores); if(atributo) el.setAttribute(atributo,valor); else el.textContent=valor; };
 
 const dgTexto_app = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 // ═══════════════════════════════════════════════
@@ -29,7 +34,7 @@ function makeBar(label, value, maxVal, colorClass, delta) {
   }
   // Nome e numero na MESMA linha, barra embaixo: duas linhas por medida, nunca tres.
   return `<div class="rpg-bar">
-    <div class="rpg-bar-label"><span>${escapeHtml(label)}</span><span class="rpg-bar-value">${displayVal}${emDez ? '/' + maxVal : '%'}${deltaHtml}</span></div>
+    <div class="rpg-bar-label"><span>${dgFragFull_app(label)}</span><span class="rpg-bar-value">${displayVal}${emDez ? '/' + maxVal : '%'}${deltaHtml}</span></div>
     <div class="rpg-bar-track"><div class="rpg-bar-fill ${escapeHtml(colorClass)}" style="width:${pct}%"></div></div>
   </div>`;
 }
@@ -46,12 +51,12 @@ function formatAge(isoDate) {
   if (!isoDate) return '';
   const age = Date.now() - new Date(isoDate).getTime();
   const mins = Math.floor(age / 60000);
-  if (mins < 1) return 'agora';
-  if (mins < 60) return `${mins}min atrás`;
+  if (mins < 1) return dgTextFull_app("agora");
+  if (mins < 60) return dgPhraseFull_app("{v0}min atrás",{v0:(mins)});
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h atrás`;
+  if (hours < 24) return dgPhraseFull_app("{v0}h atrás",{v0:(hours)});
   const days = Math.floor(hours / 24);
-  return `${days}d atrás`;
+  return dgPhraseFull_app("{v0}d atrás",{v0:(days)});
 }
 
 function ageColor(isoDate) {
@@ -67,7 +72,7 @@ function updatedTag(isoDate, label) {
   const color = ageColor(isoDate);
   const text = formatAge(isoDate);
   const prefix = label ? `${label}: ` : '';
-  const dica = `Quando ${label ? `o arquivo ${label}` : 'este arquivo'} foi alterado pela última vez. A cor vai do verde (mexeu há pouco) ao vermelho (faz muito tempo que ninguém mexe).`;
+  const dica = dgPhraseFull_app("Quando {v0} foi alterado pela última vez. A cor vai do verde (mexeu há pouco) ao vermelho (faz muito tempo que ninguém mexe).",{v0:(label ? dgPhraseFull_app("o arquivo {v0}",{v0:(label)}) : dgTextFull_app("este arquivo"))});
   return `<span class="updated-tag" style="color:${color}" title="${escapeHtml(dica)}">${dsIcone('dot')} ${prefix}${text}</span>`;
 }
 
@@ -116,7 +121,7 @@ function pensamentoRico(txt, limite) {
   const id = _pensamentosCheios.length - 1;
   return `<div data-pensamento="${id}">${ricoBloco(parcial, { titulo: true })}` +
     `<button type="button" class="rt-mais" data-pensamento-mais="${id}" ` +
-    `title="Mostra o pensamento inteiro, do jeito que ele escreveu.">ler inteiro</button></div>`;
+    dgHtmlFull_app(`title="Mostra o pensamento inteiro, do jeito que ele escreveu."><!--dg-i18n:a72209ede5e6-->ler inteiro<!--/dg-i18n--></button></div>`);
 }
 document.addEventListener('click', (ev) => {
   const b = ev.target.closest && ev.target.closest('[data-pensamento-mais]');
@@ -169,7 +174,7 @@ let MOOD_SPRITES = { ...DEFAULT_MOOD_SPRITES };
 // Nome das oito emocoes e das cinco necessidades, em portugues por extenso. O painel
 // antigo mostrava ANTCIP, SURPRS e DISGST: sigla cortada em ingles, que ninguem le.
 const EMOCAO_LABELS = {
-  joy: dgTexto_app('Alegria'), trust: 'Confiança', anticipation: 'Expectativa', surprise: 'Surpresa',
+  joy: 'Alegria', trust: 'Confiança', anticipation: 'Expectativa', surprise: 'Surpresa',
   sadness: 'Tristeza', fear: 'Medo', anger: 'Raiva', disgust: 'Aversão',
 };
 const NECESSIDADE_LABELS = {
@@ -213,7 +218,7 @@ let EXTENSIONS = [];
 
 // Mapa de poderes (id→enabled). Default: só core; resto travado.
 let POWERS_STATE = {};
-const POWER_LABELS = { instagram: 'Instagram', meetings: dgTexto_app('Reuniões'), crm: 'CRM', secretary: 'Secretaria' };
+const POWER_LABELS = { instagram: 'Instagram', meetings: 'Reuniões', crm: 'CRM', secretary: 'Secretaria' };
 
 function moodSpriteFor(mood) {
   const key = MOOD_SPRITES[(mood || '').toLowerCase()];
@@ -320,7 +325,7 @@ document.getElementById('tabs').addEventListener('click', (e) => {
   if (botao.classList.contains('locked')) {
     const power = botao.dataset.power;
     const label = POWER_LABELS[power] || power;
-    showToast(`Poder ${label} não instalado`);
+    showToast(dgPhraseFull_app("Poder {v0} não instalado",{v0:(label)}));
     return;
   }
 
@@ -409,7 +414,7 @@ window.addEventListener('hashchange', () => {
     console.warn(`[painel] aba "${pedida}" pedida em #aba= não existe aqui. Abas válidas: ${ABAS_VALIDAS.join(', ')}.`);
     return;
   }
-  if (botao.classList.contains('locked')) { showToast(`Poder ${POWER_LABELS[botao.dataset.power] || botao.dataset.power} não instalado`); return; }
+  if (botao.classList.contains('locked')) { showToast(dgPhraseFull_app("Poder {v0} não instalado",{v0:(POWER_LABELS[botao.dataset.power] || botao.dataset.power)})); return; }
   abrirAba(pedida, botao);
 });
 
@@ -493,7 +498,7 @@ function aplicarTooltipsDasAbas() {
     // útil ali do que a descrição do que ela mostraria.
     if (tab.classList.contains('locked')) return;
     const texto = EXPLICACAO_ABA[tab.dataset.tab];
-    if (texto) tab.title = texto;
+    if (texto) dgBindFull_app(tab,texto,"title");
   });
 }
 
@@ -825,14 +830,14 @@ async function comecarDitado() {
     const s = Math.floor((Date.now() - _ditado.inicio) / 1000);
     const mm = String(Math.floor(s / 60)).padStart(2, '0');
     const ss = String(s % 60).padStart(2, '0');
-    if (frase) frase.textContent = `gravando ${mm}:${ss} · toque no microfone para parar`;
+    if (frase) dgBindFull_app(frase,"gravando {v0}:{v1} · toque no microfone para parar",undefined,{v0:(mm),v1:(ss)});
   }, 250);
 
   mostrarRecado(null);
-  if (botao) { botao.classList.add('gravando'); botao.title = 'parar de gravar'; }
+  if (botao) { botao.classList.add('gravando'); dgBindFull_app(botao,"parar de gravar","title",undefined); }
   if (barra) { barra.hidden = false; barra.classList.remove('transcrevendo'); }
   if (cancelar) cancelar.hidden = false;
-  if (frase) frase.textContent = 'gravando 00:00 · toque no microfone para parar';
+  if (frase) dgBindFull_app(frase,"gravando 00:00 · toque no microfone para parar",undefined,undefined);
 }
 
 /**
@@ -860,7 +865,7 @@ async function enviarDitado() {
   soltarMicrofone(d);
 
   const { botao, barra, frase, cancelar } = elDitado();
-  if (botao) { botao.classList.remove('gravando'); botao.title = dgTexto_app('falar em vez de escrever'); }
+  if (botao) { botao.classList.remove('gravando'); dgBindFull_app(botao,dgTexto_app('falar em vez de escrever'),"title"); }
 
   if (d.descartado) {
     if (barra) barra.hidden = true;
@@ -870,7 +875,7 @@ async function enviarDitado() {
   const blob = new Blob(d.pedacos, { type: d.rec.mimeType || 'audio/webm' });
   if (barra) { barra.hidden = false; barra.classList.add('transcrevendo'); }
   if (cancelar) cancelar.hidden = true;
-  if (frase) frase.textContent = 'transcrevendo o que você falou...';
+  if (frase) dgBindFull_app(frase,"transcrevendo o que você falou...",undefined,undefined);
   if (botao) botao.disabled = true;
 
   const r = await API.chatTranscrever(blob);
@@ -914,7 +919,7 @@ async function atualizarConversa() {
       const ponto = document.getElementById('sinal-ponto');
       const frase = document.getElementById('sinal-frase');
       if (ponto) ponto.className = 'sinal-ponto';
-      if (frase) frase.textContent = 'Não estou conseguindo falar com o painel agora, então não sei como ele está. Tento de novo em instantes.';
+      if (frase) dgBindFull_app(frase,"Não estou conseguindo falar com o painel agora, então não sei como ele está. Tento de novo em instantes.",undefined,undefined);
       const parar = document.getElementById('btn-parar');
       if (parar) parar.hidden = true;
     }
@@ -941,7 +946,7 @@ async function atualizarConversa() {
   if (!dados.mensagens || !dados.mensagens.length) {
     lista.innerHTML = `<div class="conversa-vazia">${escapeHtml(
       dados.aviso ||
-      `Ainda não há conversa por aqui. Escreva a primeira mensagem para ${dados.agente || 'ele'} abaixo.`,
+      dgPhraseFull_app("Ainda não há conversa por aqui. Escreva a primeira mensagem para {v0} abaixo.",{v0:(dados.agente || 'ele')}),
     )}</div>`;
     return;
   }
@@ -977,7 +982,7 @@ function bolhaDaMensagem(m) {
   if (m.porContaPropria) classes.push('sozinho');
   const hora = horaCurta(m.em);
   const marcas = [];
-  if (m.porContaPropria) marcas.push('ele falou por conta própria');
+  if (m.porContaPropria) marcas.push(dgTextFull_app("ele falou por conta própria"));
   const pe = [hora, ...marcas].filter(Boolean).join(' · ');
   const canal = CANAIS[m.via];
   const etiqueta = canal
@@ -985,7 +990,7 @@ function bolhaDaMensagem(m) {
     : '';
   const corpo =
     m.tipo === 'arquivo'
-      ? `<span class="bolha-arquivo">${dsIcone('paperclip')} ${escapeHtml(m.texto || 'arquivo')}</span>`
+      ? `<span class="bolha-arquivo">${dsIcone('paperclip')} ${escapeHtml(m.texto || dgTextFull_app("arquivo"))}</span>`
       : ricoBloco(m.texto || '');
   return `<div class="${classes.join(' ')}">${etiqueta}${corpo}<span class="bolha-pe">${escapeHtml(pe)}</span></div>`;
 }
@@ -1023,12 +1028,12 @@ function desenharSinal(estado) {
   const nome = APP_CONFIG.agentName || 'Ele';
 
   if (ponto) ponto.className = 'sinal-ponto ' + (SINAL_ROTULO[estado.chave] || '');
-  if (frase) frase.textContent = `${nome} ${estado.frase}`;
+  if (frase) frase.textContent = `${nome} ${dgTextFull_app(estado.frase)}`;
   // O botão de parar só existe enquanto há o que parar.
   if (parar) {
     parar.hidden = estado.trabalhando !== true;
     parar.disabled = false;
-    parar.textContent = 'parar';
+    dgBindFull_app(parar,"parar",undefined,undefined);
   }
   // O botão de acordar só existe com o terminal caído E com uma plataforma que
   // respondeu dizendo que dá para retomar. Enquanto ele está acordando, a tela
@@ -1039,16 +1044,16 @@ function desenharSinal(estado) {
     // dois botões fazendo a mesma coisa na mesma tela fazem a pessoa clicar nos dois.
     reativar.hidden = estado.podeReativar !== true || _faixaTemAcao;
     reativar.disabled = false;
-    reativar.textContent = `acordar ${nome}`;
+    dgBindFull_app(reativar,"acordar {v0}",undefined,{v0:(nome)});
   }
   const podeEscrever = estado.podeEscrever !== false;
   if (campo) {
     campo.disabled = !podeEscrever;
-    campo.placeholder = podeEscrever
+    dgBindFull_app(campo,podeEscrever
       ? dgTexto_app('Escreva aqui...')
       : estado.podeReativar === true
-        ? `A conversa está guardada. Toque em "acordar ${nome}" para continuar de onde vocês pararam.`
-        : 'A conversa está guardada, mas ele não consegue receber mensagem agora.';
+        ? dgPhraseFull_app("A conversa está guardada. Toque em \"acordar {v0}\" para continuar de onde vocês pararam.",{v0:(nome)})
+        : dgTextFull_app("A conversa está guardada, mas ele não consegue receber mensagem agora."),"placeholder");
   }
   if (enviar) enviar.disabled = !podeEscrever || _conversaEnviando;
 }
@@ -1095,7 +1100,7 @@ async function enviarDaConversa() {
 
 async function pararConversa() {
   const botao = document.getElementById('btn-parar');
-  if (botao) { botao.disabled = true; botao.textContent = 'parando...'; }
+  if (botao) { botao.disabled = true; dgBindFull_app(botao,'parando...',undefined); }
   const r = await API.chatParar();
   if (!r || !r.ok) {
     const corpo = (r && r.corpo) || {};
@@ -1104,7 +1109,7 @@ async function pararConversa() {
       texto: '',
       remedio: corpo.howToFix || '',
     });
-    if (botao) { botao.disabled = false; botao.textContent = 'parar'; }
+    if (botao) { botao.disabled = false; dgBindFull_app(botao,"parar",undefined,undefined); }
     return;
   }
   mostrarRecado(null);
@@ -1124,14 +1129,14 @@ async function reativarConversa() {
   if (_conversaAcordando) return;
   const botao = document.getElementById('btn-reativar');
   _conversaAcordando = true;
-  if (botao) { botao.disabled = true; botao.textContent = 'acordando...'; }
+  if (botao) { botao.disabled = true; dgBindFull_app(botao,'acordando...',undefined); }
   mostrarRecado(null);
 
   const r = await API.chatReativar();
   if (!r || !r.ok) {
     const corpo = (r && r.corpo) || {};
     _conversaAcordando = false;
-    if (botao) { botao.disabled = false; botao.textContent = `acordar ${APP_CONFIG.agentName || 'ele'}`; }
+    if (botao) { botao.disabled = false; dgBindFull_app(botao,"acordar {v0}",undefined,{v0:(APP_CONFIG.agentName || 'ele')}); }
     mostrarRecado({
       titulo: corpo.error || 'Não consegui acordar o terminal.',
       texto: '',
@@ -1155,7 +1160,7 @@ async function reativarConversa() {
     }
   }
   _conversaAcordando = false;
-  if (botao) { botao.disabled = false; botao.textContent = `acordar ${APP_CONFIG.agentName || 'ele'}`; }
+  if (botao) { botao.disabled = false; dgBindFull_app(botao,"acordar {v0}",undefined,{v0:(APP_CONFIG.agentName || 'ele')}); }
   mostrarRecado({
     titulo: 'Pedi para ele acordar, mas ele ainda não deu sinal de vida.',
     texto: '',
@@ -1171,7 +1176,7 @@ async function loadReunioes(query) {
   const detailEl = document.getElementById('reunioes-detail');
   detailEl.style.display = 'none';
   listEl.style.display = 'block';
-  listEl.innerHTML = dsCarregando({ rotulo: 'Carregando', tamanho: 'p' }) + ' Carregando...';
+  listEl.innerHTML = dsCarregando({ rotulo: 'Carregando', tamanho: 'p' }) + dgTextFull_app(" Carregando...");
 
   const search = document.getElementById('reunioes-search');
   if (search && !search._wired) {
@@ -1187,17 +1192,17 @@ async function loadReunioes(query) {
     const res = await fetch(url, { credentials: 'include' });
     const data = await res.json();
     if (!data.items || data.items.length === 0) {
-      listEl.innerHTML = '<div style="color:var(--text-dim);padding:20px">Nenhuma reunião encontrada.</div>';
+      listEl.innerHTML = dgHtmlFull_app(`<div style="color:var(--text-dim);padding:20px"><!--dg-i18n:898736d6f8f8-->Nenhuma reunião encontrada.<!--/dg-i18n--></div>`);
       return;
     }
     listEl.innerHTML = data.items.map((m) => {
       const dt = m.date ? new Date(m.date) : null;
       const dtStr = escapeHtml(dt ? dt.toLocaleString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { dateStyle: 'short', timeStyle: 'short' }) : m.id);
       const dur = m.duration_min != null ? `${escapeHtml(m.duration_min)}min` : '?';
-      const parts = escapeHtml((m.participants || []).join(', ') || 'sem participantes');
-      const tldr = m.tldr ? m.tldr.slice(0, 200) + (m.tldr.length > 200 ? '...' : '') : '(sem resumo)';
+      const parts = escapeHtml((m.participants || []).join(', ') || dgTextFull_app("sem participantes"));
+      const tldr = m.tldr ? m.tldr.slice(0, 200) + (m.tldr.length > 200 ? '...' : '') : dgTextFull_app("(sem resumo)");
       const cost = m.total_usd != null ? `$${numeroSeguro(m.total_usd).toFixed(3)}` : '--';
-      return `
+      return dgHtmlFull_app(`
         <div class="reuniao-card" data-id="${escapeHtml(m.id)}">
           <div class="reuniao-head">
             <span class="reuniao-date">${dtStr}</span>
@@ -1208,15 +1213,15 @@ async function loadReunioes(query) {
           <div class="reuniao-participants">${dsIcone('users')} ${parts}</div>
           <div class="reuniao-tldr">${escapeHTML(tldr)}</div>
           <div class="reuniao-meta">
-            ${escapeHtml(m.decisoes_count)} decisões · ${escapeHtml(m.action_items_count)} action items
+            ${dgFragFull_app("{v8} decisões · {v9} action items",{v8:(m.decisoes_count),v9:(m.action_items_count)})}
           </div>
-        </div>`;
+        </div>`);
     }).join('');
     listEl.querySelectorAll('.reuniao-card').forEach((el) => {
       el.addEventListener('click', () => openReuniaoDetail(el.dataset.id));
     });
   } catch (e) {
-    listEl.innerHTML = `<div style="color:#f88">Erro: ${escapeHtml(e.message)}</div>`;
+    listEl.innerHTML = dgHtmlFull_app(`<div style="color:#f88">${dgFragFull_app("Erro: {v0}",{v0:(e.message)})}</div>`);
   }
 }
 
@@ -1225,7 +1230,7 @@ async function openReuniaoDetail(id) {
   const detailEl = document.getElementById('reunioes-detail');
   listEl.style.display = 'none';
   detailEl.style.display = 'block';
-  detailEl.innerHTML = dsCarregando({ rotulo: 'Carregando', tamanho: 'p' }) + ' Carregando...';
+  detailEl.innerHTML = dsCarregando({ rotulo: 'Carregando', tamanho: 'p' }) + dgTextFull_app(" Carregando...");
 
   try {
     const res = await fetch(`${BASE}/api/reunioes/${id}`, { credentials: 'include' });
@@ -1287,12 +1292,12 @@ async function openReuniaoDetail(id) {
       .sort((a, b) => b[1] - a[1])
       .map(([p, u]) => `<tr><td>${escapeHtml(p)}</td><td style="text-align:right">$${numeroSeguro(u).toFixed(4)}</td></tr>`).join('');
 
-    detailEl.innerHTML = `
+    detailEl.innerHTML = dgHtmlFull_app(`
       <div class="reuniao-detail-head">
-        <button class="back-btn" id="back-to-list">${dsIcone('arrow-left')} voltar</button>
+        <button class="back-btn" id="back-to-list">${dsIcone('arrow-left')} <!--dg-i18n:ecfa659cadda-->voltar<!--/dg-i18n--></button>
         <div>
           <div class="reuniao-title">${dtStr}</div>
-          <div class="reuniao-sub">${dur} · modo: ${escapeHtml(m.mode || '?')} · ${escapeHtml((m.participants || []).join(', '))}</div>
+          <div class="reuniao-sub">${dgFragFull_app("{v2} · modo: {v3} · {v4}",{v2:(dur),v3:(m.mode || '?'),v4:((m.participants || []).join(', '))})}</div>
         </div>
       </div>
 
@@ -1300,34 +1305,34 @@ async function openReuniaoDetail(id) {
         <button class="rt-tab active" data-rt="resumo">RESUMO</button>
         <button class="rt-tab" data-rt="transcript">TRANSCRIPT</button>
         <button class="rt-tab" data-rt="custos">CUSTOS</button>
-        <button class="rt-tab" data-rt="audio">ÁUDIO</button>
+        <button class="rt-tab" data-rt="audio"><!--dg-i18n:7c1ae09dff1b-->ÁUDIO<!--/dg-i18n--></button>
       </div>
 
       <div class="rt-panel active" id="rt-resumo">
         ${s.tldr ? `<div class="rt-tldr">${escapeHTML(s.tldr)}</div>` : ''}
-        ${decisoesHTML ? `<h4>${dsIcone('clipboard')} Decisões</h4><ul>${decisoesHTML}</ul>` : ''}
+        ${decisoesHTML ? dgHtmlFull_app(`<h4>${dsIcone('clipboard')} <!--dg-i18n:7d4f618143ca-->Decisões<!--/dg-i18n--></h4><ul>${decisoesHTML}</ul>`) : ''}
         ${actionHTML ? `<h4>${dsIcone('check-circle')} Action Items</h4><ul>${actionHTML}</ul>` : ''}
-        ${proxHTML ? `<h4>${dsIcone('target')} Próximos Passos</h4><ul>${proxHTML}</ul>` : ''}
-        ${campHTML ? `<h4>${dsIcone('megaphone')} Campanhas</h4><ul>${campHTML}</ul>` : ''}
+        ${proxHTML ? dgHtmlFull_app(`<h4>${dsIcone('target')} <!--dg-i18n:1f0e8bb7240d-->Próximos Passos<!--/dg-i18n--></h4><ul>${proxHTML}</ul>`) : ''}
+        ${campHTML ? dgHtmlFull_app(`<h4>${dsIcone('megaphone')} <!--dg-i18n:d46cbbe3b0f1-->Campanhas<!--/dg-i18n--></h4><ul>${campHTML}</ul>`) : ''}
       </div>
 
       <div class="rt-panel" id="rt-transcript">
-        ${m.batch_text ? `
+        ${m.batch_text ? dgHtmlFull_app(`
           <details open style="margin-bottom:14px">
-            <summary style="font-size:11px;color:#7ee787;cursor:pointer">${dsIcone('scroll')} Transcrição oficial Scribe batch (texto contínuo, mais fiel)</summary>
+            <summary style="font-size:11px;color:#7ee787;cursor:pointer">${dsIcone('scroll')} <!--dg-i18n:9d4f2dc35cde-->Transcrição oficial Scribe batch (texto contínuo, mais fiel)<!--/dg-i18n--></summary>
             <div class="rt-tldr" style="border-left-color:#7ee787;white-space:pre-wrap">${escapeHTML(m.batch_text)}</div>
-          </details>` : ''}
-        <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px">Timeline diarizado (realtime + chat)</div>
-        <div class="tr-container">${transcriptHTML || '(sem transcript)'}</div>
+          </details>`) : ''}
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px"><!--dg-i18n:1632e543b06f-->Timeline diarizado (realtime + chat)<!--/dg-i18n--></div>
+        <div class="tr-container">${transcriptHTML || dgTextFull_app("(sem transcript)")}</div>
       </div>
 
       <div class="rt-panel" id="rt-custos">
-        <div class="rt-total">Total: <strong>$${numeroSeguro(m.cost?.total_usd).toFixed(4)}</strong></div>
+        <div class="rt-total">Total: <strong>\$${numeroSeguro(m.cost?.total_usd).toFixed(4)}</strong></div>
         <table class="rt-cost-table">
           <thead><tr><th>Provider</th><th style="text-align:right">USD</th></tr></thead>
-          <tbody>${costRows || '<tr><td colspan="2">(sem custos registrados)</td></tr>'}</tbody>
+          <tbody>${costRows || dgHtmlFull_app(`<tr><td colspan="2"><!--dg-i18n:e4c133da0c3d-->(sem custos registrados)<!--/dg-i18n--></td></tr>`)}</tbody>
         </table>
-        <details><summary>Log completo (${(m.cost?.log || []).length} entradas)</summary>
+        <details><summary>${dgFragFull_app("Log completo ({v14} entradas)",{v14:((m.cost?.log || []).length)})}</summary>
           <pre style="font-size:10px;max-height:300px;overflow:auto">${escapeHTML(JSON.stringify(m.cost?.log || [], null, 2))}</pre>
         </details>
       </div>
@@ -1338,7 +1343,7 @@ async function openReuniaoDetail(id) {
              <div style="color:var(--text-dim);margin-top:8px">${(numeroSeguro(m.bytes_audio) / 1024 / 1024).toFixed(1)} MB</div>`
           : '(sem audio.raw)'}
       </div>
-    `;
+    `);
 
     document.getElementById('back-to-list').addEventListener('click', () => loadReunioes(document.getElementById('reunioes-search')?.value));
     detailEl.querySelectorAll('.rt-tab').forEach((tab) => {
@@ -1350,7 +1355,7 @@ async function openReuniaoDetail(id) {
       });
     });
   } catch (e) {
-    detailEl.innerHTML = `<div style="color:#f88">Erro: ${escapeHtml(e.message)}</div>`;
+    detailEl.innerHTML = dgHtmlFull_app(`<div style="color:#f88">${dgFragFull_app("Erro: {v0}",{v0:(e.message)})}</div>`);
   }
 }
 
@@ -1408,11 +1413,11 @@ function renderDestaqueHumor(data) {
   // que alguém mexer no CSS (05/10/2026: "parece que o agente é um Goku").
   if (!aliveOn()) return;
   if (!data || !data.mood || !data.mood.current) {
-    return destaque('humor', '--', 'o agente ainda não registrou humor nenhum', 'apagado');
+    return destaque('humor', '--', dgTextFull_app("o agente ainda não registrou humor nenhum"), 'apagado');
   }
   const energia = Math.round((data.mood.energy || 0) * 100);
   const alegria = Math.round((data.emotions?.joy || 0) * 100);
-  destaque('humor', data.mood.current, `energia ${energia}% · alegria ${alegria}%`, 'palavra');
+  destaque('humor', data.mood.current, dgPhraseFull_app("energia {v0}% · alegria {v1}%",{v0:(energia),v1:(alegria)}), 'palavra');
 }
 
 function renderDestaqueCusto(o) {
@@ -1422,7 +1427,7 @@ function renderDestaqueCusto(o) {
   const total = Number(o.month.total) || 0;
   const teto = Number(o.budget) || 0;
   const pct = teto ? Math.round((total / teto) * 100) : null;
-  const pe = teto ? `de ${fmtUSD(teto)} de teto (${pct}%)` : `${o.month.executions || 0} execuções no mês`;
+  const pe = teto ? dgPhraseFull_app("de {v0} de teto ({v1}%)",{v0:(fmtUSD(teto)),v1:(pct)}) : dgPhraseFull_app("{v0} execuções no mês",{v0:(o.month.executions || 0)});
   destaque('custo', fmtUSD(total), pe, '', pct != null && pct >= 90 ? 'ruim' : '');
 }
 
@@ -1436,29 +1441,29 @@ function renderDestaqueCusto(o) {
  */
 function renderDestaqueRotinas(r) {
   if (!r || !r.ok) {
-    return destaque('rotinas', '--', 'não consegui ler as suas rotinas agora', 'apagado');
+    return destaque('rotinas', '--', dgTextFull_app("não consegui ler as suas rotinas agora"), 'apagado');
   }
   const lista = (r.corpo.rotinas || []);
   if (!lista.length) {
-    return destaque('rotinas', 'nenhuma', 'peça a ele na Conversa, por exemplo: "todo sábado às 9h me manda o resumo"', 'apagado');
+    return destaque('rotinas', dgTextFull_app("nenhuma"), dgTextFull_app("peça a ele na Conversa, por exemplo: \"todo sábado às 9h me manda o resumo\""), 'apagado');
   }
   const falhas = lista.filter((x) => x.ultimoResultado === 'falha').length;
   const atencao = lista.filter((x) => x.ultimoResultado === 'atencao' || x.ativo === false).length;
   const proxima = lista.map((x) => x.proxima).filter(Boolean).sort()[0];
   let pe;
   let classe = '';
-  if (falhas) { pe = `${falhas} com a última vez falhando`; classe = 'ruim'; }
-  else if (atencao) { pe = `${atencao} pedindo atenção`; }
-  else pe = proxima ? `a próxima é ${formatDate(proxima)}` : 'nenhuma com data à vista';
+  if (falhas) { pe = dgPhraseFull_app("{v0} com a última vez falhando",{v0:(falhas)}); classe = 'ruim'; }
+  else if (atencao) { pe = dgPhraseFull_app("{v0} pedindo atenção",{v0:(atencao)}); }
+  else pe = proxima ? dgPhraseFull_app("a próxima é {v0}",{v0:(formatDate(proxima))}) : dgTextFull_app("nenhuma com data à vista");
   destaque('rotinas', String(lista.length), pe, '', classe);
 }
 
 function renderDestaqueSessao(s) {
   if (!s || !s.updated) {
-    return destaque('sessao', '--', 'nenhuma sessão viva registrada até agora', 'apagado');
+    return destaque('sessao', '--', dgTextFull_app("nenhuma sessão viva registrada até agora"), 'apagado');
   }
   const horas = (Date.now() - new Date(s.updated).getTime()) / 3600000;
-  destaque('sessao', formatAge(s.updated), `sessão viva · ${formatDate(s.updated)}`, '',
+  destaque('sessao', formatAge(s.updated), dgPhraseFull_app("sessão viva · {v0}",{v0:(formatDate(s.updated))}), '',
     horas > 24 ? 'ruim' : (horas < 8 ? 'ok' : ''));
 }
 
@@ -1478,7 +1483,7 @@ const RESULTADO_ROTINA = {
 // Editar uma rotina = pedir ao agente: ele mexe no agendador de verdade, e a tela não guarda
 // cópia nenhuma que possa discordar do systemd. O link abre a conversa com o pedido pronto.
 function linkEditarRotina(x) {
-  const texto = `Quero mudar a rotina "${x.nome}" (${x.quando || 'sem horário'}): `;
+  const texto = dgPhraseFull_app("Quero mudar a rotina \"{v0}\" ({v1}): ",{v0:(x.nome),v1:(x.quando || dgTextFull_app("sem horário"))});
   return `<div class="rotina-acoes"><a class="btn-editar-rotina" href="${URL_CONVERSA}?texto=${encodeURIComponent(texto)}"
     style="display:inline-flex;align-items:center;min-height:36px;padding:0 14px;margin-top:8px;border-radius:9px;border:1px solid var(--borda, #ddd);text-decoration:none;font-weight:600">editar</a></div>`;
 }
@@ -1488,30 +1493,30 @@ function renderSuasRotinas(r, elId = 'home-rotinas', comDica = false) {
   if (!el) return;
   if (!r || !r.ok) {
     const c = (r && r.corpo) || {};
-    el.innerHTML = `<div class="vazio-util">Não consegui ler as suas rotinas: ${escapeHtml(c.error || 'sem resposta do painel')}. ${escapeHtml(c.howToFix || '')}</div>`;
+    el.innerHTML = dgHtmlFull_app(`<div class="vazio-util">${dgFragFull_app("Não consegui ler as suas rotinas: {v0}. {v1}",{v0:(c.error || dgTextFull_app("sem resposta do painel")),v1:(c.howToFix || '')})}</div>`);
     return;
   }
   const { rotinas = [], inconsistencias = [], erro, historico } = r.corpo;
   let html = '';
-  if (erro) html += `<div class="vazio-util" style="margin-bottom:10px">Não consegui perguntar ao sistema: ${escapeHtml(erro)}</div>`;
+  if (erro) html += dgHtmlFull_app(`<div class="vazio-util" style="margin-bottom:10px">${dgFragFull_app("Não consegui perguntar ao sistema: {v0}",{v0:(erro)})}</div>`);
   if (!rotinas.length && !erro) {
-    html += '<div class="vazio-util convite">Você ainda não pediu nenhuma rotina. Peça a ele na Conversa, do jeito que '
-      + 'pediria a uma pessoa: <b>"todo sábado às 9h me manda o resumo da semana"</b> ou <b>"de segunda a sexta, às 8h, '
-      + 'me lembra das tarefas do dia"</b>. Ele marca de verdade nesta máquina e a rotina aparece aqui.</div>';
+    html += dgHtmlFull_app(`<div class="vazio-util convite"><!--dg-i18n:189ebfef93e2-->Você ainda não pediu nenhuma rotina. Peça a ele na Conversa, do jeito que<!--/dg-i18n--> `)
+      + dgHtmlFull_app(`<!--dg-i18n:da741facffe0-->pediria a uma pessoa:<!--/dg-i18n--> <b><!--dg-i18n:20700a60e284-->"todo sábado às 9h me manda o resumo da semana"<!--/dg-i18n--></b> ou <b><!--dg-i18n:d8e48ade7de0-->"de segunda a sexta, às 8h,<!--/dg-i18n--> `)
+      + dgHtmlFull_app(`<!--dg-i18n:d06c914c0cf4-->me lembra das tarefas do dia"<!--/dg-i18n--></b><!--dg-i18n:69469a702be7-->. Ele marca de verdade nesta máquina e a rotina aparece aqui.<!--/dg-i18n--></div>`);
   }
   html += rotinas.map((x) => {
     const res = RESULTADO_ROTINA[x.ultimoResultado];
-    const ultima = x.ultima ? `última: ${formatDate(x.ultima)}` : 'ainda não rodou';
-    const proxima = x.ativo === false ? 'desligada: não vai rodar' : (x.proxima ? `próxima: ${formatDate(x.proxima)}` : 'sem próxima data');
+    const ultima = x.ultima ? dgPhraseFull_app("última: {v0}",{v0:(formatDate(x.ultima))}) : dgTextFull_app("ainda não rodou");
+    const proxima = x.ativo === false ? dgTextFull_app("desligada: não vai rodar") : (x.proxima ? dgPhraseFull_app("próxima: {v0}",{v0:(formatDate(x.proxima))}) : dgTextFull_app("sem próxima data"));
     const resultado = res
       ? `<span class="${res.classe}" title="${escapeHtml([x.ultimoTitulo, x.ultimoDetalhe].filter(Boolean).join('\n'))}">${res.icone} ${res.texto}</span>`
-      : `<span class="status-pending" title="${escapeHtml(historico && historico.motivo ? historico.motivo : 'Ela ainda não rodou nenhuma vez, ou o painel não conseguiu ler o histórico.')}">sem resultado ainda</span>`;
+      : dgHtmlFull_app(`<span class="status-pending" title="${escapeHtml(historico && historico.motivo ? historico.motivo : dgTextFull_app("Ela ainda não rodou nenhuma vez, ou o painel não conseguiu ler o histórico."))}"><!--dg-i18n:d132ba2ffde2-->sem resultado ainda<!--/dg-i18n--></span>`);
     return `<div class="rotina">
       <div class="rotina-topo">
         <span class="rotina-nome">${escapeHtml(x.nome)}</span>
-        <span class="rotina-quando">${escapeHtml(x.quando || 'sem horário')}</span>
+        <span class="rotina-quando">${escapeHtml(x.quando || dgTextFull_app("sem horário"))}</span>
       </div>
-      ${x.recado ? `<div class="rotina-recado" title="O recado que ele recebe quando a rotina dispara.">“${ricoLinhaCurta(x.recado, 180)}”</div>`
+      ${x.recado ? dgHtmlFull_app(`<div class="rotina-recado" data-dg-i18n-title="1fdb093a94eb" title="O recado que ele recebe quando a rotina dispara.">“${ricoLinhaCurta(x.recado, 180)}”</div>`)
                  : (x.descricao ? `<div class="rotina-desc">${ricoLinhaCurta(x.descricao, 140)}</div>` : '')}
       <div class="rotina-pe">${resultado} · ${escapeHtml(ultima)} · ${escapeHtml(proxima)}</div>
       ${comDica && NA_PLATAFORMA ? linkEditarRotina(x) : ''}
@@ -1525,8 +1530,8 @@ function renderSuasRotinas(r, elId = 'home-rotinas', comDica = false) {
   // Na aba Rotinas ninguém edita aqui: mudar ou apagar é pedir ao agente, que mexe no agendador de verdade.
   if (comDica && rotinas.length) {
     html += NA_PLATAFORMA
-      ? '<div class="vazio-util" style="margin-top:6px">"Editar" abre a conversa com o pedido já escrito: você completa o que quer mudar e ele ajusta a rotina de verdade.</div>'
-      : '<div class="vazio-util" style="margin-top:6px">Para mudar ou apagar uma rotina, peça ao agente na conversa.</div>';
+      ? dgHtmlFull_app(`<div class="vazio-util" style="margin-top:6px"><!--dg-i18n:0bc9887318c5-->"Editar" abre a conversa com o pedido já escrito: você completa o que quer mudar e ele ajusta a rotina de verdade.<!--/dg-i18n--></div>`)
+      : dgHtmlFull_app(`<div class="vazio-util" style="margin-top:6px"><!--dg-i18n:428dc3ff0bf2-->Para mudar ou apagar uma rotina, peça ao agente na conversa.<!--/dg-i18n--></div>`);
   }
   el.innerHTML = html;
 }
@@ -1550,7 +1555,7 @@ function renderEmotions(data) {
     // O selo de humor tem data-ext="alive" e some inteiro sem a extensão: não há
     // mais o que escrever nele.
     const hm = document.getElementById('header-mood');
-    if (hm) hm.textContent = '';
+    if (hm) dgBindFull_app(hm,'',undefined);
     return;
   }
 
@@ -1561,7 +1566,7 @@ function renderEmotions(data) {
   const badge = document.getElementById('mood-badge');
   badge.textContent = moodText.toUpperCase();
   badge.className = 'mood-badge ' + getMoodColor(moodText);
-  document.getElementById('last-update').textContent = `Atualizado: ${formatDate(lastUpdate)}`;
+  dgBindFull_app(document.getElementById('last-update'),"Atualizado: {v0}",undefined,{v0:(formatDate(lastUpdate))});
 
   // Header
   document.getElementById('header-mood').textContent = `Mood: ${moodText}`;
@@ -1594,7 +1599,7 @@ function renderEmotions(data) {
     setTracked(dKey, val);
   }
   document.getElementById('needs-bars').innerHTML = needsHtml ||
-    '<div class="vazio-util" style="grid-column:1/-1">Ele ainda não registrou necessidades.</div>';
+    dgHtmlFull_app(`<div class="vazio-util" style="grid-column:1/-1"><!--dg-i18n:09d22e114635-->Ele ainda não registrou necessidades.<!--/dg-i18n--></div>`);
 
   // Acontecimentos recentes
   const eventsHtml = achatarEventos(recentEvents).reverse().slice(0, 12).map(e => {
@@ -1603,12 +1608,12 @@ function renderEmotions(data) {
                  /negativ|error|fail|falh/.test(tipo) ? `<span class="status-err">${dsIcone('x')}</span>` :
                  `<span class="status-warn">${dsIcone('star')}</span>`;
     const vezes = e.count > 1 ? ` <span style="color:var(--fraco)">(${e.count}x)</span>` : '';
-    return `<div>${icon} ${escapeHtml(EVENTO_LABELS[tipo] || tipo.replace(/_/g, ' '))}${vezes} ` +
+    return `<div>${icon} ${dgFragFull_app(EVENTO_LABELS[tipo] || tipo.replace(/_/g, ' '))}${vezes} ` +
       `<span style="color:var(--fraco)">${formatDate(e.timestamp)}</span></div>`;
   }).join('');
   document.getElementById('recent-events').innerHTML = eventsHtml ||
-    '<div class="vazio-util">Nada aconteceu ainda hoje. Aqui entram elogios, cobranças e ' +
-    'surpresas que mexeram com o humor dele.</div>';
+    dgHtmlFull_app(`<div class="vazio-util"><!--dg-i18n:c50040a7db77-->Nada aconteceu ainda hoje. Aqui entram elogios, cobranças e<!--/dg-i18n--> `) +
+    dgHtmlFull_app(`<!--dg-i18n:94b650327274-->surpresas que mexeram com o humor dele.<!--/dg-i18n--></div>`);
 }
 
 /**
@@ -1621,7 +1626,7 @@ function listaCurta(itens, quantos, tamanho, montar) {
   // tamanho null: quem monta decide o corte (os pensamentos cortam por markdown).
   let html = itens.slice(0, quantos).map((t) => montar(tamanho == null ? t : encurtar(t, tamanho))).join('');
   if (itens.length > quantos) {
-    html += `<div class="vazio-util">+ ${itens.length - quantos} que não couberam aqui.</div>`;
+    html += dgHtmlFull_app(`<div class="vazio-util">${dgFragFull_app("+ {v0} que não couberam aqui.",{v0:(itens.length - quantos)})}</div>`);
   }
   return html;
 }
@@ -1645,15 +1650,15 @@ function renderThoughts(data) {
     (txt) => `<div class="thought-box">${pensamentoRico(txt, 300)}</div>`);
   document.getElementById('thoughts-present').innerHTML =
     `<div class="section-updated">${thoughtsTag}</div>` +
-    (presentHtml || '<div class="vazio-util">Nenhum pensamento registrado. Ele escreve aqui o que ' +
-      'passa pela cabeça entre uma tarefa e outra.</div>');
+    (presentHtml || dgHtmlFull_app(`<div class="vazio-util"><!--dg-i18n:4f351e09ac5b-->Nenhum pensamento registrado. Ele escreve aqui o que<!--/dg-i18n--> `) +
+      dgHtmlFull_app(`<!--dg-i18n:21801bb96967-->passa pela cabeça entre uma tarefa e outra.<!--/dg-i18n--></div>`));
 
   // Lingering: quebra de linha visual entre items
   const lingerHtml = listaCurta(
     (thoughts.lingering || []).map(textoDoItem), 4, null,
     (txt) => `<div class="lingering-item">${pensamentoRico(txt, 220)}</div>`);
   document.getElementById('thoughts-lingering').innerHTML = lingerHtml ||
-    '<div class="vazio-util">Nada ficou remoendo. Aqui voltam os assuntos que ele não conseguiu fechar.</div>';
+    dgHtmlFull_app(`<div class="vazio-util"><!--dg-i18n:1eb1767b530c-->Nada ficou remoendo. Aqui voltam os assuntos que ele não conseguiu fechar.<!--/dg-i18n--></div>`);
 
   // Goals
   const goalsTag = updatedTag(goalsModified, 'goals');
@@ -1663,11 +1668,11 @@ function renderThoughts(data) {
     const icon = feita ? `<span class="check">${dsIcone('check-square')}</span>` : `<span class="uncheck">${dsIcone('square')}</span>`;
     return `<div class="goal-item">${icon} ${ricoLinhaCurta(textoDoItem(g), 200)}</div>`;
   }).join('');
-  if (metas.length > 8) goalsHtml += `<div class="vazio-util">+ ${metas.length - 8} que não couberam aqui.</div>`;
+  if (metas.length > 8) goalsHtml += dgHtmlFull_app(`<div class="vazio-util">${dgFragFull_app("+ {v0} que não couberam aqui.",{v0:(metas.length - 8)})}</div>`);
   document.getElementById('goals-short').innerHTML =
     `<div class="section-updated">${goalsTag}</div>` +
-    (goalsHtml || '<div class="vazio-util">Sem metas de curto prazo. São os objetivos que ele mesmo ' +
-      'se dá pra semana.</div>');
+    (goalsHtml || dgHtmlFull_app(`<div class="vazio-util"><!--dg-i18n:971a0c113d6e-->Sem metas de curto prazo. São os objetivos que ele mesmo<!--/dg-i18n--> `) +
+      dgHtmlFull_app(`<!--dg-i18n:a928d19efa67-->se dá pra semana.<!--/dg-i18n--></div>`));
 }
 
 // ─── POSTS Panel ───────────────────────────────
@@ -1679,11 +1684,11 @@ async function loadPosts() {
   ]);
 
   if (stats) {
-    document.getElementById('posts-stats').innerHTML = `
+    document.getElementById('posts-stats').innerHTML = dgHtmlFull_app(`
       <div class="stat-block"><div class="stat-val">${numeroSeguro(stats.total)}</div><div class="stat-label">TOTAL POSTS</div></div>
-      <div class="stat-block"><div class="stat-val">${numeroSeguro(stats.today)}</div><div class="stat-label">HOJE</div></div>
-      <div class="stat-block"><div class="stat-val">${numeroSeguro(stats.streak)}</div><div class="stat-label">STREAK (DIAS)</div></div>
-    `;
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(stats.today)}</div><div class="stat-label"><!--dg-i18n:a1d207677a33-->HOJE<!--/dg-i18n--></div></div>
+      <div class="stat-block"><div class="stat-val">${numeroSeguro(stats.streak)}</div><div class="stat-label"><!--dg-i18n:9769876864fa-->STREAK (DIAS)<!--/dg-i18n--></div></div>
+    `);
     document.getElementById('ft-posts').textContent = stats.today + '/' + 3;
   }
 
@@ -1708,7 +1713,7 @@ function renderPostsTable(posts) {
     const icon = ok ? `<span class="status-ok">${dsIcone('check')}</span>` : `<span class="status-err">${dsIcone('x')}</span>`;
     const type = (p.type || 'foto').toLowerCase();
     const typeIcon = dsIcone(typeIcons[type] || 'camera');
-    const link = p.postUrl ? `<a href="${escapeHtml(p.postUrl)}" target="_blank" style="color:var(--cyan);text-decoration:none" aria-label="Abrir o post">${dsIcone('link')}</a>` : '--';
+    const link = p.postUrl ? dgHtmlFull_app(`<a href="${escapeHtml(p.postUrl)}" target="_blank" style="color:var(--cyan);text-decoration:none" data-dg-i18n-aria-label="4b52f5bcbf40" aria-label="Abrir o post">${dsIcone('link')}</a>`) : '--';
     return `<tr>
       <td>${icon}</td>
       <td>${escapeHtml(p.date || '')}</td>
@@ -1752,11 +1757,11 @@ function renderFollowers(data) {
   if (data.agent_owner) {
     const d = data.agent_owner;
     const creator = (APP_CONFIG.creatorName || 'Dono').toUpperCase();
-    html += `<div class="follower-card" style="border-color:var(--green)">
-      <div class="fc-name">${dsIcone('crown')} ${escapeHtml(creator)} (Criador)</div>
+    html += dgHtmlFull_app(`<div class="follower-card" style="border-color:var(--green)">
+      <div class="fc-name">${dsIcone('crown')} ${dgFragFull_app("{v1} (Criador)",{v1:(creator)})}</div>
       <div class="fc-tier">Trust: ${numeroSeguro(d.trust_level, 95) || 95}%</div>
       <div class="fc-detail">${escapeHtml(d.dynamic || '')}</div>
-    </div>`;
+    </div>`);
   }
 
   html += topFollowers.map(f => {
@@ -1770,7 +1775,7 @@ function renderFollowers(data) {
     </div>`;
   }).join('');
 
-  grid.innerHTML = html || '<div style="color:var(--text-dim)">Nenhum follower documentado</div>';
+  grid.innerHTML = html || dgHtmlFull_app(`<div style="color:var(--text-dim)"><!--dg-i18n:1ca071dcc345-->Nenhum follower documentado<!--/dg-i18n--></div>`);
 }
 
 // ─── MEMORY Panel ──────────────────────────────
@@ -1779,7 +1784,7 @@ async function loadMemory() {
   const data = await API.memory();
   const list = document.getElementById('memory-list');
   if (!data) {
-    list.innerHTML = '<div class="vazio-util">Não consegui listar a memória dele agora. A faixa no topo da tela diz o motivo.</div>';
+    list.innerHTML = dgHtmlFull_app(`<div class="vazio-util"><!--dg-i18n:54e8eca7d196-->Não consegui listar a memória dele agora. A faixa no topo da tela diz o motivo.<!--/dg-i18n--></div>`);
     return;
   }
 
@@ -1793,17 +1798,17 @@ async function loadMemory() {
 
   let html = '';
   if (data.main && data.main.modified) {
-    html += item('MEMORY.md', dsIcone('scroll'), 'MEMORY.md, a memória longa', data.main,
-      'Os fatos que ficam: uma linha por coisa importante, com o link para o diário do dia. Clique para ler e editar.');
+    html += item('MEMORY.md', dsIcone('scroll'), dgTextFull_app("MEMORY.md, a memória longa"), data.main,
+      dgTextFull_app("Os fatos que ficam: uma linha por coisa importante, com o link para o diário do dia. Clique para ler e editar."));
   }
   for (const f of data.files || []) {
     const isDate = /^\d{4}-\d{2}-\d{2}\.md$/.test(f.name);
     const icon = dsIcone(isDate ? 'calendar' : (f.name.endsWith('.json') ? 'gem' : 'book'));
-    const nome = isDate ? `${f.name.slice(8, 10)}/${f.name.slice(5, 7)}/${f.name.slice(0, 4)}, diário` : f.name;
-    const dica = isDate ? 'O diário que a reflexão da noite escreveu sobre este dia.' : 'Um assunto que ele separou num arquivo próprio.';
+    const nome = isDate ? dgPhraseFull_app("{v0}/{v1}/{v2}, diário",{v0:(f.name.slice(8, 10)),v1:(f.name.slice(5, 7)),v2:(f.name.slice(0, 4))}) : f.name;
+    const dica = isDate ? dgTextFull_app("O diário que a reflexão da noite escreveu sobre este dia.") : dgTextFull_app("Um assunto que ele separou num arquivo próprio.");
     html += item(`memory/${f.name}`, icon, nome, f, dica);
   }
-  list.innerHTML = html || '<div class="vazio-util">Ele ainda não escreveu memória nenhuma. Os arquivos aparecem aqui depois da primeira reflexão da noite.</div>';
+  list.innerHTML = html || dgHtmlFull_app(`<div class="vazio-util"><!--dg-i18n:a473e4e27dc7-->Ele ainda não escreveu memória nenhuma. Os arquivos aparecem aqui depois da primeira reflexão da noite.<!--/dg-i18n--></div>`);
   list.querySelectorAll('[data-path]').forEach((b) => {
     b.addEventListener('click', () => openMemoryFile(b.dataset.path));
   });
@@ -1841,7 +1846,7 @@ async function loadPersonality() {
     // Era uma caixa de log (letra de código, quebra de linha literal). Agora é texto
     // renderizado, com a tipografia de leitura do resto do painel.
     el.className = 'md-leitura compacto historico-rolagem';
-    el.innerHTML = mdToHtml(changelog.content || 'Nenhuma mudança registrada ainda.');
+    el.innerHTML = mdToHtml(changelog.content || dgTextFull_app("Nenhuma mudança registrada ainda."));
   }
   if (!data) return;
 
@@ -1865,7 +1870,7 @@ async function loadPersonality() {
     bigFiveHtml += `<div>${makeBar(info.label, val, 10, info.color, delta)}</div>`;
     setTracked(dKey, val);
   }
-  document.getElementById('big-five').innerHTML = bigFiveHtml || '<span style="color:var(--text-dim)">Dados nao encontrados</span>';
+  document.getElementById('big-five').innerHTML = bigFiveHtml || dgHtmlFull_app(`<span style="color:var(--text-dim)"><!--dg-i18n:8d5d1b2956e7-->Dados nao encontrados<!--/dg-i18n--></span>`);
 
   // Proactivity with deltas
   const proLabels = { initiative: 'Iniciativa', humor: dgTexto_app('Humor'), curiosity: 'Curiosidade', stubbornness: 'Teimosia' };
@@ -1884,14 +1889,14 @@ async function loadPersonality() {
   let opHtml = `<div class="section-updated">${updatedTag(data.opinionsModified, 'opinions.json')}</div>`;
   for (const op of opinions) {
     const intensity = op.intensity || 0;
-    opHtml += `<div class="opinion-card">
-      <div class="op-topic">${escapeHtml(op.topic || op.name || 'Sem titulo')}</div>
+    opHtml += dgHtmlFull_app(`<div class="opinion-card">
+      <div class="op-topic">${escapeHtml(op.topic || op.name || dgTextFull_app("Sem titulo"))}</div>
       <div class="op-position">${ricoLinha(op.position || op.stance || '')}</div>
       ${makeBar('Intensidade', intensity, 10, 'joy')}
-      <div style="font-size:12px;color:var(--fraco);margin-top:4px">Em público: ${escapeHtml(op.public_stance || '--')}</div>
-    </div>`;
+      <div style="font-size:12px;color:var(--fraco);margin-top:4px">${dgFragFull_app("Em público: {v3}",{v3:(op.public_stance || '--')})}</div>
+    </div>`);
   }
-  document.getElementById('opinions-list').innerHTML = opHtml || '<span style="color:var(--text-dim)">Nenhuma opiniao registrada</span>';
+  document.getElementById('opinions-list').innerHTML = opHtml || dgHtmlFull_app(`<span style="color:var(--text-dim)"><!--dg-i18n:fa220600642b-->Nenhuma opiniao registrada<!--/dg-i18n--></span>`);
 
   savePrevValues();
 }
@@ -1919,11 +1924,11 @@ async function carregarRegistrosDaOperacao() {
   const el = document.getElementById('session-info');
   if (el) {
     el.innerHTML = sessionData && (sessionData.session_id || sessionData.updated)
-      ? `<div><span>Sessão</span><b style="font-size:13px;word-break:break-all">${escapeHtml(sessionData.session_id || '--')}</b></div>
-         <div><span>Conversa</span><b style="font-size:13px">${escapeHtml(String(sessionData.chat_id || '--'))}</b></div>
-         <div><span>Atualizado</span><b style="font-size:13px">${formatDate(sessionData.updated)}</b>${updatedTag(sessionData.updated)}</div>`
-      : '<div class="vazio-util" style="grid-column:1/-1">Nenhuma sessão registrada neste arquivo. Num agente que roda pela plataforma, '
-        + 'quem diz se ele está de pé é o selo do cabeçalho.</div>';
+      ? dgHtmlFull_app(`<div><span><!--dg-i18n:e6f5e060790e-->Sessão<!--/dg-i18n--></span><b style="font-size:13px;word-break:break-all">${escapeHtml(sessionData.session_id || '--')}</b></div>
+         <div><span><!--dg-i18n:2377f109281b-->Conversa<!--/dg-i18n--></span><b style="font-size:13px">${escapeHtml(String(sessionData.chat_id || '--'))}</b></div>
+         <div><span>Atualizado</span><b style="font-size:13px">${formatDate(sessionData.updated)}</b>${updatedTag(sessionData.updated)}</div>`)
+      : dgHtmlFull_app(`<div class="vazio-util" style="grid-column:1/-1"><!--dg-i18n:ec1d56dc7de5-->Nenhuma sessão registrada neste arquivo. Num agente que roda pela plataforma,<!--/dg-i18n--> `)
+        + dgHtmlFull_app(`<!--dg-i18n:a750bfca8497-->quem diz se ele está de pé é o selo do cabeçalho.<!--/dg-i18n--></div>`);
   }
   const botoes = document.getElementById('log-buttons');
   if (botoes && !botoes.childElementCount) renderLogButtons();
@@ -1952,8 +1957,8 @@ async function loadLog(type, btn) {
   }
   const data = await API.logs(type, 40);
   document.getElementById('log-viewer').textContent = data
-    ? (data.content || 'Este registro está vazio: a rotina ainda não escreveu nada nele.')
-    : 'Não consegui abrir este registro. A faixa no topo da tela diz o motivo.';
+    ? (data.content || dgTextFull_app("Este registro está vazio: a rotina ainda não escreveu nada nele."))
+    : dgTextFull_app("Não consegui abrir este registro. A faixa no topo da tela diz o motivo.");
 }
 // Make loadLog global for onclick
 window.loadLog = loadLog;
@@ -1980,14 +1985,14 @@ async function loadIdentity() {
   const el = document.getElementById('identity-files');
   if (!existentes.length) {
     // Agente novo: os arquivos de identidade ainda nascem vazios. Em branco a aba parece quebrada.
-    el.innerHTML = '<p class="section-updated" style="padding:12px 4px">Ainda vazio. Peça ao agente na conversa: preencha sua identidade e personalidade e me pergunte o que precisar.</p>';
+    el.innerHTML = dgHtmlFull_app(`<p class="section-updated" style="padding:12px 4px"><!--dg-i18n:a1009f64ba8a-->Ainda vazio. Peça ao agente na conversa: preencha sua identidade e personalidade e me pergunte o que precisar.<!--/dg-i18n--></p>`);
     return;
   }
-  el.innerHTML = `<div class="memory-list">${existentes.map((f) => `<button type="button" class="memory-item" data-path="${f.name}" title="${escapeHtml(f.dica)}">
+  el.innerHTML = `<div class="memory-list">${existentes.map((f) => dgHtmlFull_app(`<button type="button" class="memory-item" data-path="${f.name}" title="${escapeHtml(f.dica)}">
       <span class="mi-icon" aria-hidden="true">${dsIcone(f.icon)}</span>
       <span class="mi-name">${f.name}<small class="mi-dica">${escapeHtml(f.dica)}</small></span>
-      <span class="mi-date">abrir ${dsIcone('arrow-right')}</span>
-    </button>`).join('')}</div>`;
+      <span class="mi-date"><!--dg-i18n:5d47f96d4360-->abrir<!--/dg-i18n--> ${dsIcone('arrow-right')}</span>
+    </button>`)).join('')}</div>`;
   el.querySelectorAll('[data-path]').forEach((b) => b.addEventListener('click', () => window.DGLeitor.abrir(b.dataset.path)));
 }
 
@@ -2111,9 +2116,9 @@ async function atualizaSaude() {
   if (!s) {
     const v = SAUDE_VISUAL.indeterminado;
     dot.className = `status-dot ${v.cor}`;
-    label.textContent = v.texto;
-    if (selo) { selo.title = `${v.ajuda} O painel tenta de novo em 30 segundos.`; selo.dataset.estado = 'indeterminado'; }
-    if (frase) frase.textContent = '';
+    dgBindFull_app(label,v.texto,undefined);
+    if (selo) { dgBindFull_app(selo,"{v0} O painel tenta de novo em 30 segundos.","title",{v0:(v.ajuda)}); selo.dataset.estado = 'indeterminado'; }
+    if (frase) dgBindFull_app(frase,'',undefined);
     desenharPopSaude({ frase: v.ajuda });
     if (!_reiniciando) desenharFaixaSaude(null);
     return;
@@ -2126,7 +2131,7 @@ async function atualizaSaude() {
   if (d && DIAG_VISUAL[d.estado]) {
     const v = DIAG_VISUAL[d.estado];
     dot.className = `status-dot ${v.cor}`;
-    label.textContent = v.texto;
+    dgBindFull_app(label,v.texto,undefined);
     if (selo) {
       selo.dataset.estado = d.estado;
       selo.title = `${v.ajuda} ${d.frase || ''} O painel pergunta de novo a cada 30 segundos. Toque para ver o detalhe.`.trim();
@@ -2140,8 +2145,8 @@ async function atualizaSaude() {
   // ── sem diagnóstico: o selo de antes ──
   const v = SAUDE_VISUAL[s.chave] || SAUDE_VISUAL.indeterminado;
   dot.className = `status-dot ${v.cor}`;
-  label.textContent = v.texto;
-  if (frase) frase.textContent = '';
+  dgBindFull_app(label,v.texto,undefined);
+  if (frase) dgBindFull_app(frase,'',undefined);
   if (selo) { selo.dataset.estado = s.viva === true ? 'ativo' : (s.viva === false ? 'inativo' : 'indeterminado'); }
 
   // O balão diz o estado e o que ele significa para QUEM ABRE ESTE PAINEL. O
@@ -2149,7 +2154,7 @@ async function atualizaSaude() {
   // servidor de propósito: quem abre aqui é o dono do agente, e mandar ele rodar
   // comando em servidor seria dar uma tarefa que não é dele nem ele consegue.
   if (selo) {
-    selo.title = `${v.ajuda} O painel pergunta de novo a cada 30 segundos.`;
+    dgBindFull_app(selo,"{v0} O painel pergunta de novo a cada 30 segundos.","title",{v0:(v.ajuda)});
   }
   desenharPopSaude({ frase: v.ajuda });
   if (!_reiniciando) desenharFaixaSaude(null);
@@ -2187,19 +2192,19 @@ function desenharPopSaude(d) {
   if (d.frase) linhas.push(`<p class="sp-frase">${ricoLinha(d.frase)}</p>`);
   if (d.trecho) linhas.push(`<blockquote class="sp-trecho" title="O trecho exato que ele escreveu ou que o sistema devolveu.">“${escapeHtml(d.trecho)}”</blockquote>`);
   const pe = [];
-  if (d.desde) pe.push(`desde ${formatDate(d.desde)}`);
-  if (d.ocorrencias > 1) pe.push(`aconteceu ${d.ocorrencias} vezes`);
-  if (d.verificadoEm) pe.push(`conferido ${formatAge(d.verificadoEm)}`);
+  if (d.desde) pe.push(dgPhraseFull_app("desde {v0}",{v0:(formatDate(d.desde))}));
+  if (d.ocorrencias > 1) pe.push(dgPhraseFull_app("aconteceu {v0} vezes",{v0:(d.ocorrencias)}));
+  if (d.verificadoEm) pe.push(dgPhraseFull_app("conferido {v0}",{v0:(formatAge(d.verificadoEm))}));
   if (pe.length) linhas.push(`<p class="sp-pe">${escapeHtml(pe.join(' · '))}</p>`);
   if (d.estado === 'inativo' || d.estado === 'atencao') {
-    linhas.push('<p class="sp-pe"><a href="#" class="link-aba" data-ir-para="conversa">ver o que fazer na Conversa</a></p>');
+    linhas.push(dgHtmlFull_app(`<p class="sp-pe"><a href="#" class="link-aba" data-ir-para="conversa"><!--dg-i18n:fd4cd30aaae1-->ver o que fazer na Conversa<!--/dg-i18n--></a></p>`));
   }
   pop.innerHTML = linhas.join('') || '<p class="sp-frase">Verificando...</p>';
   ligarLinksEntreAbas();
 }
 
 const ACAO_FAIXA = {
-  reiniciar: { rotulo: dgTexto_app('Reiniciar'), modo: 'normal', explica: '' },
+  reiniciar: { rotulo: 'Reiniciar', modo: 'normal', explica: '' },
   modo_seguro: {
     rotulo: 'Reiniciar em modo de segurança', modo: 'seguro',
     explica: 'Ele volta sem a última conversa na cabeça (ela fica guardada, nada se perde), para não travar de novo no mesmo ponto.',
@@ -2223,13 +2228,13 @@ function desenharFaixaStatus(d) {
   }
   faixa.hidden = false;
   faixa.className = `faixa-saude ${d.estado}`;
-  faixa.innerHTML = `
+  faixa.innerHTML = dgHtmlFull_app(`
     <div class="fs-texto">
-      <b>${ricoLinha(d.frase || (d.estado === 'inativo' ? 'Ele não está respondendo agora.' : 'Alguma coisa não vai bem com ele.'))}</b>
+      <b>${ricoLinha(d.frase || (d.estado === 'inativo' ? dgTextFull_app("Ele não está respondendo agora.") : dgTextFull_app("Alguma coisa não vai bem com ele.")))}</b>
       ${d.trecho ? `<blockquote class="fs-trecho">“${escapeHtml(d.trecho)}”</blockquote>` : ''}
       ${d.comoResolver ? `<p class="fs-como">${ricoLinha(d.comoResolver)}</p>` : ''}
-      <p class="fs-explica"><a href="#" class="link-aba link-toque" data-ir-para="conversa">ver o que fazer na Conversa</a></p>
-    </div>`;
+      <p class="fs-explica"><a href="#" class="link-aba link-toque" data-ir-para="conversa"><!--dg-i18n:fd4cd30aaae1-->ver o que fazer na Conversa<!--/dg-i18n--></a></p>
+    </div>`);
   ligarLinksEntreAbas();
 }
 
@@ -2252,13 +2257,13 @@ function desenharFaixaSaude(d) {
   faixa.className = `faixa-saude ${d.estado}`;
   faixa.innerHTML = `
     <div class="fs-texto">
-      <b>${ricoLinha(d.frase || (d.estado === 'inativo' ? 'Ele não está respondendo agora.' : 'Alguma coisa não vai bem com ele.'))}</b>
+      <b>${ricoLinha(d.frase || (d.estado === 'inativo' ? dgTextFull_app("Ele não está respondendo agora.") : dgTextFull_app("Alguma coisa não vai bem com ele.")))}</b>
       ${d.trecho ? `<blockquote class="fs-trecho">“${escapeHtml(d.trecho)}”</blockquote>` : ''}
       ${d.comoResolver ? `<p class="fs-como">${ricoLinha(d.comoResolver)}</p>` : ''}
       ${acao && acao.explica ? `<p class="fs-explica">${escapeHtml(acao.explica)}</p>` : ''}
     </div>
     <div class="fs-acoes" id="conversa-faixa-acoes">${acao
-      ? `<button type="button" class="${acao.discreto ? 'btn-leve' : 'btn-reativar'} fs-botao" data-modo="${acao.modo}">${escapeHtml(acao.rotulo)}</button>`
+      ? `<button type="button" class="${acao.discreto ? 'btn-leve' : 'btn-reativar'} fs-botao" data-modo="${acao.modo}">${dgFragFull_app(acao.rotulo)}</button>`
       : ''}</div>`;
   const botao = faixa.querySelector('.fs-botao');
   if (botao) botao.addEventListener('click', () => confirmarReinicio(acao));
@@ -2268,9 +2273,9 @@ function desenharFaixaSaude(d) {
 function confirmarReinicio(acao) {
   const caixa = document.getElementById('conversa-faixa-acoes');
   if (!caixa) return;
-  caixa.innerHTML = `<span class="fs-pergunta">Tem certeza? Ele para o que estiver fazendo e volta em alguns segundos.</span>
-    <button type="button" class="btn-reativar" data-sim>Sim, ${escapeHtml(acao.rotulo.toLowerCase())}</button>
-    <button type="button" class="btn-leve" data-nao>Cancelar</button>`;
+  caixa.innerHTML = dgHtmlFull_app(`<span class="fs-pergunta"><!--dg-i18n:0c54999e43cc-->Tem certeza? Ele para o que estiver fazendo e volta em alguns segundos.<!--/dg-i18n--></span>
+    <button type="button" class="btn-reativar" data-sim>${dgFragFull_app("Sim, {v0}",{v0:(acao.rotulo.toLowerCase())})}</button>
+    <button type="button" class="btn-leve" data-nao><!--dg-i18n:bb9dbb406dcb-->Cancelar<!--/dg-i18n--></button>`);
   caixa.querySelector('[data-nao]').addEventListener('click', () => atualizaSaude());
   caixa.querySelector('[data-sim]').addEventListener('click', () => reiniciarPelaFaixa(acao.modo));
 }
@@ -2279,13 +2284,13 @@ async function reiniciarPelaFaixa(modo) {
   const caixa = document.getElementById('conversa-faixa-acoes');
   _reiniciando = true;
   const escrever = (html) => { if (caixa) caixa.innerHTML = html; };
-  escrever('<span class="fs-pergunta">Pedindo para reiniciar...</span>');
+  escrever(dgHtmlFull_app(`<span class="fs-pergunta"><!--dg-i18n:c995c7f3c0d2-->Pedindo para reiniciar...<!--/dg-i18n--></span>`));
   const r = await API.saudeReiniciar(modo);
   if (!r || !r.ok) {
     const c = (r && r.corpo) || {};
     _reiniciando = false;
-    escrever(`<span class="fs-erro"><b>${escapeHtml(c.error || 'Não consegui pedir o reinício.')}</b> ${escapeHtml(c.howToFix || 'Tente de novo em alguns segundos.')}</span>
-      <button type="button" class="btn-leve" data-de-novo>tentar de novo</button>`);
+    escrever(dgHtmlFull_app(`<span class="fs-erro"><b>${escapeHtml(c.error || dgTextFull_app("Não consegui pedir o reinício."))}</b> ${escapeHtml(c.howToFix || dgTextFull_app("Tente de novo em alguns segundos."))}</span>
+      <button type="button" class="btn-leve" data-de-novo><!--dg-i18n:e3a74dbe55f0-->tentar de novo<!--/dg-i18n--></button>`));
     caixa && caixa.querySelector('[data-de-novo]').addEventListener('click', () => reiniciarPelaFaixa(modo));
     return;
   }
@@ -2299,7 +2304,7 @@ async function reiniciarPelaFaixa(modo) {
     const voltou = corpo && (corpo.diagnostico ? corpo.diagnostico.estado === 'ativo' : corpo.viva === true);
     if (voltou) {
       _reiniciando = false;
-      escrever('<span class="fs-ok">Voltou. Pode escrever.</span>');
+      escrever(dgHtmlFull_app(`<span class="fs-ok"><!--dg-i18n:29fef5b0b15c-->Voltou. Pode escrever.<!--/dg-i18n--></span>`));
       _conversaAssinatura = null;
       await atualizaSaude();
       await atualizarConversa();
@@ -2307,8 +2312,8 @@ async function reiniciarPelaFaixa(modo) {
     }
   }
   _reiniciando = false;
-  escrever(`<span class="fs-erro"><b>Pedi para reiniciar, mas ele ainda não voltou.</b> A sua conversa continua guardada. Espere mais um minuto; se não voltar, avise quem cuida do sistema.</span>
-    <button type="button" class="btn-leve" data-de-novo>conferir agora</button>`);
+  escrever(dgHtmlFull_app(`<span class="fs-erro"><b><!--dg-i18n:ae94513472cf-->Pedi para reiniciar, mas ele ainda não voltou.<!--/dg-i18n--></b> <!--dg-i18n:5406fb54f349-->A sua conversa continua guardada. Espere mais um minuto; se não voltar, avise quem cuida do sistema.<!--/dg-i18n--></span>
+    <button type="button" class="btn-leve" data-de-novo><!--dg-i18n:93cf57bf889f-->conferir agora<!--/dg-i18n--></button>`));
   caixa && caixa.querySelector('[data-de-novo]').addEventListener('click', () => atualizaSaude());
 }
 
@@ -2324,11 +2329,11 @@ async function initConfig() {
 
   // Branding
   if (cfg.agentName) {
-    document.title = `${cfg.agentName} - Painel`;
+    dgBindFull_app(document.querySelector("title"),"{v0} - Painel",undefined,{v0:cfg.agentName});
     const charName = document.getElementById('char-name');
     if (charName) charName.textContent = cfg.agentName;
     const title = document.getElementById('header-title');
-    if (title) title.textContent = cfg.creatorName ? `agente de ${cfg.creatorName}` : 'agente';
+    if (title) dgBindFull_app(title,cfg.creatorName ? "agente de {v0}" : 'agente',undefined,{v0:cfg.creatorName});
   }
   if (cfg.avatar) {
     // APP_CONFIG.avatar (não cfg.avatar): já veio prefixado pelo BASE duas linhas acima.
@@ -2412,7 +2417,7 @@ async function initPowers() {
       if (lk) lk.remove();
       // Devolve a explicação da aba no lugar do texto do cadeado. Antes isto era
       // um removeAttribute, e a aba recém-liberada ficava sem balão nenhum.
-      tab.title = EXPLICACAO_ABA[tab.dataset.tab] || '';
+      dgBindFull_app(tab,EXPLICACAO_ABA[tab.dataset.tab] || "","title");
     } else {
       tab.classList.add('locked');
       if (!tab.querySelector('.lock')) {
@@ -2422,7 +2427,7 @@ async function initPowers() {
         tab.insertBefore(lock, tab.firstChild);
       }
       const label = POWER_LABELS[power] || power;
-      tab.title = `Instale o poder ${label} (/dgclaw:powers install ${power})`;
+      dgBindFull_app(tab,"Instale o poder {v0} (/dgclaw:powers install {v1})","title",{v0:(label),v1:(power)});
     }
   });
 }
@@ -2443,8 +2448,8 @@ function falhaNoBoot(e) {
   aviso.className = 'erro-boot';
   aviso.setAttribute('role', 'alert');
   const titulo = document.createElement('b');
-  titulo.textContent = 'Não consegui abrir esta página do painel.';
-  aviso.append(titulo, `O que aconteceu: ${motivo}. O que fazer: recarregue a página. Se o aviso voltar, peça ao Admin do seu DG Claw para conferir se o painel deste agente está de pé.`);
+  dgBindFull_app(titulo,"Não consegui abrir esta página do painel.",undefined,undefined);
+  aviso.append(titulo, dgPhraseFull_app("O que aconteceu: {v0}. O que fazer: recarregue a página. Se o aviso voltar, peça ao Admin do seu DG Claw para conferir se o painel deste agente está de pé.",{v0:(motivo)}));
   const lugar = document.querySelector('main.content') || document.body;
   lugar.insertBefore(aviso, lugar.firstChild);
 }
@@ -2589,7 +2594,7 @@ async function loadCosts(force) {
   const barColor = pct >= 90 ? 'red' : pct >= 75 ? 'yellow' : 'green';
   const tetoHtml = budget
     ? `<span style="color:var(--text-dim)">/ ${fmtUSD(budget)} (${pct}%)</span>`
-    : '<span style="color:var(--text-dim)">neste mês (sem teto de gastos configurado)</span>';
+    : dgHtmlFull_app(`<span style="color:var(--text-dim)"><!--dg-i18n:a82ad16fa6a0-->neste mês (sem teto de gastos configurado)<!--/dg-i18n--></span>`);
   const barraHtml = budget
     ? `<div class="rpg-bar-track" style="max-width:500px;height:14px">
         <div class="rpg-bar-fill ${barColor}" style="width:${pct}%"></div>
@@ -2597,7 +2602,7 @@ async function loadCosts(force) {
     : '';
 
   const summaryEl = document.getElementById('costs-summary');
-  summaryEl.innerHTML = `
+  summaryEl.innerHTML = dgHtmlFull_app(`
     <div style="font-size:13px;line-height:1.7">
       <div style="font-size:15px;margin-bottom:6px">
         <span style="color:var(--text)">${fmtUSD(monthTotal)}</span>
@@ -2605,20 +2610,20 @@ async function loadCosts(force) {
       </div>
       ${barraHtml}
       <div style="margin-top:8px;display:flex;gap:18px;flex-wrap:wrap">
-        <span>Hoje: <strong>${fmtUSD(o.today.total)}</strong> <span style="color:var(--text-dim)">(${numeroSeguro(o.today.executions)} exec)</span></span>
-        <span>Ontem: <strong>${fmtUSD(o.yesterday.total)}</strong></span>
+        <span><!--dg-i18n:fceb542c5cc9-->Hoje:<!--/dg-i18n--> <strong>${fmtUSD(o.today.total)}</strong> <span style="color:var(--text-dim)">(${numeroSeguro(o.today.executions)} exec)</span></span>
+        <span><!--dg-i18n:663ddd4513ef-->Ontem:<!--/dg-i18n--> <strong>${fmtUSD(o.yesterday.total)}</strong></span>
         <span>7d: <strong>${fmtUSD(o.week.total)}</strong></span>
-        <span style="color:var(--text-dim)">Total exec mês: ${numeroSeguro(o.month.executions)}</span>
+        <span style="color:var(--text-dim)"><!--dg-i18n:1b0aa49f1b84-->Total exec mês:<!--/dg-i18n--> ${numeroSeguro(o.month.executions)}</span>
       </div>
     </div>
-  `;
+  `);
 
   // Categories
   const totalForPct = monthTotal || 1;
   const catEl = document.getElementById('costs-categories');
   const categorias = Object.entries(o.byCategory || {});
   if (!categorias.length) {
-    catEl.innerHTML = '<div class="vazio-util">Ainda não houve gasto neste mês, então não há o que dividir por categoria. Quando ele trabalhar, aparece aqui para onde foi o dinheiro.</div>';
+    catEl.innerHTML = dgHtmlFull_app(`<div class="vazio-util"><!--dg-i18n:c109f77810cb-->Ainda não houve gasto neste mês, então não há o que dividir por categoria. Quando ele trabalhar, aparece aqui para onde foi o dinheiro.<!--/dg-i18n--></div>`);
   }
   else catEl.innerHTML = categorias
     .sort((a, b) => b[1].cost - a[1].cost)
@@ -2627,7 +2632,7 @@ async function loadCosts(force) {
       const label = CATEGORY_LABELS[cat] || cat;
       return `
         <div style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:4px">
-          <span style="min-width:200px">${escapeHtml(label)}</span>
+          <span style="min-width:200px">${dgFragFull_app(label)}</span>
           <div class="rpg-bar-track" style="flex:1;max-width:300px;height:10px">
             <div class="rpg-bar-fill green" style="width:${catPct}%"></div>
           </div>
@@ -2639,10 +2644,10 @@ async function loadCosts(force) {
   // Top crons
   const topEl = document.getElementById('costs-top-crons');
   if (!(o.topCrons || []).length) {
-    topEl.innerHTML = '<div class="vazio-util">Nenhuma rotina gastou nada neste mês até agora.</div>';
-  } else topEl.innerHTML = `
+    topEl.innerHTML = dgHtmlFull_app(`<div class="vazio-util"><!--dg-i18n:24e24ddf35b7-->Nenhuma rotina gastou nada neste mês até agora.<!--/dg-i18n--></div>`);
+  } else topEl.innerHTML = dgHtmlFull_app(`
     <table class="pixel-table" style="font-size:13px">
-      <thead><tr><th title="O nome da rotina que rodou.">Rotina</th><th title="Quantas vezes ela rodou neste mês.">Vezes</th><th title="Quanto ela custou no mês inteiro, em dólar.">Custo</th><th title="O custo médio de cada vez que ela rodou: custo dividido pelas vezes.">Custo por vez</th></tr></thead>
+      <thead><tr><th data-dg-i18n-title="ede6e75d4343" title="O nome da rotina que rodou."><!--dg-i18n:0d6df0edb035-->Rotina<!--/dg-i18n--></th><th data-dg-i18n-title="d7dbbf917baa" title="Quantas vezes ela rodou neste mês.">Vezes</th><th data-dg-i18n-title="c68b47eb02fd" title="Quanto ela custou no mês inteiro, em dólar."><!--dg-i18n:d997afc918e1-->Custo<!--/dg-i18n--></th><th data-dg-i18n-title="a493a9c7289c" title="O custo médio de cada vez que ela rodou: custo dividido pelas vezes."><!--dg-i18n:6d720cf14180-->Custo por vez<!--/dg-i18n--></th></tr></thead>
       <tbody>
         ${o.topCrons.map(r => `
           <tr>
@@ -2654,7 +2659,7 @@ async function loadCosts(force) {
         `).join('')}
       </tbody>
     </table>
-  `;
+  `);
 
   await loadCostsExecutions();
 }
@@ -2666,7 +2671,7 @@ async function loadCostsExecutions() {
 
   const tbody = document.getElementById('costs-executions');
   if (!(data.executions || []).length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="vazio-util">Nenhuma execução nesta janela. Escolha uma janela maior ali em cima, se quiser ver mais para trás.</td></tr>';
+    tbody.innerHTML = dgHtmlFull_app(`<tr><td colspan="7" class="vazio-util"><!--dg-i18n:f1f2a5deafae-->Nenhuma execução nesta janela. Escolha uma janela maior ali em cima, se quiser ver mais para trás.<!--/dg-i18n--></td></tr>`);
     return;
   }
   tbody.innerHTML = data.executions.map(e => {
@@ -2700,10 +2705,10 @@ async function openExecutionDetail(sessionId) {
   `).join('');
 
   document.getElementById('modal-title').textContent = `${detail.cron} @ ${formatDate(detail.timestamp)}`;
-  document.getElementById('modal-body').innerHTML = `
+  document.getElementById('modal-body').innerHTML = dgHtmlFull_app(`
     <div style="font-size:13px;line-height:1.7">
       <div><strong>Custo:</strong> ${fmtUSD4(detail.total_cost_usd)}</div>
-      <div><strong>Modelo:</strong> ${escapeHtml(detail.model)} | <strong>Turns:</strong> ${escapeHtml(detail.num_turns)} | <strong>Duração:</strong> ${fmtDur(detail.duration_ms)}</div>
+      <div><strong>Modelo:</strong> ${escapeHtml(detail.model)} | <strong>Turns:</strong> ${escapeHtml(detail.num_turns)} | <strong><!--dg-i18n:017f4cbe7caf-->Duração:<!--/dg-i18n--></strong> ${fmtDur(detail.duration_ms)}</div>
       <div><strong>Session:</strong> <code style="font-size:12px">${escapeHtml(detail.session_id || '?')}</code></div>
       <div><strong>Tag:</strong> ${escapeHtml(detail.tag || '--')}</div>
       ${detail.is_error ? `<div style="color:var(--red)"><strong>${dsIcone('alert')} ERROR</strong></div>` : ''}
@@ -2711,26 +2716,26 @@ async function openExecutionDetail(sessionId) {
       <div style="margin-top:12px"><strong>${dsIcone('download')} Cache read:</strong> ${numeroSeguro(usage.cache_read_input_tokens).toLocaleString()} tokens</div>
       <div><strong>${dsIcone('sparkle')} Cache create:</strong> ${numeroSeguro(usage.cache_creation_input_tokens).toLocaleString()} tokens</div>
       <div><strong>${dsIcone('upload')} Output:</strong> ${numeroSeguro(usage.output_tokens).toLocaleString()} tokens</div>
-      <div><strong>${dsIcone('reply')} Input direto:</strong> ${numeroSeguro(usage.input_tokens).toLocaleString()} tokens</div>
+      <div><strong>${dsIcone('reply')} <!--dg-i18n:527025ba0834-->Input direto:<!--/dg-i18n--></strong> ${numeroSeguro(usage.input_tokens).toLocaleString()} tokens</div>
 
-      ${modelUsageHtml ? `<div style="margin-top:12px"><strong>Breakdown por modelo:</strong></div>${modelUsageHtml}` : ''}
+      ${modelUsageHtml ? dgHtmlFull_app(`<div style="margin-top:12px"><strong><!--dg-i18n:03a2928d463e-->Breakdown por modelo:<!--/dg-i18n--></strong></div>${modelUsageHtml}`) : ''}
 
       <div style="margin-top:14px">
-        <button class="tab haiku-analysis-btn" data-sid="${escapeHtml(detail.session_id)}" onclick="runHaikuAnalysis(this.dataset.sid)">${dsIcone('bot')} ANÁLISE HAIKU</button>
-        <span style="font-size:12px;color:var(--text-dim);margin-left:8px">(~$0.005, sob demanda)</span>
+        <button class="tab haiku-analysis-btn" data-sid="${escapeHtml(detail.session_id)}" onclick="runHaikuAnalysis(this.dataset.sid)">${dsIcone('bot')} <!--dg-i18n:c5f027df349b-->ANÁLISE HAIKU<!--/dg-i18n--></button>
+        <span style="font-size:12px;color:var(--text-dim);margin-left:8px"><!--dg-i18n:6ce935d29571-->(~$0.005, sob demanda)<!--/dg-i18n--></span>
       </div>
       <div id="haiku-analysis-out" style="margin-top:12px"></div>
     </div>
-  `;
+  `);
   document.getElementById('modal').classList.add('active');
 }
 
 async function runHaikuAnalysis(sessionId) {
   const out = document.getElementById('haiku-analysis-out');
-  out.innerHTML = '<div style="font-size:13px;color:var(--text-dim)">Analisando... (pode levar 10-30s)</div>';
+  out.innerHTML = dgHtmlFull_app(`<div style="font-size:13px;color:var(--text-dim)"><!--dg-i18n:09afe226f48f-->Analisando... (pode levar 10-30s)<!--/dg-i18n--></div>`);
   const result = await API.costsAnalyze(sessionId);
   if (!result) {
-    out.innerHTML = '<div style="color:var(--red);font-size:13px">Erro na análise (verifique logs server.js)</div>';
+    out.innerHTML = dgHtmlFull_app(`<div style="color:var(--red);font-size:13px"><!--dg-i18n:29347f2a0eda-->Erro na análise (verifique logs server.js)<!--/dg-i18n--></div>`);
     return;
   }
   if (result.error || (result.analysis && result.analysis.error)) {
@@ -2739,17 +2744,17 @@ async function runHaikuAnalysis(sessionId) {
     return;
   }
   const a = result.analysis;
-  out.innerHTML = `
+  out.innerHTML = dgHtmlFull_app(`
     <div style="background:var(--bg-card);border:2px solid var(--border);padding:10px;font-size:13px;line-height:1.7">
-      <div style="font-weight:bold;margin-bottom:6px">${dsIcone('bot')} ANÁLISE HAIKU</div>
+      <div style="font-weight:bold;margin-bottom:6px">${dsIcone('bot')} <!--dg-i18n:c5f027df349b-->ANÁLISE HAIKU<!--/dg-i18n--></div>
       <div><strong>Resumo:</strong> ${ricoLinha(a.summary || '--')}</div>
-      <div style="margin-top:6px"><strong>Onde foi o dinheiro:</strong> ${ricoLinha(a.where_money_went || '--')}</div>
-      <div style="margin-top:6px"><strong>Eficiência:</strong> ${escapeHtml(a.efficiency || '--')}/10 <span style="color:var(--text-dim)">${ricoLinha(a.efficiency_reason || '')}</span></div>
-      <div style="margin-top:6px"><strong>Sugestões:</strong></div>
+      <div style="margin-top:6px"><strong><!--dg-i18n:f7aaf2a59149-->Onde foi o dinheiro:<!--/dg-i18n--></strong> ${ricoLinha(a.where_money_went || '--')}</div>
+      <div style="margin-top:6px"><strong><!--dg-i18n:ffc60bf73541-->Eficiência:<!--/dg-i18n--></strong> ${escapeHtml(a.efficiency || '--')}/10 <span style="color:var(--text-dim)">${ricoLinha(a.efficiency_reason || '')}</span></div>
+      <div style="margin-top:6px"><strong><!--dg-i18n:112384a9df1e-->Sugestões:<!--/dg-i18n--></strong></div>
       <ul style="margin:4px 0 0 16px">${(a.suggestions || []).map(s => `<li>${ricoLinha(s)}</li>`).join('')}</ul>
-      <div style="margin-top:8px;color:var(--text-dim);font-size:12px">Transcript ${result.transcript_found ? 'encontrado' : 'não encontrado'} · análise baseada ${result.transcript_found ? 'em transcript + métricas' : 'só em métricas'}</div>
+      <div style="margin-top:8px;color:var(--text-dim);font-size:12px">Transcript ${result.transcript_found ? 'encontrado' : dgTextFull_app("não encontrado")} · análise baseada ${dgFragFull_app(result.transcript_found ? dgTextFull_app("em transcript + métricas") : dgTextFull_app("só em métricas"))}</div>
     </div>
-  `;
+  `);
 }
 
 // ─── Aviso de erro de leitura ──────────────────
@@ -2777,16 +2782,16 @@ function iniciarAvisoDeErro() {
   let urlAtual = null;
   const rotulo = (url) => {
     const achou = ROTULO_DA_LEITURA.find(([pref]) => String(url || '').startsWith(pref));
-    return achou ? achou[1] : 'uma parte desta tela';
+    return achou ? achou[1] : dgTextFull_app("uma parte desta tela");
   };
   window.addEventListener('dgclaw:erro-api', (ev) => {
     const d = ev.detail || {};
     urlAtual = String(d.url || '').split('?')[0];
-    const motivo = d.error || (d.status ? `o painel respondeu com o código ${d.status}` : 'sem resposta');
+    const motivo = d.error || (d.status ? dgPhraseFull_app("o painel respondeu com o código {v0}",{v0:(d.status)}) : dgTextFull_app("sem resposta"));
     faixa.hidden = false;
-    faixa.innerHTML = `<span><b>Não consegui carregar ${escapeHtml(rotulo(d.url))}:</b> ${escapeHtml(motivo)}.`
+    faixa.innerHTML = dgHtmlFull_app(`<span><b>${dgFragFull_app("Não consegui carregar {v0}:",{v0:(rotulo(d.url))})}</b> ${escapeHtml(motivo)}.`)
       + `${d.howToFix ? ` ${escapeHtml(d.howToFix)}` : ''}</span>`
-      + '<button type="button" class="aviso-api-x" aria-label="Fechar o aviso" title="Fechar o aviso">&times;</button>';
+      + dgHtmlFull_app(`<button type="button" class="aviso-api-x" data-dg-i18n-aria-label="b7ea39c1ff3b" aria-label="Fechar o aviso" data-dg-i18n-title="b7ea39c1ff3b" title="Fechar o aviso">&times;</button>`);
     faixa.querySelector('.aviso-api-x').addEventListener('click', () => { faixa.hidden = true; urlAtual = null; });
   });
   window.addEventListener('dgclaw:ok-api', (ev) => {
@@ -2870,7 +2875,7 @@ function htmlSeletorLocal(agentes) {
     const nota = a.atual
       ? [a.servico, a.emocoes ? 'com emoções' : null].filter(Boolean).join(' · ')
       : (a.url ? [a.servico, a.emocoes ? 'com emoções' : null].filter(Boolean).join(' · ')
-               : 'o painel dele ainda não está instalado');
+               : dgTextFull_app("o painel dele ainda não está instalado"));
     // Os OUTROS nunca usam o sprite padrao: assets/sprites/avatar.jpg e servido pela pasta
     // DESTE painel, e quando o dono troca a foto dele e esse arquivo que muda. Usar o sprite
     // nos outros fazia todos aparecerem com a cara do agente atual (Luna, 17/10/2026).
@@ -2888,7 +2893,7 @@ function htmlSeletorLocal(agentes) {
       ? `<span class="item"${a.atual ? '' : ' style="opacity:.6"'}>${miolo}</span>`
       : `<a href="${escapeHtml(a.url)}" target="_blank" rel="noopener">${miolo}</a>`;
   }).join('') +
-  '<span class="item vazio">Cada agente tem o painel dele, numa porta própria. Abrir outro não desliga este.</span>';
+  dgHtmlFull_app(`<span class="item vazio"><!--dg-i18n:a4919f8861f2-->Cada agente tem o painel dele, numa porta própria. Abrir outro não desliga este.<!--/dg-i18n--></span>`);
 }
 
 /**
@@ -2928,15 +2933,15 @@ async function atualizarSeletorDeAgentes() {
     const r = await fetch(url, { credentials: 'include' });
     // A rota do chat devolve `agentes`; a do painel, `agents`.
     if (r.ok) { const d = await r.json(); agentes = (NA_PLATAFORMA ? d.agentes : d.agents) || []; }
-    else if (NA_PLATAFORMA) falha = `A lista de agentes respondeu ${r.status}.`;
+    else if (NA_PLATAFORMA) falha = dgPhraseFull_app("A lista de agentes respondeu {v0}.",{v0:(r.status)});
   } catch (e) {
-    if (NA_PLATAFORMA) falha = `Não consegui buscar a lista de agentes (${e.message}).`;
+    if (NA_PLATAFORMA) falha = dgPhraseFull_app("Não consegui buscar a lista de agentes ({v0}).",{v0:(e.message)});
   }
 
   if (falha) {
     console.error(`[painel] seletor de agentes: ${falha}`);
     troca.style.display = '';
-    lista.innerHTML = `<span class="item vazio">${escapeHtml(falha)} Recarregue a página para tentar de novo.</span>`;
+    lista.innerHTML = dgHtmlFull_app(`<span class="item vazio">${dgFragFull_app("{v0} Recarregue a página para tentar de novo.",{v0:(falha)})}</span>`);
   } else if (agentes.length < 2) {
     // O seletor nasce escondido no HTML: aqui ele só é REVELADO, e apenas quando existe
     // de fato outro agente para onde ir.

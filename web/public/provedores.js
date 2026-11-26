@@ -1,4 +1,5 @@
 'use strict';
+const dgUiText_provedores_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* provedores.js: a lista das IAs (provedores) que o DG Claw conhece, num lugar só.
 
    O mesmo arquivo serve ao navegador (window.DGProvedores, via conectar-puro.js) e ao servidor
@@ -38,11 +39,11 @@
     const l = Array.isArray(lista) ? lista : PROVEDORES;
     const p = acha(pedido, l);
     const conhecidos = l.filter(x => x.ativo).map(x => x.id).join(', ');
-    if (!p) return { ok: false, erro: 'Não conheço a IA "' + pedido.slice(0, 40) + '". As disponíveis são: ' + conhecidos + '. Nada foi iniciado.' };
-    if (!p.ativo) return { ok: false, erro: 'A IA ' + p.nome + ' ainda não está disponível no DG Claw. As disponíveis são: ' + conhecidos + '. Nada foi iniciado.' };
+    if (!p) return { ok: false, erro: dgUiText_provedores_js("Não conheço a IA \"") + pedido.slice(0, 40) + dgUiText_provedores_js("\". As disponíveis são: ") + conhecidos + '. Nada foi iniciado.' };
+    if (!p.ativo) return { ok: false, erro: 'A IA ' + p.nome + dgUiText_provedores_js(" ainda não está disponível no DG Claw. As disponíveis são: ") + conhecidos + '. Nada foi iniciado.' };
     if (p.id !== idDoProvedor(atual)) {
       const nomeAtual = (acha(idDoProvedor(atual), l) || {}).nome || idDoProvedor(atual);
-      return { ok: false, erro: 'Este agente usa ' + nomeAtual + ' e trocar para ' + p.nome + ' ainda não está disponível. Conecte a conta de ' + nomeAtual + ' ou peça ao Admin para criar um agente novo com ' + p.nome + '. Nada foi iniciado.' };
+      return { ok: false, erro: dgUiText_provedores_js("Este agente usa ") + nomeAtual + dgUiText_provedores_js(" e trocar para ") + p.nome + dgUiText_provedores_js(" ainda não está disponível. Conecte a conta de ") + nomeAtual + dgUiText_provedores_js(" ou peça ao Admin para criar um agente novo com ") + p.nome + '. Nada foi iniciado.' };
     }
     return { ok: true };
   }

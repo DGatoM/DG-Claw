@@ -66,8 +66,8 @@ async function paginaInicial(base) {
 
 const sob = await paginaInicial('/p/ana');
 if (sob == null) { console.log('  pulado: o painel não subiu (falta express? use NODE_PATH ou npm i em panel/)'); process.exit(3); }
-ok(/<a class="btn-voltar" href="\/a\/ana" aria-label="voltar para a conversa">/.test(sob), 'sob a plataforma: voltar aponta para /a/ana');
-ok(sob.includes('btn-voltar-texto">conversa<'), 'sob a plataforma: o rótulo é "conversa"');
+ok(/<a class="btn-voltar" href="\/a\/ana" aria-label="voltar para a conversa"(?:\s+data-dg-i18n-aria-label="[a-f0-9]{12}")?>/.test(sob), 'sob a plataforma: voltar aponta para /a/ana');
+ok(sob.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '').includes('btn-voltar-texto">conversa<'), 'sob a plataforma: o rótulo é "conversa"');
 ok(!sob.includes('meus assistentes'), 'sob a plataforma: sumiu "meus assistentes"');
 
 // {{CASCA}}: sob a plataforma o index.html carrega o cabeçalho e o menu da Conversa (casca.js)

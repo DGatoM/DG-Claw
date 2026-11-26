@@ -1,3 +1,10 @@
+// Local UI attributes carry catalogue keys so switching language preserves their elements.
+const dgAttrFull_operacoes = (nome,fonte) => { const api=globalThis.DGI18n; if(api && api.atributo) return api.atributo(nome,fonte); const escape=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); const token=api ? api.fragmento(fonte).match(/^<!--dg-i18n:([a-f0-9]{12})-->/) : null; return (token ? "data-dg-i18n-"+nome+"=\""+token[1]+"\" " : "")+nome+"=\""+escape(api ? api.t(fonte) : fonte)+"\""; };
+const dgHtmlFull_operacoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, "");
+const dgTextFull_operacoes = fonte => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.t(trecho)) : fonte;
+const dgPhraseFull_operacoes = (fonte, valores) => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.frase(trecho, valores)) : fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m,k) => valores && Object.hasOwn(valores,k) ? String(valores[k]) : m);
+const dgFragFull_operacoes = (fonte, valores) => globalThis.DGI18n ? globalThis.DGI18n.fragmento(fonte, valores) : dgPhraseFull_operacoes(fonte,valores).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;", "'":"&#39;"}[c]));
+const dgBindFull_operacoes = (el, fonte, atributo, valores) => { if (globalThis.DGI18n) return globalThis.DGI18n.rotulo(el,fonte,atributo,valores); const valor=dgPhraseFull_operacoes(fonte,valores); if(atributo) el.setAttribute(atributo,valor); else el.textContent=valor; };
 
 const dgTexto_operacoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 const dgHtml_operacoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
@@ -32,16 +39,16 @@ const dgHtml_operacoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
   // Texto livre (12/10/2026): marcas viram negrito/código/link pelo renderizador único; sem ele, escape.
   const rl = (t) => (window.DGMarkdown && window.DGMarkdown.ricoLinha ? window.DGMarkdown.ricoLinha(t) : esc(t));
   const COR_TEXTO = {
-    verde: dgTexto_operacoes('deu certo'),
+    verde: 'deu certo',
     vermelho: 'falhou',
-    amarelo: dgTexto_operacoes('pede atenção'),
-    cinza: dgTexto_operacoes('sem dado'),
+    amarelo: 'pede atenção',
+    cinza: 'sem dado',
   };
 
   const ESTADO_TEXTO = {
     ok: 'funcionando',
     falha: 'falhou',
-    atencao: dgTexto_operacoes('pede atenção'),
+    atencao: 'pede atenção',
     'sem-dado': 'sem dado ainda',
   };
 
@@ -60,10 +67,10 @@ const dgHtml_operacoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
   /** O texto do balão de UM quadradinho: quando, o resultado e o detalhe. */
   function textoDoQuadrado(q, porHora) {
     const partes = [];
-    if (porHora) partes.push(`${quando(q.em)} até ${horaCurta(q.ate || q.em)}`);
+    if (porHora) partes.push(dgPhraseFull_operacoes("{v0} até {v1}",{v0:(quando(q.em)),v1:(horaCurta(q.ate || q.em))}));
     else partes.push(quando(q.em));
     partes.push(q.titulo || COR_TEXTO[q.cor] || '');
-    if (q.duracao) partes.push(`levou ${q.duracao}`);
+    if (q.duracao) partes.push(dgPhraseFull_operacoes("levou {v0}",{v0:(q.duracao)}));
     let t = partes.filter(Boolean).join(' · ');
     if (q.detalhe) t += `\n${q.detalhe}`;
     return t;
@@ -76,23 +83,23 @@ const dgHtml_operacoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
     if (s.rodadas == null && s.falhas == null && s.avisos == null) return '';
     if (op.porHora) {
       const ruins = (s.falhas || 0) + (s.avisos || 0);
-      return ruins ? `nas últimas 48 h: ${s.falhas || 0} hora(s) com queda, ${s.avisos || 0} com reinício` : 'nas últimas 48 h: de pé o tempo todo';
+      return ruins ? dgPhraseFull_operacoes("nas últimas 48 h: {v0} hora(s) com queda, {v1} com reinício",{v0:(s.falhas || 0),v1:(s.avisos || 0)}) : dgTextFull_operacoes("nas últimas 48 h: de pé o tempo todo");
     }
     if (s.rodadas == null) return '';
     const partes = [`${s.rodadas.toLocaleString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'))} ${s.rodadas === 1 ? 'vez' : 'vezes'}`];
-    partes.push(s.falhas ? `${s.falhas} ${s.falhas === 1 ? 'falha' : 'falhas'}` : 'nenhuma falha');
-    if (s.faltas) partes.push(`${s.faltas} ${s.faltas === 1 ? 'vez que não rodou' : 'vezes que não rodou'}`);
-    if (s.avisos) partes.push(`${s.avisos} com aviso`);
-    return `nos últimos ${dias} dias: ${partes.join(', ')}`;
+    partes.push(s.falhas ? `${s.falhas} ${s.falhas === 1 ? 'falha' : 'falhas'}` : dgTextFull_operacoes("nenhuma falha"));
+    if (s.faltas) partes.push(`${s.faltas} ${s.faltas === 1 ? dgTextFull_operacoes("vez que não rodou") : dgTextFull_operacoes("vezes que não rodou")}`);
+    if (s.avisos) partes.push(dgPhraseFull_operacoes("{v0} com aviso",{v0:(s.avisos)}));
+    return dgPhraseFull_operacoes("nos últimos {v0} dias: {v1}",{v0:(dias),v1:(partes.join(', '))});
   }
 
   function balaoDoNome(op) {
     const linhas = [];
     if (op.oQueE) linhas.push(op.oQueE);
     if (op.praQueServe) linhas.push('', op.praQueServe);
-    if (op.cadencia) linhas.push('', `Com que frequência: ${op.cadencia}.`);
-    if (op.crit === 'alta') linhas.push('', 'É essencial: se esta cai, o agente para de responder.');
-    linhas.push('', `Nome no sistema: ${op.unit}`);
+    if (op.cadencia) linhas.push('', dgPhraseFull_operacoes("Com que frequência: {v0}.",{v0:(op.cadencia)}));
+    if (op.crit === 'alta') linhas.push('', dgTextFull_operacoes("É essencial: se esta cai, o agente para de responder."));
+    linhas.push('', dgPhraseFull_operacoes("Nome no sistema: {v0}",{v0:(op.unit)}));
     return linhas.join('\n').trim();
   }
 
@@ -100,7 +107,7 @@ const dgHtml_operacoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
   function fraseDo(op) {
     const f = String(op.frase || '');
     const m = f.match(/^de pé desde (\d{4}-\d{2}-\d{2}T[^ ]+)$/);
-    if (m) return `de pé desde ${quando(m[1])}`;
+    if (m) return dgPhraseFull_operacoes("de pé desde {v0}",{v0:(quando(m[1]))});
     return f;
   }
 
@@ -111,19 +118,19 @@ const dgHtml_operacoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
     const fileira = qs.length
       ? qs.map((q, i) => `<span class="opq ${esc(q.cor)}${q.falta ? ' falta' : ''}" data-i="${i}" title="${esc(textoDoQuadrado(q, op.porHora))}"></span>`).join('')
       : (historico && historico.disponivel === false
-        ? `<span class="opq-vazia" title="${esc(historico.motivo || '')}">não consegui ler o histórico</span>`
-        : '<span class="opq-vazia">sem histórico para mostrar</span>');
-    const crit = op.crit === 'alta' ? '<span class="op-essencial" title="Se esta cai, o agente para de responder.">essencial</span>' : '';
+        ? dgHtmlFull_operacoes(`<span class="opq-vazia" title="${esc(historico.motivo || '')}"><!--dg-i18n:ace333a42a71-->não consegui ler o histórico<!--/dg-i18n--></span>`)
+        : dgHtmlFull_operacoes(`<span class="opq-vazia"><!--dg-i18n:683fa0050c3b-->sem histórico para mostrar<!--/dg-i18n--></span>`));
+    const crit = op.crit === 'alta' ? dgHtmlFull_operacoes(`<span class="op-essencial" data-dg-i18n-title="23e946c2c3c9" title="Se esta cai, o agente para de responder.">essencial</span>`) : '';
     return `<div class="op-linha estado-${esc(op.estado)}" id="op-${esc(op.id)}" data-id="${esc(op.id)}">
       <div class="op-cabeca">
-        <span class="op-sinal ${esc(op.estado)}" title="${esc(ESTADO_TEXTO[op.estado] || op.estado)}" aria-hidden="true"></span>
+        <span class="op-sinal ${esc(op.estado)}" ${dgAttrFull_operacoes("title",ESTADO_TEXTO[op.estado] || op.estado)} aria-hidden="true"></span>
         <div class="op-textos">
           <div class="op-nome" title="${esc(balaoDoNome(op))}">${esc(op.nome)} ${crit}</div>
           <div class="op-quando">${rl([op.cadencia, fraseDo(op)].filter(Boolean).join(' · '))}</div>
         </div>
       </div>
       <div class="op-fileira" tabindex="0" role="group"
-           aria-label="${esc(`Últimas execuções de ${op.nome}. Use as setas para ver cada uma.`)}">${fileira}</div>
+           aria-label="${esc(dgPhraseFull_operacoes("Últimas execuções de {v0}. Use as setas para ver cada uma.",{v0:(op.nome)}))}">${fileira}</div>
       <div class="op-semana">${esc(textoDaSemana(op, dias))}</div>
       <div class="op-detalhe" aria-live="polite" hidden></div>
     </div>`;
@@ -182,20 +189,20 @@ const dgHtml_operacoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
     let frase = rl(r.frase || '');
     if (r.estado === 'atencao' && nomes.length) {
       const n = nomes.length;
-      frase = `${n} ${n === 1 ? 'operação pede' : 'operações pedem'} atenção: ${nomes.length === 1 ? nomes[0] : `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}`}`;
+      frase = dgPhraseFull_operacoes("{v0} {v1} atenção: {v2}",{v0:(n),v1:(n === 1 ? dgTextFull_operacoes("operação pede") : dgTextFull_operacoes("operações pedem")),v2:(nomes.length === 1 ? nomes[0] : dgPhraseFull_operacoes("{v0} e {v1}",{v0:(nomes.slice(0, -1).join(', ')),v1:(nomes[nomes.length - 1])}))});
     }
     const conta = r.total
-      ? `${r.verdes} de ${r.total} funcionando${r.semDado ? `, ${r.semDado} ainda sem dado` : ''}`
+      ? dgPhraseFull_operacoes("{v0} de {v1} funcionando{v2}",{v0:(r.verdes),v1:(r.total),v2:(r.semDado ? dgPhraseFull_operacoes(", {v0} ainda sem dado",{v0:(r.semDado)}) : '')})
       : '';
     el.className = `op-resumo ${esc(r.estado || '')}`;
-    el.innerHTML = `<span class="op-resumo-icone" aria-hidden="true">${icone}</span>
+    el.innerHTML = dgHtmlFull_operacoes(`<span class="op-resumo-icone" aria-hidden="true">${icone}</span>
       <div class="op-resumo-texto">
         <div class="op-resumo-frase">${frase}</div>
-        <div class="op-resumo-pe" title="A conta olha a ÚLTIMA execução de cada operação. Verde só conta quando rodou e deu certo; o que ainda não rodou fica de fora, em vez de contar como sucesso.">
+        <div class="op-resumo-pe" data-dg-i18n-title="758933d4104c" title="A conta olha a ÚLTIMA execução de cada operação. Verde só conta quando rodou e deu certo; o que ainda não rodou fica de fora, em vez de contar como sucesso.">
           ${esc(conta)}${r.motivo ? ` · ${rl(r.motivo)}` : ''} · conferido às ${esc(horaCurta(dados.geradoEm))}
         </div>
       </div>
-      <button type="button" class="btn-leve op-atualizar" title="Lê o diário do sistema de novo agora, em vez de esperar o próximo minuto.">atualizar</button>`;
+      <button type="button" class="btn-leve op-atualizar" data-dg-i18n-title="c914cdfa8549" title="Lê o diário do sistema de novo agora, em vez de esperar o próximo minuto."><!--dg-i18n:57b266ab39f8-->atualizar<!--/dg-i18n--></button>`);
     el.querySelectorAll('.op-ir').forEach((a) => a.addEventListener('click', (ev) => {
       ev.preventDefault();
       const alvo = document.getElementById(a.dataset.alvo);
@@ -240,8 +247,8 @@ const dgHtml_operacoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
       const c = r.corpo || {};
       resumo.className = 'op-resumo indisponivel';
       resumo.innerHTML = `<span class="op-resumo-icone" aria-hidden="true">?</span><div class="op-resumo-texto">
-        <div class="op-resumo-frase">${rl(c.error || 'Não consegui carregar as operações.')}</div>
-        <div class="op-resumo-pe">${rl(c.howToFix || 'Recarregue a página.')}</div></div>`;
+        <div class="op-resumo-frase">${rl(c.error || dgTextFull_operacoes("Não consegui carregar as operações."))}</div>
+        <div class="op-resumo-pe">${rl(c.howToFix || dgTextFull_operacoes("Recarregue a página."))}</div></div>`;
       if (!_ultima) grupos.innerHTML = '';
       return;
     }
@@ -250,8 +257,8 @@ const dgHtml_operacoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
     desenharResumo(resumo, dados);
     const dias = (dados.janela && dados.janela.dias) || 7;
     if (!(dados.grupos || []).length) {
-      grupos.innerHTML = '<div class="vazio-util">Nenhuma operação do sistema encontrada nesta máquina. '
-        + 'É o caso de um agente que ainda não passou pela instalação completa.</div>';
+      grupos.innerHTML = dgHtmlFull_operacoes(`<div class="vazio-util"><!--dg-i18n:24e10a94e301-->Nenhuma operação do sistema encontrada nesta máquina.<!--/dg-i18n--> `)
+        + dgHtmlFull_operacoes(`<!--dg-i18n:0299affb3c85-->É o caso de um agente que ainda não passou pela instalação completa.<!--/dg-i18n--></div>`);
       return;
     }
     grupos.innerHTML = dados.grupos.map((g) => `<section class="op-grupo">
@@ -269,8 +276,8 @@ const dgHtml_operacoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
    * porque estes títulos não existem no HTML para o mapa de lá achar.
    */
   function botaoAjuda(aba, chave) {
-    return `<button type="button" class="app-ajuda-secao" data-ajuda-aba="${aba}" data-ajuda-chave="${chave}"
-      aria-label="O que é esta seção" title="O que é esta seção, e como a conta é feita">?</button>`;
+    return dgHtmlFull_operacoes(`<button type="button" class="app-ajuda-secao" data-ajuda-aba="${aba}" data-ajuda-chave="${chave}"
+      data-dg-i18n-aria-label="315b034e11da" aria-label="O que é esta seção" data-dg-i18n-title="30981a31d202" title="O que é esta seção, e como a conta é feita">?</button>`);
   }
   function ligarAjudas(raiz) {
     raiz.querySelectorAll('[data-ajuda-aba]').forEach((b) => {
@@ -292,18 +299,18 @@ const dgHtml_operacoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fon
     const r = await API.operacoes(false);
     if (!r.ok) {
       el.className = 'home-operacoes indisponivel';
-      el.innerHTML = `<span class="hop-icone" aria-hidden="true">?</span> <span><b>Operações do sistema:</b> não consegui ler agora (${esc((r.corpo && r.corpo.error) || 'sem resposta')}).</span>`
-        + ' <a href="#" class="link-aba" data-ir-para="operations">ver Operações</a>';
+      el.innerHTML = dgHtmlFull_operacoes(`<span class="hop-icone" aria-hidden="true">?</span> <span><b><!--dg-i18n:946a3c13acd1-->Operações do sistema:<!--/dg-i18n--></b> ${dgFragFull_operacoes("não consegui ler agora ({v0}).",{v0:((r.corpo && r.corpo.error) || dgTextFull_operacoes("sem resposta"))})}</span>`)
+        + dgHtmlFull_operacoes(` <a href="#" class="link-aba" data-ir-para="operations"><!--dg-i18n:e29be789bd8a-->ver Operações<!--/dg-i18n--></a>`);
       return null;
     }
     const s = r.corpo.resumo || {};
     const icone = { ok: dsIcone('check'), atencao: dsIcone('alert'), 'sem-dado': '…', indisponivel: '?' }[s.estado] || '?';
-    const texto = s.estado === 'ok' ? 'tudo funcionando' : (s.frase || '').replace(/^./, (c) => c.toLowerCase());
+    const texto = s.estado === 'ok' ? dgTextFull_operacoes("tudo funcionando") : (s.frase || '').replace(/^./, (c) => c.toLowerCase());
     el.className = `home-operacoes ${esc(s.estado || '')}`;
-    el.title = 'As rotinas que mantêm ele de pé, a memória e a vigilância de custos. Verde quando a última execução de cada uma deu certo.';
-    el.innerHTML = `<span class="hop-icone" aria-hidden="true">${icone}</span> <span><b>Operações do sistema:</b> ${esc(texto)}</span>`
+    dgBindFull_operacoes(el,"As rotinas que mantêm ele de pé, a memória e a vigilância de custos. Verde quando a última execução de cada uma deu certo.","title",undefined);
+    el.innerHTML = dgHtmlFull_operacoes(`<span class="hop-icone" aria-hidden="true">${icone}</span> <span><b><!--dg-i18n:946a3c13acd1-->Operações do sistema:<!--/dg-i18n--></b> ${esc(texto)}</span>`)
       + botaoAjuda('status', 'operacoes')
-      + ' <a href="#" class="link-aba" data-ir-para="operations">ver Operações</a>';
+      + dgHtmlFull_operacoes(` <a href="#" class="link-aba" data-ir-para="operations"><!--dg-i18n:e29be789bd8a-->ver Operações<!--/dg-i18n--></a>`);
     ligarAjudas(el);
     return r.corpo;
   }

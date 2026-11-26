@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Leitor do histórico dos agentes (seção Logs do Admin). Sem HTTP: descobre os arquivos de sessão
 // (Claude em <casa>/.claude/projects, Codex em <casa>/.codex/sessions), lê de trás para frente sem
 // carregar o arquivo inteiro, junta tudo numa linha do tempo única e mascara o que sai.
@@ -626,7 +627,7 @@ function inteiro(v, min) { return Number.isSafeInteger(v) && v >= min; }
 /** Valida o cursor recebido. Hint inválido é descartado em silêncio; o resto inválido é erro 400. */
 function decodificaCursor(texto) {
   if (texto == null || texto === '') return null;
-  const ruim = (m) => new ErroEntrada(400, `O cursor "${String(texto).slice(0, 40)}" não vale (${m}). Peça a primeira página de novo, sem o parâmetro "cursor".`);
+  const ruim = (m) => new ErroEntrada(400, dgIdiomaBackend.mensagem("O cursor \"{p0}\" não vale ({p1}). Peça a primeira página de novo, sem o parâmetro \"cursor\".", {p0: (String(texto).slice(0, 40)), p1: (m)}));
   if (typeof texto !== 'string' || texto.length > TETO_CURSOR || !RX_CURSOR_TEXTO.test(texto)) throw ruim('formato ou tamanho');
   let o;
   try { o = JSON.parse(Buffer.from(texto, 'base64url').toString('utf8')); } catch (_) { throw ruim('não é JSON'); }
@@ -764,7 +765,7 @@ async function descobreFonte(fonte, lim) {
     try { d = await fsp.opendir(dir); } catch (e) {
       const relDir = path.relative(raizReal, dir) || '.';
       if (dir === raizReal) { saida.estado = 'ilegivel'; saida.motivo = `não consegui listar ${fonte.rotulo} (${e.code || e.message})`; return saida; }
-      aviso({ tipo: 'pasta_ilegivel', motivo: `não consegui listar a pasta (${e.code || e.message})`, arquivo: `${fonte.motor}:${relDir}` });
+      aviso({ tipo: 'pasta_ilegivel', motivo: dgIdiomaBackend.mensagem("não consegui listar a pasta ({p0})", {p0: (e.code || e.message)}), arquivo: `${fonte.motor}:${relDir}` });
       continue;
     }
     try {
@@ -791,14 +792,14 @@ async function descobreFonte(fonte, lim) {
         }
         if (!nomeValido(fonte.motor, ent.name)) continue;
         const rel = `${fonte.motor}:${fonte.prefixo || ''}${path.relative(raizReal, abs).split(path.sep).join('/')}`;
-        if (tipo !== 'f') { aviso({ tipo: 'arquivo_recusado', motivo: 'não é um arquivo regular', arquivo: rel }); continue; }
-        try { st = await fsp.lstat(abs); } catch (e) { aviso({ tipo: 'arquivo_ilegivel', motivo: `não consegui conferir o arquivo (${e.code || e.message})`, arquivo: rel }); continue; }
-        if (!st.isFile()) { aviso({ tipo: 'arquivo_recusado', motivo: 'não é um arquivo regular', arquivo: rel }); continue; }
-        if (st.nlink !== 1) { aviso({ tipo: 'arquivo_recusado', motivo: 'o arquivo tem mais de um nome no disco (hardlink); recusei por segurança', arquivo: rel }); continue; }
+        if (tipo !== 'f') { aviso({ tipo: 'arquivo_recusado', motivo: dgIdiomaBackend.mensagem("não é um arquivo regular"), arquivo: rel }); continue; }
+        try { st = await fsp.lstat(abs); } catch (e) { aviso({ tipo: 'arquivo_ilegivel', motivo: dgIdiomaBackend.mensagem("não consegui conferir o arquivo ({p0})", {p0: (e.code || e.message)}), arquivo: rel }); continue; }
+        if (!st.isFile()) { aviso({ tipo: 'arquivo_recusado', motivo: dgIdiomaBackend.mensagem("não é um arquivo regular"), arquivo: rel }); continue; }
+        if (st.nlink !== 1) { aviso({ tipo: 'arquivo_recusado', motivo: dgIdiomaBackend.mensagem("o arquivo tem mais de um nome no disco (hardlink); recusei por segurança"), arquivo: rel }); continue; }
         saida.arquivos.push(descreveArquivo(fonte, raizReal, abs, st));
       }
     } catch (e) {
-      aviso({ tipo: 'pasta_ilegivel', motivo: `a leitura da pasta parou (${e.code || e.message})`, arquivo: `${fonte.motor}:${path.relative(raizReal, dir) || '.'}` });
+      aviso({ tipo: 'pasta_ilegivel', motivo: dgIdiomaBackend.mensagem("a leitura da pasta parou ({p0})", {p0: (e.code || e.message)}), arquivo: `${fonte.motor}:${path.relative(raizReal, dir) || '.'}` });
     } finally {
       await d.close().catch(() => {});
     }
@@ -935,19 +936,19 @@ async function abrirSeguro(arq) {
   try {
     fh = await fsp.open(arq.abs, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
   } catch (e) {
-    if (e.code === 'ELOOP') throw new ErroArquivo('arquivo_recusado', 'o arquivo virou um atalho; recusei por segurança');
-    throw new ErroArquivo('arquivo_ilegivel', `não consegui abrir o arquivo (${e.code || e.message})`);
+    if (e.code === 'ELOOP') throw new ErroArquivo('arquivo_recusado', dgIdiomaBackend.mensagem("o arquivo virou um atalho; recusei por segurança"));
+    throw new ErroArquivo('arquivo_ilegivel', dgIdiomaBackend.mensagem("não consegui abrir o arquivo ({p0})", {p0: (e.code || e.message)}));
   }
   try {
     const st = await fh.stat();
-    if (!st.isFile()) throw new ErroArquivo('arquivo_recusado', 'não é um arquivo regular');
-    if (st.nlink !== 1) throw new ErroArquivo('arquivo_recusado', 'o arquivo tem mais de um nome no disco (hardlink); recusei por segurança');
+    if (!st.isFile()) throw new ErroArquivo('arquivo_recusado', dgIdiomaBackend.mensagem("não é um arquivo regular"));
+    if (st.nlink !== 1) throw new ErroArquivo('arquivo_recusado', dgIdiomaBackend.mensagem("o arquivo tem mais de um nome no disco (hardlink); recusei por segurança"));
     let alvo;
     try { alvo = await fsp.readlink(`/proc/self/fd/${fh.fd}`); } catch (e) {
-      throw new ErroArquivo('arquivo_recusado', `não consegui confirmar o caminho real do arquivo (/proc indisponível: ${e.code || e.message}); recusei por segurança`);
+      throw new ErroArquivo('arquivo_recusado', dgIdiomaBackend.mensagem("não consegui confirmar o caminho real do arquivo (/proc indisponível: {p0}); recusei por segurança", {p0: (e.code || e.message)}));
     }
     if (alvo.endsWith(' (deleted)')) alvo = alvo.slice(0, -10);
-    if (!(alvo === arq.raizReal || alvo.startsWith(arq.raizReal + path.sep))) throw new ErroArquivo('arquivo_recusado', 'o caminho real do arquivo fica fora da pasta do agente; recusei por segurança');
+    if (!(alvo === arq.raizReal || alvo.startsWith(arq.raizReal + path.sep))) throw new ErroArquivo('arquivo_recusado', dgIdiomaBackend.mensagem("o caminho real do arquivo fica fora da pasta do agente; recusei por segurança"));
     return { fh, size: st.size };
   } catch (e) {
     await fh.close().catch(() => {});
@@ -996,7 +997,7 @@ function comandoDeLista(c) {
 async function extraiClaude(j, leitor, soRes) {
   const tipoLinha = j.type;
   if (tipoLinha === 'system') {
-    if (!soRes && j.subtype === 'compact_boundary') return [{ tipo: 'sistema', papel: 'sistema', titulo: 'Conversa compactada', texto: '' }];
+    if (!soRes && j.subtype === 'compact_boundary') return [{ tipo: 'sistema', papel: 'sistema', titulo: dgIdiomaBackend.mensagem("Conversa compactada"), texto: '' }];
     return [];
   }
   if (tipoLinha !== 'user' && tipoLinha !== 'assistant') return [];
@@ -1007,7 +1008,7 @@ async function extraiClaude(j, leitor, soRes) {
   const out = [];
   const mensagem = (texto) => {
     if (typeof texto !== 'string' || !texto.trim()) return;
-    out.push({ tipo: 'mensagem', papel, titulo: papel === 'pessoa' ? 'Mensagem da pessoa' : papel === 'agente' ? 'Resposta do agente' : 'Instrução recebida', texto });
+    out.push({ tipo: 'mensagem', papel, titulo: papel === 'pessoa' ? dgIdiomaBackend.mensagem("Mensagem da pessoa") : papel === 'agente' ? dgIdiomaBackend.mensagem("Resposta do agente") : dgIdiomaBackend.mensagem("Instrução recebida"), texto });
   };
   if (typeof c === 'string') { if (!soRes) mensagem(c); return out; }
   if (!Array.isArray(c)) return [];
@@ -1030,7 +1031,7 @@ async function extraiClaude(j, leitor, soRes) {
         out.push({ tipo: 'comando', titulo: typeof entrada.description === 'string' && entrada.description ? entrada.description : 'Comando', comando: str(entrada.command), descricao: str(entrada.description), resultado });
       } else if (OPERACAO_ARQUIVO[b.name]) {
         const caminho = [entrada.file_path, entrada.notebook_path, entrada.path].find((v) => typeof v === 'string' && v) || '';
-        out.push({ tipo: 'arquivo', titulo: `${OPERACAO_ARQUIVO[b.name] === 'ler' ? 'Leu' : OPERACAO_ARQUIVO[b.name] === 'escrever' ? 'Escreveu' : 'Editou'} um arquivo`, caminho, operacao: OPERACAO_ARQUIVO[b.name], ferramenta: b.name, resultado });
+        out.push({ tipo: 'arquivo', titulo: dgIdiomaBackend.mensagem("{p0} um arquivo", {p0: (OPERACAO_ARQUIVO[b.name] === 'ler' ? 'Leu' : OPERACAO_ARQUIVO[b.name] === 'escrever' ? 'Escreveu' : 'Editou')}), caminho, operacao: OPERACAO_ARQUIVO[b.name], ferramenta: b.name, resultado });
       } else {
         out.push({ tipo: 'ferramenta', titulo: b.name, ferramenta: b.name, entrada, resultado });
       }
@@ -1046,8 +1047,8 @@ function ehContextoInjetado(texto) {
 
 function itemCodex(item, out) {
   switch (item && item.type) {
-    case 'UserMessage': { const t = textoDeBlocos(item.content); if (t.trim()) out.push({ tipo: 'mensagem', papel: 'pessoa', titulo: 'Mensagem da pessoa', texto: t }); break; }
-    case 'AgentMessage': { const t = textoDeBlocos(item.content); if (t.trim()) out.push({ tipo: 'mensagem', papel: 'agente', titulo: 'Resposta do agente', texto: t }); break; }
+    case 'UserMessage': { const t = textoDeBlocos(item.content); if (t.trim()) out.push({ tipo: 'mensagem', papel: 'pessoa', titulo: dgIdiomaBackend.mensagem("Mensagem da pessoa"), texto: t }); break; }
+    case 'AgentMessage': { const t = textoDeBlocos(item.content); if (t.trim()) out.push({ tipo: 'mensagem', papel: 'agente', titulo: dgIdiomaBackend.mensagem("Resposta do agente"), texto: t }); break; }
     case 'CommandExecution': {
       const erro = item.status === 'failed' || (typeof item.exit_code === 'number' && item.exit_code !== 0);
       out.push({ tipo: 'comando', titulo: 'Comando', comando: comandoDeLista(item.command), resultado: resultadoDe(item.aggregated_output, erro) });
@@ -1064,7 +1065,7 @@ function itemCodex(item, out) {
       let caminho = [item.path, item.file_path].find((v) => typeof v === 'string' && v) || '';
       if (!caminho && Array.isArray(item.changes) && item.changes[0]) caminho = str(item.changes[0].path);
       if (!caminho && item.changes && typeof item.changes === 'object' && !Array.isArray(item.changes)) caminho = Object.keys(item.changes)[0] || '';
-      out.push({ tipo: 'arquivo', titulo: 'Alterou um arquivo', caminho, operacao: 'alterar', ferramenta: 'FileChange', resultado: null });
+      out.push({ tipo: 'arquivo', titulo: dgIdiomaBackend.mensagem("Alterou um arquivo"), caminho, operacao: 'alterar', ferramenta: 'FileChange', resultado: null });
       break;
     }
     default: break;
@@ -1123,8 +1124,8 @@ function extraiCodex(j, leitor) {
   if (p.type === 'message') {
     const t = textoDeBlocos(p.content);
     if (!t.trim()) return [];
-    if (p.role === 'assistant') out.push({ tipo: 'mensagem', papel: 'agente', titulo: 'Resposta do agente', texto: t });
-    else if (p.role === 'user' && !ehContextoInjetado(t)) out.push({ tipo: 'mensagem', papel: 'pessoa', titulo: 'Mensagem da pessoa', texto: t });
+    if (p.role === 'assistant') out.push({ tipo: 'mensagem', papel: 'agente', titulo: dgIdiomaBackend.mensagem("Resposta do agente"), texto: t });
+    else if (p.role === 'user' && !ehContextoInjetado(t)) out.push({ tipo: 'mensagem', papel: 'pessoa', titulo: dgIdiomaBackend.mensagem("Mensagem da pessoa"), texto: t });
     for (const r of out) r.ded = { fam: 'ri', cls: `msg:${r.papel}`, key: chaveTexto(r.texto), t: null, id: null };
     return out;
   }
@@ -1137,7 +1138,7 @@ function extraiCodex(j, leitor) {
     if (nome === 'apply_patch') {
       const txt = typeof args === 'string' ? args : serializa(args && (args.input || args.patch));
       const m = RX_PATCH.exec(txt.length > BRUTO ? txt.slice(0, BRUTO) : txt);
-      out.push({ tipo: 'arquivo', titulo: 'Alterou um arquivo', caminho: m ? m[1].trim() : '', operacao: 'alterar', ferramenta: nome, resultado, ded: id ? { fam: 'ri', cls: 'tool', key: null, t: null, id } : undefined });
+      out.push({ tipo: 'arquivo', titulo: dgIdiomaBackend.mensagem("Alterou um arquivo"), caminho: m ? m[1].trim() : '', operacao: 'alterar', ferramenta: nome, resultado, ded: id ? { fam: 'ri', cls: 'tool', key: null, t: null, id } : undefined });
     } else if (NOMES_SHELL.has(nome) || nome === 'exec') {
       const cmd = args && typeof args === 'object' ? (comandoDeLista(args.command) || (str(args.cmd))) : (typeof args === 'string' ? args : '');
       // `exec` embrulha JavaScript com chamadas que não se comparam com segurança a um item: só o id pareia, senão ficam os dois.
@@ -1335,7 +1336,7 @@ class LeitorArquivo {
       const ini = this.pos - n;
       const b = Buffer.allocUnsafe(n);
       const lidos = await this._le(b, n, ini);
-      if (lidos < n) throw new ErroArquivo('arquivo_ilegivel', 'o arquivo encolheu durante a leitura (alguém o reescreveu)');
+      if (lidos < n) throw new ErroArquivo('arquivo_ilegivel', dgIdiomaBackend.mensagem("o arquivo encolheu durante a leitura (alguém o reescreveu)"));
       this.pos = ini;
       if (this.pulando) {
         const idx = b.lastIndexOf(10);
@@ -1519,7 +1520,7 @@ function novoCtx(opc) {
     /** Lista final de avisos: os guardados e, se passou do teto, uma linha dizendo quantos ficaram de fora. */
     avisosFinais() {
       if (!ctx.omitidos) return ctx.avisos;
-      return ctx.avisos.concat([{ tipo: 'avisos_omitidos', motivo: `mais ${ctx.omitidos} aviso(s) parecidos foram omitidos para a resposta não crescer sem limite` }]);
+      return ctx.avisos.concat([{ tipo: 'avisos_omitidos', motivo: dgIdiomaBackend.mensagem("mais {p0} aviso(s) parecidos foram omitidos para a resposta não crescer sem limite", {p0: (ctx.omitidos)}) }]);
     },
   };
   return ctx;
@@ -1575,7 +1576,7 @@ function criarLeitor({ log, agora, orcamento } = {}) {
     const todas = fontes.flatMap((f) => f.arquivos).sort((a, b) => b.mtimeMs - a.mtimeMs || (a.id < b.id ? -1 : 1));
     let ini = 0;
     if (cursor) {
-      if (!cursor.chave) throw new ErroEntrada(400, 'O cursor das sessões não tem posição. Peça a primeira página de novo, sem o parâmetro "cursor".');
+      if (!cursor.chave) throw new ErroEntrada(400, dgIdiomaBackend.mensagem("O cursor das sessões não tem posição. Peça a primeira página de novo, sem o parâmetro \"cursor\"."));
       ini = todas.findIndex((a) => a.mtimeMs < cursor.chave.t || (a.mtimeMs === cursor.chave.t && a.id > cursor.chave.f));
       if (ini < 0) ini = todas.length;
     }
@@ -1610,7 +1611,7 @@ function criarLeitor({ log, agora, orcamento } = {}) {
     if (f.sessao) {
       const alvo = String(f.sessao).toLowerCase();
       arqs = arqs.filter((a) => a.id === alvo || a.sessao === alvo);
-      if (!arqs.length) throw new ErroEntrada(404, `Não achei a sessão "${String(f.sessao).slice(0, 40)}" neste agente. Veja as sessões em /api/v1/logs/agentes/${ag.slug}/sessoes.`);
+      if (!arqs.length) throw new ErroEntrada(404, dgIdiomaBackend.mensagem("Não achei a sessão \"{p0}\" neste agente. Veja as sessões em /api/v1/logs/agentes/{p1}/sessoes.", {p0: (String(f.sessao).slice(0, 40)), p1: (ag.slug)}));
     }
     arqs.sort((a, b) => b.mtimeMs - a.mtimeMs || (a.id < b.id ? -1 : 1));
     if (ctx.desde > -Infinity) arqs = arqs.filter((a) => a.mtimeMs + FOLGA_MTIME >= ctx.desde);
@@ -1730,7 +1731,7 @@ function criarLeitor({ log, agora, orcamento } = {}) {
       const prev = Number.isFinite(idx) && idx > 0 ? arqsOrdem[idx - 1] : null;
       const cand = prev ? { m: prev.mtimeMs, id: prev.id } : null;
       if (!cand) gFinal = null; else if (!gFinal || ordemAntes(cand, gFinal)) gFinal = cand;
-      if (andamento.length > MAX_HINTS) ctx.avisa({ tipo: 'hints_omitidos', motivo: `${andamento.length - MAX_HINTS} arquivo(s) lidos pela metade não couberam no cursor e serão relidos do fim; a busca continua certa, só um pouco mais lenta` });
+      if (andamento.length > MAX_HINTS) ctx.avisa({ tipo: 'hints_omitidos', motivo: dgIdiomaBackend.mensagem("{p0} arquivo(s) lidos pela metade não couberam no cursor e serão relidos do fim; a busca continua certa, só um pouco mais lenta", {p0: (andamento.length - MAX_HINTS)}) });
     }
 
     const temMais = mais || parcial;
@@ -1746,7 +1747,7 @@ function criarLeitor({ log, agora, orcamento } = {}) {
       if (parcial && !mais && !emitidos.length && mesmoCursor(f.cursor, { chave: c, h, g: gFinal })) {
         proximo = null;
         semProgresso = true;
-        ctx.avisa({ tipo: 'sem_progresso', motivo: 'A busca não conseguiu avançar dentro do prazo (arquivos muito grandes ou o servidor ocupado), então parei em vez de repetir o mesmo pedido. Estreite o período ou o tipo nos filtros, ou tente de novo mais tarde.' });
+        ctx.avisa({ tipo: 'sem_progresso', motivo: dgIdiomaBackend.mensagem("A busca não conseguiu avançar dentro do prazo (arquivos muito grandes ou o servidor ocupado), então parei em vez de repetir o mesmo pedido. Estreite o período ou o tipo nos filtros, ou tente de novo mais tarde.") });
       }
     }
     if (!acabou && !temMais) aviso('aviso', 'Logs: a busca terminou sem motivo conhecido.');

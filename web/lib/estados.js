@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Estado de atenção de cada agente: o que o selo do menu e o aviso no celular precisam saber.
 //
 //   trabalhando      o runner diz que o agente está no meio de um turno
@@ -56,9 +57,9 @@ function estadoBase(agente, r) {
       if (e.statusReason === 'runner:sem-login') {
         return { estado: 'precisa_de_voce', motivo: 'login', resumo: 'falta conectar a conta', erro: null };
       }
-      return { estado: 'sem_sinal', motivo: null, resumo: null, erro: `O runner informa erro para ${agente.nome}${e.error ? `: ${resumoSeguro(e.error)}` : ''}. Veja o log do agente.` };
+      return { estado: 'sem_sinal', motivo: null, resumo: null, erro: dgIdiomaBackend.mensagem("O runner informa erro para {p0}{p1}. Veja o log do agente.", {p0: (agente.nome), p1: (e.error ? `: ${resumoSeguro(e.error)}` : '')}) };
     default:
-      return { estado: 'sem_sinal', motivo: null, resumo: null, erro: `O runner informa o status "${resumoSeguro(e.status)}" para ${agente.nome}, então não sei se ele está trabalhando.` };
+      return { estado: 'sem_sinal', motivo: null, resumo: null, erro: dgIdiomaBackend.mensagem("O runner informa o status \"{p0}\" para {p1}, então não sei se ele está trabalhando.", {p0: (resumoSeguro(e.status)), p1: (agente.nome)}) };
   }
 }
 
@@ -69,7 +70,7 @@ function criarEstados({ conversa, naoLidas, registro, log }) {
       return estadoBase(agente, await conversa.estado(agente));
     } catch (e) {
       log('erro', `Estado de ${agente.nome}: falha inesperada ao ler o runner (${e.message}). Marquei o agente como sem sinal.`);
-      return { estado: 'sem_sinal', motivo: null, resumo: null, erro: `Falha inesperada ao ler o estado de ${agente.nome} (${e.message}).` };
+      return { estado: 'sem_sinal', motivo: null, resumo: null, erro: dgIdiomaBackend.mensagem("Falha inesperada ao ler o estado de {p0} ({p1}).", {p0: (agente.nome), p1: (e.message)}) };
     }
   }
 

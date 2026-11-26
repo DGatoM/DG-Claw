@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Montagem da thread a partir do transcript (.jsonl) da sessão principal do agente.
 // Porta do scripts/_lib/thread_log.py, com leitura INCREMENTAL: cada arquivo guarda o
 // offset já lido e só o que cresceu é processado a cada chamada.
@@ -320,7 +321,7 @@ function lerIncremental({ estados, caminho, agente, novoEstado, processaLinha, a
   const chave = `${agente.slug}|${caminho}`;
   let st;
   try { st = fs.statSync(caminho); } catch (e) {
-    throw new Error(`Não consegui abrir o registro da conversa ${caminho} (${e.code || e.message}).`);
+    throw new Error(dgIdiomaBackend.mensagem("Não consegui abrir o registro da conversa {p0} ({p1}).", {p0: (caminho), p1: (e.code || e.message)}));
   }
   let estado = estados.get(chave);
   if (!estado || estado.ino !== st.ino || st.size < estado.offset) {

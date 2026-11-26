@@ -1,3 +1,4 @@
+const dgTextFull_markdown = fonte => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.t(trecho)) : fonte;
 // markdown.js — O renderizador de markdown do painel. UM SÓ, para os dois lados.
 //
 // POR QUE ELE SAIU DE DENTRO DO apps.js (26/08/2026). A página de compartilhar
@@ -206,7 +207,7 @@
         const tarefa = li[3].match(/^\[([ xX])\]\s+(.*)$/);
         if (tarefa) {
           const feita = tarefa[1] !== ' ';
-          saida.push(`<li class="md-tarefa${feita ? ' feita' : ''}"><input type="checkbox" disabled${feita ? ' checked' : ''} aria-label="${feita ? 'feito' : 'a fazer'}"> ${inline(tarefa[2])}`);
+          saida.push(`<li class="md-tarefa${feita ? ' feita' : ''}"><input type="checkbox" disabled${feita ? ' checked' : ''} aria-label="${feita ? 'feito' : dgTextFull_markdown("a fazer")}"> ${inline(tarefa[2])}`);
         } else {
           saida.push(`<li>${inline(li[3])}`);
         }

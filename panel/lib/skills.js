@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 /**
  * skills.js: lista as skills do agente, lendo as pastas `<dir>/<nome>/SKILL.md`.
  *
@@ -64,7 +65,7 @@ function listar(agentDir, extras) {
     try {
       entradas = fs.readdirSync(dir, { withFileTypes: true });
     } catch (e) {
-      infoPastas.push({ caminho: dir, existe: false, ...(e.code === 'ENOENT' ? {} : { erro: `não consegui abrir: ${e.message}` }) });
+      infoPastas.push({ caminho: dir, existe: false, ...(e.code === 'ENOENT' ? {} : { erro: dgIdiomaBackend.mensagem("não consegui abrir: {p0}", {p0: (e.message)}) }) });
       continue;
     }
     infoPastas.push({ caminho: dir, existe: true });

@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // O que o painel já mostrou do modal "Faça o login nos seus agentes", por usuário:
 //   { vistos: [<id do agente>], nao_mostrar_mais: true|false }
 // "vistos" são os agentes sem login que o modal já apresentou; ele não volta por causa deles. "nao_mostrar_mais"
@@ -28,11 +29,11 @@ function criarModalLoginPrefs({ arquivo, log }) {
     let novo;
     try {
       const j = JSON.parse(bruto);
-      if (!j || typeof j.usuarios !== 'object' || j.usuarios === null || Array.isArray(j.usuarios)) throw new Error('falta o campo "usuarios"');
+      if (!j || typeof j.usuarios !== 'object' || j.usuarios === null || Array.isArray(j.usuarios)) throw new Error(dgIdiomaBackend.mensagem("falta o campo \"usuarios\""));
       novo = {};
       for (const u of Object.keys(j.usuarios)) {
         const p = j.usuarios[u];
-        if (!p || typeof p !== 'object' || Array.isArray(p)) throw new Error(`a escolha de "${u}" não é um objeto`);
+        if (!p || typeof p !== 'object' || Array.isArray(p)) throw new Error(dgIdiomaBackend.mensagem("a escolha de \"{p0}\" não é um objeto", {p0: (u)}));
         novo[u] = { vistos: (Array.isArray(p.vistos) ? p.vistos : []).filter((x) => typeof x === 'string' && ID_OK.test(x)).slice(0, MAX_VISTOS), nao_mostrar_mais: p.nao_mostrar_mais === true };
       }
     } catch (e) {

@@ -146,6 +146,8 @@ function ancoras(texto) {
     if (l.codigo) continue;
     const h = /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(l.texto);
     if (h) {
+      const explicita = /\s+\{#([a-z0-9-]+)\}$/.exec(h[1]);
+      if (explicita) { set.add(explicita[1]); continue; }
       const s = slugDeTitulo(h[1]); const k = vistos.get(s) || 0; vistos.set(s, k + 1);
       set.add(k ? `${s}-${k}` : s);
     }

@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Quadro de avisos entre agentes (docs/QUADRO-DE-AVISOS.md é a especificação).
 //
 // Os agentes não se alcançam: quem leva os avisos é este módulo, que guarda o quadro num JSON do Web
@@ -305,7 +306,7 @@ function criarAvisos(opcoes) {
     }
     try {
       const d = JSON.parse(texto);
-      if (!d || d.versao !== 1 || !Array.isArray(d.avisos) || !Number.isInteger(d.proximo_id)) throw new Error('formato inesperado (esperava {versao:1, proximo_id, avisos:[...]})');
+      if (!d || d.versao !== 1 || !Array.isArray(d.avisos) || !Number.isInteger(d.proximo_id)) throw new Error(dgIdiomaBackend.mensagem("formato inesperado (esperava {versao:1, proximo_id, avisos:[...]})"));
       estado = d;
       erroCarga = null;
     } catch (e) {
@@ -325,7 +326,7 @@ function criarAvisos(opcoes) {
       fs.renameSync(tmp, arquivo);
     } catch (e) {
       try { fs.rmSync(tmp, { force: true }); } catch (_) { /* nada a limpar */ }
-      throw new Error(`Não consegui gravar o quadro de avisos em ${arquivo} (${e.code || e.message}). Confira o espaço e a permissão da pasta de dados; o aviso não foi guardado.`);
+      throw new Error(dgIdiomaBackend.mensagem("Não consegui gravar o quadro de avisos em {p0} ({p1}). Confira o espaço e a permissão da pasta de dados; o aviso não foi guardado.", {p0: (arquivo), p1: (e.code || e.message)}));
     }
     estado = novo;
   }
@@ -342,7 +343,7 @@ function criarAvisos(opcoes) {
   // ── Participantes ──
   function participantes() {
     const e = registro.estado();
-    if (!e.ok) throw Object.assign(new Error(`O registro de agentes não está legível (${e.erro}). Conserte o arquivo de agentes e tente de novo.`), { status: 503 });
+    if (!e.ok) throw Object.assign(new Error(dgIdiomaBackend.mensagem("O registro de agentes não está legível ({p0}). Conserte o arquivo de agentes e tente de novo.", {p0: (e.erro)})), { status: 503 });
     return e.agentes.filter((a) => a.tipo === 'agente');
   }
   const nomeDe = (lista) => (slug) => (slug === 'dono' ? 'Dono' : (lista.find((a) => a.slug === slug) || {}).nome || slug);
@@ -376,7 +377,7 @@ function criarAvisos(opcoes) {
     await Promise.all(lista.filter((a) => !alvos || alvos.includes(a.slug)).map(async (ag) => {
       if (!ag.home_host) {
         if (!jaAvisouSemCasa.has(ag.slug)) { jaAvisouSemCasa.add(ag.slug); log('aviso', `Quadro de avisos: o agente ${ag.slug} não tem home_host no registro, então o retrato dele não é gravado. Preencha home_host em agentes.json.`); }
-        r[ag.slug] = { erro: 'o agente não tem home_host no registro' };
+        r[ag.slug] = { erro: dgIdiomaBackend.mensagem("o agente não tem home_host no registro") };
         return;
       }
       try {
@@ -392,7 +393,7 @@ function criarAvisos(opcoes) {
 
   function comTimeout(promessa, ms, rotulo) {
     let t;
-    const limite = new Promise((_, rej) => { t = setTimeout(() => rej(new Error(`${rotulo} não respondeu em ${ms / 1000} s`)), ms); });
+    const limite = new Promise((_, rej) => { t = setTimeout(() => rej(new Error(dgIdiomaBackend.mensagem("{p0} não respondeu em {p1} s", {p0: (rotulo), p1: (ms / 1000)}))), ms); });
     return Promise.race([promessa, limite]).finally(() => clearTimeout(t));
   }
 
@@ -500,9 +501,9 @@ function criarAvisos(opcoes) {
   function inteiro(url, nome, min, max) {
     const v = url.searchParams.get(nome);
     if (v === null || v === '') return { valor: null };
-    if (!/^-?\d+$/.test(v)) return { erro: `${nome}: é um número inteiro. Recebi: ${JSON.stringify(v)}.` };
+    if (!/^-?\d+$/.test(v)) return { erro: dgIdiomaBackend.mensagem("{p0}: é um número inteiro. Recebi: {p1}.", {p0: (nome), p1: (JSON.stringify(v))}) };
     const n = Number(v);
-    if ((min !== undefined && n < min) || (max !== undefined && n > max)) return { erro: `${nome}: vai de ${min} a ${max}. Recebi: ${n}.` };
+    if ((min !== undefined && n < min) || (max !== undefined && n > max)) return { erro: dgIdiomaBackend.mensagem("{p0}: vai de {p1} a {p2}. Recebi: {p3}.", {p0: (nome), p1: (min), p2: (max), p3: (n)}) };
     return { valor: n };
   }
 
@@ -510,15 +511,15 @@ function criarAvisos(opcoes) {
     const v = url.searchParams.get(nome);
     if (!v) return { valor: null };
     const ms = leMomento(v);
-    if (ms === null) return { erro: `${nome}: use uma data AAAA-MM-DD ou um ISO completo (2026-10-05T15:59:00-03:00). Recebi: ${JSON.stringify(v)}.` };
+    if (ms === null) return { erro: dgIdiomaBackend.mensagem("{p0}: use uma data AAAA-MM-DD ou um ISO completo (2026-10-05T15:59:00-03:00). Recebi: {p1}.", {p0: (nome), p1: (JSON.stringify(v))}) };
     return { valor: ms };
   }
 
   function erroValidacao(res, erros) {
-    return H.erroJson(res, 400, `O aviso tem problema. ${Object.entries(erros).map(([c, m]) => `${c}: ${m}`).join(' ')}`, { erros });
+    return H.erroJson(res, 400, dgIdiomaBackend.mensagem("O aviso tem problema. {p0}", {p0: (Object.entries(erros).map(([c, m]) => `${c}: ${m}`).join(' '))}), { erros });
   }
 
-  const naoAchei = (res, id) => H.erroJson(res, 404, `Não existe aviso com id ${id}. Veja os que existem em GET /api/v1/avisos?desde=AAAA-MM-DD.`);
+  const naoAchei = (res, id) => H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe aviso com id {p0}. Veja os que existem em GET /api/v1/avisos?desde=AAAA-MM-DD.", {p0: (id)}));
 
   function responde(res, url, dados, texto, cabecalhos) {
     if (url.searchParams.get('formato') === 'texto') {
@@ -542,18 +543,18 @@ function criarAvisos(opcoes) {
     try {
       if (p === '/api/v1/avisos/docs.md' && m === 'GET') {
         const c = caminhoDocs();
-        if (!c) return H.erroJson(res, 404, 'O documento docs/QUADRO-DE-AVISOS.md não está na instalação. Reinstale o DG Claw para recuperá-lo.'), true;
+        if (!c) return H.erroJson(res, 404, dgIdiomaBackend.mensagem("O documento docs/QUADRO-DE-AVISOS.md não está na instalação. Reinstale o DG Claw para recuperá-lo.")), true;
         res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
         res.end(fs.readFileSync(c, 'utf8'));
         return true;
       }
       if (desligado()) {
-        H.erroJson(res, 503, 'O quadro de avisos está desligado neste servidor (DGCLAW_WEB_AVISOS=off). Para ligar, tire essa linha do web.env (ou ponha DGCLAW_WEB_AVISOS=on) e reinicie o dgclaw-web.');
+        H.erroJson(res, 503, dgIdiomaBackend.mensagem("O quadro de avisos está desligado neste servidor (DGCLAW_WEB_AVISOS=off). Para ligar, tire essa linha do web.env (ou ponha DGCLAW_WEB_AVISOS=on) e reinicie o dgclaw-web."));
         return true;
       }
       let quem;
       try { quem = quemChamou(sessao); } catch (e) {
-        H.erroJson(res, 503, `Não consegui saber quem chamou o quadro de avisos (${e.message}). Reinstale o DG Claw Web ou peça ao Admin para conferir a caixa dos agentes.`);
+        H.erroJson(res, 503, dgIdiomaBackend.mensagem("Não consegui saber quem chamou o quadro de avisos ({p0}). Reinstale o DG Claw Web ou peça ao Admin para conferir a caixa dos agentes.", {p0: (e.message)}));
         return true;
       }
       let lista;
@@ -562,7 +563,7 @@ function criarAvisos(opcoes) {
       const nome = nomeDe(lista);
       const slugs = lista.map((a) => a.slug);
       if (quem.tipo === 'agente' && !slugs.includes(quem.slug)) {
-        H.erroJson(res, 403, `O agente ${quem.slug} não participa do quadro de avisos (só agentes de trabalho participam, não o Admin).`);
+        H.erroJson(res, 403, dgIdiomaBackend.mensagem("O agente {p0} não participa do quadro de avisos (só agentes de trabalho participam, não o Admin).", {p0: (quem.slug)}));
         return true;
       }
       const visao = { quem, lista, nome, slugs, sessao };
@@ -570,7 +571,7 @@ function criarAvisos(opcoes) {
       if (p === '/api/v1/avisos') {
         if (m === 'POST') await rotaCria(req, res, visao);
         else if (m === 'GET') rotaLista(res, url, visao);
-        else H.erroJson(res, 405, 'Use GET para listar ou POST para postar um aviso.');
+        else H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use GET para listar ou POST para postar um aviso."));
         return true;
       }
       if (p === '/api/v1/avisos/injecao' && m === 'GET') { rotaInjecao(res, url, visao); return true; }
@@ -584,15 +585,15 @@ function criarAvisos(opcoes) {
       }
       if (mi && m === 'DELETE') { await rotaRetira(req, res, url, visao, Number(mi[1])); return true; }
       H.erroJson(res, mi || p === '/api/v1/avisos/injecao' || p === '/api/v1/avisos/preferencias' ? 405 : 404,
-        `Não existe a rota ${m} ${p} no quadro de avisos. Veja GET /api/v1/avisos/docs.md.`);
+        dgIdiomaBackend.mensagem("Não existe a rota {p0} {p1} no quadro de avisos. Veja GET /api/v1/avisos/docs.md.", {p0: (m), p1: (p)}));
       return true;
     } catch (e) {
       if (!res.headersSent) {
-        if (e.status === 413) H.erroJson(res, 413, `O corpo passou de ${MAX_CORPO} bytes. O aviso cabe em 280 caracteres; o detalhe vai num arquivo ou página, no 'link'.`);
+        if (e.status === 413) H.erroJson(res, 413, dgIdiomaBackend.mensagem("O corpo passou de {p0} bytes. O aviso cabe em 280 caracteres; o detalhe vai num arquivo ou página, no 'link'.", {p0: (MAX_CORPO)}));
         else if (e.status === 400) H.erroJson(res, 400, e.message);
         else {
           log('erro', `Quadro de avisos: ${m} ${p} falhou: ${e.stack || e.message}`);
-          H.erroJson(res, 503, `O quadro de avisos não conseguiu responder (${e.message}). Tente de novo; se repetir, peça ao Admin para conferir o log do dgclaw-web.`);
+          H.erroJson(res, 503, dgIdiomaBackend.mensagem("O quadro de avisos não conseguiu responder ({p0}). Tente de novo; se repetir, peça ao Admin para conferir o log do dgclaw-web.", {p0: (e.message)}));
         }
       }
       return true;
@@ -611,7 +612,7 @@ function criarAvisos(opcoes) {
       autor = 'dono';
     } else {
       if (corpo.agente !== undefined && corpo.agente !== null && corpo.agente !== '' && corpo.agente !== quem.slug) {
-        return H.erroJson(res, 403, `Esta caixa é do agente '${quem.slug}' e só posta aviso desse agente; veio agente ${JSON.stringify(corpo.agente)}. Tire o campo ou use '${quem.slug}'.`);
+        return H.erroJson(res, 403, dgIdiomaBackend.mensagem("Esta caixa é do agente '{p0}' e só posta aviso desse agente; veio agente {p1}. Tire o campo ou use '{p2}'.", {p0: (quem.slug), p1: (JSON.stringify(corpo.agente)), p2: (quem.slug)}));
       }
       autor = quem.slug;
     }
@@ -620,7 +621,7 @@ function criarAvisos(opcoes) {
     const { campos, erros, inexistentes } = validar(semAgente, { slugs });
     if (Object.keys(erros).length) return erroValidacao(res, erros);
     if (inexistentes.length) {
-      return H.erroJson(res, 404, `Não existe agente com o slug ${inexistentes.map((s) => `'${s}'`).join(', ')} no campo 'para'. Os que existem: ${slugs.join(', ')}.`);
+      return H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe agente com o slug {p0} no campo 'para'. Os que existem: {p1}.", {p0: (inexistentes.map((s) => `'${s}'`).join(', ')), p1: (slugs.join(', '))}));
     }
     if (!dono && campos.para.length === 1 && campos.para[0] === autor) {
       return erroValidacao(res, { para: 'um agente não endereça o aviso só a si mesmo. Use ["todos"] ou outro agente.' });
@@ -629,7 +630,7 @@ function criarAvisos(opcoes) {
       const velho = estado.avisos.find((x) => x.id === campos.substitui);
       if (!velho) return erroValidacao(res, { substitui: `não existe aviso ${campos.substitui}.` });
       if (!dono && velho.agente !== autor) {
-        return H.erroJson(res, 403, `O aviso ${velho.id} é de '${velho.agente}', e esta caixa é de '${autor}': ela só corrige os próprios avisos.`);
+        return H.erroJson(res, 403, dgIdiomaBackend.mensagem("O aviso {p0} é de '{p1}', e esta caixa é de '{p2}': ela só corrige os próprios avisos.", {p0: (velho.id), p1: (velho.agente), p2: (autor)}));
       }
       if (velho.substituido_por || velho.retirado_em) {
         const est = velho.substituido_por ? `já foi substituído pelo ${velho.substituido_por}` : 'foi retirado';
@@ -641,7 +642,7 @@ function criarAvisos(opcoes) {
       const ate = confereTaxa(autor, agoraMs);
       if (ate) {
         const seg = Math.max(1, Math.ceil((ate - agoraMs) / 1000));
-        return H.erroJson(res, 429, `O agente ${autor} passou do limite de ${LIMITE_HORA} avisos por hora e ${LIMITE_DIA} por dia. Poste de novo depois de ${iso(ate)} (em ${seg} s) e, até lá, junte o que tem a dizer num aviso só.`,
+        return H.erroJson(res, 429, dgIdiomaBackend.mensagem("O agente {p0} passou do limite de {p1} avisos por hora e {p2} por dia. Poste de novo depois de {p3} (em {p4} s) e, até lá, junte o que tem a dizer num aviso só.", {p0: (autor), p1: (LIMITE_HORA), p2: (LIMITE_DIA), p3: (iso(ate)), p4: (seg)}),
           { tente_em: iso(ate) }, { 'Retry-After': String(seg) });
       }
     }
@@ -674,7 +675,7 @@ function criarAvisos(opcoes) {
     if (!a) return naoAchei(res, id);
     const dono = quem.tipo === 'dono';
     if (!dono && a.agente !== quem.slug) {
-      return H.erroJson(res, 403, `O aviso ${id} é de '${a.agente}', e esta caixa é de '${quem.slug}': ela só retira os próprios avisos.`);
+      return H.erroJson(res, 403, dgIdiomaBackend.mensagem("O aviso {p0} é de '{p1}', e esta caixa é de '{p2}': ela só retira os próprios avisos.", {p0: (id), p1: (a.agente), p2: (quem.slug)}));
     }
     if (a.retirado_em) return H.enviaJson(res, 200, { ok: true, ja_estava: true, aviso: publico(a, nome, true) });
     let motivo = corpo.motivo || url.searchParams.get('motivo');
@@ -699,12 +700,12 @@ function criarAvisos(opcoes) {
     const tipos = csv(url, 'tipo');
     if (tipos) {
       const ruins = tipos.filter((t) => !TIPOS.includes(t));
-      if (ruins.length) return H.erroJson(res, 400, `tipo: não conheço ${ruins.join(', ')}. Use um ou mais (separados por vírgula) de: ${TIPOS.join(', ')}.`);
+      if (ruins.length) return H.erroJson(res, 400, dgIdiomaBackend.mensagem("tipo: não conheço {p0}. Use um ou mais (separados por vírgula) de: {p1}.", {p0: (ruins.join(', ')), p1: (TIPOS.join(', '))}));
     }
     const agentes = csv(url, 'agente');
     const excluir = csv(url, 'excluir_agente') || [];
     const paraSlug = url.searchParams.get('para');
-    if (paraSlug && !v.slugs.includes(paraSlug)) return H.erroJson(res, 404, `para: não existe agente '${paraSlug}'. Os que existem: ${v.slugs.join(', ')}.`);
+    if (paraSlug && !v.slugs.includes(paraSlug)) return H.erroJson(res, 404, dgIdiomaBackend.mensagem("para: não existe agente '{p0}'. Os que existem: {p1}.", {p0: (paraSlug), p1: (v.slugs.join(', '))}));
     const assunto = url.searchParams.get('assunto');
     const tag = url.searchParams.get('tag');
     const retirados = url.searchParams.get('incluir_retirados') === '1';
@@ -736,8 +737,8 @@ function criarAvisos(opcoes) {
   function rotaInjecao(res, url, v) {
     const { quem, nome } = v;
     const slug = quem.tipo === 'agente' ? quem.slug : url.searchParams.get('agente');
-    if (!slug) return H.erroJson(res, 400, 'agente: diga quem vai receber a injeção (?agente=marina). Os avisos dele ficam de fora; entram os dos outros.');
-    if (!v.slugs.includes(slug)) return H.erroJson(res, 404, `agente: não existe agente '${slug}' no quadro. Os que existem: ${v.slugs.join(', ')}.`);
+    if (!slug) return H.erroJson(res, 400, dgIdiomaBackend.mensagem("agente: diga quem vai receber a injeção (?agente=marina). Os avisos dele ficam de fora; entram os dos outros."));
+    if (!v.slugs.includes(slug)) return H.erroJson(res, 404, dgIdiomaBackend.mensagem("agente: não existe agente '{p0}' no quadro. Os que existem: {p1}.", {p0: (slug), p1: (v.slugs.join(', '))}));
     const d = momento(url, 'desde'); const di = inteiro(url, 'desde_id', 0); const mc = inteiro(url, 'max_chars', INJECAO_MIN, INJECAO_MAX);
     for (const x of [d, di, mc]) if (x.erro) return H.erroJson(res, 400, x.erro);
     const agoraMs = agora();

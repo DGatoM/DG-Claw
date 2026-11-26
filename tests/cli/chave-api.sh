@@ -14,6 +14,8 @@ fi
 APP="$DGCLAW_RAIZ/opt/dgclaw/app"
 mkdir -p "$APP/web"
 cp -r "$REPO/web/bin" "$REPO/web/lib" "$APP/web/"
+mkdir -p "$APP/web/public/ds"
+cp "$REPO/web/public/ds/idioma.js" "$REPO/web/public/ds/idiomas.js" "$APP/web/public/ds/"
 ARQ="$LIB/web/chaves-api.json"
 roda() { dgclaw "$@" </dev/null >"$TMP/o.txt" 2>"$TMP/e.txt"; }
 

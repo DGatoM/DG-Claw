@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 /**
  * rotinas.js: a agenda do agente, lida do systemd.
  *
@@ -46,7 +47,7 @@ function systemctl(args, timeout = 8000) {
     execFile('systemctl', args, { encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (!err) return resolve({ saida: stdout || '', falhou: false, motivo: null });
       if (err.code === 'ENOENT') {
-        return resolve({ saida: '', falhou: true, motivo: 'esta máquina não tem systemctl (o painel não está rodando num sistema com systemd)' });
+        return resolve({ saida: '', falhou: true, motivo: dgIdiomaBackend.mensagem("esta máquina não tem systemctl (o painel não está rodando num sistema com systemd)") });
       }
       // list-unit-files sem nenhum casamento sai com código 1 e stdout vazio: não é erro.
       if (err.code === 1 && !String(stderr || '').trim()) return resolve({ saida: stdout || '', falhou: false, motivo: null });
@@ -233,14 +234,14 @@ function listar(slug, workspace) {
   if (c && Date.now() - c.em < CACHE_LISTAR_MS) return c.promessa;
   const promessa = listarAgora(slug, workspace).catch((e) => ({
     rotinas: [], inconsistencias: [], total: 0,
-    erro: `nao consegui ler a agenda no systemd: ${e.message}`,
+    erro: dgIdiomaBackend.mensagem("nao consegui ler a agenda no systemd: {p0}", {p0: (e.message)}),
   }));
   _cacheListar.set(chave, { em: Date.now(), promessa });
   return promessa;
 }
 
 async function listarAgora(slug, workspace) {
-  if (!slug) return { rotinas: [], inconsistencias: [], erro: 'agente sem slug na config do painel' };
+  if (!slug) return { rotinas: [], inconsistencias: [], erro: dgIdiomaBackend.mensagem("agente sem slug na config do painel") };
 
   const lista = await systemctl(['list-unit-files', `dgclaw-${slug}-*.timer`, '--no-legend', '--no-pager']);
   if (lista.falhou) return { rotinas: [], inconsistencias: [], total: 0, erro: lista.motivo };

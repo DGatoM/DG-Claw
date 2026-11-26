@@ -1,5 +1,6 @@
 // Metadados do acervo, paginados sem ler bytes dos arquivos de mídia.
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 function cursor(a, t, ep, chave) { return Buffer.from(JSON.stringify([1, a, t, ep, chave])).toString('base64url'); }
 function decodifica(v, a, t) {
   if (!v) return null;
@@ -8,14 +9,14 @@ function decodifica(v, a, t) {
     const x = JSON.parse(Buffer.from(v, 'base64url'));
     if (x.length !== 5 || x[0] !== 1 || x[1] !== a || x[2] !== t || !Number.isFinite(x[3]) || x[3] < 0 || typeof x[4] !== 'string') throw Error();
     return { ep: x[3], chave: x[4] };
-  } catch (_) { throw new Error('Cursor inválido ou de outra conversa/aba. Reabra a lista para atualizar.'); }
+  } catch (_) { throw new Error(dgIdiomaBackend.mensagem("Cursor inválido ou de outra conversa/aba. Reabra a lista para atualizar.")); }
 }
 const cmp = (a, b) => a.ep - b.ep || (a.chave < b.chave ? -1 : a.chave > b.chave ? 1 : 0);
 function criarCompartilhados(conversa) {
   const cache = new Map();
   return async function pagina(agente, q) {
     const tipo = q.get('tipo'), limite = Number(q.get('limite') || 20);
-    if (!['midias', 'links', 'docs'].includes(tipo) || !Number.isInteger(limite) || limite < 1 || limite > 60) throw new Error('Informe tipo=midias|links|docs e limite entre 1 e 60.');
+    if (!['midias', 'links', 'docs'].includes(tipo) || !Number.isInteger(limite) || limite < 1 || limite > 60) throw new Error(dgIdiomaBackend.mensagem("Informe tipo=midias|links|docs e limite entre 1 e 60."));
     const antes = decodifica(q.get('cursor'), agente.slug, tipo), desde = decodifica(q.get('desde'), agente.slug, tipo);
     const tr = await conversa.thread(agente);
     const chave = agente.slug + '|' + tipo;

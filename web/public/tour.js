@@ -1,4 +1,6 @@
 'use strict';
+const dgUiText_tour_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiLabel_tour_js = (el, fonte, atributo) => { if (globalThis.DGI18n) globalThis.DGI18n.rotulo(el, fonte, atributo); else if (atributo) el.setAttribute(atributo, fonte); else el.textContent = fonte; };
 /* tour.js: visita guiada em JS puro, sem biblioteca.
 
    Uso: DGTour.inicia({ passos: [...], aoFechar: fn })
@@ -16,7 +18,10 @@
   function el(tag, id, texto) {
     const e = document.createElement(tag);
     if (id) e.id = id;
-    if (texto != null) e.textContent = texto;
+    if (texto != null) {
+      if (window.DGI18n) window.DGI18n.rotulo(e, texto);
+      else e.textContent = texto;
+    }
     return e;
   }
 
@@ -82,14 +87,15 @@
 
   function linha(rotulo, texto) {
     const p = el('p');
-    p.appendChild(el('b', null, rotulo + ' '));
-    p.appendChild(document.createTextNode(texto));
+    p.appendChild(el('b', null, rotulo));
+    p.appendChild(document.createTextNode(' '));
+    p.appendChild(el('span', null, texto));
     return p;
   }
 
-  function mostra(sentido) {
+  function mostra(sentido, traduzindo) {
     const passo = estado.passos[estado.i];
-    if (typeof passo.antes === 'function') {
+    if (!traduzindo && typeof passo.antes === 'function') {
       try { passo.antes(); } catch (e) { console.warn('tour: antes() falhou:', e); }
     }
     const alvo = alvoDe(passo);
@@ -109,27 +115,30 @@
       mostra(sentido);
       return;
     }
-    alvo.scrollIntoView({ block: 'nearest' });
+    if (!traduzindo) alvo.scrollIntoView({ block: 'nearest' });
     const total = estado.passos.length, ultimo = estado.i === total - 1;
     const cx = document.getElementById('tourCaixa');
     cx.textContent = '';
     cx.appendChild(el('h4', null, passo.titulo));
-    cx.appendChild(el('div', null, 'Passo ' + (estado.i + 1) + ' de ' + total)).className = 'tour-n';
-    cx.appendChild(linha('O que é:', passo.oque));
+    const contador = el('div');
+    if (window.DGI18n) window.DGI18n.rotulo(contador, 'Passo {atual} de {total}', null, { atual: estado.i + 1, total });
+    else contador.textContent = 'Passo ' + (estado.i + 1) + ' de ' + total;
+    cx.appendChild(contador).className = 'tour-n';
+    cx.appendChild(linha("O que é:", passo.oque));
     cx.appendChild(linha('Como funciona:', passo.como));
-    cx.appendChild(linha('Por que está aqui:', passo.porque));
+    cx.appendChild(linha("Por que está aqui:", passo.porque));
     const acoes = el('div');
     acoes.className = 'tour-acoes';
-    const bPular = el('button', 'tourPular', 'Pular');
+    const bPular = el('button', 'tourPular', "Pular");
     bPular.type = 'button';
     bPular.className = 'tour-x';
     bPular.onclick = fecha;
     bPular.hidden = ultimo;
-    const bAnt = el('button', 'tourAnterior', 'Anterior');
+    const bAnt = el('button', 'tourAnterior', "Anterior");
     bAnt.type = 'button';
     bAnt.disabled = estado.i === 0;
     bAnt.onclick = () => vai(-1);
-    const bProx = el('button', 'tourProximo', ultimo ? 'Concluir' : 'Próximo');
+    const bProx = el('button', 'tourProximo', ultimo ? "Concluir" : "Próximo");
     bProx.type = 'button';
     bProx.className = 'pri';
     bProx.onclick = () => (ultimo ? fecha() : vai(1));
@@ -138,7 +147,7 @@
     posiciona();
     // depois do rolar e do menu deslizar, a posição pode mudar
     setTimeout(posiciona, 330);
-    try { cx.focus({ preventScroll: true }); } catch (e) { cx.focus(); }
+    if (!traduzindo) { try { cx.focus({ preventScroll: true }); } catch (e) { cx.focus(); } }
   }
 
   function vai(sentido) {
@@ -161,7 +170,7 @@
     const cx = el('div', 'tourCaixa');
     cx.setAttribute('role', 'dialog');
     cx.setAttribute('aria-modal', 'true');
-    cx.setAttribute('aria-label', 'Visita guiada');
+    dgUiLabel_tour_js(cx, "Visita guiada", "aria-label");
     cx.tabIndex = -1;
     document.body.append(fundo, luz, cx);
     window.addEventListener('resize', posiciona);
@@ -170,4 +179,5 @@
   }
 
   window.DGTour = { inicia: inicia, fecha: fecha };
+  window.addEventListener('dgclaw:idioma', () => { if (estado) mostra(0, true); });
 })();

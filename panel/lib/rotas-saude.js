@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 // rotas-saude.js — As rotas da saúde do agente e da sessão de socorro.
 //
 // Moram fora do server.js de propósito: o server.js é o ponto onde várias frentes
@@ -75,7 +76,7 @@ module.exports = function registrarRotasDaSaude(router, { CONFIG, conversa, serv
         estado: 'indeterminado', tipo: 'desconhecido',
         frase: 'Não consegui conferir as respostas dele agora.', trecho: null, desde: null,
         ocorrencias: 0, recomendacao: 'esperar',
-        comoResolver: 'Espere um minuto. Se continuar, avise quem cuida do sistema.',
+        comoResolver: dgIdiomaBackend.texto("Espere um minuto. Se continuar, avise quem cuida do sistema."),
         sessionId: null, verificadoEm: new Date().toISOString(),
       };
     }
@@ -103,8 +104,8 @@ module.exports = function registrarRotasDaSaude(router, { CONFIG, conversa, serv
     } catch (err) {
       console.error(`[saude] reiniciar(${modo}) quebrou:`, err);
       res.status(500).json({
-        error: `Não consegui reiniciar: ${err.message}`,
-        howToFix: 'Tente de novo em um minuto. Se continuar, avise quem cuida do sistema: o registro do painel tem o detalhe.',
+        error: dgIdiomaBackend.mensagem("Não consegui reiniciar: {p0}", {p0: (err.message)}),
+        howToFix: dgIdiomaBackend.texto("Tente de novo em um minuto. Se continuar, avise quem cuida do sistema: o registro do painel tem o detalhe."),
       });
     }
   });
@@ -116,7 +117,7 @@ module.exports = function registrarRotasDaSaude(router, { CONFIG, conversa, serv
       res.json(socorro.estado(req.query.desde));
     } catch (err) {
       console.error('[socorro] estado falhou:', err);
-      res.status(500).json({ error: `Não consegui ler a sessão de socorro: ${err.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui ler a sessão de socorro: {p0}", {p0: (err.message)}) });
     }
   });
 
@@ -126,7 +127,7 @@ module.exports = function registrarRotasDaSaude(router, { CONFIG, conversa, serv
       res.status(r.status).json(r.corpo);
     } catch (err) {
       console.error('[socorro] mensagem falhou:', err);
-      res.status(500).json({ error: `Não consegui mandar a mensagem ao socorro: ${err.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui mandar a mensagem ao socorro: {p0}", {p0: (err.message)}) });
     }
   });
 
@@ -135,7 +136,7 @@ module.exports = function registrarRotasDaSaude(router, { CONFIG, conversa, serv
       res.json(socorro.encerrar());
     } catch (err) {
       console.error('[socorro] encerrar falhou:', err);
-      res.status(500).json({ error: `Não consegui encerrar a sessão de socorro: ${err.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui encerrar a sessão de socorro: {p0}", {p0: (err.message)}) });
     }
   });
 

@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 const fs = require('fs');
 const path = require('path');
 const { resolveStateFile } = require('../lib/extensions');
@@ -37,7 +38,7 @@ module.exports = function registrar(router, ctx) {
     // e lê-lo inteiro para mandar ao navegador só gasta a RAM do painel.
     try {
       if (fs.statSync(fullPath).size > TETO_LEITURA_BYTES) {
-        return res.status(413).json({ error: 'arquivo grande demais para abrir aqui', motivo: 'passa de 2 MB' });
+        return res.status(413).json({ error: dgIdiomaBackend.mensagem("arquivo grande demais para abrir aqui"), motivo: dgIdiomaBackend.mensagem("passa de 2 MB") });
       }
     } catch { /* ausente: o readFile abaixo devolve null e a rota responde 404 */ }
     const content = readFile(fullPath);

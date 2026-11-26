@@ -1,4 +1,5 @@
 'use strict';
+const dgUiText_ronda_comum_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 const dgTexto_ronda_comum = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* ronda-comum.js: o que a tela Segurança (seguranca.js) e o aviso único (seguranca-resumo.js) têm em comum.
 
@@ -38,7 +39,7 @@ const dgTexto_ronda_comum = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fon
 
   function dataBr(iso) {
     const p = partes(iso, { day: '2-digit', month: '2-digit', year: 'numeric' });
-    return p ? p.day + '/' + p.month + '/' + p.year : 'data não informada';
+    return p ? p.day + '/' + p.month + '/' + p.year : dgUiText_ronda_comum_js("data não informada");
   }
 
   /* "13h02" (ou "19h00"). */
@@ -66,13 +67,13 @@ const dgTexto_ronda_comum = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fon
   /* "Última ronda: hoje, 13h02. Próxima: 19h00." (a próxima só leva o dia quando não é hoje). */
   function resumoTopo(ronda, agora) {
     if (!ronda || ronda.nunca_rodou || !ronda.rodada_em) {
-      return 'A ronda de segurança ainda não rodou neste servidor. Ela roda sozinha; para rodar agora, peça ao Admin: sudo dgclaw seguranca rodar.';
+      return dgUiText_ronda_comum_js("A ronda de segurança ainda não rodou neste servidor. Ela roda sozinha; para rodar agora, peça ao Admin: sudo dgclaw seguranca rodar.");
     }
     const ref = typeof agora === 'number' ? agora : Date.now();
     let s = 'Última ronda: ' + quando(ronda.rodada_em, ref) + '.';
     if (ronda.proxima_em) {
       const d = diasDeDiferenca(ronda.proxima_em, ref);
-      s += ' Próxima: ' + (d === 0 ? horaBr(ronda.proxima_em) : quando(ronda.proxima_em, ref)) + '.';
+      s += dgUiText_ronda_comum_js(" Próxima: ") + (d === 0 ? horaBr(ronda.proxima_em) : quando(ronda.proxima_em, ref)) + '.';
     }
     return s;
   }
@@ -86,19 +87,19 @@ const dgTexto_ronda_comum = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fon
   function textoParcial(ronda) {
     if (!ronda || !ronda.parcial) return '';
     const fora = Array.isArray(ronda.fontes_fora) ? ronda.fontes_fora : [];
-    if (fora.length === 0) return 'Ronda parcial: alguma fonte ficou fora, então este resultado pode estar incompleto.';
-    if (fora.length === 1) return 'Ronda parcial: a fonte ' + fora[0] + ' ficou fora, então este resultado pode estar incompleto.';
-    return 'Ronda parcial: as fontes ' + lista(fora) + ' ficaram fora, então este resultado pode estar incompleto.';
+    if (fora.length === 0) return dgUiText_ronda_comum_js("Ronda parcial: alguma fonte ficou fora, então este resultado pode estar incompleto.");
+    if (fora.length === 1) return 'Ronda parcial: a fonte ' + fora[0] + dgUiText_ronda_comum_js(" ficou fora, então este resultado pode estar incompleto.");
+    return dgUiText_ronda_comum_js("Ronda parcial: as fontes ") + lista(fora) + dgUiText_ronda_comum_js(" ficaram fora, então este resultado pode estar incompleto.");
   }
 
   function textoVigia(ronda) {
     const v = ronda && ronda.vigia_alerta;
     if (!v) return '';
-    return 'A ronda automática falhou: ' + v.motivo + (v.quando ? ' (visto em ' + quando(v.quando, Date.now()) + ')' : '') +
-      ' Rode "sudo dgclaw seguranca rodar" no servidor ou peça ao Admin para ver o motivo.';
+    return dgUiText_ronda_comum_js("A ronda automática falhou: ") + v.motivo + (v.quando ? ' (visto em ' + quando(v.quando, Date.now()) + ')' : '') +
+      dgUiText_ronda_comum_js(" Rode \"sudo dgclaw seguranca rodar\" no servidor ou peça ao Admin para ver o motivo.");
   }
 
-  function gravidadeRotulo(sev) { return GRAVIDADE[sev] || 'Não informada'; }
+  function gravidadeRotulo(sev) { return dgUiText_ronda_comum_js(GRAVIDADE[sev]) || dgUiText_ronda_comum_js("Não informada"); }
 
   function linkHtml(url, rotulo) {
     if (!ehHttps(url)) return esc(url);
@@ -111,23 +112,23 @@ const dgTexto_ronda_comum = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fon
 
   /* Os fatos de uma falha, na ordem pedida: publicada em, gravidade, onde afeta, o que faz, como corrigir, fonte e notícia. */
   function fatosHtml(a) {
-    let h = fato('Publicada em', esc(a.publicado_em ? dataBr(a.publicado_em) : 'data não informada'), 'rp-f-data');
+    let h = fato('Publicada em', esc(a.publicado_em ? dataBr(a.publicado_em) : dgUiText_ronda_comum_js("data não informada")), 'rp-f-data');
     h += fato('Gravidade', esc(gravidadeRotulo(a.severidade)), 'rp-f-grav');
     if (a.onde && a.onde.length) h += fato('Onde afeta', a.onde.map(esc).join('<br>'), 'rp-f-onde');
-    h += fato('O que faz', esc(a.o_que_faz || 'A fonte oficial não descreve o impacto.'), 'rp-f-faz');
-    h += fato('Como corrigir', esc(a.como_corrigir || 'Ainda não há orientação publicada.'), 'rp-f-como');
+    h += fato('O que faz', esc(a.o_que_faz || dgUiText_ronda_comum_js("A fonte oficial não descreve o impacto.")), 'rp-f-faz');
+    h += fato('Como corrigir', esc(a.como_corrigir || dgUiText_ronda_comum_js("Ainda não há orientação publicada.")), 'rp-f-como');
     h += fato('Fonte oficial', linkHtml(a.fonte_url), 'rp-f-fonte');
-    if (a.noticia_url) h += fato('Notícia', linkHtml(a.noticia_url), 'rp-f-noticia');
+    if (a.noticia_url) h += fato(dgUiText_ronda_comum_js("Notícia"), linkHtml(a.noticia_url), 'rp-f-noticia');
     return '<dl class="rp-fatos">' + h + '</dl>';
   }
 
   function ehAtualizarDgclaw(a) { return !!(a && a.correcao && a.correcao.tipo === 'atualizar-dgclaw'); }
 
   function textoDoPedidoAtualizar(a) {
-    return 'Quero instalar a atualização de segurança do DG Claw (achado ' + a.id + ').';
+    return dgUiText_ronda_comum_js("Quero instalar a atualização de segurança do DG Claw (achado ") + a.id + ').';
   }
 
-  function avisoReinicio(a) { return a && a.correcao && a.correcao.exige_reinicio ? AVISO_REINICIO_CERTO : AVISO_REINICIO; }
+  function avisoReinicio(a) { return a && a.correcao && a.correcao.exige_reinicio ? dgUiText_ronda_comum_js(AVISO_REINICIO_CERTO) : dgUiText_ronda_comum_js(AVISO_REINICIO); }
 
   /* A correção pode ser pedida pelo painel? (o servidor confere de novo). */
   function podeAplicar(a) { return !!(a && (a.estado === 'aberto' || a.estado === 'agendado') && a.correcao && a.correcao.disponivel && a.correcao.executavel); }
@@ -137,22 +138,22 @@ const dgTexto_ronda_comum = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fon
 
   function textoDoPedidoAoAdmin(a) {
     if (ehAtualizarDgclaw(a)) return textoDoPedidoAtualizar(a);
-    return 'Quero aplicar a correção de segurança ' + a.id + ' (atualização do pacote ' + (a.componente || 'afetado') + '). Analise antes e me diga se vai reiniciar algum serviço.';
+    return dgUiText_ronda_comum_js("Quero aplicar a correção de segurança ") + a.id + dgUiText_ronda_comum_js(" (atualização do pacote ") + (a.componente || 'afetado') + dgUiText_ronda_comum_js("). Analise antes e me diga se vai reiniciar algum serviço.");
   }
 
   const ROTULO_ESTADO = {
-    'aplicado-sozinho': dgTexto_ronda_comum('Aplicado sozinho'), 'aplicado-pelo-dono': 'Aplicado por você', mitigado: 'Mitigado', agendado: 'Agendado', aberto: 'Aberto',
+    'aplicado-sozinho': 'Aplicado sozinho', 'aplicado-pelo-dono': 'Aplicado por você', mitigado: 'Mitigado', agendado: 'Agendado', aberto: 'Aberto',
     'protegido-aguardando': 'Protegido, aguardando correção oficial', 'aguardando-fornecedor': 'Aguardando correção do fornecedor',
   };
   /* Sem correção instalável: informativo, nunca entra na lista de pontos em risco nem pede decisão. */
   function aguardaCorrecao(a) { return !!a && (a.estado === 'protegido-aguardando' || a.estado === 'aguardando-fornecedor'); }
-  function estadoRotulo(e) { return ROTULO_ESTADO[e] || 'Aberto'; }
+  function estadoRotulo(e) { return dgUiText_ronda_comum_js(ROTULO_ESTADO[e]) || 'Aberto'; }
 
   /* "Aplicado sozinho em hoje, 13h02: <antes> para <depois>". */
   function textoAplicado(a, agora) {
     const ap = a.aplicado || {};
     let s = estadoRotulo(a.estado) + (ap.em ? ', ' + quando(ap.em, agora) : '') + '.';
-    if (ap.antes || ap.depois) s += ' Antes: ' + (ap.antes || 'não registrado') + '. Depois: ' + (ap.depois || 'não registrado') + '.';
+    if (ap.antes || ap.depois) s += dgUiText_ronda_comum_js(" Antes: ") + (ap.antes || dgUiText_ronda_comum_js("não registrado")) + dgUiText_ronda_comum_js('. Depois: ') + (ap.depois || dgUiText_ronda_comum_js("não registrado")) + '.';
     return s;
   }
 
@@ -202,7 +203,7 @@ const dgTexto_ronda_comum = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fon
   function abertura(publicadoEm, agora) {
     const t = Date.parse(publicadoEm);
     const ref = typeof agora === 'number' ? agora : Date.now();
-    if (!Number.isNaN(t) && ref - t < QUARENTA_E_OITO_H) return 'Nas últimas horas';
+    if (!Number.isNaN(t) && ref - t < QUARENTA_E_OITO_H) return dgUiText_ronda_comum_js("Nas últimas horas");
     return 'Em ' + dataBr(publicadoEm);
   }
 
@@ -212,33 +213,33 @@ const dgTexto_ronda_comum = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fon
   function textoBoletim(b, agora) {
     const ini = abertura(b.publicado_em, agora) + ' foi identificada uma vulnerabilidade em uma das ferramentas que o sistema usa: ' + b.componente + '.';
     if (b.acao === 'atualizar-dgclaw') {
-      return ini + ' A correção já foi publicada pela equipe oficial dela. Para aplicar, basta clicar em Atualizar abaixo, e o seu sistema vai para a versão com essa correção. É muito importante que você atualize.';
+      return ini + dgUiText_ronda_comum_js(" A correção já foi publicada pela equipe oficial dela. Para aplicar, basta clicar em Atualizar abaixo, e o seu sistema vai para a versão com essa correção. É muito importante que você atualize.");
     }
     if (b.acao === 'atualizar-sistema') {
-      return ini + ' A correção já foi publicada pela equipe oficial dela. Para aplicar, clique em Atualizar abaixo e o Admin atualiza os pacotes do servidor com você. Depois de aplicar, o Admin confirma e o aviso some.';
+      return ini + dgUiText_ronda_comum_js(" A correção já foi publicada pela equipe oficial dela. Para aplicar, clique em Atualizar abaixo e o Admin atualiza os pacotes do servidor com você. Depois de aplicar, o Admin confirma e o aviso some.");
     }
-    if (b.acao === 'parar-servico') return ini + ' A correção ainda não saiu. Enquanto isso, veja abaixo o que fazer.';
-    return ini + ' A correção ainda não saiu. Não há nada a fazer agora além de acompanhar; o aviso sai da frente sozinho quando ela chegar.';
+    if (b.acao === 'parar-servico') return ini + dgUiText_ronda_comum_js(" A correção ainda não saiu. Enquanto isso, veja abaixo o que fazer.");
+    return ini + dgUiText_ronda_comum_js(" A correção ainda não saiu. Não há nada a fazer agora além de acompanhar; o aviso sai da frente sozinho quando ela chegar.");
   }
 
   function textoDoPedidoBoletim(b) {
     return b.acao === 'atualizar-sistema'
-      ? 'Quero aplicar a atualização de segurança do servidor (boletim ' + b.id + '). Depois de aplicar, confirme que o aviso pode sumir.'
-      : 'Quero instalar a atualização de segurança do DG Claw (boletim ' + b.id + ').';
+      ? dgUiText_ronda_comum_js("Quero aplicar a atualização de segurança do servidor (boletim ") + b.id + dgUiText_ronda_comum_js("). Depois de aplicar, confirme que o aviso pode sumir.")
+      : dgUiText_ronda_comum_js("Quero instalar a atualização de segurança do DG Claw (boletim ") + b.id + ').';
   }
 
   function fatosBoletimHtml(b) {
     let h = fato('Publicada em', esc(dataBr(b.publicado_em)), 'rp-f-data');
     h += fato('Gravidade', esc(gravidadeRotulo(b.severidade)), 'rp-f-grav');
     h += fato('Fonte oficial', linkHtml(b.fonte_url), 'rp-f-fonte');
-    if (b.noticia_url) h += fato('Notícia', linkHtml(b.noticia_url), 'rp-f-noticia');
+    if (b.noticia_url) h += fato(dgUiText_ronda_comum_js("Notícia"), linkHtml(b.noticia_url), 'rp-f-noticia');
     if (b.o_que_muda) h += fato('O que muda', esc(b.o_que_muda), 'rp-f-muda');
     return '<dl class="rp-fatos">' + h + '</dl>';
   }
 
   /* ── conversa com a API ─────────────────────────────────────────────────── */
   function msgHttp(r, json) {
-    return (json && json.erro) || ('O servidor respondeu ' + r.status + '. Atualize a página e tente de novo.');
+    return (json && json.erro) || ('O servidor respondeu ' + r.status + dgUiText_ronda_comum_js('. Atualize a página e tente de novo.'));
   }
 
   /* GET ou POST JSON. Devolve { ok:true, json } ou { ok:false, erro, status }. */
@@ -250,7 +251,7 @@ const dgTexto_ronda_comum = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fon
       r = await fetchFn(url, op);
       try { json = await r.json(); } catch (e) { json = null; }
     } catch (e) {
-      return { ok: false, status: 0, erro: 'Não consegui falar com o servidor (' + e.message + '). Confira a conexão e tente de novo.' };
+      return { ok: false, status: 0, erro: dgUiText_ronda_comum_js("Não consegui falar com o servidor (") + e.message + dgUiText_ronda_comum_js("). Confira a conexão e tente de novo.") };
     }
     if (!r.ok) return { ok: false, status: r.status, erro: msgHttp(r, json) };
     return { ok: true, json: json || {} };
@@ -278,7 +279,7 @@ const dgTexto_ronda_comum = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fon
         return { ok: res.ok === true, mensagem: res.mensagem || '', dados: r.json.dados || null };
       }
       if (relogio() - inicio >= (o.maxMs || SONDA_MAX_MS)) {
-        return { ok: false, mensagem: 'O servidor não respondeu em 2 minutos. O pedido pode ainda ser executado: confira a tela em instantes. Se nada mudar, o executor não está rodando; peça ao Admin: systemctl status dgclaw-seguranca-pedidos.path' };
+        return { ok: false, mensagem: dgUiText_ronda_comum_js("O servidor não respondeu em 2 minutos. O pedido pode ainda ser executado: confira a tela em instantes. Se nada mudar, o executor não está rodando; peça ao Admin: systemctl status dgclaw-seguranca-pedidos.path") };
       }
       n += 1;
       if (o.aoProgresso) o.aoProgresso(rotulo + '… (' + n * (SONDA_CADA_MS / 1000) + ' s)');
@@ -290,8 +291,8 @@ const dgTexto_ronda_comum = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fon
   async function pedirEEsperar(fetchFn, url, corpo, o) {
     const p = await chama(fetchFn, 'POST', url, corpo);
     if (!p.ok) return { ok: false, mensagem: p.erro };
-    if (!p.json.pedido) return { ok: false, mensagem: 'O servidor aceitou, mas não devolveu o número do pedido. Atualize a página e confira o estado.' };
-    return sondar(p.json.pedido, Object.assign({ fetchFn, rotulo: PEDIDO_ROTULO[p.json.tipo] }, o || {}));
+    if (!p.json.pedido) return { ok: false, mensagem: dgUiText_ronda_comum_js("O servidor aceitou, mas não devolveu o número do pedido. Atualize a página e confira o estado.") };
+    return sondar(p.json.pedido, Object.assign({ fetchFn, rotulo: dgUiText_ronda_comum_js(PEDIDO_ROTULO[p.json.tipo]) }, o || {}));
   }
 
   const urlAchado = (id, acao) => API + '/ronda/' + encodeURIComponent(id) + '/' + acao;

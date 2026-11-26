@@ -1,0 +1,5 @@
+{
+  "voltar para a conversa": "back to the conversation",
+  "conversa": "conversation",
+  "Rode \"node panel/bin/senha-hash.js\" (ele pede a senha sem mostrar na tela e imprime uma linha começando por scrypt$), ponha essa linha em DGCLAW_PANEL_PASSWORD_HASH no ambiente da unidade do painel e reinicie o painel.": "Run \"node panel/bin/senha-hash.js\" (it asks for the password without displaying it and prints a line beginning with scrypt$), put that line in DGCLAW_PANEL_PASSWORD_HASH in the panel unit's environment, and restart the panel."
+}

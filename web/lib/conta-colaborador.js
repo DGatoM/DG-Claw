@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Conta de IA do agente conectada pelo colaborador (web/docs/COLABORADORES.md, "Se o agente ainda não tem IA conectada").
 //
 // O escopo (escopo.js) deixa o colaborador do próprio slug chegar às rotas /api/v1/agents/<dele>/login*. O portão de
@@ -53,7 +54,7 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
     if (st.mtimeMs === mtimeVisto) return;
     try {
       const j = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
-      if (!j || typeof j !== 'object' || !j.agentes || typeof j.agentes !== 'object' || Array.isArray(j.agentes)) throw new Error('o conteúdo não tem o objeto "agentes"');
+      if (!j || typeof j !== 'object' || !j.agentes || typeof j.agentes !== 'object' || Array.isArray(j.agentes)) throw new Error(dgIdiomaBackend.mensagem("o conteúdo não tem o objeto \"agentes\""));
       regs = j.agentes;
       ilegivel = null;
     } catch (e) {
@@ -74,7 +75,7 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
       mtimeVisto = fs.statSync(arquivo).mtimeMs;
     } catch (e) {
       try { fs.unlinkSync(tmp); } catch (_) { /* o temporário nem chegou a existir */ }
-      throw new Error(`não consegui gravar ${arquivo} (${e.code || e.message})`);
+      throw new Error(dgIdiomaBackend.mensagem("não consegui gravar {p0} ({p1})", {p0: (arquivo), p1: (e.code || e.message)}));
     }
   }
 
@@ -82,7 +83,7 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
   function grava(mudancas) {
     const p = filaGrava.then(() => {
       carrega();
-      if (ilegivel) throw new Error(`o arquivo está ilegível (${ilegivel})`);
+      if (ilegivel) throw new Error(dgIdiomaBackend.mensagem("o arquivo está ilegível ({p0})", {p0: (ilegivel)}));
       // Muda uma cópia e só adota depois de gravar: com disco cheio a memória não pode ficar "já apagada".
       const copia = Object.assign({}, regs);
       for (const [k, v] of Object.entries(mudancas)) { if (v === undefined) delete copia[k]; else copia[k] = v; }
@@ -140,8 +141,8 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
   // ── o que a consulta ao runner quer dizer ───────────────────────────────────
   /** 'sem_conta' | 'conectado' | 'expirado' | 'chave_api' | 'duvida'. Qualquer lacuna na informação é 'duvida'. */
   function situacao(c) {
-    if (!c.est.ok) return { tipo: 'duvida', motivo: 'não consegui ver o estado do agente' };
-    if (!c.prov.auth) return { tipo: 'duvida', motivo: 'o agente não respondeu sobre a forma de pagamento da IA' };
+    if (!c.est.ok) return { tipo: 'duvida', motivo: dgIdiomaBackend.mensagem("não consegui ver o estado do agente") };
+    if (!c.prov.auth) return { tipo: 'duvida', motivo: dgIdiomaBackend.mensagem("o agente não respondeu sobre a forma de pagamento da IA") };
     if (usaChaveDeApi(c.prov.auth)) return { tipo: 'chave_api' };
     const { status, statusReason } = c.est.estado;
     if (status === 'errored' && statusReason === 'runner:login-expirado') return { tipo: 'expirado' };
@@ -149,13 +150,13 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
     // "Sem conta" exige a prova da conferência (`ok:false` com `motivo:'sem_credencial'`). O estado operacional do agente
     // (`runner:sem-login`) sozinho nunca autoriza: com a conferência inconclusiva ou contraditória é dúvida.
     if (status === 'errored' && statusReason === 'runner:sem-login' && conf && conf.ok === true) {
-      return { tipo: 'duvida', motivo: 'o agente deu sinais contraditórios sobre a conta' };
+      return { tipo: 'duvida', motivo: dgIdiomaBackend.mensagem("o agente deu sinais contraditórios sobre a conta") };
     }
     // `ok:false` também sai quando o CLI demora, responde algo ilegível ou usa outro método: isso NÃO prova que falta conta.
     // Só o runner dizendo `motivo:'sem_credencial'` prova (runner antigo, sem o campo, cai na dúvida).
     if (conf && conf.ok === false && conf.motivo === 'sem_credencial') return { tipo: 'sem_conta' };
     if (conf && conf.ok === true) return { tipo: 'conectado' };
-    return { tipo: 'duvida', motivo: 'o agente não confirmou se a conta está conectada' };
+    return { tipo: 'duvida', motivo: dgIdiomaBackend.mensagem("o agente não confirmou se a conta está conectada") };
   }
 
   /**
@@ -166,7 +167,7 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
 
   /** Como situacaoPara, mas só vale com a conferência refeita sem cache (`c` vem de login.consultarFresco). */
   function situacaoFresca(c, agente, q) {
-    if (!c.fresco) return { tipo: 'duvida', atualizar: true, motivo: 'o programa deste agente é de uma versão antiga e não refaz a conferência na hora' };
+    if (!c.fresco) return { tipo: 'duvida', atualizar: true, motivo: dgIdiomaBackend.mensagem("o programa deste agente é de uma versão antiga e não refaz a conferência na hora") };
     return situacaoPara(c);
   }
 
@@ -476,7 +477,7 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
           } catch (e) { mot = e.message; cc = null; }
           let sit = null;
           if (cc) {
-            sit = cc.fresco ? situacao(cc) : { tipo: 'duvida', motivo: 'o runner é de versão antiga e não refaz a conferência na hora' };
+            sit = cc.fresco ? situacao(cc) : { tipo: 'duvida', motivo: dgIdiomaBackend.mensagem("o runner é de versão antiga e não refaz a conferência na hora") };
             if (sit.tipo === 'duvida') { mot = sit.motivo; sit = null; }
           }
           return { c: cc, situ: sit, motivo: mot };

@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // O Web guarda o pedido; somente o Admin executa a criação pela CLI existente.
 const fs = require('node:fs');
 const path = require('node:path');
@@ -281,23 +282,23 @@ function criarOnboarding({ config, registro, conversa, midia, log = () => {}, im
     const p = anterior || { id: body.id, criado: new Date().toISOString(), nome, papel, jeito, dono, slug, foto, fotoPath, provedor: admin.provedor === 'codex' ? 'codex' : 'claude' };
     ocupado = true;
     try {
-      db.gravar({ ...p, fase: 'enviando', mensagem: 'Enviando suas escolhas ao Admin.' });
+      db.gravar({ ...p, fase: 'enviando', mensagem: dgIdiomaBackend.mensagem("Enviando suas escolhas ao Admin.") });
       // As escolhas ficam no JSON do pedido e nunca viram código de shell.
       const texto = '[do visual Criar meu agente] Quero criar meu agente com estas escolhas: ' +
         'Pode me chamar de ' + p.dono + '. Nome: ' + p.nome + '. Função: ' + p.papel + '. Tom: ' + p.jeito + '. ' +
         (p.foto ? 'Escolhi a foto em anexo.' : 'Pode usar o avatar neutro.') + ' Confirmo a criação pelo formulário do painel.';
       const r = await conversa.enviar(admin, { text: texto, anexos: p.foto ? [p.foto] : [] });
       if (r.status >= 300) {
-        db.gravar({ ...p, fase: 'erro-envio', mensagem: 'O pedido não chegou ao Admin. Confira a conexão e tente enviar novamente.' });
+        db.gravar({ ...p, fase: 'erro-envio', mensagem: dgIdiomaBackend.mensagem("O pedido não chegou ao Admin. Confira a conexão e tente enviar novamente.") });
         throw erro(r.corpo.erro || 'O Admin não recebeu o pedido. Tente novamente.', r.status);
       }
       const atual = db.ler(p.id);
       // O Admin pode ter iniciado antes de o POST terminar.
-      if (atual.fase === 'enviando') db.gravar({ ...atual, fase: 'solicitado', mensagem: 'O Admin recebeu suas escolhas e vai preparar seu agente.' });
+      if (atual.fase === 'enviando') db.gravar({ ...atual, fase: 'solicitado', mensagem: dgIdiomaBackend.mensagem("O Admin recebeu suas escolhas e vai preparar seu agente.") });
       return publico(db.ler(p.id));
     } catch (e) {
       const atual = db.ler(p.id);
-      if (atual && atual.fase === 'enviando') db.gravar({ ...atual, fase: 'erro-envio', mensagem: 'Não consegui confirmar a entrega. Confira a conversa com o Admin antes de tentar novamente.' });
+      if (atual && atual.fase === 'enviando') db.gravar({ ...atual, fase: 'erro-envio', mensagem: dgIdiomaBackend.mensagem("Não consegui confirmar a entrega. Confira a conversa com o Admin antes de tentar novamente.") });
       throw e;
     } finally { ocupado = false; }
   }
@@ -323,6 +324,6 @@ function registrarPedido({ config, registro, dados }) {
   if (registro.obter(slug)) slug = slug.slice(0, 22) + '-' + id.slice(0, 6);
   return db.gravar({ id, criado: new Date().toISOString(), nome, papel, jeito, dono, slug, foto: null, fotoPath: null,
     provedor: admin.provedor === 'codex' ? 'codex' : 'claude', fase: 'solicitado', origem: 'conversa',
-    mensagem: 'O Admin recebeu suas escolhas pela conversa e vai preparar seu agente.' });
+    mensagem: dgIdiomaBackend.mensagem("O Admin recebeu suas escolhas pela conversa e vai preparar seu agente.") });
 }
 module.exports = { criarOnboarding, registrarPedido, loja, slugNome, RX_ID, limpar };

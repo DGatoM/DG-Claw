@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 const rotinas = require('../lib/rotinas');
 const skillsLib = require('../lib/skills');
 const { readJSON, readFileTail, todayStr } = require('../lib/readers');
@@ -26,7 +27,7 @@ module.exports = function registrar(router, ctx) {
     } catch (e) {
       res.status(500).json({
         rotinas: [], inconsistencias: [],
-        erro: `nao consegui ler a agenda no systemd: ${e.message}`,
+        erro: dgIdiomaBackend.mensagem("nao consegui ler a agenda no systemd: {p0}", {p0: (e.message)}),
       });
     }
   });
@@ -36,7 +37,7 @@ module.exports = function registrar(router, ctx) {
     try {
       res.json(skillsLib.listar(CONFIG.agentDir, process.env.DGCLAW_PANEL_SKILLS_DIR));
     } catch (e) {
-      res.status(500).json({ error: `Não consegui listar as skills: ${e.message}`, howToFix: 'Confira se a pasta do agente existe e se o painel pode lê-la.', skills: [], pastas: [] });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui listar as skills: {p0}", {p0: (e.message)}), howToFix: dgIdiomaBackend.texto("Confira se a pasta do agente existe e se o painel pode lê-la."), skills: [], pastas: [] });
     }
   });
 

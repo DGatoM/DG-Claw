@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Aviso de segurança: o painel só LÊ o que scripts/checar-boletins.mjs grava (o Web não consulta o GitHub nem
 // instala nada) e guarda quando o dono adiou ou dispensou o aviso.
 // Contrato das rotas: web/docs/SEGURANCA-BOLETINS.md. Visão geral: docs/BOLETINS-DE-SEGURANCA.md.
@@ -31,14 +32,14 @@ function criarSeguranca(opcoes) {
     let bruto;
     try { bruto = fs.readFileSync(arqBoletins, 'utf8'); } catch (e) {
       if (e.code === 'ENOENT') return { ausente: true };
-      return { erro: `Não consegui ler ${arqBoletins} (${e.code || e.message}). ${COMO_REFAZER}` };
+      return { erro: dgIdiomaBackend.mensagem("Não consegui ler {p0} ({p1}). {p2}", {p0: (arqBoletins), p1: (e.code || e.message), p2: (COMO_REFAZER)}) };
     }
     let j;
     try { j = JSON.parse(bruto); } catch (e) {
-      return { erro: `O arquivo ${arqBoletins} está corrompido (${e.message}). ${COMO_REFAZER}` };
+      return { erro: dgIdiomaBackend.mensagem("O arquivo {p0} está corrompido ({p1}). {p2}", {p0: (arqBoletins), p1: (e.message), p2: (COMO_REFAZER)}) };
     }
     if (!j || typeof j !== 'object' || Array.isArray(j) || !Array.isArray(j.pendentes)) {
-      return { erro: `O arquivo ${arqBoletins} não tem o formato esperado. ${COMO_REFAZER}` };
+      return { erro: dgIdiomaBackend.mensagem("O arquivo {p0} não tem o formato esperado. {p1}", {p0: (arqBoletins), p1: (COMO_REFAZER)}) };
     }
     const pendentes = [];
     for (const item of j.pendentes) {
@@ -80,7 +81,7 @@ function criarSeguranca(opcoes) {
 
   function falhaDeGravacao(res, e) {
     log('erro', `Segurança: não consegui gravar ${arqAdiados} (${e.code || e.message}).`);
-    return H.erroJson(res, 500, 'Não consegui guardar a sua escolha. Peça ao Admin para conferir o espaço em disco e as permissões de /var/lib/dgclaw/web/atualizacao.');
+    return H.erroJson(res, 500, dgIdiomaBackend.mensagem("Não consegui guardar a sua escolha. Peça ao Admin para conferir o espaço em disco e as permissões de /var/lib/dgclaw/web/atualizacao."));
   }
 
   function listar(res) {
@@ -108,7 +109,7 @@ function criarSeguranca(opcoes) {
     if (l.erro) { log('erro', `Segurança: ${l.erro}`); H.erroJson(res, 500, l.erro); return null; }
     const b = l.estado && l.estado.pendentes.find((x) => x.id === id);
     if (!b) {
-      H.erroJson(res, 404, `Não há boletim pendente com o id ${id}. Ele pode já ter sido corrigido pela atualização. Atualize a tela.`);
+      H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não há boletim pendente com o id {p0}. Ele pode já ter sido corrigido pela atualização. Atualize a tela.", {p0: (id)}));
       return null;
     }
     return b;
@@ -164,7 +165,7 @@ function criarSeguranca(opcoes) {
       res.end(t);
     } catch (e) {
       log('erro', `Segurança: não consegui ler docs/SEGURANCA-BOLETINS.md (${e.code || e.message}).`);
-      H.erroJson(res, 500, 'O documento do aviso de segurança não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      H.erroJson(res, 500, dgIdiomaBackend.mensagem("O documento do aviso de segurança não foi encontrado no servidor. Reinstale o DG Claw Web."));
     }
   }
 
@@ -174,12 +175,12 @@ function criarSeguranca(opcoes) {
     if (p !== BASE && !p.startsWith(`${BASE}/`)) return false;
     // Agente em container não tem o que fazer aqui; a rota não entra em caixa.permitir, isto é a segunda trava.
     if (!sessao || sessao.via === 'caixa') {
-      H.erroJson(res, 403, 'O aviso de segurança é do dono, pelo painel. Agente não usa esta rota.');
+      H.erroJson(res, 403, dgIdiomaBackend.mensagem("O aviso de segurança é do dono, pelo painel. Agente não usa esta rota."));
       return true;
     }
     const m = req.method;
     const sub = p.slice(BASE.length);
-    const metodoErrado = (usar) => { H.erroJson(res, 405, `Use ${usar} em ${p}.`); return true; };
+    const metodoErrado = (usar) => { H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use {p0} em {p1}.", {p0: (usar), p1: (p)})); return true; };
     try {
       if (sub === '/boletins') { if (m !== 'GET') return metodoErrado('GET'); listar(res); return true; }
       if (sub === '/docs.md') { if (m !== 'GET') return metodoErrado('GET'); docs(res); return true; }
@@ -194,10 +195,10 @@ function criarSeguranca(opcoes) {
     } catch (e) {
       if (e.status) { H.erroJson(res, e.status, e.message); return true; }
       log('erro', `Segurança: falha inesperada em ${m} ${p}: ${e.stack || e.message}`);
-      H.erroJson(res, 500, 'Não consegui tratar o pedido do aviso de segurança. O detalhe está no log do Web (journalctl -u dgclaw-web).');
+      H.erroJson(res, 500, dgIdiomaBackend.mensagem("Não consegui tratar o pedido do aviso de segurança. O detalhe está no log do Web (journalctl -u dgclaw-web)."));
       return true;
     }
-    H.erroJson(res, 404, `Não existe ${m} ${p}. As rotas estão em GET ${BASE}/docs.md.`);
+    H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe {p0} {p1}. As rotas estão em GET {p2}/docs.md.", {p0: (m), p1: (p), p2: (BASE)}));
     return true;
   }
 

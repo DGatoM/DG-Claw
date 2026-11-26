@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 /**
  * wm-status.js: a saúde da memória de trabalho (working memory), para a aba Status.
  *
@@ -329,7 +330,7 @@ function buildWmStatus(config, opcoes = {}) {
       texto = fs.readFileSync(arq, 'utf8');
       gravadoEm = fs.statSync(arq).mtime;
     } catch (e) {
-      const err = new Error(`não consegui ler ${relativo}: ${e.code || e.message}`);
+      const err = new Error(dgIdiomaBackend.mensagem("não consegui ler {p0}: {p1}", {p0: (relativo), p1: (e.code || e.message)}));
       err.howToFix = 'O painel precisa de permissão de leitura na pasta do agente. Avise quem instalou.';
       throw err;
     }
@@ -413,7 +414,7 @@ function registrar(router, { CONFIG }) {
     } catch (e) {
       console.error('[painel] /api/working-memory/status quebrou:', e);
       res.status(500).json({
-        error: `Não consegui ver a memória de trabalho: ${e.message}`,
+        error: dgIdiomaBackend.mensagem("Não consegui ver a memória de trabalho: {p0}", {p0: (e.message)}),
         howToFix: e.howToFix || 'Recarregue a página. Se continuar, o registro do painel diz o motivo.',
       });
     }

@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 // cofre.js: a aba Cofre: onde o dono do agente guarda a chave de um serviço.
 //
 // ╔══════════════════════════════════════════════════════════════════════════╗
@@ -142,7 +143,7 @@ function buildCofre(config) {
     // `nome` já passou pela `NOME_FORMA_OK` antes de chegar aqui, então não tem
     // barra nem ponto. A conferência abaixo é a segunda tranca, para o caso de
     // alguém chamar esta função de um caminho novo sem validar antes.
-    if (!NOME_FORMA_OK.test(nome)) throw new Error('nome de variável inválido');
+    if (!NOME_FORMA_OK.test(nome)) throw new Error(dgIdiomaBackend.mensagem("nome de variável inválido"));
     return path.join(SEGREDOS, `${nome}.enc`);
   }
 
@@ -264,8 +265,8 @@ function buildCofre(config) {
       trocada: !!anterior,
       // A regra 7 mora nesta frase: guardado não é valendo.
       aviso: anterior
-        ? 'A chave foi trocada, mas o agente ainda está usando a antiga: ele só lê o cofre quando inicia.'
-        : 'A chave foi guardada, mas o agente ainda não a tem: ele só lê o cofre quando inicia.',
+        ? dgIdiomaBackend.mensagem("A chave foi trocada, mas o agente ainda está usando a antiga: ele só lê o cofre quando inicia.")
+        : dgIdiomaBackend.mensagem("A chave foi guardada, mas o agente ainda não a tem: ele só lê o cofre quando inicia."),
     };
   }
 

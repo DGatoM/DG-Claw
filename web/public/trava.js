@@ -1,4 +1,7 @@
 'use strict';
+const dgUiLabel_trava_js = (el, fonte, atributo, valores) => { if (globalThis.DGI18n) globalThis.DGI18n.rotulo(el, fonte, atributo, valores); else { const texto = fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m, k) => valores && Object.hasOwn(valores, k) ? String(valores[k]) : m); if (atributo) el.setAttribute(atributo, texto); else el.textContent = texto; } };
+const dgUiText_trava_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiHtml_trava_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* trava.js: o cadeado com Face ID (WebAuthn) do DG Claw, do lado da tela.
 
    Entra com uma tag <script> no <head> de toda tela que exige login e não depende de nenhum outro arquivo.
@@ -41,7 +44,7 @@
     if (/iPhone|iPad|iPod/.test(ua)) return 'Face ID';
     if (/Macintosh/.test(ua) && toques > 1) return 'Face ID';
     if (/Macintosh/.test(ua)) return 'Touch ID';
-    return 'biometria';
+    return dgUiText_trava_js('biometria');
   }
   /* 'o Face ID', 'o Touch ID' ou 'a biometria', para frase corrida */
   function comArtigo(rotulo) { return rotulo === 'biometria' ? 'a biometria' : 'o ' + rotulo; }
@@ -50,18 +53,18 @@
   function traduzErro(e, acao, temApi, rotulo, host) {
     const n = e && e.name; const a = acao || 'destravar';
     rotulo = rotulo || 'biometria';
-    if (temApi === false) return 'Este navegador não tem ' + rotulo + ' para sites. Entre com a senha.';
+    if (temApi === false) return dgUiText_trava_js("Este navegador não tem ") + rotulo + dgUiText_trava_js(" para sites. Entre com a senha.");
     if (n === 'NotAllowedError') {
-      return 'O ' + rotulo + ' foi cancelado, o tempo acabou ou este aparelho não tem a passkey do DG Claw. Toque de novo para tentar, ou entre com a senha.';
+      return 'O ' + rotulo + dgUiText_trava_js(" foi cancelado, o tempo acabou ou este aparelho não tem a passkey do DG Claw. Toque de novo para tentar, ou entre com a senha.");
     }
     if (n === 'InvalidStateError') {
-      return a === 'cadastrar' ? 'Este aparelho já tem o ' + rotulo + ' cadastrado aqui.' : 'O aparelho recusou a passkey (estado inválido). Tente de novo.';
+      return a === 'cadastrar' ? dgUiText_trava_js("Este aparelho já tem o ") + rotulo + ' cadastrado aqui.' : dgUiText_trava_js("O aparelho recusou a passkey (estado inválido). Tente de novo.");
     }
     if (n === 'SecurityError') {
-      return 'O navegador recusou o endereço (' + (host || '') + ') para o ' + rotulo + '. Abra o DG Claw pelo endereço com HTTPS e tente de novo.';
+      return dgUiText_trava_js("O navegador recusou o endereço (") + (host || '') + dgUiText_trava_js(") para o ") + rotulo + dgUiText_trava_js('. Abra o DG Claw pelo endereço com HTTPS e tente de novo.');
     }
-    if (n === 'NotSupportedError') return 'Este aparelho não aceita o tipo de chave pedido. Entre com a senha.';
-    if (n === 'AbortError') return 'O ' + rotulo + ' foi interrompido. Toque de novo.';
+    if (n === 'NotSupportedError') return dgUiText_trava_js("Este aparelho não aceita o tipo de chave pedido. Entre com a senha.");
+    if (n === 'AbortError') return 'O ' + rotulo + dgUiText_trava_js(" foi interrompido. Toque de novo.");
     return (e && e.message) || String(e);
   }
 
@@ -104,7 +107,7 @@
 
   /* Sem rede com a tela coberta: precisa de conexão para destravar. */
   function mensagemSemConexao(motivo) {
-    return 'Sem conexão com o servidor' + (motivo ? ' (' + motivo + ')' : '') + '. Preciso de internet para destravar: confira a conexão e toque de novo.';
+    return dgUiText_trava_js("Sem conexão com o servidor") + (motivo ? ' (' + motivo + ')' : '') + dgUiText_trava_js('. Preciso de internet para destravar: confira a conexão e toque de novo.');
   }
 
   const puro = { mensagemSemConexao, b64uParaBuf, bufParaB64u, rotuloBiometria, comArtigo, traduzErro, destinoSeguro, publicKeyGet, publicKeyCreate, credParaJson, API };
@@ -137,7 +140,7 @@
       // a página. Lê uma CÓPIA da resposta, sem tocar no corpo de quem fez o pedido.
       p.then(function (r) {
         if (!r || r.status !== 423) return;
-        r.clone().json().then(function (d) { if (d && d.travado === true) mostra('A tela travou por falta de uso.'); },
+        r.clone().json().then(function (d) { if (d && d.travado === true) mostra(dgUiText_trava_js("A tela travou por falta de uso.")); },
           function (e) { console.warn('trava: um 423 sem corpo JSON não é do cadeado, deixei passar:', e.message); });
       }, function () { /* o chamador trata a falha de rede */ });
       return p;
@@ -148,7 +151,7 @@
     if (ESOriginal) {
       const ESVigiado = function (url, cfg) {
         const es = new ESOriginal(url, cfg);
-        try { es.addEventListener('travado', function () { mostra('A tela travou por falta de uso.'); }); } catch (e) { console.warn('trava: não consegui ouvir o stream:', e.message); }
+        try { es.addEventListener('travado', function () { mostra(dgUiText_trava_js("A tela travou por falta de uso.")); }); } catch (e) { console.warn('trava: não consegui ouvir o stream:', e.message); }
         return es;
       };
       ESVigiado.prototype = ESOriginal.prototype;
@@ -196,7 +199,7 @@
       if (contaComoUso && r.d.ativo) avisaUso();
     }).catch(function (e) {
       console.warn('trava: não consegui perguntar o estado (' + (e.message || 'sem rede') + ')');
-      avisaSemConexao(e.message || 'sem rede');
+      avisaSemConexao(e.message || dgUiText_trava_js("sem rede"));
     });
   }
   /* Tela coberta e sem resposta do servidor: continua coberta e diz o que falta. */
@@ -255,11 +258,11 @@
     raiz.hidden = true;
     raiz.innerHTML =
       '<div class="cx"><div class="ic" aria-hidden="true">🔒</div>' +
-      '<h1 id="dgclawTravaTit">DG Claw travado</h1>' +
+      dgUiHtml_trava_js("<h1 id=\"dgclawTravaTit\"><!--dg-i18n:720eaffff014-->DG Claw travado<!--/dg-i18n--></h1>") +
       '<p class="sub" id="dgclawTravaSub"></p>' +
       '<button type="button" class="prin" id="dgclawTravaBtn"></button>' +
       '<p class="msg" id="dgclawTravaMsg" role="alert"></p>' +
-      '<button type="button" class="senha" id="dgclawTravaSenha">Entrar com a senha</button></div>';
+      dgUiHtml_trava_js("<button type=\"button\" class=\"senha\" id=\"dgclawTravaSenha\"><!--dg-i18n:c227d2059067-->Entrar com a senha<!--/dg-i18n--></button></div>");
     document.body.appendChild(raiz);
     btn = raiz.querySelector('#dgclawTravaBtn'); msgEl = raiz.querySelector('#dgclawTravaMsg');
     subEl = raiz.querySelector('#dgclawTravaSub'); senhaEl = raiz.querySelector('#dgclawTravaSenha');
@@ -267,13 +270,13 @@
     senhaEl.addEventListener('click', entrarComSenha);
   }
 
-  const textoBotao = () => 'Destravar com ' + rotulo();
+  const textoBotao = () => dgUiText_trava_js("Destravar com ") + rotulo();
 
   function mostra(texto) {
     if (!document.body) { document.addEventListener('DOMContentLoaded', function () { mostra(texto); }, { once: true }); return; }
     montaTela();
     const min = estado && estado.trava_min ? Math.round(estado.trava_min) : null;
-    subEl.textContent = texto || (min ? 'O DG Claw trava depois de ' + min + ' min sem uso. Destrave para voltar à conversa.' : 'Destrave para voltar à conversa.');
+    subEl.textContent = texto || (min ? dgUiText_trava_js("O DG Claw trava depois de ") + min + dgUiText_trava_js(" min sem uso. Destrave para voltar à conversa.") : dgUiText_trava_js("Destrave para voltar à conversa."));
     if (aberto) return;
     aberto = true;
     if (relogio) { clearTimeout(relogio); relogio = null; }
@@ -290,7 +293,7 @@
     if (janela.speechSynthesis) { try { janela.speechSynthesis.cancel(); } catch (e) { console.warn('trava: não parei a voz:', e.message); } }
     if (!temApi()) {
       btn.disabled = true;
-      msgEl.textContent = 'Este navegador não tem ' + rotulo() + ' para sites. Use "Entrar com a senha".';
+      dgUiLabel_trava_js(msgEl, "Este navegador não tem {p0} para sites. Use \"Entrar com a senha\".", null, {p0: rotulo()});
       return;
     }
     preBusca();
@@ -319,7 +322,7 @@
       if (!r.ok) {
         if (r.d && r.d.motivo === 'sem_passkey') {
           if (btn) btn.disabled = true;
-          throw new Error('Este aparelho não tem mais o ' + rotulo() + ' cadastrado. Entre com a senha e ative de novo na tela Face ID.');
+          throw new Error(dgUiText_trava_js("Este aparelho não tem mais o ") + rotulo() + dgUiText_trava_js(" cadastrado. Entre com a senha e ative de novo na tela Face ID."));
         }
         throw new Error((r.d && r.d.erro) || ('o servidor respondeu ' + r.status));
       }
@@ -346,7 +349,7 @@
     pega.then(function (op) {
       return navigator.credentials.get({ publicKey: publicKeyGet(op) });
     }).then(function (cred) {
-      if (!cred) throw new Error('O aparelho não devolveu credencial nenhuma.');
+      if (!cred) throw new Error(dgUiText_trava_js("O aparelho não devolveu credencial nenhuma."));
       return pede(API + '/verificar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credencial: credParaJson(cred) }) });
     }).then(function (r) {
       if (!r.ok) { const e = new Error((r.d && r.d.erro) || ('o servidor respondeu ' + r.status)); e.servidor = true; throw e; }
@@ -369,7 +372,7 @@
         location.href = '/login?next=' + encodeURIComponent(destino());
       }).catch(function (e) {
         senhaEl.disabled = false;
-        msgEl.textContent = 'Não consegui encerrar a sessão para você entrar com a senha (' + (e.message || 'sem rede') + '). Confira a internet e toque de novo.';
+        dgUiLabel_trava_js(msgEl, "Não consegui encerrar a sessão para você entrar com a senha ({p0}). Confira a internet e toque de novo.", null, {p0: e.message || dgUiText_trava_js("sem rede")});
       });
   }
 

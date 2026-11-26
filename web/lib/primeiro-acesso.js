@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Primeiro acesso por link de uso único: o instalador (ou `dgclaw primeiro-acesso`) grava o sha256 de um token
 // em primeiro-acesso.json; a pessoa abre /primeiro-acesso#<token>, cadastra a senha no navegador e já entra logada.
 // O token nunca vai para o disco nem para o log. O arquivo tem {versao, usuario, token_sha256, criado, expira, usado_em}
@@ -57,7 +58,7 @@ function criarPrimeiroAcesso({ config, auth, log, agora }) {
   }
 
   function gravaHashNoEnv(hash) {
-    if (hash.includes("'")) throw new Error('o hash gerado contém aspas simples e não pode ser gravado no web.env');
+    if (hash.includes("'")) throw new Error(dgIdiomaBackend.mensagem("o hash gerado contém aspas simples e não pode ser gravado no web.env"));
     let texto = '';
     try { texto = fs.readFileSync(webEnv, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
     const linha = `DGCLAW_PANEL_PASSWORD_HASH='${hash}'`;

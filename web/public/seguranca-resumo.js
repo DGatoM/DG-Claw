@@ -1,4 +1,6 @@
 'use strict';
+const dgUiText_seguranca_resumo_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiHtml_seguranca_resumo_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 const dgHtml_seguranca_resumo = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* seguranca-resumo.js: o AVISO ÚNICO de segurança do painel (uma janela e um selo), em todas as telas.
 
@@ -68,11 +70,11 @@ const dgHtml_seguranca_resumo = fonte => globalThis.DGI18n ? globalThis.DGI18n.h
   /* "Encontramos 3 pontos de segurança que precisam da sua atenção." */
   function textoContagem(n) {
     return n === 1
-      ? 'Encontramos 1 ponto de segurança que precisa da sua atenção.'
-      : 'Encontramos ' + n + ' pontos de segurança que precisam da sua atenção.';
+      ? dgUiText_seguranca_resumo_js("Encontramos 1 ponto de segurança que precisa da sua atenção.")
+      : 'Encontramos ' + n + dgUiText_seguranca_resumo_js(" pontos de segurança que precisam da sua atenção.");
   }
 
-  function textoSelo(n) { return n + (n === 1 ? ' ponto de segurança' : ' pontos de segurança'); }
+  function textoSelo(n) { return n + (n === 1 ? dgUiText_seguranca_resumo_js(" ponto de segurança") : dgUiText_seguranca_resumo_js(" pontos de segurança")); }
 
   /* No máximo MAX_LISTA itens; o resto vira "e mais X". */
   function recorta(itens, max) {
@@ -117,14 +119,14 @@ const dgHtml_seguranca_resumo = fonte => globalThis.DGI18n ? globalThis.DGI18n.h
   function modalHtml(itens) {
     const { mostrados, resto } = recorta(itens);
     return '<div class="sr-caixa" id="srCaixa">' +
-      '<div class="sr-cab"><h2 id="srTitulo">Seu ambiente está em risco</h2>' +
-      '<button type="button" class="sr-icone" data-sr="ajuda" aria-label="Tutorial do aviso de segurança" title="O que é este aviso">?</button>' +
-      dgHtml_seguranca_resumo("<button type=\"button\" class=\"sr-icone\" data-sr=\"fechar\" aria-label=\"Fechar o aviso\" title=\"Fechar\" data-dg-i18n-title=\"0f2bd88ef0ac\">") + dsIcone('x') + '</button></div>' +
+      dgUiHtml_seguranca_resumo_js("<div class=\"sr-cab\"><h2 id=\"srTitulo\"><!--dg-i18n:fc1c9e813690-->Seu ambiente está em risco<!--/dg-i18n--></h2>") +
+      dgUiHtml_seguranca_resumo_js("<button type=\"button\" class=\"sr-icone\" data-sr=\"ajuda\" aria-label=\"Tutorial do aviso de segurança\" data-dg-i18n-aria-label=\"ed80b3352561\" title=\"O que é este aviso\" data-dg-i18n-title=\"39ddd8782361\">?</button>") +
+      dgHtml_seguranca_resumo("<button type=\"button\" class=\"sr-icone\" data-sr=\"fechar\" aria-label=\"Fechar o aviso\" data-dg-i18n-aria-label=\"b7ea39c1ff3b\" title=\"Fechar\" data-dg-i18n-title=\"0f2bd88ef0ac\">") + dsIcone('x') + '</button></div>' +
       '<p class="sr-texto" id="srTexto">' + esc(textoContagem(itens.length)) + '</p>' +
       '<ul class="sr-lista" id="srLista">' + mostrados.map(itemHtml).join('') +
       (resto ? '<li class="sr-resto">' + esc(textoResto(resto)) + '</li>' : '') + '</ul>' +
-      '<div class="sr-acoes"><button type="button" class="sr-btn" id="srAgoraNao" data-sr="fechar">Agora não</button>' +
-      '<button type="button" class="sr-btn sr-pri" id="srVer" data-sr="ver">Ver na Segurança</button></div></div>';
+      dgUiHtml_seguranca_resumo_js("<div class=\"sr-acoes\"><button type=\"button\" class=\"sr-btn\" id=\"srAgoraNao\" data-sr=\"fechar\"><!--dg-i18n:a73293ea3f24-->Agora não<!--/dg-i18n--></button>") +
+      dgUiHtml_seguranca_resumo_js("<button type=\"button\" class=\"sr-btn sr-pri\" id=\"srVer\" data-sr=\"ver\"><!--dg-i18n:0481d7882735-->Ver na Segurança<!--/dg-i18n--></button></div></div>");
   }
 
   /* ── tutorial ───────────────────────────────────────────────────────────── */
@@ -133,7 +135,7 @@ const dgHtml_seguranca_resumo = fonte => globalThis.DGI18n ? globalThis.DGI18n.h
     return [
       { alvo: '#srTexto', titulo: 'O aviso único',
         oque: 'Uma janela só que junta tudo o que está pedindo atenção na segurança do seu ambiente: avisos sobre ferramentas com falha e falhas críticas achadas pela ronda.',
-        como: 'O painel soma os avisos de segurança do ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' que você ainda não dispensou com as falhas críticas abertas da ronda. Nada é enviado para fora: ele só lê o que o seu servidor já sabe.',
+        get como() { return dgUiText_seguranca_resumo_js("O painel soma os avisos de segurança do ") + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + dgUiText_seguranca_resumo_js(" que você ainda não dispensou com as falhas críticas abertas da ronda. Nada é enviado para fora: ele só lê o que o seu servidor já sabe."); },
         porque: 'Para você não precisar fechar uma janela por problema. É um aviso só, e o detalhe de cada um fica na tela Segurança.' },
       { alvo: '#srLista', titulo: 'Os pontos em risco',
         oque: 'Os nomes simples dos problemas e a gravidade de cada um, os mais graves primeiro (no máximo 5, o resto aparece como "e mais").',

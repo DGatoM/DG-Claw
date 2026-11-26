@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 /**
  * sessoes-proxy.js: a aba Sessões do painel (12/10/2026).
  *
@@ -101,7 +102,7 @@ function registrar(router, { CONFIG }) {
     try {
       res = { valor: fs.readFileSync(arquivo, 'utf-8').trim() };
     } catch (e) {
-      res = { valor: '', erro: `não consegui ler o arquivo da chave (${e.code || e.message})` };
+      res = { valor: '', erro: dgIdiomaBackend.mensagem("não consegui ler o arquivo da chave ({p0})", {p0: (e.code || e.message)}) };
       console.error(`sessoes: não consegui ler o arquivo da chave configurado em DGCLAW_PANEL_SESSOES_KEY_FILE: ${e.code || e.message}`);
     }
     cacheChave = { em: agora, arquivo, res };
@@ -130,7 +131,7 @@ function registrar(router, { CONFIG }) {
         if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('protocolo');
         url = u;
       } catch {
-        return { ligado: false, agente, appUrl, motivo: 'O endereço configurado em DGCLAW_PANEL_SESSOES_URL não é um endereço http ou https válido.' };
+        return { ligado: false, agente, appUrl, motivo: dgIdiomaBackend.mensagem("O endereço configurado em DGCLAW_PANEL_SESSOES_URL não é um endereço http ou https válido.") };
       }
     }
     const chave = lerChave();
@@ -203,7 +204,7 @@ function registrar(router, { CONFIG }) {
     const resto = caminhoBruto.slice(PREFIXO.length); // '' ou '/...'
     const partes = partesDoCaminho(resto);
     if (!partes) {
-      falhar(res, 400, { erro: 'O endereço pedido tem uma parte inválida (vazia, "." ou ".." ou com barra escondida), então não foi enviado ao DG Telegram.' });
+      falhar(res, 400, { erro: dgIdiomaBackend.mensagem("O endereço pedido tem uma parte inválida (vazia, \".\" ou \"..\" ou com barra escondida), então não foi enviado ao DG Telegram.") });
       return;
     }
 
@@ -214,7 +215,7 @@ function registrar(router, { CONFIG }) {
       const id = partes.length >= 2 && !reservado ? partes[0] : null;
       console.log(`sessoes: ${metodo} /${partes.join('/')} recusado: painel em modo só leitura`);
       falhar(res, 403, {
-        erro: 'Neste painel a aba Sessões é só para ler: as ações (recado, criar, arquivar, renomear...) ficam no DG Telegram, porque este painel não tem a proteção de login do Cloudflare na frente.',
+        erro: dgIdiomaBackend.mensagem("Neste painel a aba Sessões é só para ler: as ações (recado, criar, arquivar, renomear...) ficam no DG Telegram, porque este painel não tem a proteção de login do Cloudflare na frente."),
         abrir_em: id ? linkDecidir(c, 'pedidos', id) : linkDecidir(c, 'cofre'),
       });
       req.resume();
@@ -224,7 +225,7 @@ function registrar(router, { CONFIG }) {
       const o = veioDaTela(req);
       if (!o.ok) {
         console.log(`sessoes: ${metodo} /${partes.join('/')} recusado: Origin de outro site ou ausente (visto: ${o.visto})`);
-        falhar(res, 403, { erro: 'Pedido recusado: ele não veio da tela deste painel (Origin ausente ou de outro site). Por segurança, as ações da aba Sessões só valem quando feitas pela própria tela.' });
+        falhar(res, 403, { erro: dgIdiomaBackend.mensagem("Pedido recusado: ele não veio da tela deste painel (Origin ausente ou de outro site). Por segurança, as ações da aba Sessões só valem quando feitas pela própria tela.") });
         req.resume();
         return;
       }
@@ -243,14 +244,14 @@ function registrar(router, { CONFIG }) {
     const temCorpo = req.headers['content-length'] !== undefined || req.headers['transfer-encoding'] !== undefined;
     const tamanho = parseInt(req.headers['content-length'] || '0', 10);
     if (tamanho > TETO_CORPO_BYTES) {
-      falhar(res, 413, { erro: 'O arquivo passou do limite de 100 MB. Mande um menor ou peça ao card que busque o arquivo direto no disco.' });
+      falhar(res, 413, { erro: dgIdiomaBackend.mensagem("O arquivo passou do limite de 100 MB. Mande um menor ou peça ao card que busque o arquivo direto no disco.") });
       req.resume();
       return;
     }
 
     const tipo = String(req.headers['content-type'] || '').toLowerCase();
     if (temCorpo && metodo !== 'GET' && metodo !== 'HEAD' && metodo !== 'OPTIONS' && !/^(application\/json|multipart\/form-data)\s*(;|$)/.test(tipo)) {
-      falhar(res, 415, { erro: 'O pedido tem um tipo de conteúdo que a aba Sessões não aceita. Só vale JSON (application/json) ou envio de arquivo (multipart/form-data), que é o que a tela manda.' });
+      falhar(res, 415, { erro: dgIdiomaBackend.mensagem("O pedido tem um tipo de conteúdo que a aba Sessões não aceita. Só vale JSON (application/json) ou envio de arquivo (multipart/form-data), que é o que a tela manda.") });
       req.resume();
       return;
     }
@@ -297,7 +298,7 @@ function registrar(router, { CONFIG }) {
           if (res.headersSent) return;
           if (estourou) {
             console.error(`${nome} falhou: a resposta de erro do DG Telegram passou de ${TETO_ERRO_BYTES} bytes`);
-            falhar(res, 502, { erro: `O DG Telegram respondeu ${status} com um corpo grande demais para ser uma mensagem de erro.` });
+            falhar(res, 502, { erro: dgIdiomaBackend.mensagem("O DG Telegram respondeu {p0} com um corpo grande demais para ser uma mensagem de erro.", {p0: (status)}) });
             return;
           }
           const texto = limparChave(Buffer.concat(pedacos).toString('utf-8'), c.chave);

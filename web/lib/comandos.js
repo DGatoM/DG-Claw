@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Comandos de barra na conversa (referência completa em web/docs/COMANDOS-DE-BARRA.md).
 //
 // Este módulo faz três coisas:
@@ -283,7 +284,7 @@ function criarComandos({ runner, log, agora, raizRepo }) {
       motivo = e.message;
     }
     const doRegistro = provedorNormalizado(agente.provedor);
-    if (doRegistro) return { provedor: doRegistro, aviso: `Não consegui saber o motor pelo runner (${motivo}). Usei o do registro do agente (${doRegistro}); se você trocou o motor há pouco, a lista pode estar desatualizada.` };
+    if (doRegistro) return { provedor: doRegistro, aviso: dgIdiomaBackend.mensagem("Não consegui saber o motor pelo runner ({p0}). Usei o do registro do agente ({p1}); se você trocou o motor há pouco, a lista pode estar desatualizada.", {p0: (motivo), p1: (doRegistro)}) };
     const aviso = `Não consegui saber o motor do agente ${agente.nome} (${motivo}) e o registro também não diz. Assumi o Claude Code; se o agente usa Codex, a lista pode estar errada.`;
     if (log) log('aviso', `Comandos de ${agente.slug}: ${aviso}`);
     return { provedor: 'claude', aviso };

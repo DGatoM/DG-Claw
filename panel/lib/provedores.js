@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 // provedores.js: as rotas do bloco "Modelo e autenticação" da tela Status.
 //
 // O painel NÃO decide qual modelo o agente roda: quem decide e grava é o runner
@@ -37,8 +38,8 @@ const FORMA_DA_CHAVE = {
 };
 
 const SEM_RUNNER = {
-  error: 'A versão do agente ainda não informa o provedor',
-  howToFix: 'A plataforma que roda o agente é de uma versão antiga, sem a escolha de modelo. Atualize o DG Claw para ver esta parte (peça ao Admin, ou a quem cuida da instalação); enquanto isso o agente segue funcionando como estava.',
+  error: dgIdiomaBackend.mensagem("A versão do agente ainda não informa o provedor"),
+  howToFix: dgIdiomaBackend.texto("A plataforma que roda o agente é de uma versão antiga, sem a escolha de modelo. Atualize o DG Claw para ver esta parte (peça ao Admin, ou a quem cuida da instalação); enquanto isso o agente segue funcionando como estava."),
 };
 
 /** Tira de um texto qualquer o que parece chave (e a chave exata, se for dada). */
@@ -69,7 +70,7 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
   async function catalogo() {
     if (carregado) return carregado;
     if (!arquivoMjs || !arquivoJson) {
-      throw new Error('o catálogo de provedores não está nesta instalação (providers/catalogo.json)');
+      throw new Error(dgIdiomaBackend.mensagem("o catálogo de provedores não está nesta instalação (providers/catalogo.json)"));
     }
     // import() dinâmico: o catálogo é ESM e o painel é CommonJS.
     const mod = await import(pathToFileURL(arquivoMjs).href);
@@ -104,7 +105,7 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
     try { json = await r.json(); } catch { /* resposta sem json */ }
     // O runner antigo não tem a rota e responde 404 "Not found" cru; o novo, quando recusa com 404 (ex.: sessão que não
     // existe), sempre manda `code`. 404 sem `code` = runner antigo, e a tela recebe a explicação em português.
-    if (r.status === 404 && !(json && json.code)) return { fora: true, motivo: `rota não existe (404${json && (json.error || json.erro) ? ': ' + limpar(json.error || json.erro) : ''})` };
+    if (r.status === 404 && !(json && json.code)) return { fora: true, motivo: dgIdiomaBackend.mensagem("rota não existe (404{p0})", {p0: (json && (json.error || json.erro) ? ': ' + limpar(json.error || json.erro) : '')}) };
     return { status: r.status, corpo: json || {} };
   }
 
@@ -116,8 +117,8 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
   function falhaGeral(res, quando, entrada, err, chave) {
     console.error(`[provedor] ${quando} quebrou (entrada: ${limpar(JSON.stringify(entrada), chave)}):`, limpar(err && err.stack || err, chave));
     res.status(500).json({
-      error: `Não consegui ${quando}: ${limpar(err && err.message, chave)}`,
-      howToFix: 'Tente de novo em um minuto. Se continuar, avise quem cuida do sistema: o registro do painel tem o detalhe.',
+      error: dgIdiomaBackend.mensagem("Não consegui {p0}: {p1}", {p0: (quando), p1: (limpar(err && err.message, chave))}),
+      howToFix: dgIdiomaBackend.texto("Tente de novo em um minuto. Se continuar, avise quem cuida do sistema: o registro do painel tem o detalhe."),
     });
   }
 
@@ -212,23 +213,23 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
       if (!sessao) {
         console.error('[uso] GET /api/uso: o painel não sabe o id do agente (faltam bunkerCard no config.json e DGCLAW_BUNKER_CARD); respondi 503');
         return res.status(503).json({
-          error: 'O painel não sabe qual é o agente para consultar o uso da assinatura.',
-          howToFix: 'Confira o bunkerCard no config.json do painel (ou DGCLAW_BUNKER_CARD) e reinicie o painel.',
+          error: dgIdiomaBackend.mensagem("O painel não sabe qual é o agente para consultar o uso da assinatura."),
+          howToFix: dgIdiomaBackend.texto("Confira o bunkerCard no config.json do painel (ou DGCLAW_BUNKER_CARD) e reinicie o painel."),
         });
       }
       const r = await runner('GET', `/api/agents/${encodeURIComponent(sessao)}/uso`);
       if (r.fora) {
         console.error(`[uso] GET /api/uso: o runner não respondeu ou é antigo (${limpar(r.motivo)}); respondi 502`);
         return res.status(502).json({
-          error: 'Não consegui perguntar ao agente quanto da assinatura já foi usado.',
-          howToFix: 'Se o agente acabou de reiniciar, tente de novo em um minuto. Se a versão do DG Claw é antiga, atualize: o medidor de uso é novo.',
+          error: dgIdiomaBackend.mensagem("Não consegui perguntar ao agente quanto da assinatura já foi usado."),
+          howToFix: dgIdiomaBackend.texto("Se o agente acabou de reiniciar, tente de novo em um minuto. Se a versão do DG Claw é antiga, atualize: o medidor de uso é novo."),
         });
       }
       if (r.status >= 400) {
         const c = r.corpo || {};
         console.error(`[uso] GET /api/uso: o runner recusou ${r.status}: ${limpar(c.error || c.erro || '')}`);
         return res.status(502).json({
-          error: `O agente recusou a consulta de uso: ${limpar(c.error || c.erro || 'sem motivo informado')}`,
+          error: dgIdiomaBackend.mensagem("O agente recusou a consulta de uso: {p0}",{p0:(limpar(c.error || c.erro || 'sem motivo informado'))}),
           howToFix: limpar(c.howToFix || 'Tente de novo em um minuto. Se continuar, avise quem cuida do sistema.'),
         });
       }
@@ -248,8 +249,8 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
     try {
       if (!b.provedor || !b.auth) {
         return res.status(400).json({
-          error: 'Faltou escolher o provedor e a forma de pagar.',
-          howToFix: 'Mande provedor (claude ou codex) e auth (assinatura, token ou api).',
+          error: dgIdiomaBackend.mensagem("Faltou escolher o provedor e a forma de pagar."),
+          howToFix: dgIdiomaBackend.texto("Mande provedor (claude ou codex) e auth (assinatura, token ou api)."),
         });
       }
       const c = await catalogo();
@@ -260,7 +261,7 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
         if (!(e instanceof c.mod.ErroCatalogo)) throw e;
         return res.status(400).json({
           error: limpar(e.message, chave),
-          howToFix: 'Escolha o provedor, o modelo e a forma de pagar nas listas da tela de troca.',
+          howToFix: dgIdiomaBackend.texto("Escolha o provedor, o modelo e a forma de pagar nas listas da tela de troca."),
         });
       }
 
@@ -288,10 +289,10 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
         const forma = FORMA_DA_CHAVE[variavel];
         if (forma && !chave.startsWith(forma.prefixo)) {
           return res.status(400).json({
-            error: `Essa chave não parece ser a certa para ${c.cat.provedores[escolha.provedor].nome} ${modo.nome}. ${forma.como}`,
+            error: dgIdiomaBackend.mensagem("Essa chave não parece ser a certa para {p0} {p1}. {p2}", {p0: (c.cat.provedores[escolha.provedor].nome), p1: (modo.nome), p2: (forma.como)}),
             howToFix: modo.ondeCriar
-              ? `Crie uma chave nova em ${modo.ondeCriar} e cole de novo. Nada foi alterado.`
-              : 'Confira a chave e cole de novo. Nada foi alterado.',
+              ? dgIdiomaBackend.texto("Crie uma chave nova em {p0} e cole de novo. Nada foi alterado.",{p0:(modo.ondeCriar)})
+              : dgIdiomaBackend.texto("Confira a chave e cole de novo. Nada foi alterado."),
           });
         }
         const g = cofre.guardar({
@@ -306,10 +307,10 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
         }
       } else if (!cofreTem(variavel)) {
         const out = {
-          error: `Para pagar ${modo.nome} falta a chave ${variavel}, e ela não está no Cofre.`,
+          error: dgIdiomaBackend.mensagem("Para pagar {p0} falta a chave {p1}, e ela não está no Cofre.", {p0: (modo.nome), p1: (variavel)}),
           howToFix: modo.ondeCriar
-            ? `Crie uma chave em ${modo.ondeCriar} e cole no campo da janela de troca. Ela fica guardada no Cofre e não aparece mais.`
-            : `Gere o código (${modo.logar || 'veja a documentação do provedor'}) e cole no campo da janela de troca.`,
+            ? dgIdiomaBackend.texto("Crie uma chave em {p0} e cole no campo da janela de troca. Ela fica guardada no Cofre e não aparece mais.",{p0:(modo.ondeCriar)})
+            : dgIdiomaBackend.texto("Gere o código ({p0}) e cole no campo da janela de troca.",{p0:(modo.logar || 'veja a documentação do provedor')}),
           precisaChave: variavel,
         };
         if (modo.ondeCriar) out.ondeCriar = modo.ondeCriar;
@@ -348,8 +349,8 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
         const corpoIn = comCorpo ? { codigo: String((req.body && req.body.codigo) || '') } : (metodo === 'POST' ? {} : undefined);
         if (comCorpo && !corpoIn.codigo.trim()) {
           return res.status(400).json({
-            error: 'Faltou o código que apareceu depois do login.',
-            howToFix: 'Cole o código inteiro no campo e envie de novo.',
+            error: dgIdiomaBackend.mensagem("Faltou o código que apareceu depois do login."),
+            howToFix: dgIdiomaBackend.texto("Cole o código inteiro no campo e envie de novo."),
           });
         }
         const r = await runner(metodo, caminho, corpoIn);

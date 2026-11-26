@@ -1,3 +1,10 @@
+const dgReviewPanelUI_wm_status = (s,p) => globalThis.DGI18n ? globalThis.DGI18n.frase(s,p) : s.replace(/\{([a-z_][a-z_0-9]*)\}/g,(m,k)=>p&&Object.hasOwn(p,k)?String(p[k]):m);
+// Local UI attributes carry catalogue keys so switching language preserves their elements.
+const dgAttrFull_wm_status = (nome,fonte) => { const api=globalThis.DGI18n; if(api && api.atributo) return api.atributo(nome,fonte); const escape=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); const token=api ? api.fragmento(fonte).match(/^<!--dg-i18n:([a-f0-9]{12})-->/) : null; return (token ? "data-dg-i18n-"+nome+"=\""+token[1]+"\" " : "")+nome+"=\""+escape(api ? api.t(fonte) : fonte)+"\""; };
+const dgHtmlFull_wm_status = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, "");
+const dgTextFull_wm_status = fonte => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.t(trecho)) : fonte;
+const dgPhraseFull_wm_status = (fonte, valores) => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.frase(trecho, valores)) : fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m,k) => valores && Object.hasOwn(valores,k) ? String(valores[k]) : m);
+const dgFragFull_wm_status = (fonte, valores) => globalThis.DGI18n ? globalThis.DGI18n.fragmento(fonte, valores) : dgPhraseFull_wm_status(fonte,valores).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;", "'":"&#39;"}[c]));
 // wm-status.js: o cartão "Memória de trabalho" da aba Status.
 //
 // O PEDIDO (05/10/2026, "importantíssimo"): ele abriu o painel e achou que o
@@ -37,7 +44,7 @@
   // O rótulo vai em negrito (<b>) com escape; o resto passa pelo renderizador, que escapa tudo.
   const pendItem = (s) => {
     const { rotulo, corpo } = rotuloPendencia(s);
-    if (rotulo) return `<b class="wms-pend-assunto">${esc(rotulo)}</b> ${rl(corpo)}`;
+    if (rotulo) return `<b class="wms-pend-assunto">${dgFragFull_wm_status(rotulo)}</b> ${rl(corpo)}`;
     const D = window.DGMarkdown;
     if (!D || !D.tituloCaixaAlta) return rl(s);
     const r = D.tituloCaixaAlta(s);
@@ -88,7 +95,7 @@
     try {
       res = await fetch(`${BASE}/api/working-memory/status`);
     } catch (e) {
-      return { ok: false, corpo: { error: `não alcancei o painel (${e.message})`, howToFix: 'Confira a internet e recarregue a página.' } };
+      return { ok: false, corpo: { error: dgReviewPanelUI_wm_status("não alcancei o painel ({v0})",{v0:(e.message)}), howToFix: dgReviewPanelUI_wm_status("Confira a internet e recarregue a página.") } };
     }
     if (res.status === 401) { window.location = `${BASE}/login.html`; return { ok: false, corpo: {} }; }
     let corpo = {};
@@ -101,7 +108,7 @@
 
   function item(rotulo, tip, valor, pe, extraClasse) {
     return `<div class="wms-item${extraClasse ? ` ${extraClasse}` : ''}">
-      <span class="wms-rot" title="${esc(tip)}">${esc(rotulo)}</span>
+      <span class="wms-rot" ${dgAttrFull_wm_status("title",tip)}>${dgFragFull_wm_status(rotulo)}</span>
       <b class="wms-val">${valor}</b>
       ${pe ? `<span class="wms-pe">${pe}</span>` : ''}
     </div>`;
@@ -109,36 +116,36 @@
 
   function desenhar(el, s) {
     const est = ESTADOS[s.estado] || { rotulo: s.estado, cor: 'sem', explica: '' };
-    const naoVi = '<span class="wms-nao">não consegui ver</span>';
+    const naoVi = dgHtmlFull_wm_status(`<span class="wms-nao"><!--dg-i18n:54f4bda55e66-->não consegui ver<!--/dg-i18n--></span>`);
     const rem = s.remontagem || {};
     const teto = s.teto || {};
     const hk = s.tetoInicioSessao || {};
 
     const atualizada = s.atualizadaEm
-      ? item('Atualizada', `${TIP.atualizada}\nFonte agora: ${s.atualizadaFonte}.`, esc(s.idadeTexto || ''), esc(s.atualizadaTexto || ''))
-      : item('Atualizada', TIP.atualizada, s.arquivo && s.arquivo.existe ? naoVi : '--', s.arquivo && s.arquivo.existe ? '' : 'sem arquivo');
+      ? item('Atualizada', dgPhraseFull_wm_status("{v0}\nFonte agora: {v1}.",{v0:(TIP.atualizada),v1:(s.atualizadaFonte)}), esc(s.idadeTexto || ''), esc(s.atualizadaTexto || ''))
+      : item('Atualizada', TIP.atualizada, s.arquivo && s.arquivo.existe ? naoVi : '--', s.arquivo && s.arquivo.existe ? '' : dgTextFull_wm_status("sem arquivo"));
 
     const tamanho = s.arquivo && s.arquivo.caracteres != null
-      ? item('Tamanho', TIP.tamanho, `${esc(num(s.arquivo.caracteres))} caracteres`, `${esc(num(s.arquivo.bytes))} bytes`)
-      : item('Tamanho', TIP.tamanho, '--', 'sem arquivo');
+      ? item('Tamanho', TIP.tamanho, dgPhraseFull_wm_status("{v0} caracteres",{v0:(esc(num(s.arquivo.caracteres)))}), `${esc(num(s.arquivo.bytes))} bytes`)
+      : item('Tamanho', TIP.tamanho, '--', dgTextFull_wm_status("sem arquivo"));
 
     let ocupacao;
     if (s.ocupacaoPct != null) {
       const pct = s.ocupacaoPct;
       const cor = pct > 100 ? 'falha' : (pct >= 90 ? 'atencao' : 'ok');
-      const chega = hk.inteira === true ? '\nNo começo de cada conversa ele recebe o arquivo inteiro: o CLAUDE.md dele importa a memória.'
-        : (hk.caracteres != null ? `\nNo começo de cada conversa ele recebe até ${num(hk.caracteres)} caracteres (${hk.fonte}).` : '');
-      ocupacao = item('Ocupação do teto',
-        `${TIP.ocupacao}\nTeto: ${num(teto.bytes)} bytes, de ${teto.fonte}.${chega}`,
+      const chega = hk.inteira === true ? dgTextFull_wm_status("\nNo começo de cada conversa ele recebe o arquivo inteiro: o CLAUDE.md dele importa a memória.")
+        : (hk.caracteres != null ? dgPhraseFull_wm_status("\nNo começo de cada conversa ele recebe até {v0} caracteres ({v1}).",{v0:(num(hk.caracteres)),v1:(hk.fonte)}) : '');
+      ocupacao = item(dgTextFull_wm_status("Ocupação do teto"),
+        dgPhraseFull_wm_status("{v0}\nTeto: {v1} bytes, de {v2}.{v3}",{v0:(TIP.ocupacao),v1:(num(teto.bytes)),v2:(teto.fonte),v3:(chega)}),
         `${esc(pct)}%`,
-        `de ${esc(num(teto.bytes))} bytes<span class="wms-barra"><i class="${cor}" style="width:${Math.min(100, pct)}%"></i></span>`);
+        dgHtmlFull_wm_status(`${dgFragFull_wm_status("de {v0} bytes",{v0:(num(teto.bytes))})}<span class="wms-barra"><i class="${cor}" style="width:${Math.min(100, pct)}%"></i></span>`));
     } else {
-      ocupacao = item('Ocupação do teto', TIP.ocupacao, '--', teto.bytes ? `teto de ${esc(num(teto.bytes))} bytes` : '');
+      ocupacao = item(dgTextFull_wm_status("Ocupação do teto"), TIP.ocupacao, '--', teto.bytes ? dgPhraseFull_wm_status("teto de {v0} bytes",{v0:(esc(num(teto.bytes)))}) : '');
     }
 
-    const remVal = rem.rodouHoje === true ? 'rodou hoje' : (rem.rodouHoje === false ? (rem.falhou ? 'falhou hoje' : 'não rodou hoje') : (rem.fontes && rem.fontes.length ? 'ainda não' : naoVi));
+    const remVal = rem.rodouHoje === true ? dgTextFull_wm_status("rodou hoje") : (rem.rodouHoje === false ? (rem.falhou ? dgTextFull_wm_status("falhou hoje") : dgTextFull_wm_status("não rodou hoje")) : (rem.fontes && rem.fontes.length ? dgTextFull_wm_status("ainda não") : naoVi));
     const remCor = rem.rodouHoje === true ? 'ok' : (rem.rodouHoje === false ? 'ruim' : '');
-    const fontesRem = rem.fontes && rem.fontes.length ? `\nConferido em: ${rem.fontes.join(', ')}.` : '';
+    const fontesRem = rem.fontes && rem.fontes.length ? dgPhraseFull_wm_status("\nConferido em: {v0}.",{v0:(rem.fontes.join(', '))}) : '';
     const remontagem = item('Remontagem das 7h', `${TIP.remontagem}${fontesRem}`,
       `<span class="${remCor}">${esc(remVal)}</span>`, esc(rem.frase || ''));
 
@@ -164,32 +171,32 @@
         pend = `<div class="wms-pend-texto">${pendItem(limpa(p.texto))}</div>`;
       }
     }
-    else if (p.existe) pend = '<div class="wms-pend-texto wms-fraco">Nenhuma pendência ativa anotada.</div>';
-    else pend = `<div class="wms-pend-texto wms-fraco">${s.arquivo && s.arquivo.existe ? 'A memória dele não tem a linha de pendências ativas.' : '--'}</div>`;
+    else if (p.existe) pend = dgHtmlFull_wm_status(`<div class="wms-pend-texto wms-fraco"><!--dg-i18n:7876c7c045e7-->Nenhuma pendência ativa anotada.<!--/dg-i18n--></div>`);
+    else pend = `<div class="wms-pend-texto wms-fraco">${s.arquivo && s.arquivo.existe ? dgTextFull_wm_status("A memória dele não tem a linha de pendências ativas.") : '--'}</div>`;
 
     const problema = s.causa || s.oQueFazer
       ? `<div class="wms-problema ${est.cor}">
-          ${s.causa ? `<div><b>Por quê:</b> ${rl(s.causa)}</div>` : ''}
-          ${s.oQueFazer ? `<div><b>O que fazer:</b> ${rl(s.oQueFazer)}</div>` : ''}
+          ${s.causa ? dgHtmlFull_wm_status(`<div><b><!--dg-i18n:ce4878d080b8-->Por quê:<!--/dg-i18n--></b> ${rl(s.causa)}</div>`) : ''}
+          ${s.oQueFazer ? dgHtmlFull_wm_status(`<div><b><!--dg-i18n:6470f8dc5497-->O que fazer:<!--/dg-i18n--></b> ${rl(s.oQueFazer)}</div>`) : ''}
         </div>` : '';
     const avisos = (s.avisos || []).map((a) => `<div class="wms-aviso">${rl(a)}</div>`).join('');
 
-    el.innerHTML = `
+    el.innerHTML = dgHtmlFull_wm_status(`
       <div class="wms-topo">
-        <span class="wms-selo ${est.cor}" title="${esc(est.explica)}"><i></i>${esc(est.rotulo)}</span>
+        <span class="wms-selo ${est.cor}" ${dgAttrFull_wm_status("title",est.explica)}><i></i>${dgFragFull_wm_status(est.rotulo)}</span>
         <span class="wms-frase">${esc(s.frase || '')}</span>
       </div>
       ${problema}
       <div class="wms-grade">${atualizada}${tamanho}${ocupacao}${remontagem}</div>
       <div class="wms-pend">
-        <span class="wms-rot" title="${esc(TIP.pendencias)}">${dsIcone('bolt')} Pendências ativas</span>
+        <span class="wms-rot" ${dgAttrFull_wm_status("title",TIP.pendencias)}>${dsIcone('bolt')} <!--dg-i18n:4cacca55b915-->Pendências ativas<!--/dg-i18n--></span>
         ${pend}
       </div>
       ${avisos}
       <div class="wms-rodape">
-        <a href="#" class="wms-ir-memoria" title="Abre a aba Memória, onde está o texto inteiro da memória de trabalho, para ler e corrigir à mão.">Ler a memória de trabalho inteira, na aba Memória ${dsIcone('arrow-right')}</a>
-        <code title="O arquivo, dentro da pasta dele">${esc(s.arquivo ? s.arquivo.caminho : '')}</code>
-      </div>`;
+        <a href="#" class="wms-ir-memoria" data-dg-i18n-title="d22308590594" title="Abre a aba Memória, onde está o texto inteiro da memória de trabalho, para ler e corrigir à mão."><!--dg-i18n:e636e689c2dd-->Ler a memória de trabalho inteira, na aba Memória<!--/dg-i18n--> ${dsIcone('arrow-right')}</a>
+        <code data-dg-i18n-title="1fba74fdb4d8" title="O arquivo, dentro da pasta dele">${esc(s.arquivo ? s.arquivo.caminho : '')}</code>
+      </div>`);
 
     const link = el.querySelector('.wms-ir-memoria');
     if (link) {
@@ -206,7 +213,7 @@
     const r = await buscar();
     if (!r.ok) {
       const c = r.corpo || {};
-      el.innerHTML = `<div class="vazio-util">Não consegui ver a memória de trabalho: ${esc(c.error || 'sem resposta do painel')}. ${esc(c.howToFix || '')}</div>`;
+      el.innerHTML = dgHtmlFull_wm_status(`<div class="vazio-util">${dgFragFull_wm_status("Não consegui ver a memória de trabalho: {v0}. {v1}",{v0:(c.error || dgTextFull_wm_status("sem resposta do painel")),v1:(c.howToFix || '')})}</div>`);
       return null;
     }
     desenhar(el, r.corpo);

@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 const express = require('express');
 
 // A aba Conversa: ler, enviar, parar, acordar e ditar por voz.
@@ -46,7 +47,7 @@ module.exports = function registrar(router, ctx) {
       console.error('[painel] falha ao montar a conversa:', e);
       res.status(500).json({
         mensagens: [],
-        erro: `Nao consegui montar a conversa: ${e.message}`,
+        erro: dgIdiomaBackend.mensagem("Nao consegui montar a conversa: {p0}", {p0: (e.message)}),
       });
     }
   });
@@ -55,8 +56,8 @@ module.exports = function registrar(router, ctx) {
     const texto = req.body && typeof req.body.text === 'string' ? req.body.text : '';
     if (!texto.trim()) {
       return res.status(400).json({
-        error: 'A mensagem veio vazia.',
-        howToFix: 'Escreva o que voce quer pedir e envie de novo.',
+        error: dgIdiomaBackend.mensagem("A mensagem veio vazia."),
+        howToFix: dgIdiomaBackend.texto("Escreva o que voce quer pedir e envie de novo."),
       });
     }
     try {
@@ -66,7 +67,7 @@ module.exports = function registrar(router, ctx) {
       // tecnico: a pessoa precisa saber que nao adianta esperar resposta.
       console.error('[painel] mensagem NAO entregue na sessao viva:', r.motivo);
       return res.status(502).json({
-        error: `${CONFIG.agentName} nao esta conseguindo receber mensagem agora, entao isto NAO foi enviado.`,
+        error: dgIdiomaBackend.mensagem("{p0} nao esta conseguindo receber mensagem agora, entao isto NAO foi enviado.", {p0: (CONFIG.agentName)}),
         howToFix:
           'Espere um minuto e mande de novo. Se continuar, avise quem cuida do sistema: ' +
           'a sua mensagem nao se perdeu, ela simplesmente nao saiu.',
@@ -74,7 +75,7 @@ module.exports = function registrar(router, ctx) {
       });
     } catch (e) {
       console.error('[painel] erro ao enviar mensagem:', e);
-      res.status(500).json({ error: `Nao consegui enviar: ${e.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Nao consegui enviar: {p0}", {p0: (e.message)}) });
     }
   });
 
@@ -84,12 +85,12 @@ module.exports = function registrar(router, ctx) {
       if (r.ok) return res.json({ parado: true });
       console.error('[painel] nao consegui interromper a sessao:', r.motivo);
       res.status(502).json({
-        error: 'Nao consegui interromper o que ele esta fazendo.',
-        howToFix: 'Tente de novo em alguns segundos. Se nao parar, quem cuida do sistema consegue parar pelo terminal.',
+        error: dgIdiomaBackend.mensagem("Nao consegui interromper o que ele esta fazendo."),
+        howToFix: dgIdiomaBackend.texto("Tente de novo em alguns segundos. Se nao parar, quem cuida do sistema consegue parar pelo terminal."),
         detalhe: r.motivo,
       });
     } catch (e) {
-      res.status(500).json({ error: `Nao consegui interromper: ${e.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Nao consegui interromper: {p0}", {p0: (e.message)}) });
     }
   });
 
@@ -103,7 +104,7 @@ module.exports = function registrar(router, ctx) {
       if (r.ok) return res.json({ acordando: true, jaEstavaDePe: !!r.jaEstavaDePe });
       console.error('[painel] nao consegui acordar o terminal do agente:', r.motivo);
       return res.status(502).json({
-        error: `Nao consegui acordar ${CONFIG.agentName}.`,
+        error: dgIdiomaBackend.mensagem("Nao consegui acordar {p0}.", {p0: (CONFIG.agentName)}),
         howToFix:
           'Tente de novo em alguns segundos. Se continuar, quem cuida do sistema sobe a sessao ' +
           'pela plataforma; a sua conversa continua guardada e nao se perde.',
@@ -111,7 +112,7 @@ module.exports = function registrar(router, ctx) {
       });
     } catch (e) {
       console.error('[painel] erro ao acordar o terminal:', e);
-      res.status(500).json({ error: `Nao consegui acordar: ${e.message}` });
+      res.status(500).json({ error: dgIdiomaBackend.mensagem("Nao consegui acordar: {p0}", {p0: (e.message)}) });
     }
   });
 
@@ -135,21 +136,21 @@ module.exports = function registrar(router, ctx) {
         console.error('[painel] transcricao falhou:', r.motivo);
         return res.status(r.silencio ? 400 : 502).json({
           error: r.silencio
-            ? 'Nao consegui ouvir fala nenhuma nesse audio.'
-            : 'Nao consegui transcrever o seu audio.',
+            ? dgIdiomaBackend.mensagem("Nao consegui ouvir fala nenhuma nesse audio.")
+            : dgIdiomaBackend.mensagem("Nao consegui transcrever o seu audio."),
           // "Tente gravar de novo" e o conselho certo para um audio ruim e o
           // conselho ERRADO para uma configuracao errada: gravar de novo nunca vai
           // consertar um endereco que nao tem servico de transcricao. Quando o
           // modulo sabe o que fazer, quem manda e ele.
           howToFix: r.silencio
-            ? 'Fale mais perto do microfone e grave de novo. Nada foi perdido: voce ainda pode escrever.'
+            ? dgIdiomaBackend.texto("Fale mais perto do microfone e grave de novo. Nada foi perdido: voce ainda pode escrever.")
             : (r.comoResolver
               || 'Tente gravar de novo. Se continuar, escreva a mensagem: a conversa funciona do mesmo jeito.'),
           detalhe: r.motivo,
         });
       } catch (e) {
         console.error('[painel] erro na transcricao:', e);
-        res.status(500).json({ error: `Nao consegui transcrever: ${e.message}` });
+        res.status(500).json({ error: dgIdiomaBackend.mensagem("Nao consegui transcrever: {p0}", {p0: (e.message)}) });
       }
     },
   );

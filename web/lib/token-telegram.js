@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Intercepta o token do BotFather colado no chat: ele é guardado no .env do agente
 // (pelo gravador seguro) e NUNCA chega ao runner, ao transcript nem à busca.
 // O agente só vê "[token do Telegram guardado com segurança, final XXXX]".
@@ -38,10 +39,10 @@ function gravaComoAgente({ token, home, uid, gid }) {
     const saida = [];
     let terminou = false;
     const fim = (fn, v) => { if (terminou) return; terminou = true; clearTimeout(relogio); fn(v); };
-    const relogio = setTimeout(() => { filho.kill('SIGKILL'); fim(reject, new Error(`o gravador demorou mais de ${TEMPO_FILHO_MS / 1000} s e foi interrompido`)); }, TEMPO_FILHO_MS);
+    const relogio = setTimeout(() => { filho.kill('SIGKILL'); fim(reject, new Error(dgIdiomaBackend.mensagem("o gravador demorou mais de {p0} s e foi interrompido", {p0: (TEMPO_FILHO_MS / 1000)}))); }, TEMPO_FILHO_MS);
     filho.stdout.on('data', (c) => saida.push(c));
     filho.stderr.on('data', () => { /* descartado de propósito: pode conter o token */ });
-    filho.on('error', (e) => fim(reject, new Error(`não consegui iniciar o gravador como o agente (uid ${uid}, gid ${gid}): ${e.code || e.name}`)));
+    filho.on('error', (e) => fim(reject, new Error(dgIdiomaBackend.mensagem("não consegui iniciar o gravador como o agente (uid {p0}, gid {p1}): {p2}", {p0: (uid), p1: (gid), p2: (e.code || e.name)}))));
     filho.on('close', (codigo) => {
       let r = null;
       try { r = JSON.parse(Buffer.concat(saida).toString('utf8')); } catch (_) { /* sem JSON */ }

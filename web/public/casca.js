@@ -1,4 +1,5 @@
 'use strict';
+const dgUiText_casca_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 const dgHtml_casca = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* casca.js: o cabeçalho e o menu do agente (os mesmos da tela de Conversa) para as outras telas:
    Mesa, Lembretes, Avisos e o painel do agente (/p/<slug>/).
@@ -47,7 +48,7 @@ const dgHtml_casca = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) 
     '<div class="av" id="av" aria-hidden="true"></div>' +
     '<div class="who" id="who" data-tour="casca-titulo"><b id="nomeAgente">' + esc(NOME) + '</b><span id="estado"></span></div>' +
     dgHtml_casca("<a class=\"btn\" id=\"btnSessoes\" href=\"#\" hidden data-tour=\"casca-sessoes\" aria-label=\"Abrir as Sessões deste agente\" data-dg-i18n-aria-label=\"630516b72d73\" title=\"Sessões de trabalho deste agente\" data-dg-i18n-title=\"e1e9e5bbb44a\">") + ico('monitor') + dgHtml_casca(" <span class=\"lbl\"><!--dg-i18n:549a96da6ff6-->Sessões<!--/dg-i18n--></span></a>") +
-    dgHtml_casca("<button class=\"btn\" id=\"btnTutorial\" type=\"button\" title=\"Visita guiada desta tela: o que é cada parte e por que está aqui\" data-dg-i18n-title=\"1fc19b1d3b71\">Tutorial</button>") +
+    dgHtml_casca("<button class=\"btn\" id=\"btnTutorial\" type=\"button\" title=\"Visita guiada desta tela: o que é cada parte e por que está aqui\" data-dg-i18n-title=\"1fc19b1d3b71\"><!--dg-i18n:c26982b1425d-->Tutorial<!--/dg-i18n--></button>") +
     '</header>';
 
   /* O seletor de agentes do menu. Colaborador não recebe: o elemento nem entra na página (MARCACAO_MENU_COLAB). */
@@ -66,7 +67,7 @@ const dgHtml_casca = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) 
     '<div class="ml-moldura" id="mlMoldura" aria-hidden="true"></div>' +
     '<div class="ml-nome" id="mlNome">' + esc(NOME) + '</div>' +
     '<div class="ml-sub" id="mlSub"></div>' +
-    dgHtml_casca("<button type=\"button\" class=\"gm-tut\" id=\"gmTutorial\" title=\"Visita guiada do menu: o que é cada parte e por que está aqui\" data-dg-i18n-title=\"b724cbd4b22e\">Tutorial</button>") +
+    dgHtml_casca("<button type=\"button\" class=\"gm-tut\" id=\"gmTutorial\" title=\"Visita guiada do menu: o que é cada parte e por que está aqui\" data-dg-i18n-title=\"b724cbd4b22e\"><!--dg-i18n:c26982b1425d-->Tutorial<!--/dg-i18n--></button>") +
     troca +
     '</div>' +
     dgHtml_casca("<nav class=\"ml-tabs\" id=\"mlTabs\" aria-label=\"Páginas do agente\" data-dg-i18n-aria-label=\"481ff4713fd5\">") +
@@ -126,19 +127,19 @@ const dgHtml_casca = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) 
     const s = document.createElement('script');
     s.src = '/tour.js';
     s.onload = fn;
-    s.onerror = () => alert('A visita guiada não carregou. Recarregue a página e tente de novo.');
+    s.onerror = () => alert(dgUiText_casca_js("A visita guiada não carregou. Recarregue a página e tente de novo."));
     document.head.appendChild(s);
   }
 
   function passosCasca() {
-    const nome = (est.agente && est.agente.nome) || 'o agente';
+    const nome = (est.agente && est.agente.nome) || dgUiText_casca_js("o agente");
     return [
       { alvo: '#cabecalho', antes: () => abreMenu(false), titulo: 'O cabeçalho',
         oque: 'A foto e o nome do agente, e embaixo o nome da página em que você está. O botão Tutorial, aqui no cabeçalho, explica a página.',
-        como: 'O cabeçalho é o mesmo em todas as telas: Conversa, Mesa, Lembretes e as páginas do painel. A cor e a foto são as de ' + nome + '.',
+        get como() { return dgUiText_casca_js("O cabeçalho é o mesmo em todas as telas: Conversa, Mesa, Lembretes e as páginas do painel. A cor e a foto são as de ") + nome + '.'; },
         porque: 'Assim você sabe de quem é a tela e nunca fica sem saber onde está.' },
       ...($('btnSessoes') && !$('btnSessoes').hidden ? [{ alvo: '#btnSessoes', antes: () => abreMenu(false), titulo: 'O botão Sessões',
-        oque: 'Um atalho para as sessões de trabalho de ' + nome + ': os cards que andam em paralelo com a conversa principal. Uma bolinha vermelha avisa quando alguma espera uma decisão sua.',
+        get oque() { return dgUiText_casca_js("Um atalho para as sessões de trabalho de ") + nome + dgUiText_casca_js(": os cards que andam em paralelo com a conversa principal. Uma bolinha vermelha avisa quando alguma espera uma decisão sua."); },
         como: 'Toque nele e a tela de Sessões abre dentro do painel do agente, na mesma janela. No celular o texto some e fica só o ícone do monitor.',
         porque: 'É o mini-Bunker do agente: você acompanha e cria trabalhos longos sem sair procurando no menu.' }] : []),
       { alvo: '#btnMenu', antes: () => abreMenu(false), titulo: 'O botão do menu',
