@@ -5245,7 +5245,7 @@ function passosTutorial() {
   }
   if (!document.documentElement.classList.contains('sem-voz')) passos.push({ alvo: '#btnVoz', titulo: 'O botão Voz',
     oque: dgUiText_conversa_js('Um botão com o ícone de alto-falante que guarda os dois controles de voz: "Ler respostas em voz alta" e "Conversa contínua". Ele fica destacado quando qualquer um dos dois está ligado.'),
-    como: window.DGI18n.frase('Toque nele e abre um quadro com os dois controles, cada um dizendo por escrito se está ligado ou desligado. Ligando a leitura, as respostas de {nome} são faladas. Ligando a conversa contínua, o painel volta a gravar o seu microfone quando termina de tocar a resposta. Esc ou um toque fora fecha o quadro.', {nome}),
+    como: dgUiPhrase_conversa_audit('Toque nele e abre um quadro com os dois controles, cada um dizendo por escrito se está ligado ou desligado. Ligando a leitura, as respostas de {nome} são faladas. Ligando a conversa contínua, o painel volta a gravar o seu microfone quando termina de tocar a resposta. Esc ou um toque fora fecha o quadro.', {nome}),
     porque: dgUiText_conversa_js('Os dois controles ficam juntos num botão só para sobrar espaço no topo; o nome de cada um aparece por escrito quando você abre.') });
   if ($('btnAnon') && !$('btnAnon').hidden) passos.push({ alvo: '#btnAnon', titulo: 'Documentos anonimizados',
     get oque() { return dgUiText_conversa_js("Um selo que aparece só quando a anonimização de documentos está ligada para ") + nome + dgUiText_conversa_js(". Ele leva à tela Anonimizar."); },
