@@ -7,6 +7,14 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Correção no sistema de rotinas próprias do agente: remarcar uma rotina que já tinha disparado.** Uma rotina de uma vez
+só, depois de disparar, fica no estado `elapsed` do systemd. Quando o agente a remarcava com `persona-cron-mgr edit`, o
+arquivo `.timer` recebia o horário novo, mas o `daemon-reload` seguido de `enable --now` não rearmava um timer que já
+estava ativo: o próximo disparo ficava vazio e a rotina remarcada não rodava, sem erro nenhum. Agora, ao remarcar, o
+comando pergunta ao systemd se existe próximo disparo e só reinicia o timer quando não existe. Se o reinício falhar, ou se
+não der para conferir, a rotina continua gravada e o terminal mostra o aviso com o comando para conferir. A criação de
+rotina nova não mudou.
+
 **Aviso quando um agente com avisos retidos para de responder.** Agentes de cliente com `DGCLAW_AVISOS_RETIDOS=1` não entregam
 aviso pela conversa, e por isso um agente podia ficar horas sem login sem que o dono soubesse (aconteceu: 22 horas).
 Agora o painel confere a saúde desses agentes a cada 5 minutos e manda um aviso ao aparelho do dono quando um deles
