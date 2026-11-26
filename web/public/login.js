@@ -35,7 +35,11 @@ const dgHtml_login = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) 
     const cod = (q.get('erro') || '').toLowerCase();
     const caixa = document.getElementById('erro');
     const mensagem = FRASES[cod] || 'Não foi possível entrar. Confira os dados e tente de novo.';
-    if (window.DGI18n) window.DGI18n.rotulo(caixa, mensagem);
+    const espera = /^\d{1,4}$/.test(q.get('espera') || '') ? Number(q.get('espera')) : 0;
+    if (cod === 'limite' && espera > 0) {
+      if (window.DGI18n) window.DGI18n.rotulo(caixa, 'Muitas tentativas seguidas. Tente de novo em {min} min.', undefined, { min: espera });
+      else caixa.textContent = 'Muitas tentativas seguidas. Tente de novo em ' + espera + ' min.';
+    } else if (window.DGI18n) window.DGI18n.rotulo(caixa, mensagem);
     else caixa.textContent = mensagem;
     caixa.hidden = false;
   }

@@ -65,7 +65,7 @@ const dgTexto_cerebro = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) 
           ${esc(haQuanto(c.atualizadoEm))}${quem ? ` · ${esc(quem)}` : ''}</span>
       </header>
       <div class="cb-corpo">${corpo}</div>
-      <footer class="cb-pe"><code>${esc(c.path)}</code><span>${dgFragFull_cerebro(c.editavel ? dgTextFull_cerebro("abrir e editar") : 'abrir')} ${dsIcone('arrow-right')}</span></footer>
+      <footer class="cb-pe"><code>${esc(c.path)}</code><span>${dgFragFull_cerebro(c.editavel ? "abrir e editar" : 'abrir')} ${dsIcone('arrow-right')}</span></footer>
     </article>`;
   }
 

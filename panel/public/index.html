@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="{{BASE}}/css/socorro.css">
   <link rel="stylesheet" href="{{BASE}}/css/tela.css">
   <link rel="stylesheet" href="{{BASE}}/css/operacoes.css">
+  <link rel="stylesheet" href="{{BASE}}/css/integracoes.css">
   <link rel="stylesheet" href="{{BASE}}/css/sessoes.css">
   <link rel="stylesheet" href="{{BASE}}/css/leitura.css">
   <link rel="stylesheet" href="{{BASE}}/css/wm-status.css">
@@ -52,7 +53,7 @@
         </div>
         <div class="char-name" id="char-name">--</div>
         <div class="char-level" id="char-level" style="display:none">Lv. --</div>
-        <div class="char-papel" id="header-title" data-marca-nome>DG Claw</div>
+        <div class="char-papel" id="header-title" data-marca-nome><!--dg-i18n:374ef13e0648-->DG Claw<!--/dg-i18n--></div>
 
         <!-- Nasce ESCONDIDO e só aparece se houver mesmo para onde ir. Antes ele
              nascia visível e o JavaScript o escondia quando a lista voltava com um
@@ -97,6 +98,7 @@
           <button type="button" class="grupo-cab" id="grp-ferramentas-b" aria-expanded="false" aria-controls="grp-ferramentas"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-package"/></svg></span><span class="grupo-nome"><!--dg-i18n:b96a67bfde3e-->Ferramentas<!--/dg-i18n--></span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
           <div class="grupo-itens" id="grp-ferramentas" role="group" aria-labelledby="grp-ferramentas-b"><div class="grupo-lista">
             <button class="tab" data-tab="skills"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-sparkle"/></svg></span>Skills</button>
+            <button class="tab" data-tab="integracoes"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-link"/></svg></span><!--dg-i18n:02cba44bb25b-->Integrações<!--/dg-i18n--></button>
             <button class="tab" data-tab="apps"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-layout"/></svg></span>Apps</button>
           </div></div>
         </div>
@@ -172,7 +174,7 @@
                  de passos de js/tutoriais.js. Botão que muda de lugar conforme a
                  aba é botão que a pessoa procura toda vez. -->
             <button type="button" class="btn-tutorial-aba" id="btn-tutorial-aba" hidden
-                    title="Uma visita guiada por esta tela, passo a passo." data-dg-i18n-title="0fb8e9479f21">Tutorial</button>
+                    title="Uma visita guiada por esta tela, passo a passo." data-dg-i18n-title="0fb8e9479f21"><!--dg-i18n:c26982b1425d-->Tutorial<!--/dg-i18n--></button>
           </div>
           <p class="header-sub" id="subtitulo-aba"><!--dg-i18n:29f3be4a476d-->fale com ele por aqui<!--/dg-i18n--></p>
         </div>
@@ -372,7 +374,7 @@
               <input type="date" id="posts-date">
             </div>
             <table class="pixel-table">
-              <thead><tr><th></th><th><!--dg-i18n:cec3a9b89b2e-->Data<!--/dg-i18n--></th><th><!--dg-i18n:503f312cde03-->Hora<!--/dg-i18n--></th><th><!--dg-i18n:d5df3708bc68-->Tema<!--/dg-i18n--></th><th><!--dg-i18n:3868d2843d59-->Tipo<!--/dg-i18n--></th><th>Link</th></tr></thead>
+              <thead><tr><th></th><th><!--dg-i18n:cec3a9b89b2e-->Data<!--/dg-i18n--></th><th><!--dg-i18n:503f312cde03-->Hora<!--/dg-i18n--></th><th><!--dg-i18n:d5df3708bc68-->Tema<!--/dg-i18n--></th><th><!--dg-i18n:3868d2843d59-->Tipo<!--/dg-i18n--></th><th><!--dg-i18n:a6a32dbc5618-->Link<!--/dg-i18n--></th></tr></thead>
               <tbody id="posts-table"></tbody>
             </table>
           </div>
@@ -466,6 +468,25 @@
         <!-- SKILLS: desenhada por js/skills.js a partir de /api/skills. -->
         <div class="panel" id="panel-skills">
           <div id="skills-root"><span data-carregando="Carregando" data-tam="m"></span> <!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>
+        </div>
+
+        <!-- INTEGRAÇÕES: o palco com a foto do agente e uma placa por sistema. Desenhada por js/integracoes.js a partir de /api/integracoes
+             (lib/integracoes.js). Ver panel/docs/INTEGRACOES.md. -->
+        <div class="panel" id="panel-integracoes">
+          <div class="int-topo">
+            <div class="int-resumo" id="int-resumo"><div class="int-resumo-texto" id="int-resumo-texto"><!--dg-i18n:8947670374a5-->Lendo as integrações...<!--/dg-i18n--></div></div>
+            <div class="op-alternar int-alternar" id="int-alternar" role="group" aria-label="O que o mapa mostra" data-dg-i18n-aria-label="e4bf81e9ae5a">
+              <button type="button" class="ativo" data-modo="real" aria-pressed="true"
+                      title="Mostra todos os sistemas, cada um na cor que ele tem de verdade." data-dg-i18n-title="9b7841f333f0"><!--dg-i18n:faed796048f8-->Estado real<!--/dg-i18n--></button>
+              <button type="button" data-modo="aula" aria-pressed="false"
+                      title="Mostra só os sistemas que estão funcionando. Serve para apresentar numa aula." data-dg-i18n-title="e9d8554c62dd"><!--dg-i18n:bb1f091ba3fb-->Modo aula<!--/dg-i18n--></button>
+            </div>
+          </div>
+          <div class="int-aviso" id="int-aviso" role="status" hidden></div>
+          <div class="int-palco" id="int-mapa-caixa">
+            <div id="int-mapa" class="int-mapa"></div>
+            <aside class="int-cartao" id="int-cartao" aria-live="polite" hidden></aside>
+          </div>
         </div>
 
         <!-- ROTINAS: a mesma lista do Status (renderSuasRotinas), em página própria, com recarga a cada 15 s. -->
@@ -605,6 +626,7 @@
   <script src="{{BASE}}/js/arquivos.js"></script>
   <script src="{{BASE}}/js/cofre.js"></script>
   <script src="{{BASE}}/js/skills.js"></script>
+  <script src="{{BASE}}/js/integracoes.js"></script>
   <script src="{{BASE}}/js/socorro.js"></script>
   <script src="{{BASE}}/js/tela.js"></script>
   <script src="{{BASE}}/js/sessoes.js"></script>

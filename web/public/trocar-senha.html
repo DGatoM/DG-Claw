@@ -31,7 +31,7 @@
     <div class="marca"><img class="marca-logo" src="/marca/logo" alt="" width="56" height="56"><span class="marca-nome">{{MARCA_NOME}}</span></div>
   <h1><!--dg-i18n:2cbb2d241b6c-->Criar sua senha<!--/dg-i18n--></h1>
   <p class="sub" id="tsSub"><!--dg-i18n:bfc7c5e7f7a9-->Você entrou com a senha temporária. Escolha a sua para continuar.<!--/dg-i18n--></p>
-  <button type="button" class="ts-tutorial" id="tsTutorial" title="Visita guiada desta tela: o que é cada parte e por que está aqui" data-dg-i18n-title="1fc19b1d3b71">Tutorial</button>
+  <button type="button" class="ts-tutorial" id="tsTutorial" title="Visita guiada desta tela: o que é cada parte e por que está aqui" data-dg-i18n-title="1fc19b1d3b71"><!--dg-i18n:c26982b1425d-->Tutorial<!--/dg-i18n--></button>
   <div id="erro" class="erro" role="alert" hidden></div>
   <form id="tsForm" autocomplete="on">
     <div id="tsAtualBloco" hidden data-tour="ts-atual">
@@ -49,6 +49,7 @@
     </div>
     <button type="submit" id="tsEnviar" data-tour="ts-enviar"><!--dg-i18n:0edf11e9ca2d-->Salvar e entrar<!--/dg-i18n--></button>
   </form>
+  <p class="ts-sair"><a class="ts-link" id="tsVoltar" href="/" hidden><!--dg-i18n:68064809295a-->Voltar ao painel<!--/dg-i18n--></a></p>
   <form method="post" action="/sair" class="ts-sair"><button type="submit" class="ts-link"><!--dg-i18n:2d023dea2a9d-->Sair<!--/dg-i18n--></button></form>
 </main>
 <script src="/tour.js"></script>

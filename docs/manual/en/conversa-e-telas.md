@@ -37,7 +37,7 @@ Every screen has a **Tutorial** button beside its title. It gives a guided tour:
 ## The conversation {#a-conversa}
 
 **What it is.** Browser chat, each agent's main channel. Telegram and WhatsApp are optional (see [canais.md](canais.md)) and feed into the same conversation.
-**How to use it.** Open `/a/<slug>`, write and send. The response appears when the agent sends it. The header shows "agent has no signal" when its service does not respond.
+**How to use it.** Open `/a/<slug>`, write and send. The response appears when the agent sends it. The header shows "agent has no signal" when its service does not respond. Header buttons (Desk, Sessions, Reminders, unread and others) show only their icons; their names appear on hover or in a screen reader. The Voice button (speaker) groups reading responses aloud and continuous conversation: tapping it opens a box with both controls, each showing whether it is on or off, and the button is highlighted whenever either is on. On mobile, the row of agent avatars scrolls sideways, with a shadow on the edge where more agents remain, and the current agent always stays visible.
 **Requires.** A created agent with its AI account connected (see [provedores.md](provedores.md)).
 **Limits.** The conversation shows what the agent sends through chat. An agent working silently looks idle, so it should announce when it begins something lengthy.
 **If something goes wrong.** "Agent has no signal": ask the Admin for `dgclaw agente reparar <slug>` (see [agentes.md](agentes.md)). Login request: the conversation opens the account sign-in card described in [Connect account](#conectar-conta).
@@ -83,7 +83,7 @@ More in [../../web/docs/ESTADO-DOS-AGENTES.md](https://github.com/DGatoM/DG-Claw
 
 ## Voice: speak and listen {#voz-falar-e-ouvir}
 
-**What it is.** 🎤 records audio that the panel transcribes and sends to the agent as text. 🔊 makes the agent respond aloud, and 🔁 (continuous conversation) starts recording again after each response.
+**What it is.** 🎤 records audio that the panel transcribes and sends to the agent as text. The voice button (speaker) in the header opens two controls: "Read responses aloud", which makes the agent speak its responses, and "Continuous conversation", which starts recording again after each response.
 **Requires.** A key in `web.env`. Transcription accepts `GROQ_API_KEY` (free), `ELEVENLABS_API_KEY` or `OPENAI_API_KEY`, in this preference order: ElevenLabs, Groq, OpenAI. For the agent to speak, only `ELEVENLABS_API_KEY`, plus a voice selected for the agent. The agent has the `groq-audio` skill, guiding the owner to connect Groq ("I want to speak by audio").
 **Limits.** The response is read in chunks (the first up to 450 characters, later ones up to 1200, at most 40 chunks). Tables, code and links are not spoken. Transcribed audio reaches the agent marked `[áudio transcrito]`, and it knows the transcription may contain errors.
 **If something goes wrong.** Without a key, the screen hides the buttons and the route responds with the reason ("missing GROQ_API_KEY..."). Ask the Admin: "Connect Groq so I can speak by audio."
@@ -189,6 +189,7 @@ Each agent has a panel at `/p/<slug>/` with tabs. Invited collaborators see tabs
 | `aba:personality` | Numbers controlling its manner and goals | [agentes.md](agentes.md) |
 | `aba:apps` | What the agent produced independently, stage by stage | [../../panel/docs/ABA-APPS.md](https://github.com/DGatoM/DG-Claw/blob/main/panel/docs/ABA-APPS.md) |
 | `aba:skills` | Agent's skills and each one's location | [agentes.md](agentes.md) |
+| `aba:integracoes` | Map of the external systems the agent is connected to, with colors showing actual use of each one | [../../panel/docs/INTEGRACOES.md](https://github.com/DGatoM/DG-Claw/blob/main/panel/docs/INTEGRACOES.md) |
 | `aba:rotinas` | Appointments the agent scheduled at the owner's request | [memoria-e-rotinas.md](memoria-e-rotinas.md) |
 | `aba:arquivos` | Agent's folder (Folder tab): view, download and upload files | [../../panel/docs/PASTA-E-ASSETS.md](https://github.com/DGatoM/DG-Claw/blob/main/panel/docs/PASTA-E-ASSETS.md) |
 | `aba:tela` | Agent's browser, where the owner signs in | [agentes.md](agentes.md) |

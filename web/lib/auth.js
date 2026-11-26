@@ -31,6 +31,10 @@ function comparaTempoConstante(a, b) {
   return crypto.timingSafeEqual(sha256(String(a)), sha256(String(b)));
 }
 
+/** Usuário do dono para comparar: sem espaços nas pontas e sem diferença de maiúscula (teclado de celular, preenchimento automático). */
+const normalizaUsuario = (v) => String(v == null ? '' : v).trim().toLowerCase();
+const mesmoUsuario = (a, b) => comparaTempoConstante(normalizaUsuario(a), normalizaUsuario(b));
+
 function b64urlParaBuffer(s) { return Buffer.from(String(s), 'base64url'); }
 
 /** Lê "scrypt$N$r$p$sal$hash". Devolve { N, r, p, sal, hash } ou { erro }. */
@@ -77,7 +81,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
   let instanciaAtual = null;
   let aoCriar = null; // gancho do cadeado (Face ID): avisa que uma sessão nasceu com senha
   let antesDeCriar = null; // gancho do cadeado: campos que entram no registro da sessão NA MESMA escrita que a cria
-  const MOTIVO_INSTANCIA = 'Este convite era de um agente que foi removido. Peça um convite novo ao dono.';
+  const motivoInstancia = () => dgIdiomaBackend.mensagem("Este convite era de um agente que foi removido. Peça um convite novo ao dono.");
   /** O convite guarda a instância do agente; se o agente foi removido e recriado com o mesmo nome, ele não vale. */
   // Sem exceção: convite sem instância, instância atual ilegível ou módulo não ligado também NEGAM.
   const instanciaMudou = (c) => {
@@ -97,9 +101,10 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
   let motivoTrancado = null;
   function calculaMotivo() {
     if (!trancado) return null;
-    if (!usuario) return 'Falta o usuário do painel (DGCLAW_PANEL_USER).';
-    if (semSenha) return 'Ainda não há senha cadastrada. Use o link de primeiro acesso.';
-    return `O hash da senha não vale: ${parsed.erro}.`;
+    if (!usuario) return dgIdiomaBackend.mensagem("Falta o usuário do painel (DGCLAW_PANEL_USER).");
+    if (semSenha) return dgIdiomaBackend.mensagem("Ainda não há senha cadastrada. Use o link de primeiro acesso.");
+    // Registra de novo o diagnóstico próprio na requisição atual; parsed também existe fora dela.
+    return dgIdiomaBackend.mensagem("O hash da senha não vale: {p0}.", {p0: parseHash(hashAtual).erro});
   }
   if (trancado) {
     motivoTrancado = calculaMotivo();
@@ -200,7 +205,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
 
   return {
     get trancado() { return trancado; },
-    get motivoTrancado() { return motivoTrancado; },
+    get motivoTrancado() { return calculaMotivo(); },
     get semSenha() { return semSenha; },
     get usuario() { return usuario; },
     NOME_COOKIE,
@@ -232,8 +237,8 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
 
     /** Confere usuário e senha. Sempre gasta o scrypt (mesmo com usuário errado). { ok, trancado?, erro? } */
     async verificaSenha(usuarioInformado, senha, ip) {
-      if (colaboradores && !comparaTempoConstante(usuarioInformado == null ? '' : usuarioInformado, usuario)) return verificaColaborador(usuarioInformado, senha, ip);
-      if (trancado) return { ok: false, trancado: true, erro: semSenha ? dgIdiomaBackend.mensagem("O login ainda não tem senha. {p0}", {p0: (motivoTrancado)}) : dgIdiomaBackend.mensagem("O login está trancado: {p0} Rode o gerador de hash do instalador.", {p0: (motivoTrancado)}) };
+      if (colaboradores && !mesmoUsuario(usuarioInformado, usuario)) return verificaColaborador(usuarioInformado, senha, ip);
+      if (trancado) return { ok: false, trancado: true, erro: semSenha ? dgIdiomaBackend.mensagem("O login ainda não tem senha. {p0}", {p0: (calculaMotivo())}) : dgIdiomaBackend.mensagem("O login está trancado: {p0} Rode o gerador de hash do instalador.", {p0: (calculaMotivo())}) };
       const b = ip ? bloqueioLogin(IDENT_DONO, ip) : { bloqueado: false };
       if (b.bloqueado) return { ok: false, limite: true, retryAfter: b.retryAfter, erro: dgIdiomaBackend.mensagem("Muitas tentativas erradas. Tente de novo em {p0} min.", {p0: (Math.ceil(b.retryAfter / 60))}) };
       if (scryptEmCurso >= SCRYPT_SIMULTANEOS) {
@@ -251,13 +256,14 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
         scryptEmCurso--;
       }
       const senhaOk = calculado.length === parsed.hash.length && crypto.timingSafeEqual(calculado, parsed.hash);
-      const usuarioOk = comparaTempoConstante(usuarioInformado == null ? '' : usuarioInformado, usuario);
+      const usuarioOk = mesmoUsuario(usuarioInformado, usuario);
       if (senhaOk && usuarioOk) {
         if (ip) limpaFalhasDe(IDENT_DONO, ip);
         return { ok: true, usuario, papel: 'dono' };
       }
       if (ip) registraFalhaLogin(IDENT_DONO, ip);
-      return { ok: false, erro: dgIdiomaBackend.mensagem("Usuário ou senha incorretos.") };
+      // `campo` é só para o log do servidor (diz qual dos dois não conferiu); a resposta ao navegador continua genérica.
+      return { ok: false, campo: usuarioOk ? 'senha' : 'usuário', erro: dgIdiomaBackend.mensagem("Usuário ou senha incorretos.") };
     },
 
     /** Cria a sessão e devolve { token, expira, cabecalho(Set-Cookie) } pronta para o cookie. */
@@ -271,7 +277,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
         // Conferência síncrona logo antes de emitir: se a senha, o convite ou o acesso mudou depois que a senha foi
         // verificada, a sessão não nasce. Enquanto a senha é a temporária, a sessão morre junto com ela.
         const atual = colaboradores ? colaboradores.obter(colaborador.id) : null;
-        if (instanciaMudou(atual)) { const e = new Error(MOTIVO_INSTANCIA); e.status = 401; throw e; }
+        if (instanciaMudou(atual)) { const e = new Error(motivoInstancia()); e.status = 401; throw e; }
         if (!atual || atual.revogado_em || atual.agente !== colaborador.agente || (atual.senha_versao || 1) !== colaborador.senha_versao || (colaborador.hash && atual.hash !== colaborador.hash)) {
           const e = new Error(dgIdiomaBackend.mensagem("O seu acesso mudou (senha trocada, convite novo ou acesso revogado) enquanto você entrava. Entre de novo."));
           e.status = 401;
@@ -448,7 +454,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
     const senhaOk = !!visto && alvo !== hashFicticioCache && calculado.length === alvo.hash.length && crypto.timingSafeEqual(calculado, alvo.hash);
     if (!senhaOk) {
       if (ip) registraFalhaLogin(identidade, ip);
-      return { ok: false, erro: dgIdiomaBackend.mensagem("Usuário ou senha incorretos.") };
+      return { ok: false, campo: visto ? 'senha' : 'usuário', erro: dgIdiomaBackend.mensagem("Usuário ou senha incorretos.") };
     }
     // Recarrega: só vale se o registro ainda é exatamente o que a senha conferiu e o acesso não foi revogado.
     const atual = colaboradores.obter(visto.id);
@@ -458,7 +464,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
     }
     if (instanciaMudou(atual)) {
       log('aviso', `Login de ${visto.email} (ip ${ip || '?'}) recusado: o convite era de uma instância antiga do agente ${atual.agente} (removido e recriado).`);
-      return { ok: false, erro: MOTIVO_INSTANCIA };
+      return { ok: false, erro: motivoInstancia() };
     }
     if (ip) limpaFalhasDe(identidade, ip);
     if (atual.trocar_senha && Number(atual.temporaria_expira) < relogio()) {

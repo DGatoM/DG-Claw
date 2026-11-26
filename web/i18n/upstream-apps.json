@@ -1,0 +1,6 @@
+{
+  "Pronto: {quantidade} imagem entrou dentro do arquivo, {tamanho} no total.": "Done: {quantidade} image was embedded in the file, {tamanho} in total.",
+  "Pronto: {quantidade} imagens entraram dentro do arquivo, {tamanho} no total.": "Done: {quantidade} images were embedded in the file, {tamanho} in total.",
+  " {quantidade} arquivo não entrou (a própria página lista quais).": " {quantidade} file was not included (the page itself lists which files).",
+  " {quantidade} arquivos não entraram (a própria página lista quais).": " {quantidade} files were not included (the page itself lists which files)."
+}

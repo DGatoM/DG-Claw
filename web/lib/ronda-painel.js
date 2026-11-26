@@ -36,8 +36,9 @@ const RX_PROIBIDO_G = new RegExp(`[${INVISIVEIS}]`, 'g');
 const SEVERIDADES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'desconhecida'];
 const PESO = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, desconhecida: 4 };
 const TIPOS_CORRECAO = ['acao-catalogo', 'atualizar-dgclaw', 'apt', 'nenhuma'];
-const ESTADOS = ['aberto', 'aplicado-sozinho', 'aplicado-pelo-dono', 'mitigado', 'agendado', 'protegido-aguardando', 'aguardando-fornecedor'];
+const ESTADOS = ['aberto', 'aplicado-sozinho', 'aplicado-pelo-dono', 'mitigado', 'agendado', 'protegido-aguardando', 'aguardando-fornecedor', 'atualizacao-sistema'];
 // Estados em que a falha está sem correção instalável: informativos, não pedem decisão. O painel só deixa desfazer o que já foi aplicado.
+// `atualizacao-sistema`: pacote do sistema com correção que entra pelo apt. Segundo plano, nunca desfazível.
 const ESTADOS_DESFAZIVEIS = ['aplicado-sozinho', 'protegido-aguardando'];
 
 const idAchado = (v) => (typeof v === 'string' && RX_ID_ACHADO.test(v) ? v.toUpperCase() : null);
@@ -124,6 +125,7 @@ function validaAchado(a) {
     aplicado,
     primeira_vez_em: data(a.primeira_vez_em),
   };
+  if (a.explorada_ativamente === true) achado.explorada_ativamente = true;
   if (paliativo) achado.paliativo = paliativo;
   return { achado };
 }
@@ -333,6 +335,9 @@ function criarRondaPainel(opcoes) {
         return H.erroJson(res, 409, dgIdiomaBackend.mensagem("O achado {p0} não tem como ser desfeito: só dá para desfazer o que a ronda aplicou sozinha (ou a proteção provisória aplicada) e deixou o caminho de volta registrado.", {p0: (id)}));
       }
     } else {
+      if (a.estado === 'atualizacao-sistema') {
+        return H.erroJson(res, 409, dgIdiomaBackend.mensagem('A correção do achado {id} já existe e entra pela atualização do sistema (automática), então o painel não tem nada a aplicar nem a agendar. Se quiser adiantar, peça ao Admin.', { id }));
+      }
       if (a.estado !== 'aberto' && !(a.estado === 'agendado' && tipo === 'aplicar')) {
         return H.erroJson(res, 409, dgIdiomaBackend.mensagem("O achado {p0} já está como \"{p1}\", então não há nada a aplicar nem a agendar.", {p0: (id), p1: (a.estado)}));
       }

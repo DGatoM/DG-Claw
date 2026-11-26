@@ -68,7 +68,8 @@ To report a security vulnerability, follow the repository's [SECURITY.md](https:
 **How it works in practice.**
 
 - **First access:** the installer provides a single-use link, valid for 30 minutes (`/primeiro-acesso`). Set your password there (at least 12 characters). Lost the link: ask the Admin for `sudo dgclaw primeiro-acesso`.
-- **Change password:** `sudo dgclaw senha trocar` (type the new password without it appearing). Changing the password ends open sessions.
+- **Change password:** while signed in as the owner, open Security > Change password in the panel menu (or `/trocar-senha`), enter your current password and the new one twice (at least 12 characters). Without panel access, use `sudo dgclaw senha trocar` (type the new password without it appearing). In both cases, other open sessions become invalid.
+- **Login username:** the panel ignores uppercase letters and spaces at either end of the username (mobile keyboards often add them); the password is still matched exactly.
 - **Failed attempts:** 5 failures in 15 minutes for the same account and address, or 20 failures in 15 minutes from the same address across all accounts, block further attempts until the window passes. Even the correct password cannot sign in during the block, and the screen says how many seconds to wait.
 - **Collaborators:** people you invite to just one agent. They sign in at `/login` with a temporary password, change it at `/trocar-senha` and see only their agent. Details in [COLABORADORES.md](https://github.com/DGatoM/DG-Claw/blob/main/web/docs/COLABORADORES.md) and the `/colaboradores` screen.
 - **Panel API keys** (`dgc_...`): let the Admin operate an agent's panel. They appear only once, are stored as hashes, and one key can never create another.

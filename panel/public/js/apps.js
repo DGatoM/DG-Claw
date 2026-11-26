@@ -566,7 +566,9 @@ const dgHtml_apps = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) :
 
     const d = r.corpo;
     const fora = d.deFora
-      ? dgPhraseFull_apps(" {v0} {v1} (a própria página lista quais).",{v0:(d.deFora),v1:(d.deFora === 1 ? dgTextFull_apps("arquivo não entrou") : dgTextFull_apps("arquivos não entraram"))})
+      ? dgFragFull_apps(d.deFora === 1
+        ? ' {quantidade} arquivo não entrou (a própria página lista quais).'
+        : ' {quantidade} arquivos não entraram (a própria página lista quais).', { quantidade: d.deFora })
       : '';
     saida.innerHTML = dgHtmlFull_apps(`<div class="app-compartilhar-ok">
         <div class="app-compartilhar-linha">
@@ -576,8 +578,10 @@ const dgHtml_apps = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) :
           <a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer" class="app-btn-abrir"><!--dg-i18n:5d47f96d4360-->abrir<!--/dg-i18n--></a>
         </div>
         <p class="app-compartilhar-nota">
-          Pronto: ${d.embutidos} ${dgFragFull_apps(d.embutidos === 1 ? dgTextFull_apps("imagem entrou") : dgTextFull_apps("imagens entraram"))} dentro do arquivo, ${esc(bytes(d.tamanho))} no total.${esc(fora)}
-          Quem abrir este link não precisa de senha, então mande só para quem deve ver.
+          ${dgFragFull_apps(d.embutidos === 1
+            ? 'Pronto: {quantidade} imagem entrou dentro do arquivo, {tamanho} no total.'
+            : 'Pronto: {quantidade} imagens entraram dentro do arquivo, {tamanho} no total.', { quantidade: d.embutidos, tamanho: bytes(d.tamanho) })}${fora}
+          ${dgFragFull_apps('Quem abrir este link não precisa de senha, então mande só para quem deve ver.')}
         </p>
       </div>`);
     const b = saida.querySelector('[data-copiar]');

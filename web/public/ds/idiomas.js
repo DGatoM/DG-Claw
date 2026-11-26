@@ -125,6 +125,10 @@
     "pt-BR": "Arquivo:",
     "en": "File:"
   },
+  "01d9cb5b2a9c": {
+    "pt-BR": "Não foi possível medir as integrações: o estado.json está com o JSON quebrado.",
+    "en": "Integration status could not be measured: estado.json contains invalid JSON."
+  },
   "01ecbc4c3dac": {
     "pt-BR": "Trocar de agente com o polegar, sem abrir o menu.",
     "en": "Switch agents with your thumb without opening the menu."
@@ -189,9 +193,21 @@
     "pt-BR": "O arquivo \"{p0}\" não é de nenhuma etapa deste conteúdo, então eu não abro.",
     "en": "File \"{p0}\" does not belong to any stage of this content, so I will not open it."
   },
+  "02c2a8db01a3": {
+    "pt-BR": "análise baseada",
+    "en": "analysis based"
+  },
+  "02cba44bb25b": {
+    "pt-BR": "Integrações",
+    "en": "Integrations"
+  },
   "02cf440b8e5c": {
     "pt-BR": "A sessão de ",
     "en": "The session for "
+  },
+  "02ffe88c0319": {
+    "pt-BR": "O servidor respondeu {status}. Atualize a página e tente de novo.",
+    "en": "The server returned {status}. Refresh the page and try again."
   },
   "03090a0452a4": {
     "pt-BR": "Tudo o que acompanha o trabalho dos agentes fica numa página só.",
@@ -269,6 +285,10 @@
     "pt-BR": "O modelo do agente e como ele é pago",
     "en": "The agent's model and payment method"
   },
+  "041742d2319e": {
+    "pt-BR": "Ainda não usou nenhum sistema externo. Cada sistema aparece aqui sozinho na primeira vez que o agente o usar.",
+    "en": "No external systems used yet. Each system appears here automatically the first time the agent uses it."
+  },
   "0420164b2c3f": {
     "pt-BR": "acordar {v0}",
     "en": "wake {v0}"
@@ -276,6 +296,14 @@
   "042e2634d61d": {
     "pt-BR": "O agente lê o cofre",
     "en": "The agent reads the vault"
+  },
+  "04428823bd1e": {
+    "pt-BR": "Aqui você responde \"o meu agente está conectado em quê, e está funcionando?\" sem abrir cada sistema. Também serve de vitrine numa aula: dá para mostrar o agente ligado ao mundo de uma vez só.",
+    "en": "Here you can answer “what is my agent connected to, and is it working?” without opening each system. It also serves as a showcase during a class: you can show all the agent’s connections to the outside world at once."
+  },
+  "04471d3ffd15": {
+    "pt-BR": "o estado.json está com o JSON quebrado",
+    "en": "estado.json contains invalid JSON"
   },
   "04573fca59bc": {
     "pt-BR": "Não consegui enviar o código: ",
@@ -296,6 +324,10 @@
   "0493c802d555": {
     "pt-BR": "Compartilhados",
     "en": "Shared items"
+  },
+  "049da7aa94e3": {
+    "pt-BR": "Não consegui ler o arquivo do link de primeiro acesso ({p0}). No servidor, rode: sudo dgclaw primeiro-acesso",
+    "en": "Could not read the first-access link file ({p0}). Run on the server: sudo dgclaw primeiro-acesso"
   },
   "04a48af9a5ed": {
     "pt-BR": "funcionando",
@@ -321,9 +353,17 @@
     "pt-BR": "o que ele publicou",
     "en": "what it published"
   },
+  "04f8bbcd1495": {
+    "pt-BR": "Não dá para trocar a senha por aqui: {p0} {p1}. Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para deixar o web.env como arquivo comum (ou rode no servidor: sudo dgclaw senha).",
+    "en": "Cannot change the password here: {p0} {p1}. Nothing was saved and your old password remains valid. Ask the Admin to make web.env a regular file (or run on the server: sudo dgclaw senha)."
+  },
   "04fa5f586a81": {
     "pt-BR": "Tutorial do novo lembrete",
     "en": "New reminder tutorial"
+  },
+  "04fb23e17be7": {
+    "pt-BR": "Os dois controles ficam juntos num botão só para sobrar espaço no topo; o nome de cada um aparece por escrito quando você abre.",
+    "en": "Both controls share one button to save space at the top; their names appear when you open it."
   },
   "0501dd23bf94": {
     "pt-BR": "O agendamento pode ser de no máximo 90 dias à frente.",
@@ -429,6 +469,10 @@
     "pt-BR": "A chave de API foi revogada.",
     "en": "The API key was revoked."
   },
+  "064c23c6f1de": {
+    "pt-BR": "não existe (a configuração do painel precisa ser restaurada antes)",
+    "en": "does not exist (restore the dashboard configuration first)"
+  },
   "06510c98e01a": {
     "pt-BR": "O anexo tem {p0} MB e o limite é {p1} MB.",
     "en": "The attachment is {p0} MB and the limit is {p1} MB."
@@ -528,6 +572,10 @@
   "07ee568060a4": {
     "pt-BR": "A gravidade vem do registro oficial de cada falha. Aqui você só vê o resumo; as provas, os links e os botões de ação estão na tela Segurança.",
     "en": "Severity comes from each issue's official record. This is only the summary; evidence, links and action buttons are on the Security screen."
+  },
+  "080517b46da9": {
+    "pt-BR": "Cada agente anota o resultado de cada uso real de um sistema externo. Quando os últimos resultados mostram a chave recusada, o saldo acabando, o sistema fora do ar ou a conexão caída, e houve uso nos últimos 7 dias, a integração fica vermelha e esta faixa aparece. Ela some sozinha quando a integração volta a funcionar.",
+    "en": "Each agent records the result of every actual use of an external system. When the latest results show a rejected key, a depleted balance, an offline system, or a dropped connection, and the system was used in the last 7 days, the integration turns red and this banner appears. It disappears automatically when the integration works again."
   },
   "08078ecf2ed7": {
     "pt-BR": "Defina a senha da tela",
@@ -769,6 +817,10 @@
     "pt-BR": "A lista de agentes está indisponível.",
     "en": "The agent list is unavailable."
   },
+  "0b3e4c1747ca": {
+    "pt-BR": "é um link simbólico",
+    "en": "is a symbolic link"
+  },
   "0b5aca6d33e5": {
     "pt-BR": "Cada barra vai de 0 a 100 e mexe num aspecto do jeito dele: o quanto ele é aberto a ideia nova, organizado, comunicativo, condescendente e reativo a pressão.",
     "en": "Each 0–100 bar controls one aspect: openness to ideas, organization, communication, agreeableness and reaction to pressure."
@@ -820,6 +872,10 @@
   "0c3b2e261adc": {
     "pt-BR": " foi interrompido. Toque de novo.",
     "en": " was interrupted. Tap again."
+  },
+  "0c4793598ede": {
+    "pt-BR": "Desligado.",
+    "en": "Disabled."
   },
   "0c523b9a5a79": {
     "pt-BR": "Não consegui abrir o texto: {v0}.",
@@ -909,6 +965,14 @@
     "pt-BR": "não medido",
     "en": "not measured"
   },
+  "0d8d22c05085": {
+    "pt-BR": "Mande {\"agente\": \"<slug do agente>\", \"integracao\": \"<id da integração>\"}, com os dois no formato de letras minúsculas, números e hífen.",
+    "en": "Send {\"agente\": \"<agent slug>\", \"integracao\": \"<integration id>\"}, using lowercase letters, digits, and hyphens for both."
+  },
+  "0d8d7f908460": {
+    "pt-BR": "Um interruptor que decide se o DG Claw chama o Admin por conta própria quando uma integração de um agente cai (chave recusada, saldo acabado, sistema fora do ar ou conexão caída).",
+    "en": "A switch that determines whether DG Claw calls the Admin on its own when an agent integration fails (rejected key, depleted balance, unavailable system or lost connection)."
+  },
   "0dade55586b2": {
     "pt-BR": "nas últimas 48 h: de pé o tempo todo",
     "en": "last 48 h: continuously running"
@@ -924,6 +988,10 @@
   "0de783ac9b78": {
     "pt-BR": "Escreva parte do nome, da pasta ou do código do card. A busca ignora acento e maiúscula, e vale dentro do grupo escolhido acima.",
     "en": "Type part of the card's name, folder or code. Search ignores accents and case and applies within the selected group."
+  },
+  "0de7fe955af5": {
+    "pt-BR": "Só o dono vê as integrações de todos os agentes.",
+    "en": "Only the owner can view integrations for all agents."
   },
   "0de83f094f86": {
     "pt-BR": "Não achei o conteúdo \"{p0}\".",
@@ -1025,6 +1093,10 @@
     "pt-BR": "De 10 a 128 caracteres. Uma frase longa funciona bem.",
     "en": "Between 10 and 128 characters. A long phrase works well."
   },
+  "0f605a61157f": {
+    "pt-BR": "o estado.json não tem o formato esperado (versão 1 com a lista de integrações)",
+    "en": "estado.json is not in the expected format (version 1 with the integration list)"
+  },
   "0f7a20636181": {
     "pt-BR": "cache local demorou a abrir",
     "en": "local cache took too long to open"
@@ -1052,6 +1124,10 @@
   "0feb3d7f7851": {
     "pt-BR": "a leitura da pasta parou ({p0})",
     "en": "directory reading stopped ({p0})"
+  },
+  "0ff9d730d22d": {
+    "pt-BR": "Não consegui ler o web.env ({p0}). Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env (ou rode no servidor: sudo dgclaw senha).",
+    "en": "Could not read web.env ({p0}). Nothing was saved and your old password remains valid. Ask the Admin to restore web.env (or run on the server: sudo dgclaw senha)."
   },
   "100ad28aab66": {
     "pt-BR": "Tutorial do detector de nomes",
@@ -1148,6 +1224,10 @@
   "112384a9df1e": {
     "pt-BR": "Sugestões:",
     "en": "Suggestions:"
+  },
+  "11263c341d93": {
+    "pt-BR": "Para você saber na hora, sem abrir cada agente, e pedir ao Admin para verificar. Nada é consertado sozinho. Lembrar em 1 hora esconde o aviso por uma hora.",
+    "en": "So you can find out immediately, without opening each agent, and ask the Admin to check. Nothing is repaired automatically. Remind me in 1 hour hides the warning for one hour."
   },
   "114a8fd1f6d1": {
     "pt-BR": "Falha inesperada no modo foco: {p0}. Tente de novo; se repetir, veja o log do Web.",
@@ -1377,6 +1457,10 @@
     "pt-BR": "A última instalação (",
     "en": "The last installation ("
   },
+  "1496d0be1ce6": {
+    "pt-BR": "o painel respondeu com o código ",
+    "en": "the panel returned code "
+  },
   "14a357929b13": {
     "pt-BR": "Recarregue a página. Se continuar, o registro do painel diz o motivo.",
     "en": "Reload the page. If this persists, the panel log explains why."
@@ -1396,6 +1480,10 @@
   "14ec751f942e": {
     "pt-BR": "trabalhando agora{p0}",
     "en": "working now{p0}"
+  },
+  "14f5717d6a19": {
+    "pt-BR": "A integração {integracao} do agente {agente} está com defeito: {categoria}.",
+    "en": "Integration {integracao} for agent {agente} is not working: {categoria}."
   },
   "1505e22762be": {
     "pt-BR": "O card já escreveu um handoff. Posso usar esse ou pedir um novo.",
@@ -1585,6 +1673,10 @@
     "pt-BR": "para: não existe agente '{p0}'. Os que existem: {p1}.",
     "en": "para: agent '{p0}' does not exist. Existing agents: {p1}."
   },
+  "17b03e359906": {
+    "pt-BR": "A sua sessão deixou de valer enquanto você trocava a senha. Entre de novo.",
+    "en": "Your session expired while you were changing the password. Sign in again."
+  },
   "17d13d732364": {
     "pt-BR": "Lembrar depois",
     "en": "Remind me later"
@@ -1653,9 +1745,17 @@
     "pt-BR": "Use GET para listar ou POST para criar um pedido (só o agente cria).",
     "en": "Use GET to list or POST to create a request (only the agent can create one)."
   },
+  "1915ee341813": {
+    "pt-BR": "não consegui ler {p0} ({p1})",
+    "en": "I could not read {p0} ({p1})"
+  },
   "192783eaa1df": {
     "pt-BR": "Escreva o que está acontecendo e envie.",
     "en": "Describe what is happening and send."
+  },
+  "1942426310e6": {
+    "pt-BR": "Mande {\"ligado\": true} ou {\"ligado\": false}.",
+    "en": "Send {\"ligado\": true} or {\"ligado\": false}."
   },
   "194651cf391e": {
     "pt-BR": "Pedido recusado: a origem não é a deste site. Abra o DG Claw pelo endereço normal e tente de novo.",
@@ -1664,6 +1764,10 @@
   "195aa3a748a2": {
     "pt-BR": "Aviso de teste enviado para ",
     "en": "Test notification sent to "
+  },
+  "19738bdb11fe": {
+    "pt-BR": "falha sem classificação",
+    "en": "unclassified failure"
   },
   "1990f4297933": {
     "pt-BR": "Avatar neutro",
@@ -1732,6 +1836,10 @@
   "1a629cb44335": {
     "pt-BR": "Revogar a chave de acesso \"{v0}\"?",
     "en": "Revoke access key \"{v0}\"?"
+  },
+  "1a715022f656": {
+    "pt-BR": "{p0} é um link simbólico ou não é uma pasta, então não gravei nada ali",
+    "en": "{p0} is a symbolic link or is not a directory, so I did not save anything there"
   },
   "1a717b447fba": {
     "pt-BR": "Só abro arquivos que ficam dentro da casa do agente.",
@@ -1821,9 +1929,17 @@
     "pt-BR": " s: o script dele travou ou o arquivo não é um visual. Use o botão de baixar para ver o arquivo.",
     "en": " s: its script stalled or the file is not a visual. Download the file to view it."
   },
+  "1b6f2abae04f": {
+    "pt-BR": "Religue integrações que não precisam ficar desligadas, ou peça ao Admin para limpar o preferencias.json.",
+    "en": "Re-enable integrations that do not need to stay disabled, or ask the Admin to clean up preferencias.json."
+  },
   "1b7ce7a9e74e": {
     "pt-BR": "ficou de fora \"",
     "en": "left out \""
+  },
+  "1b7e53ec2be4": {
+    "pt-BR": "A senha de acesso (chave) foi recusada pelo sistema.",
+    "en": "The system rejected the access credential (key)."
   },
   "1b93c552b4e3": {
     "pt-BR": "Ler a conversa é o jeito de saber o que ele fez e por que parou, antes de mandar qualquer recado.",
@@ -1889,6 +2005,10 @@
     "pt-BR": "Ele começa sabendo como pode ajudar você.",
     "en": "It starts knowing how it can help you."
   },
+  "1cddba00aaad": {
+    "pt-BR": "o estado.json não tem o formato esperado",
+    "en": "estado.json is not in the expected format"
+  },
   "1ce82d478a0f": {
     "pt-BR": "Imagem, áudio, vídeo e formatos que o filtro não lê.",
     "en": "Images, audio, video and formats the filter cannot read."
@@ -1929,6 +2049,10 @@
     "pt-BR": "ler: sim",
     "en": "read: yes"
   },
+  "1db563099185": {
+    "pt-BR": "Não consegui carregar as integrações: ",
+    "en": "I could not load integrations: "
+  },
   "1dbc59f73e3a": {
     "pt-BR": "ainda não rodou",
     "en": "has not run yet"
@@ -1940,6 +2064,10 @@
   "1ddf4ff34c18": {
     "pt-BR": "Memória longa",
     "en": "Long-term memory"
+  },
+  "1df39fc97045": {
+    "pt-BR": "Nenhum sistema está funcionando agora, então o modo aula não tem o que mostrar.",
+    "en": "No systems are working now, so presentation mode has nothing to show."
   },
   "1e068f0819ee": {
     "pt-BR": "Agente",
@@ -2029,6 +2157,10 @@
     "pt-BR": "Próximos Passos",
     "en": "Next steps"
   },
+  "1f12d802876f": {
+    "pt-BR": "A cor nunca é chute: um sistema sem uso recente nunca aparece verde, porque você só pode confiar numa cor que veio de um uso de verdade. Vermelho exige duas falhas para um soluço da internet não assustar ninguém.",
+    "en": "The color is never a guess: a system without recent use never appears green, because a color is only trustworthy when it comes from actual use. Red requires two failures so that a brief internet interruption does not cause a false alarm."
+  },
   "1f14f4f9dc6a": {
     "pt-BR": "{v0} de {v1} verdes",
     "en": "{v0} of {v1} green"
@@ -2064,6 +2196,10 @@
   "1f9a1bf698d3": {
     "pt-BR": "Este painel não tem a parte que sabe reiniciar o agente.",
     "en": "This dashboard does not have the component needed to restart the agent."
+  },
+  "1fa11cceb033": {
+    "pt-BR": "Não consegui processar a senha agora. Tente de novo em instantes.",
+    "en": "Could not process your password right now. Try again shortly."
   },
   "1fac5bc44ebf": {
     "pt-BR": "Não consegui carregar o Face ID: ",
@@ -2129,6 +2265,10 @@
     "pt-BR": "Pede a sua confirmação, reinicia e mostra uma faixa no topo até ele voltar. A conversa continua de onde estava, porque o agente retoma a mesma sessão.",
     "en": "It asks for confirmation, restarts and shows a banner at the top until the agent returns. The conversation resumes where it stopped because the agent resumes the same session."
   },
+  "20324fbd274a": {
+    "pt-BR": "Desligado",
+    "en": "Disabled"
+  },
   "2038f0e4fb06": {
     "pt-BR": "Leva à tela Segurança, onde cada ponto tem os fatos e as ações.",
     "en": "Opens Security, where each issue has facts and actions."
@@ -2192,6 +2332,10 @@
   "211cbf0b9250": {
     "pt-BR": "Sua sessão não vale mais. Entre de novo.",
     "en": "Your session is no longer valid. Sign in again."
+  },
+  "212364981e4e": {
+    "pt-BR": "Voz: leitura em voz alta e conversa contínua desligadas",
+    "en": "Voice: reading aloud and continuous conversation disabled"
   },
   "212e2ab2f759": {
     "pt-BR": "O agente não está logado na sua assinatura. Este botão mostra o link de login e, quando precisar, o código para digitar. Você não usa terminal.",
@@ -2284,6 +2428,10 @@
   "21fa68b8df83": {
     "pt-BR": "Os avisos",
     "en": "Notices"
+  },
+  "21fbbcbbe692": {
+    "pt-BR": "Não consegui falar com o servidor ({erro}). Confira a conexão e toque de novo.",
+    "en": "I could not reach the server ({erro}). Check the connection and try again."
   },
   "220135244543": {
     "pt-BR": "Precisa do detector completo para achar o nome; o CNPJ é trocado sempre.",
@@ -2388,6 +2536,10 @@
   "23060decf8cd": {
     "pt-BR": "7 dias",
     "en": "7 days"
+  },
+  "230e353aee41": {
+    "pt-BR": "O que é este cartão, e como a conta é feita",
+    "en": "What this card shows and how the count is calculated"
   },
   "231dcd402aed": {
     "pt-BR": "A frase embaixo do nome é a descrição que o agente carrega para este app. Passe o mouse em qualquer rótulo desta tela: quase todos explicam a si mesmos assim.",
@@ -2501,6 +2653,10 @@
     "pt-BR": "Como ele mudou",
     "en": "How it changed"
   },
+  "247f25547b67": {
+    "pt-BR": "O Estado real mostra todos os sistemas, cada um na cor que tem. O Modo aula mostra só os que estão em verde, para apresentar sem expor o que está com problema.",
+    "en": "Actual status shows all systems in their current colors. Presentation mode only shows green systems, so you can present without displaying systems that have problems."
+  },
   "2480d9bf1ee7": {
     "pt-BR": "A senha da tela precisa de pelo menos {p0} caracteres (a sua tem {p1}).",
     "en": "The screen password needs at least {p0} characters (yours has {p1})."
@@ -2601,6 +2757,10 @@
     "pt-BR": "Toque no microfone, espere aparecer \"gravando\", fale, e toque de novo.",
     "en": "Select the microphone, wait for \"recording\", speak, then select it again."
   },
+  "2582c6a7f78a": {
+    "pt-BR": "Muitas tentativas. Tente de novo em {p0} min.",
+    "en": "Too many attempts. Try again in {p0} min."
+  },
   "258a706fb546": {
     "pt-BR": "Não consegui criar a pasta {p0} ({p1}). Se ela virou um atalho, o dono deve conferir o que o agente fez ali.",
     "en": "I could not create directory {p0} ({p1}). If it became a shortcut, the owner should check what the agent did there."
@@ -2664,6 +2824,10 @@
   "2673b5f6f159": {
     "pt-BR": "O texto não pode ter HTML.",
     "en": "The text cannot contain HTML."
+  },
+  "2677a60d2511": {
+    "pt-BR": "Não foi possível medir as integrações: {p0}.",
+    "en": "Integration status could not be measured: {p0}."
   },
   "267f751c9611": {
     "pt-BR": "Não consegui criar a chave de cifra em {p0} ({p1}). Crie a pasta {p2} com permissão 700 e tente de novo.",
@@ -2868,6 +3032,10 @@
   "290167efaa11": {
     "pt-BR": "Faça isto pela aba Cofre do painel (entrando com a senha) ou, na máquina, com \"node panel/bin/chave-api.js\".",
     "en": "Do this through the panel's Vault tab (signing in with your password) or, on the machine, with \"node panel/bin/chave-api.js\"."
+  },
+  "2917d5719872": {
+    "pt-BR": "A cada rodada a ronda pergunta ao apt deste servidor se a versão corrigida já pode ser instalada. Se pode para todos os pacotes da falha, ela não constava no catálogo de falhas exploradas da CISA na última consulta válida, ela entra aqui, e o número da linha é a quantidade de falhas desse componente nessa situação. Quando o pacote é atualizado, a falha some sozinha.",
+    "en": "On each round, the security check asks this server's apt whether the fixed version can already be installed. If it can for all packages affected by the vulnerability, and the vulnerability was not in CISA's catalog of exploited vulnerabilities in the last valid check, it appears here. The row count is the number of vulnerabilities in this situation for that component. When the package is updated, the vulnerability disappears automatically."
   },
   "29220e0bfa23": {
     "pt-BR": "Ler respostas em voz alta: ligado",
@@ -3081,6 +3249,10 @@
     "pt-BR": "O contador mostra quanto falta. O detalhe longo vai em um arquivo ou página, e você põe o endereço no campo de link.",
     "en": "The counter shows the space remaining. Put longer details in a file or page and add its address in the link field."
   },
+  "2c049b791972": {
+    "pt-BR": "Não consegui invalidar o link de recuperação pendente ({p0}). A senha antiga continua valendo; peça ao Admin para conferir a permissão da pasta de configuração.",
+    "en": "Could not invalidate the pending recovery link ({p0}). Your old password remains valid; ask the Admin to check the configuration folder permissions."
+  },
   "2c09eea29282": {
     "pt-BR": "Diga daqui a quantos minutos (de 1 a 10080).",
     "en": "Enter how many minutes from now (1 to 10080)."
@@ -3105,6 +3277,10 @@
     "pt-BR": "Não há boletim pendente com o id {p0}. Ele pode já ter sido corrigido pela atualização. Atualize a tela.",
     "en": "No pending bulletin has id {p0}. An update may already have fixed it. Refresh the screen."
   },
+  "2c761daa9c90": {
+    "pt-BR": "Ligado, o DG Claw chama o Admin sozinho quando uma integração cair. O Admin tem acesso total ao servidor, e um agente consegue registrar uma falha que não aconteceu: com isso ele faria o Admin olhar uma integração que está boa. O pedido tem texto fixo, só pede para investigar e propor, e há limites (um por defeito, um a cada 6 horas por integração, cinco por dia). Nada é aplicado sem o seu ok.",
+    "en": "When enabled, DG Claw calls the Admin automatically when an integration fails. The Admin has full access to the server, and an agent can report a failure that did not happen: this could make the Admin look into an integration that is working. The request uses fixed text, only asks for investigation and a proposal, and has limits (one per fault, one every 6 hours per integration, five per day). Nothing is applied without your approval."
+  },
   "2c8b26fad72f": {
     "pt-BR": "não foi enviada",
     "en": "not sent"
@@ -3120,6 +3296,10 @@
   "2cb02ffde6e9": {
     "pt-BR": "Último sinal",
     "en": "Last signal"
+  },
+  "2cb95d36b5ca": {
+    "pt-BR": "Use de 1 a 32 caracteres: letras minúsculas, números e hífen (exemplo: instagram, nota-fiscal).",
+    "en": "Use 1 to 32 characters: lowercase letters, digits, and hyphens (for example: instagram, nota-fiscal)."
   },
   "2cbb2d241b6c": {
     "pt-BR": "Criar sua senha",
@@ -3260,6 +3440,10 @@
   "2e4e5aceedd4": {
     "pt-BR": "aguardando",
     "en": "waiting"
+  },
+  "2e5f6b88cead": {
+    "pt-BR": "Digite a senha atual.",
+    "en": "Enter your current password."
   },
   "2e6213ca5dc0": {
     "pt-BR": "). Limpe a permissão de notificações do site nas configurações do navegador.",
@@ -3425,6 +3609,10 @@
     "pt-BR": "agente: não existe agente '{p0}' no quadro. Os que existem: {p1}.",
     "en": "agente: agent '{p0}' does not exist in the noticeboard. Existing agents: {p1}."
   },
+  "31009f40dfe9": {
+    "pt-BR": "Desligar no mapa",
+    "en": "Disable on the map"
+  },
   "31105ec2a22c": {
     "pt-BR": "Ainda sem ronda.",
     "en": "No scan yet."
@@ -3460,6 +3648,10 @@
   "315b034e11da": {
     "pt-BR": "O que é esta seção",
     "en": "About this section"
+  },
+  "31772a24926d": {
+    "pt-BR": "Não consegui gravar a senha no servidor ({p0}). O link já foi usado: rode no servidor sudo dgclaw primeiro-acesso e tente de novo.",
+    "en": "Could not save the password on the server ({p0}). The link has already been used: run sudo dgclaw primeiro-acesso on the server and try again."
   },
   "3188fb62ffad": {
     "pt-BR": " Toque em \"descartar\" no balão.",
@@ -3533,6 +3725,10 @@
     "pt-BR": ". Enquanto você não clicar aqui, ele continua\n          usando o que tinha antes. Reiniciar interrompe o que ele estiver fazendo neste momento, e por isso o botão\n          é seu e não acontece sozinho ao guardar.",
     "en": ". Until you select this button, it keeps\n          using its previous environment. Restarting interrupts its current work, so the button\n          is yours and does not run automatically when saving."
   },
+  "32469d788927": {
+    "pt-BR": "Último problema",
+    "en": "Latest problem"
+  },
   "32521e6acbad": {
     "pt-BR": "Não consegui anonimizar a legenda: {p0}",
     "en": "I could not anonymize the caption: {p0}"
@@ -3584,6 +3780,10 @@
   "32dbd86f9037": {
     "pt-BR": "Não consegui ver o estado da tela.",
     "en": "Could not check the screen status."
+  },
+  "32f98743f338": {
+    "pt-BR": "As senhas não conferem.",
+    "en": "The passwords do not match."
   },
   "3314e997059c": {
     "pt-BR": "Sem resposta",
@@ -3760,6 +3960,10 @@
   "34f27399209b": {
     "pt-BR": "A lista de tudo o que aconteceu na tarefa: quem mexeu, quando e o que mudou.",
     "en": "Everything that happened to the task: who changed it, when and what changed."
+  },
+  "34f32dada015": {
+    "pt-BR": "{integracao} (agente {agente}): {categoria}.",
+    "en": "{integracao} (agent {agente}): {categoria}."
   },
   "34f5e8ae70de": {
     "pt-BR": "Só entram arquivos que o próprio card citou, para você não abrir por engano algo que ele nunca tocou. Segredos que aparecem nos textos vêm mascarados pelo Bunker.",
@@ -4085,9 +4289,17 @@
     "pt-BR": "falha",
     "en": "failure"
   },
+  "38e5d6b6858f": {
+    "pt-BR": "Houve uma falha de internet no caminho.",
+    "en": "An internet connection failed along the way."
+  },
   "38f35b39624c": {
     "pt-BR": "Uma linha por trabalho que ele fez na janela escolhida, com quando foi, quanto tempo levou e quanto custou. Mude a janela para olhar mais para trás.",
     "en": "One row per job in the selected period, with time, duration and cost. Change the period to look further back."
+  },
+  "38f5d7c34f86": {
+    "pt-BR": "O sistema está fora do ar ou com problema do lado dele.",
+    "en": "The system is offline or experiencing a problem on its side."
   },
   "38fff95e8831": {
     "pt-BR": "O indicador de atividade",
@@ -4149,6 +4361,10 @@
     "pt-BR": "mais de {p0} boletins",
     "en": "more than {p0} bulletins"
   },
+  "39ba232882db": {
+    "pt-BR": "Tutorial das atualizações do sistema",
+    "en": "System updates tutorial"
+  },
   "39c409b68019": {
     "pt-BR": "Um ajudante neutro, que não é o seu agente, para quando ele parecer estar com problema: lê os registros, explica o que houve e pergunta antes de mexer em qualquer coisa.",
     "en": "An independent helper for when your agent seems to have a problem: reads records, explains what happened and asks before changing anything."
@@ -4172,6 +4388,10 @@
   "3a04898a6b8b": {
     "pt-BR": "Aplicar",
     "en": "Apply"
+  },
+  "3a18b31ae7b2": {
+    "pt-BR": "Confira se a pasta existe e se o painel pode escrever nela.",
+    "en": "Check that the directory exists and the panel can write to it."
   },
   "3a35716ecf0f": {
     "pt-BR": "Antes desta aba, mandar um arquivo para o agente exigia acesso à máquina. Agora é um botão, e o que ele produz deixa de ficar num lugar que só o dono alcança.",
@@ -4233,6 +4453,10 @@
     "pt-BR": "{p0} existe mas não é uma pasta (ou é um atalho). Remova ou mova esse item para o token poder ser guardado ali",
     "en": "{p0} exists but is not a directory (or is a shortcut). Remove or move this item so the token can be saved there"
   },
+  "3af26a305303": {
+    "pt-BR": "O cartão do sistema",
+    "en": "The system card"
+  },
   "3af415cd009e": {
     "pt-BR": ". Próxima vez: ",
     "en": ". Next occurrence: "
@@ -4292,6 +4516,10 @@
   "3b63b339b27f": {
     "pt-BR": " agente precisa de você",
     "en": " agent needs you"
+  },
+  "3b75c55293f3": {
+    "pt-BR": "Voz: leitura em voz alta ligada",
+    "en": "Voice: reading aloud enabled"
   },
   "3b8efab1dfd1": {
     "pt-BR": "voce",
@@ -4528,6 +4756,10 @@
   "3f6fbcaa0d70": {
     "pt-BR": "A versão do agente ainda não informa o provedor",
     "en": "This agent version does not report the provider yet"
+  },
+  "3f7712158bb5": {
+    "pt-BR": "Não consegui guardar a mudança no disco. Confira o espaço e as permissões de {p0}; o que mudou vale só até reiniciar o Web.",
+    "en": "I could not save the change to disk. Check disk space and permissions for {p0}; the change only lasts until Web restarts."
   },
   "3f7d754d205d": {
     "pt-BR": " Atenção: ",
@@ -4837,6 +5069,10 @@
     "pt-BR": "resumo do dia",
     "en": "daily summary"
   },
+  "4398ebfb15a6": {
+    "pt-BR": "Digite a senha nova.",
+    "en": "Enter your new password."
+  },
   "439ea30c5034": {
     "pt-BR": "Muitas tentativas seguidas. Espere alguns minutos e tente de novo.",
     "en": "Too many attempts. Wait a few minutes and try again."
@@ -4917,6 +5153,10 @@
     "pt-BR": "Mande o nome novo em JSON: {\"nome\": \"iPhone da Maria\"}.",
     "en": "Send the new name as JSON: {\"nome\": \"iPhone da Maria\"}."
   },
+  "448594465fd3": {
+    "pt-BR": "não existe",
+    "en": "does not exist"
+  },
   "449d99588539": {
     "pt-BR": "Colaborador de",
     "en": "Collaborator for"
@@ -4972,6 +5212,10 @@
   "4590b315a3f3": {
     "pt-BR": "Confira se a chave é a deste agente (cada agente tem as suas). Se foi revogada, crie outra na aba Cofre.",
     "en": "Check that the key belongs to this agent (each agent has its own). If it was revoked, create another in the Vault tab."
+  },
+  "459a737099d0": {
+    "pt-BR": "Iniciativa",
+    "en": "Initiative"
   },
   "459c564a0fdd": {
     "pt-BR": "Alguns pedidos demoram. Com a faixa você sabe que o agente não travou, e sabe quando precisa agir.",
@@ -5060,6 +5304,10 @@
   "466bfbce1b9e": {
     "pt-BR": "Adiar",
     "en": "Snooze"
+  },
+  "46767cc9d3f5": {
+    "pt-BR": "É a resposta rápida para \"está tudo bem?\". Se houver defeito, o número aparece aqui antes de você procurar a placa vermelha no desenho.",
+    "en": "It quickly answers “is everything okay?”. If something is not working, the count appears here before you look for the red tile on the map."
   },
   "468dca9901e2": {
     "pt-BR": "O cofre é só do dono do ",
@@ -5153,9 +5401,17 @@
     "pt-BR": "Etapa marcada como \"não se aplica\" sai da conta, dos dois lados.",
     "en": "A \"not applicable\" stage is excluded from both counts."
   },
+  "47f2bed88ac2": {
+    "pt-BR": "Essa senha é fácil demais de adivinhar. Escolha outra.",
+    "en": "That password is too easy to guess. Choose another one."
+  },
   "48056d9165f3": {
     "pt-BR": "hoje",
     "en": "today"
+  },
+  "4814f62c108d": {
+    "pt-BR": "Webhook",
+    "en": "Webhook"
   },
   "481ff4713fd5": {
     "pt-BR": "Páginas do agente",
@@ -5385,6 +5641,10 @@
     "pt-BR": "falta o campo \"usuarios\"",
     "en": "the \"usuarios\" field is missing"
   },
+  "4b2bb700a7f9": {
+    "pt-BR": "Este link já foi usado. Se não foi você, rode no servidor: sudo dgclaw senha",
+    "en": "This link has already been used. If it was not you, run on the server: sudo dgclaw senha"
+  },
   "4b2e1f1df1fa": {
     "pt-BR": "Ligando a tela, só um instante...",
     "en": "Starting the screen, just a moment..."
@@ -5569,6 +5829,10 @@
     "pt-BR": "via",
     "en": "via"
   },
+  "4d3afd40a5ab": {
+    "pt-BR": "Ainda não há senha cadastrada. Use o link de primeiro acesso.",
+    "en": "No password has been set yet. Use the first-access link."
+  },
   "4d3e43ee5ee4": {
     "pt-BR": "Abra o painel pelo endereço com https (o mesmo link de sempre) ou escreva a mensagem.",
     "en": "Open the dashboard using its HTTPS address (your usual link), or type your message."
@@ -5656,6 +5920,10 @@
   "4e528be161a7": {
     "pt-BR": "O slug deste agente (\"{p0}\") tem caractere que eu não aceito em nome de unidade.",
     "en": "This agent's slug (\"{p0}\") contains a character not allowed in a unit name."
+  },
+  "4e57aa5fc873": {
+    "pt-BR": "o arquivo está fora da casa do agente",
+    "en": "the file is outside the agent home directory"
   },
   "4e5935f89700": {
     "pt-BR": "Quero mudar a rotina \"{v0}\" ({v1}):",
@@ -5813,6 +6081,10 @@
     "pt-BR": "as preferências de \"{p0}\" não são um objeto",
     "en": "the preferences for \"{p0}\" are not an object"
   },
+  "506a0ccc1ff2": {
+    "pt-BR": "{nome}: {n} correções na fila da atualização do sistema",
+    "en": "{nome}: {n} fixes queued for the system update"
+  },
   "5074fa242b9c": {
     "pt-BR": "O item Conversa (esta tela) fica no alto.",
     "en": "Conversation (this screen) stays at the top."
@@ -5901,6 +6173,10 @@
     "pt-BR": "horário suspeito",
     "en": "suspicious timestamp"
   },
+  "5175ca47f7ad": {
+    "pt-BR": "Silenciar esta integração",
+    "en": "Mute this integration"
+  },
   "518e479153a3": {
     "pt-BR": "Pasta",
     "en": "Folder"
@@ -5973,6 +6249,10 @@
     "pt-BR": "O aviso de segurança é do dono, pelo painel. Agente não usa esta rota.",
     "en": "The security notice is for the owner through the dashboard. Agents do not use this route."
   },
+  "529f32a9f07e": {
+    "pt-BR": "Abertura",
+    "en": "Openness"
+  },
   "52afdba5845f": {
     "pt-BR": "Permissão pedida pelo agente",
     "en": "Permission requested by the agent"
@@ -5988,6 +6268,10 @@
   "5301035714a7": {
     "pt-BR": "Escreva o pedido que o card vai receber.",
     "en": "Write the request the card will receive."
+  },
+  "5337d9879343": {
+    "pt-BR": "A senha nova tem {tam} caracteres e precisa de pelo menos {min}. Use uma frase mais longa.",
+    "en": "The new password has {tam} characters and needs at least {min}. Use a longer phrase."
   },
   "533a59159335": {
     "pt-BR": "esta máquina não tem o journalctl, então não há diário do sistema para ler o histórico",
@@ -6217,6 +6501,10 @@
     "pt-BR": "O código não valeu. Ele vence em poucos minutos e só serve uma vez. Toque em Gerar novo link e cole o código novo logo em seguida.",
     "en": "The code was not accepted. It expires after a few minutes and works only once. Select Generate new link and paste the new code promptly."
   },
+  "55e8c0abc258": {
+    "pt-BR": "Não consegui gravar o uso do link ({p0}). No servidor, rode: sudo dgclaw primeiro-acesso",
+    "en": "Could not record the use of the link ({p0}). Run on the server: sudo dgclaw primeiro-acesso"
+  },
   "55f624d23ca9": {
     "pt-BR": "ver no Status",
     "en": "view in Status"
@@ -6224,6 +6512,10 @@
   "55ff1721bb44": {
     "pt-BR": "Etapa terminada e aprovada. O arquivo dela está aqui, é só clicar.",
     "en": "Stage completed and approved. Select its file here to open it."
+  },
+  "55ff89e6348f": {
+    "pt-BR": "Mapa das integrações de ",
+    "en": "Integration map for "
   },
   "560f7736149b": {
     "pt-BR": "Você gera essa chave aqui:",
@@ -6248,6 +6540,10 @@
   "5672252ba0ab": {
     "pt-BR": "Quanto ele custou este mês, separado por categoria e por rotina, contra o teto que",
     "en": "How much it cost this month, by category and routine, against the limit"
+  },
+  "5682776b7f91": {
+    "pt-BR": "Não deu para confirmar se a operação foi concluída.",
+    "en": "It was not possible to confirm whether the operation completed."
   },
   "568e3af219ed": {
     "pt-BR": "Não anexei: ",
@@ -6453,6 +6749,10 @@
     "pt-BR": "Feche o editor e abra o arquivo de novo pela lista.",
     "en": "Close the editor and open the file again from the list."
   },
+  "590e9857d36d": {
+    "pt-BR": "A senha deste painel é definida fora do web.env, no ambiente do serviço (por exemplo, uma linha Environment= na unidade do systemd). Trocar por aqui não valeria depois de reiniciar, então nada foi gravado. Faça a troca lá (ou tire essa definição e use o web.env) e reinicie o serviço.",
+    "en": "This dashboard password is set outside web.env in the service environment (for example, an Environment= line in the systemd unit). Changing it here would not survive a restart, so nothing was saved. Change it there (or remove that setting and use web.env) and restart the service."
+  },
   "590eeb0c6f6c": {
     "pt-BR": "A aba escolhida fica guardada neste aparelho. Um endereço terminando em #nome-da-aba abre direto nela.",
     "en": "The selected tab is saved on this device. An address ending in #tab-name opens that tab directly."
@@ -6537,6 +6837,10 @@
     "pt-BR": "gravar um áudio",
     "en": "record audio"
   },
+  "5a47a4954f36": {
+    "pt-BR": "Voz: conversa contínua ligada, o microfone volta a gravar depois de cada resposta",
+    "en": "Voice: continuous conversation enabled, the microphone records again after each response"
+  },
   "5a5787670e0d": {
     "pt-BR": "O texto tem {p0} pedaço(s) de voz, numerados de 0 a {p1}. Pediu o {p2}.",
     "en": "The text has {p0} voice segment(s), numbered 0 to {p1}. You requested {p2}."
@@ -6580,6 +6884,14 @@
   "5ae09114bdf9": {
     "pt-BR": "Diz em que pé a tarefa está: fazendo, travada, esperando você, parada?, concluída ou cancelada.",
     "en": "Shows the task's stage: in progress, blocked, waiting for you, idle?, completed or cancelled."
+  },
+  "5ae7adc56ad2": {
+    "pt-BR": "o arquivo é grande demais",
+    "en": "the file is too large"
+  },
+  "5afb440ccd9c": {
+    "pt-BR": "Peça ao Admin para conferir o arquivo preferencias.json dessa pasta (ou apague-o se não precisar do que ele guarda) e tente de novo.",
+    "en": "Ask the Admin to check preferencias.json in that directory (or delete it if its contents are no longer needed), then try again."
   },
   "5b0f2921cabc": {
     "pt-BR": "A ronda automática falhou: ",
@@ -6649,6 +6961,10 @@
     "pt-BR": "Falar com o agente por texto é o jeito mais direto de pedir alguma coisa. Se o envio falhar, o balão fica marcado e você escolhe entre reenviar e descartar.",
     "en": "Text is the most direct way to ask the agent for something. If sending fails, the message is marked and you choose whether to resend or discard it."
   },
+  "5ba3cea99095": {
+    "pt-BR": "Outro",
+    "en": "Other"
+  },
   "5ba65ee995c0": {
     "pt-BR": "Não consegui trazer as mensagens antigas: ",
     "en": "Could not fetch older messages: "
@@ -6680,6 +6996,10 @@
   "5c2149fe3e1f": {
     "pt-BR": "Nenhum item deste tipo na conversa disponível.",
     "en": "No items of this type in the available conversation."
+  },
+  "5c237fcf0700": {
+    "pt-BR": "Outros componentes",
+    "en": "Other components"
   },
   "5c3fff103edc": {
     "pt-BR": "Daqui a N minutos é o jeito mais seguro: o ",
@@ -6784,6 +7104,10 @@
   "5dbec82f1822": {
     "pt-BR": "O resultado do pedido {p0}. Veja o log do servidor: journalctl -u dgclaw-seguranca-pedidos -n 30",
     "en": "The result of request {p0}. Check the server log: journalctl -u dgclaw-seguranca-pedidos -n 30"
+  },
+  "5dc5cd657c89": {
+    "pt-BR": "O automático já está desligado agora e o Web não envia mais pedidos, mas não consegui guardar a escolha no disco: se o Web reiniciar, ele volta ligado. Confira o espaço e as permissões de {p0} e desligue de novo.",
+    "en": "Automatic requests are now disabled and Web will send no further requests, but I could not save the choice to disk: if Web restarts, they will be enabled again. Check disk space and permissions for {p0} and disable them again."
   },
   "5df6d429ff74": {
     "pt-BR": "a resposta não trouxe o campo \"agentes\"",
@@ -7025,6 +7349,10 @@
     "pt-BR": "Esse endereço não corresponde a nenhum agente cadastrado. Escolha um da lista:",
     "en": "This address does not match a registered agent. Choose one from the list:"
   },
+  "6132d6b77133": {
+    "pt-BR": "O mapa e as cores",
+    "en": "The map and its colors"
+  },
   "614a50e7618d": {
     "pt-BR": "O arquivo do token do runner ({p0}) está vazio.",
     "en": "The runner token file ({p0}) is empty."
@@ -7057,6 +7385,10 @@
     "pt-BR": "O aviso {p0} é de '{p1}', e esta caixa é de '{p2}': ela só corrige os próprios avisos.",
     "en": "Notice {p0} belongs to '{p1}', and this mailbox belongs to '{p2}': it can only edit its own notices."
   },
+  "61df0cbb804d": {
+    "pt-BR": "Este link expirou. Gere outro com: sudo dgclaw primeiro-acesso",
+    "en": "This link has expired. Generate another with: sudo dgclaw primeiro-acesso"
+  },
   "61e8784412a7": {
     "pt-BR": "formato inesperado",
     "en": "unexpected format"
@@ -7088,6 +7420,10 @@
   "624324b9bc27": {
     "pt-BR": "Surpresa",
     "en": "Surprise"
+  },
+  "624d336ed52f": {
+    "pt-BR": "Crescimento",
+    "en": "Growth"
   },
   "625915f25e28": {
     "pt-BR": "Conectar a conta do Claude",
@@ -7185,6 +7521,10 @@
     "pt-BR": "Minutos",
     "en": "Minutes"
   },
+  "6354a14c3ea5": {
+    "pt-BR": "o estado.json tem uma integração fora do formato (ou com id repetido)",
+    "en": "estado.json contains a malformed integration (or a duplicate id)"
+  },
   "635e1d29dd06": {
     "pt-BR": "Salvo: a tela trava depois de ",
     "en": "Saved: the screen locks after "
@@ -7192,6 +7532,10 @@
   "636bc87eaf81": {
     "pt-BR": "O card",
     "en": "The card"
+  },
+  "6372538f4da9": {
+    "pt-BR": "Conta em quantos sistemas o agente está ligado e quantos estão com defeito. Os que você desligou no mapa não entram na conta de \"ligado\". Ao lado fica o alternador entre Estado real e Modo aula.",
+    "en": "Counts how many systems the agent is connected to and how many are not working. Systems you disabled on the map are excluded from the connected count. Beside it is the switch between Actual status and Presentation mode."
   },
   "63986df888e9": {
     "pt-BR": "Não consegui acessar os alertas. Tente novamente: {p0}",
@@ -7216,6 +7560,10 @@
   "63ca398d1073": {
     "pt-BR": "A bolinha e a palavra à direita dão o estado de cada uma. \"Esperando você\" é a única que pede ação sua: o agente parou ali de propósito.",
     "en": "The dot and word on the right show each stage's status. \"Waiting for you\" is the only one that needs your action: the agent stopped there intentionally."
+  },
+  "63d8051dc57d": {
+    "pt-BR": "ainda não funcionou nenhuma vez",
+    "en": "no successful use yet"
   },
   "63dac5a6fc11": {
     "pt-BR": "O botão Parar",
@@ -7301,6 +7649,10 @@
     "pt-BR": "Muitas trocas de senha da tela em pouco tempo.",
     "en": "Too many screen password changes in a short time."
   },
+  "652097e9fb09": {
+    "pt-BR": "Não foi possível medir as integrações: o arquivo de preferências está ilegível ou fora do formato, então não sei quais estão desligadas.",
+    "en": "Integration status could not be measured: the preferences file is unreadable or malformed, so I cannot determine which integrations are disabled."
+  },
   "654290604d95": {
     "pt-BR": "Notícia",
     "en": "News"
@@ -7312,6 +7664,10 @@
   "655ccd552e52": {
     "pt-BR": "Aviso de versão nova",
     "en": "New version notice"
+  },
+  "656214fc4dc1": {
+    "pt-BR": "O documento das integrações não foi encontrado no servidor. Reinstale o DG Claw Web.",
+    "en": "The integrations document was not found on the server. Reinstall DG Claw Web."
   },
   "658f48653b70": {
     "pt-BR": "Quando a falha está sendo explorada e a correção ainda não existe, tirar do ar é a única proteção. A dupla confirmação evita acidente, e o religar automático evita que você se tranque para fora.",
@@ -7469,9 +7825,17 @@
     "pt-BR": "Nenhuma tarefa neste filtro. Quando um agente começar um trabalho, ele aparece aqui.",
     "en": "No tasks match this filter. When an agent starts working, it appears here."
   },
+  "68064809295a": {
+    "pt-BR": "Voltar ao painel",
+    "en": "Back to dashboard"
+  },
   "680d87dc9c3b": {
     "pt-BR": " não está na mesa.",
     "en": " is not on the Task board."
+  },
+  "68107fdddd82": {
+    "pt-BR": " sistema",
+    "en": " system"
   },
   "6823ad16913f": {
     "pt-BR": "… ver",
@@ -7505,6 +7869,10 @@
     "pt-BR": "a última mudança foi sua, pelo painel",
     "en": "you made the last change through the dashboard"
   },
+  "68534734455b": {
+    "pt-BR": "O pedido automático está suspenso: o arquivo de incidentes estava ilegível; confira incidentes.json.corrompido. Mexa no interruptor abaixo para retomar.",
+    "en": "Automatic requests are suspended: the incidents file was unreadable; check incidentes.json.corrompido. Change the switch below to resume."
+  },
   "685814c9abea": {
     "pt-BR": "Não consegui falar com o servidor. Confira a conexão e tente de novo.",
     "en": "Could not reach the server. Check your connection and try again."
@@ -7516,6 +7884,10 @@
   "689b76931a5d": {
     "pt-BR": "Assim você sabe de quem é a tela e nunca fica sem saber onde está.",
     "en": "You always know whose screen this is and where you are."
+  },
+  "689eb955786f": {
+    "pt-BR": "Trocar senha",
+    "en": "Change password"
   },
   "68b796d44d86": {
     "pt-BR": "Avise quem instalou: o painel precisa ser atualizado.",
@@ -7593,6 +7965,10 @@
     "pt-BR": "Cada cartão mostra o nome, quando roda, o recado que ele recebe ao disparar, quando rodou pela última vez e quando roda de novo. O sinal diz se a última execução deu certo, falhou ou pede atenção.",
     "en": "Each card shows name, schedule, the message delivered on trigger, latest run and next run. Its indicator reports success, failure or attention needed."
   },
+  "69f295bb99df": {
+    "pt-BR": "Várias integrações estão com defeito.",
+    "en": "Several integrations are not working."
+  },
   "6a025bf08f5d": {
     "pt-BR": "O envio tem {p0} MB e o limite aqui é {p1} MB.",
     "en": "The upload is {p0} MB and the limit here is {p1} MB."
@@ -7613,9 +7989,17 @@
     "pt-BR": "As falhas de rondas anteriores que já foram resolvidas.",
     "en": "Issues from previous scans that have been resolved."
   },
+  "6a3aea19761a": {
+    "pt-BR": "DM",
+    "en": "DM"
+  },
   "6a54cb432086": {
     "pt-BR": "Ainda não há orientação publicada.",
     "en": "No guidance published yet."
+  },
+  "6a557eb043d1": {
+    "pt-BR": "o estado.json tem uma integração fora do formato (id, estado, resultado ou data inválidos)",
+    "en": "estado.json contains a malformed integration (invalid id, status, result, or date)"
   },
   "6a56944e3155": {
     "pt-BR": "Escolha de 1 a 120 minutos e toque em Salvar. Só conta como uso o que você faz na tela (tocar, digitar, rolar), não o que roda em segundo plano.",
@@ -7624,6 +8008,10 @@
   "6a5a742b5848": {
     "pt-BR": "Falhas críticas que pedem uma decisão sua. Cada uma mostra o que é, onde afeta, o que faz e como corrigir.",
     "en": "Critical issues requiring your decision. Each shows what it is, where it applies, its effects and how to fix it."
+  },
+  "6a61b2b6ebcf": {
+    "pt-BR": "Não dá para trocar a senha por aqui: {p0} {p1}. Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env como arquivo comum (ou rode no servidor: sudo dgclaw senha).",
+    "en": "Cannot change the password here: {p0} {p1}. Nothing was saved and your old password remains valid. Ask the Admin to restore web.env as a regular file (or run on the server: sudo dgclaw senha)."
   },
   "6a6a81cec74f": {
     "pt-BR": "Não consegui transcrever: ",
@@ -7661,6 +8049,10 @@
     "pt-BR": "atalho na tela, abre sem barra do navegador",
     "en": "home screen shortcut, opens without the browser bar"
   },
+  "6b35d0442da7": {
+    "pt-BR": "Pedi o handoff, mas não sei se o card o recebeu. {p0}",
+    "en": "I requested the handoff, but cannot confirm that the card received it. {p0}"
+  },
   "6b462cdb9749": {
     "pt-BR": "Não consegui baixar o arquivo (",
     "en": "Could not download the file ("
@@ -7684,6 +8076,10 @@
   "6b8b5a83fba6": {
     "pt-BR": "Escreva aqui...",
     "en": "Write here..."
+  },
+  "6b8f9795b779": {
+    "pt-BR": "este sistema não tem /proc, a leitura segura não é possível",
+    "en": "this system has no /proc; secure reading is not possible"
   },
   "6bb3150b9757": {
     "pt-BR": "Tentar de novo",
@@ -7733,6 +8129,10 @@
     "pt-BR": "Faça o login nos seus agentes",
     "en": "Sign in to your agents"
   },
+  "6c8665fd799b": {
+    "pt-BR": "Ligado: o DG Claw chama o Admin sozinho quando uma integração cair.",
+    "en": "Enabled: DG Claw calls the Admin automatically when an integration fails."
+  },
   "6c88e96c0069": {
     "pt-BR": "A permissão de avisos não foi concedida. Toque em Ativar de novo e escolha Permitir quando o navegador perguntar.",
     "en": "Notification permission was not granted. Select Enable again and choose Allow when the browser asks."
@@ -7760,6 +8160,10 @@
   "6cd7b4a3252c": {
     "pt-BR": "Todo dia às 7h uma rotina remonta a memória: vira o \"Hoje\" em \"Ontem\", atualiza as últimas conversas e corta o",
     "en": "Every day at 7 a.m. a routine rebuilds memory: changes \"Hoje\" to \"Ontem\", updates recent conversations and trims"
+  },
+  "6cda6aa843c3": {
+    "pt-BR": "nenhum problema registrado",
+    "en": "no problems recorded"
   },
   "6cdf9fde8783": {
     "pt-BR": "Quanto tempo a execução levou.",
@@ -7852,6 +8256,10 @@
   "6e285bba3616": {
     "pt-BR": "Religar agora",
     "en": "Reconnect now"
+  },
+  "6e477c13c153": {
+    "pt-BR": "uma pasta do caminho não pertence ao agente",
+    "en": "a directory in the path is not owned by the agent"
   },
   "6e4ff1ec03a7": {
     "pt-BR": "concluída",
@@ -7948,6 +8356,10 @@
   "6f9d5ce358d6": {
     "pt-BR": "Esconder de novo",
     "en": "Hide again"
+  },
+  "6fa163c6cb33": {
+    "pt-BR": "Muitas tentativas seguidas. Tente de novo em {min} min.",
+    "en": "Too many consecutive attempts. Try again in {min} min."
   },
   "6fb4606c4af9": {
     "pt-BR": "Escolher o serviço preenche sozinho o nome certo e mostra onde gerar a chave.",
@@ -8053,6 +8465,10 @@
     "pt-BR": "Os aplicativos que este agente opera sozinho, e o que ele já produziu em cada um,",
     "en": "Applications this agent operates independently, and what it has produced in each one,"
   },
+  "710553c673aa": {
+    "pt-BR": "Atualizações do sistema",
+    "en": "System updates"
+  },
   "7107388d4aa3": {
     "pt-BR": "Uma sessão é uma conversa contínua em que ele lembra do que foi dito antes. Esta caixa diz qual é a sessão registrada e quando ela foi atualizada.",
     "en": "A session is a continuous conversation retaining earlier messages. This box identifies the registered session and its last update."
@@ -8072,6 +8488,10 @@
   "7112ea187429": {
     "pt-BR": "Grava este texto por cima do arquivo, na hora.",
     "en": "Overwrites the file with this text immediately."
+  },
+  "712f36168e8a": {
+    "pt-BR": "O acesso ou o saldo está perto de acabar.",
+    "en": "Access or the available balance is close to expiring."
   },
   "7173130766f5": {
     "pt-BR": "Opções de cada agente",
@@ -8192,6 +8612,10 @@
   "72ba14955455": {
     "pt-BR": "Não consegui carregar os colaboradores. ",
     "en": "Could not load collaborators. "
+  },
+  "72c7ee23c9bc": {
+    "pt-BR": "Criatividade",
+    "en": "Creativity"
   },
   "72d70da65ea2": {
     "pt-BR": "Duas barras: a janela de 5 horas e a semanal. Cada uma mostra o percentual já gasto, quando zera e há quanto tempo foi medido. Verde fica abaixo de 70%, âmbar de 70% a 89% e vermelho a partir de 90%. O número não é calculado pelo painel: o próprio Claude Code (ou o Codex) informa ao agente, a cada resposta, quanto da conta já foi usado, e o agente repassa para cá. Por isso, logo depois de ligar, aparece \"sem dado\" até a primeira resposta. Se o horário de zerar já passou, a barra diz \"zerou às\" e espera a próxima resposta para medir de novo. Quando o agente paga por chave de API, não existe janela: o custo aparece no painel do provedor.",
@@ -8349,6 +8773,10 @@
     "pt-BR": "As sessões de trabalho deste agente",
     "en": "This agent's work sessions"
   },
+  "74a122737497": {
+    "pt-BR": "Para ligar, mande também {\"entendoORisco\": true}. Ligado, o Web chama o Admin sozinho quando uma integração cai. O Admin tem acesso total ao servidor, e um agente consegue registrar uma falha que não aconteceu, o que faria o Admin olhar uma integração que está boa. O pedido tem texto fixo e há limites (um por defeito, um a cada 6 horas por integração, cinco por dia).",
+    "en": "To enable it, also send {\"entendoORisco\": true}. When enabled, Web calls the Admin automatically when an integration fails. The Admin has full server access, and an agent can record a failure that did not happen, causing the Admin to inspect a working integration. The request uses fixed text and limits apply (one per failure, one every 6 hours per integration, five per day)."
+  },
   "74a25da0f728": {
     "pt-BR": "As mensagens mais recentes, as suas à direita e as do card à esquerda. \"Carregar anteriores\" traz as mais antigas. Enquanto o card está trabalhando, a conversa se atualiza sozinha a cada 10 segundos.",
     "en": "Recent messages, yours on the right and the card's on the left. \"Load earlier\" fetches older messages. While the card works, the conversation refreshes every 10 seconds."
@@ -8396,6 +8824,10 @@
   "7550f5a14cb0": {
     "pt-BR": "No fim, a página mostra um código. Cole ele aqui:",
     "en": "The page shows a code at the end. Paste it here:"
+  },
+  "756b436ade1c": {
+    "pt-BR": "falha ao ler o estado das integrações",
+    "en": "failed to read integration status"
   },
   "757b36164883": {
     "pt-BR": "A foto e o nome do agente, e embaixo o nome da página em que você está. O botão Tutorial, aqui no cabeçalho, explica a página.",
@@ -8501,6 +8933,10 @@
     "pt-BR": "Aplicar proteção provisória",
     "en": "Apply temporary protection"
   },
+  "76a4f46931e7": {
+    "pt-BR": "Não consegui preparar a gravação do web.env ({p0}). Nada foi gravado e a senha antiga continua valendo; peça ao Admin para conferir a permissão da pasta de configuração.",
+    "en": "Could not prepare to save web.env ({p0}). Nothing was saved and your old password remains valid; ask the Admin to check the configuration folder permissions."
+  },
   "76b09a75d194": {
     "pt-BR": "Esta ocorrência já foi adiada {p0} vezes, que é o máximo. Confirme com Feito ou apague o lembrete em DELETE {p1}/{p2}.",
     "en": "This occurrence has already been postponed {p0} times, the maximum. Confirm with Done or delete the reminder at DELETE {p1}/{p2}."
@@ -8549,6 +8985,10 @@
     "pt-BR": "Ver o que ele consultou deixa claro que a resposta veio dos registros do agente, e não de um palpite.",
     "en": "Seeing what it checked shows that the answer came from the agent's records rather than a guess."
   },
+  "77795ce04743": {
+    "pt-BR": "a casa do agente não está acessível",
+    "en": "the agent home directory is not accessible"
+  },
   "7792ffbb90eb": {
     "pt-BR": "Sessão do agente",
     "en": "Agent session"
@@ -8564,6 +9004,10 @@
   "77be241a2753": {
     "pt-BR": "vez",
     "en": "run"
+  },
+  "77c3d6174117": {
+    "pt-BR": "No meio está a foto do agente (ou o logo do DG Claw, se ele não tiver foto), e cada placa ao redor é um sistema externo que ele já usou (WhatsApp, Instagram, banco, nota fiscal e outros). Uma linha reta liga cada placa ao agente. Toque numa placa para ver o detalhe. Um sistema aparece aqui sozinho na primeira vez que o agente o usa.",
+    "en": "The agent’s photo is in the center (or the DG Claw logo if there is no photo). Each surrounding tile represents an external system the agent has used (WhatsApp, Instagram, banking, invoicing, and others). A straight line connects each tile to the agent. Tap a tile for details. A system appears here automatically the first time the agent uses it."
   },
   "77f21d8157ad": {
     "pt-BR": "Nome da nova chave de acesso",
@@ -8620,6 +9064,10 @@
   "784ba5088a2b": {
     "pt-BR": "Arquivo em tamanho cheio",
     "en": "Full-size file"
+  },
+  "7857364ea83e": {
+    "pt-BR": "Não consegui mudar: {erro}",
+    "en": "Could not change the setting: {erro}"
   },
   "7858e925ceb3": {
     "pt-BR": "O navegador não deixou copiar (",
@@ -8737,6 +9185,10 @@
     "pt-BR": "{v0} O arquivo pode ter subido: confira o recado antes de anexar de novo.",
     "en": "{v0} The file may have uploaded: check the message before attaching again."
   },
+  "79518e58f1c5": {
+    "pt-BR": "A senha nova passa de {max} caracteres. Escolha uma mais curta.",
+    "en": "The new password exceeds {max} characters. Choose a shorter one."
+  },
   "7981ef0d56d2": {
     "pt-BR": " já escreveram, na ordem, como num aplicativo de mensagens.",
     "en": " have written appears here in order, as in a messaging app."
@@ -8817,6 +9269,10 @@
     "pt-BR": "A passkey é criada para esse endereço. Se o painel passar a ter outro endereço, ligue o Face ID de novo em cada aparelho.",
     "en": "The passkey is created for this address. If the dashboard moves to another address, enable Face ID again on each device."
   },
+  "7a88d966ab10": {
+    "pt-BR": "Aviso de integração com defeito",
+    "en": "Integration failure warning"
+  },
   "7aaf9887d33e": {
     "pt-BR": "O que o ajudante consultou para responder. Ele só lê, a não ser que você autorize uma mudança.",
     "en": "What the helper checked to answer. It only reads unless you authorize a change."
@@ -8848,6 +9304,10 @@
   "7b37c7e92a2b": {
     "pt-BR": "Criar sessão",
     "en": "Create session"
+  },
+  "7b4d037e3e19": {
+    "pt-BR": "Outro processo está gravando o web.env agora; nada foi gravado, a senha antiga continua valendo, tente de novo em alguns segundos.",
+    "en": "Another process is saving web.env; nothing was saved and your old password remains valid. Try again in a few seconds."
   },
   "7b65494f20b0": {
     "pt-BR": "Assim nenhum item fica escondido de quem está aprendendo o menu.",
@@ -8888,6 +9348,14 @@
   "7be42b8867aa": {
     "pt-BR": "O quadradinho mais recente fica à direita. Passe o mouse (ou toque na fileira, no celular) para ver a data, a hora e o resultado de cada um. Nas peças que ficam de pé o tempo todo, como o próprio agente, cada quadradinho é uma hora das últimas 48. Embaixo, a conta dos últimos 7 dias.",
     "en": "The latest square is on the right. Hover or tap the row on mobile to see time and result. For continuously running components such as the agent, each square is one of the last 48 hours. A seven-day summary appears below."
+  },
+  "7bfc8f13d011": {
+    "pt-BR": "sem motivo informado",
+    "en": "no reason provided"
+  },
+  "7c0013fb122f": {
+    "pt-BR": "Chamar o Admin sozinho",
+    "en": "Call the Admin automatically"
   },
   "7c0485361de3": {
     "pt-BR": "tema",
@@ -9049,6 +9517,10 @@
     "pt-BR": "A anonimização é do dono, pelo painel. Agente não usa estas rotas: ele só recebe os documentos já com marcadores.",
     "en": "Anonymization is managed by the owner through the dashboard. Agents do not use these routes: they only receive documents with markers already applied."
   },
+  "7dea4fc31505": {
+    "pt-BR": "é um FIFO",
+    "en": "is a FIFO"
+  },
   "7ded9156fb56": {
     "pt-BR": "O servidor guarda o horário em que a ronda terminou e o em que ela vai rodar de novo; a tela só mostra, no horário de Brasília.",
     "en": "The server stores when the scan finished and when it will run again; the screen displays these in Brasília time."
@@ -9076,6 +9548,10 @@
   "7e2a89ccf864": {
     "pt-BR": "conferindo agente…",
     "en": "checking agent…"
+  },
+  "7e2f2627f198": {
+    "pt-BR": "Quem decide é você. O Admin tem acesso total ao servidor e um agente consegue registrar uma falha que não aconteceu, então ligar troca um pouco de segurança por rapidez. Desligar é imediato.",
+    "en": "You decide. The Admin has full access to the server and an agent can report a failure that did not happen, so enabling this trades some security for speed. Disabling it takes effect immediately."
   },
   "7e46d3d9f493": {
     "pt-BR": "conferido {v0}",
@@ -9145,6 +9621,10 @@
     "pt-BR": "Quando a página pedir, digite o código abaixo.",
     "en": "When prompted, enter the code below."
   },
+  "7f6fb368aac4": {
+    "pt-BR": "De {min} a {max} caracteres. Uma frase longa funciona bem. Ao salvar, as outras sessões abertas saem.",
+    "en": "From {min} to {max} characters. A long phrase works well. Saving signs out other open sessions."
+  },
   "7f91ae52ddda": {
     "pt-BR": "Cole aqui a chave que você gerou no site do serviço. Ela não volta a aparecer depois de guardada.",
     "en": "Paste the key generated on the service's website. It will not be shown again after storage."
@@ -9169,6 +9649,10 @@
     "pt-BR": "Conversa - {{MARCA_NOME}}",
     "en": "Chat - {{MARCA_NOME}}"
   },
+  "8004bc9bb24f": {
+    "pt-BR": "O saldo ou o crédito acabou.",
+    "en": "The balance or credit has run out."
+  },
   "800ddd02c10f": {
     "pt-BR": "obrigatório quando o estado é {p0}",
     "en": "required when the status is {p0}"
@@ -9181,6 +9665,10 @@
     "pt-BR": "Tira a sessão da lista de vez e libera a vaga. A conversa continua guardada no disco.",
     "en": "Permanently removes the session from the list and frees its slot. The conversation stays on disk."
   },
+  "801724b70bcf": {
+    "pt-BR": "Tutorial da faixa de integração com defeito",
+    "en": "Integration warning banner tutorial"
+  },
   "80473e136309": {
     "pt-BR": "Cada rotina do sistema com a fileira das últimas execuções: verde deu certo, vermelho",
     "en": "Each system routine and its recent runs: green means success, red"
@@ -9192,6 +9680,10 @@
   "80572f15cbd9": {
     "pt-BR": "Ir para a mensagem de origem",
     "en": "Go to the original message"
+  },
+  "805831c7ed17": {
+    "pt-BR": "Numa apresentação você quer mostrar o que funciona. O Modo aula esconde os outros, mas nunca pinta de verde um sistema que não está verde.",
+    "en": "During a presentation, you want to show what works. Presentation mode hides the other systems, but never colors a system green unless it really is green."
   },
   "80645614a082": {
     "pt-BR": "Não consegui ler a pasta {p0}: {p1}",
@@ -9281,9 +9773,17 @@
     "pt-BR": "Para você não ser surpreendido: nada muda no seu servidor sem aparecer aqui. O botão Desfazer devolve o estado anterior.",
     "en": "No surprises: nothing changes on your server without appearing here. Undo restores the previous state."
   },
+  "819c6549c34c": {
+    "pt-BR": "Conscienciosidade",
+    "en": "Conscientiousness"
+  },
   "81b177c9b304": {
     "pt-BR": "o catálogo de provedores não está nesta instalação (providers/catalogo.json)",
     "en": "the provider catalog is not installed (providers/catalogo.json)"
+  },
+  "81b3eb093a54": {
+    "pt-BR": "Curiosidade",
+    "en": "Curiosity"
   },
   "81bd9229b3af": {
     "pt-BR": "Veja o log do painel; a mensagem completa está lá.",
@@ -9381,6 +9881,10 @@
     "pt-BR": "Tamanho do arquivo no disco e quando ele foi salvo pela última vez.",
     "en": "File size on disk and last saved time."
   },
+  "82f3cfc577de": {
+    "pt-BR": "Toque nele e abre um quadro com os dois controles, cada um dizendo por escrito se está ligado ou desligado. Ligando a leitura, as respostas de {nome} são faladas. Ligando a conversa contínua, o painel volta a gravar o seu microfone quando termina de tocar a resposta. Esc ou um toque fora fecha o quadro.",
+    "en": "Tap it to open both controls, each stating whether it is enabled or disabled. Reading aloud speaks {nome}'s responses. Continuous conversation records your microphone again after the response finishes playing. Press Esc or tap outside to close."
+  },
   "82ffeb06d04b": {
     "pt-BR": "Ele ainda não escreveu nada por aqui. Assim que responder, a conversa",
     "en": "It has not written anything here yet. As soon as it replies, the chat"
@@ -9416,6 +9920,10 @@
   "837d5d323b4c": {
     "pt-BR": "Não consegui ler {p0} ({p1}). Confira se o Web roda como root e se a pasta de dados existe. Os lembretes ficam parados até isso ser resolvido; nada foi gravado por cima.",
     "en": "I could not read {p0} ({p1}). Check that the Web runs as root and the data directory exists. Reminders remain paused until this is resolved; nothing was overwritten."
+  },
+  "8392b1a5c973": {
+    "pt-BR": "Estas falhas já têm correção pelo canal normal de atualização do Ubuntu e não são alarme. Com a atualização automática ligada (o padrão do Ubuntu), ela entra sozinha; se não estiver, use o botão para pedir ao Admin.",
+    "en": "These vulnerabilities already have fixes through the normal Ubuntu update channel and are not an alert. With automatic updates enabled (the Ubuntu default), the fixes are installed automatically; otherwise, use the button to ask the Admin."
   },
   "839e0ea5ca62": {
     "pt-BR": "de pé",
@@ -9480,6 +9988,10 @@
   "84707e17d89e": {
     "pt-BR": "Lista de agentes indisponível",
     "en": "Agent list unavailable"
+  },
+  "8485274d7046": {
+    "pt-BR": " com defeito",
+    "en": " not working"
   },
   "848e23e248fe": {
     "pt-BR": "{v0} {v1} O painel pergunta de novo a cada 30 segundos. Toque para ver o detalhe.",
@@ -9577,6 +10089,10 @@
     "pt-BR": "Você pediu para lembrar depois (até",
     "en": "You requested a reminder later (until"
   },
+  "857c1ffc7448": {
+    "pt-BR": "Autonomia",
+    "en": "Autonomy"
+  },
   "857da784af65": {
     "pt-BR": "Ainda não há conversa por aqui. Escreva a primeira mensagem para {v0} abaixo.",
     "en": "No conversation yet. Write your first message to {v0} below."
@@ -9597,6 +10113,10 @@
     "pt-BR": "Depois disso repita a ação.",
     "en": "Then repeat the action."
   },
+  "85db6bb881db": {
+    "pt-BR": "Este link não vale mais. Gere outro com: sudo dgclaw primeiro-acesso",
+    "en": "This link is no longer valid. Generate another with: sudo dgclaw primeiro-acesso"
+  },
   "85e1f8ccb430": {
     "pt-BR": "Mais ações",
     "en": "More actions"
@@ -9604,6 +10124,10 @@
   "85e9dbff8f98": {
     "pt-BR": "Tentar agora mesmo assim",
     "en": "Try now anyway"
+  },
+  "85f11952e5ab": {
+    "pt-BR": "Mostra a última vez que o sistema funcionou, o último problema explicado em português, e quais skills usam aquele sistema. O botão desliga o sistema no mapa (a placa e a linha ficam tracejadas) ou liga de novo.",
+    "en": "Shows the last successful use of the system, an explanation of the latest problem, and which skills use that system. The button disables the system on the map (the tile and line become dashed) or enables it again."
   },
   "86026fa35f7f": {
     "pt-BR": " para sites",
@@ -9817,6 +10341,10 @@
     "pt-BR": "Não consegui decifrar {p0}. A chave em {p1} não é a que cifrou esse arquivo, ou ele foi alterado. Restaure a chave original; nada foi apagado.",
     "en": "I could not decrypt {p0}. The key at {p1} is not the key that encrypted this file, or the file was changed. Restore the original key; nothing was deleted."
   },
+  "8947670374a5": {
+    "pt-BR": "Lendo as integrações...",
+    "en": "Reading integrations..."
+  },
   "894b0c59bee3": {
     "pt-BR": "Falta colar o código que a página mostrou",
     "en": "Paste the code shown on the page"
@@ -9856,6 +10384,10 @@
   "89999c913135": {
     "pt-BR": "O caminho {p0} não vale: use só a-z, 0-9, ponto, sublinhado e hífen, separados por barras, sem \"..\", sem começar por barra.",
     "en": "Path {p0} is invalid: use only a-z, 0-9, dots, underscores, and hyphens, separated by slashes, without \"..\" or a leading slash."
+  },
+  "89a7fab5b459": {
+    "pt-BR": "O que é este cartão",
+    "en": "What this card shows"
   },
   "89b779756d0e": {
     "pt-BR": "Use GET para ler e POST para agir.",
@@ -9901,6 +10433,10 @@
     "pt-BR": "Por que este não é o meu agente",
     "en": "Why this is not my agent"
   },
+  "8a8c5a0a1feb": {
+    "pt-BR": "O painel não carregou por inteiro.",
+    "en": "The panel did not load completely."
+  },
   "8ab6ca70e8cd": {
     "pt-BR": "Segurança - {{MARCA_NOME}}",
     "en": "Security - {{MARCA_NOME}}"
@@ -9932,6 +10468,10 @@
   "8b4e93e928df": {
     "pt-BR": "Desde",
     "en": "From"
+  },
+  "8b5251298194": {
+    "pt-BR": "Não desliguei {p0}: a lista de integrações desligadas passaria de {p1} bytes (ficaria com {p2}), e o painel não leria mais o arquivo.",
+    "en": "I did not disable {p0}: the disabled integration list would exceed {p1} bytes (reaching {p2}), and the panel would no longer be able to read the file."
   },
   "8b81239e0e5e": {
     "pt-BR": "Ver o histórico de",
@@ -10012,6 +10552,10 @@
   "8d014f6e2bf8": {
     "pt-BR": "pede atenção",
     "en": "needs attention"
+  },
+  "8d03a99b7a5b": {
+    "pt-BR": "o estado.json lista integrações demais",
+    "en": "estado.json lists too many integrations"
   },
   "8d11eae81624": {
     "pt-BR": "O pedido {p0} não é um JSON válido ({p1}). Use o comando dgclaw-api, que monta o arquivo certo.",
@@ -10213,6 +10757,10 @@
     "pt-BR": "O \"endpoint\" precisa ser https, sem usuário nem porta diferente de 443.",
     "en": "The \"endpoint\" must use https, without a username or a port other than 443."
   },
+  "8f5a31c91a39": {
+    "pt-BR": "Não existe o agente \"{p0}\" no registro (o Admin não tem integrações medidas).",
+    "en": "Agent \"{p0}\" is not in the registry (the Admin has no measured integrations)."
+  },
   "8f6a2316c375": {
     "pt-BR": "Chave \"{v0}\" criada. Guarde agora, ele não aparece de novo.",
     "en": "Key \"{v0}\" created. Save it now; it will not be shown again."
@@ -10289,6 +10837,10 @@
     "pt-BR": ". Recarregue a página.",
     "en": ". Reload the page."
   },
+  "90faf0150e56": {
+    "pt-BR": "não consegui conferir onde o arquivo está",
+    "en": "I could not verify the file location"
+  },
   "9102e79435fe": {
     "pt-BR": "Arquivar para o terminal da sessão (ela continua podendo ser retomada depois) e esconde a sessão da lista de ativas. Dá para desarquivar quando quiser.",
     "en": "Archiving stops the session's terminal and hides it from active sessions. It can resume and be unarchived whenever you want."
@@ -10361,6 +10913,14 @@
     "pt-BR": "Os quatro últimos caracteres da chave. Servem para você conferir que é a chave certa sem precisar ver a chave inteira.",
     "en": "The key's final four characters identify it without exposing the full key."
   },
+  "91cb18e4748c": {
+    "pt-BR": "O botão Voz",
+    "en": "The Voice button"
+  },
+  "91d423a73eeb": {
+    "pt-BR": "Este link está incompleto. Copie o link inteiro que apareceu no fim da instalação.",
+    "en": "This link is incomplete. Copy the entire link shown at the end of installation."
+  },
   "91d9d4eabea6": {
     "pt-BR": "Por que precisa reiniciar",
     "en": "Why a restart is required"
@@ -10408,6 +10968,10 @@
   "9287bc1ead08": {
     "pt-BR": "O pedido {p0} não pôde ser aberto ({p1}). Grave um arquivo .json normal em entrada/.",
     "en": "Request {p0} could not be opened ({p1}). Save a regular .json file in entrada/."
+  },
+  "928cf57868c6": {
+    "pt-BR": "a chave de acesso foi recusada",
+    "en": "the access key was rejected"
   },
   "929eced4b567": {
     "pt-BR": " na tela de início do iPhone.",
@@ -10509,6 +11073,14 @@
     "pt-BR": "Quando a máquina mexeu nela pela última vez. Vem da linha \"Agora\" do próprio arquivo, que o batimento",
     "en": "When the machine last updated it. Taken from the file's \"Agora\" line, which its heartbeat"
   },
+  "93e6a0fda7b9": {
+    "pt-BR": "Integrações que não deu para medir",
+    "en": "Integrations that could not be measured"
+  },
+  "93ee87147851": {
+    "pt-BR": "A frase-resumo",
+    "en": "The summary sentence"
+  },
   "93f7431224f7": {
     "pt-BR": "Assim, mesmo que alguém veja os dados do servidor, não consegue descobrir a chave.",
     "en": "Even if someone accesses the server's stored data, they cannot recover the key."
@@ -10609,6 +11181,10 @@
     "pt-BR": "O formulário para agendar um lembrete: o que lembrar, de qual agente, quando e com que insistência.",
     "en": "The reminder scheduling form: what to remember, which agent, when and how persistently."
   },
+  "94dcdca21e45": {
+    "pt-BR": "o caminho do agente não passou na conferência de segurança",
+    "en": "the agent path failed the security check"
+  },
   "94e50cf6b314": {
     "pt-BR": "Trocar de agente",
     "en": "Switch agent"
@@ -10648,6 +11224,10 @@
   "959d0a3761ff": {
     "pt-BR": "Carregando a conversa...",
     "en": "Loading the conversation..."
+  },
+  "95b0174c3b4f": {
+    "pt-BR": "Atualização do sistema",
+    "en": "System update"
   },
   "95c2fbdad62f": {
     "pt-BR": "Fechar o arquivo e voltar pra conversa",
@@ -10865,6 +11445,10 @@
     "pt-BR": "É o que faz as chaves do cofre passarem a valer. Se ele estiver no meio de um trabalho, o trabalho é interrompido.",
     "en": "This activates the vault keys. Any work currently in progress will be interrupted."
   },
+  "987b383dad44": {
+    "pt-BR": "{p0} tem {p1} bytes, acima do limite de {p2}",
+    "en": "{p0} has {p1} bytes, above the limit of {p2}"
+  },
   "987dc8cde926": {
     "pt-BR": "contínua: não",
     "en": "continuous: off"
@@ -10941,6 +11525,10 @@
     "pt-BR": ". Ela continua aqui; toque em Concluir de novo para tentar.",
     "en": ". It is still here; tap Complete again to retry."
   },
+  "9961ad272380": {
+    "pt-BR": "Não consegui tratar o pedido das integrações. O detalhe está no log do Web (journalctl -u dgclaw-web).",
+    "en": "I could not process the integrations request. Details are in the Web log (journalctl -u dgclaw-web)."
+  },
   "9968bd4fe29e": {
     "pt-BR": "As pessoas que mais conversam com ele no Instagram, e o resumo de quantas são.",
     "en": "The people who interact most with the agent on Instagram, plus a count summary."
@@ -11005,6 +11593,14 @@
     "pt-BR": "Este agente ainda não tem colaborador. A pessoa recebe um e-mail com o link, o login e uma senha temporária.",
     "en": "This agent has no collaborator yet. The person receives an email with the link, username and temporary password."
   },
+  "9a09995e0511": {
+    "pt-BR": "Confira o id na lista de integrações (GET /api/integracoes) e tente de novo.",
+    "en": "Check the id in the integration list (GET /api/integracoes), then try again."
+  },
+  "9a11174c3db8": {
+    "pt-BR": "encontrado",
+    "en": "found"
+  },
   "9a2a3f4a2c76": {
     "pt-BR": "Como funcionam as ações do card",
     "en": "How card actions work"
@@ -11041,6 +11637,10 @@
     "pt-BR": "O programa que vai trabalhar neste card. O da conversa principal vem marcado.",
     "en": "The program working on this card. The main conversation's provider is preselected."
   },
+  "9a7ff6964154": {
+    "pt-BR": "Não consegui ler o estado do Admin automático. {erro}",
+    "en": "Could not read the automatic Admin status. {erro}"
+  },
   "9a86fb2d84c0": {
     "pt-BR": "Nome no sistema: {v0}",
     "en": "System name: {v0}"
@@ -11052,6 +11652,10 @@
   "9aaaf04ea5b4": {
     "pt-BR": "Trocar a senha da tela",
     "en": "Change screen password"
+  },
+  "9aaafeaceeea": {
+    "pt-BR": " {quantidade} arquivo não entrou (a própria página lista quais).",
+    "en": " {quantidade} file was not included (the page itself lists which files)."
   },
   "9ab545364ef8": {
     "pt-BR": "Se a mudança é importante, peça a ele na Conversa.",
@@ -11104,6 +11708,10 @@
   "9b7730874f69": {
     "pt-BR": "Diz se as rotinas que mantêm ele de pé, lembrando e de olho nos custos estão funcionando. Verde quando a última execução de cada uma deu certo; quando alguma pede atenção, a linha diz qual.",
     "en": "Shows whether the routines keeping the agent running, remembering and monitoring costs work. Green means each latest run succeeded; if attention is needed, the line names the operation."
+  },
+  "9b7841f333f0": {
+    "pt-BR": "Mostra todos os sistemas, cada um na cor que ele tem de verdade.",
+    "en": "Shows all systems, each in its actual status color."
   },
   "9b81a29275ff": {
     "pt-BR": "Para administrar: atualizar o DG Claw, criar agentes e configurar.",
@@ -11173,6 +11781,14 @@
     "pt-BR": "Configure a chave do Groq Whisper ou do ElevenLabs Scribe no Bunker.",
     "en": "Configure the Groq Whisper or ElevenLabs Scribe key in the Bunker."
   },
+  "9ca25886ceab": {
+    "pt-BR": "Entendi o risco, ligar",
+    "en": "I understand the risk, enable"
+  },
+  "9ca503705f05": {
+    "pt-BR": "os sistemas em que ele está ligado, e se cada um funciona",
+    "en": "the systems it is connected to and whether each one works"
+  },
   "9cb5d6d698d2": {
     "pt-BR": "Enviar resposta",
     "en": "Send answer"
@@ -11192,6 +11808,10 @@
   "9cee52bf2e26": {
     "pt-BR": "Não consegui trocar os dados pessoais da resposta, então ela não foi entregue. Tente de novo; se repetir, peça ao dono para conferir a tela Anonimizar.",
     "en": "I could not replace personal data in the response, so it was not delivered. Try again; if it happens again, ask the owner to check the Anonymize screen."
+  },
+  "9cf38ee4dd7b": {
+    "pt-BR": "Outros componentes: {n} correção na fila da atualização do sistema",
+    "en": "Other components: {n} fix queued for the system update"
   },
   "9d14fb1e68df": {
     "pt-BR": "copiar",
@@ -11237,6 +11857,10 @@
     "pt-BR": "Seu agente está no menu",
     "en": "Your agent is in the menu"
   },
+  "9dc0869ddac9": {
+    "pt-BR": "é uma pasta",
+    "en": "is a directory"
+  },
   "9dd86484e2c3": {
     "pt-BR": "Cada linha traz quando saiu, o assunto, o tipo e o link para o post de verdade.",
     "en": "Each row shows publication time, topic, type and a link to the actual post."
@@ -11244,6 +11868,10 @@
   "9ddfcf08e072": {
     "pt-BR": "Login feito. Conferindo o agente...",
     "en": "Signed in. Checking the agent..."
+  },
+  "9df89427a7c8": {
+    "pt-BR": "Heartbeat",
+    "en": "Heartbeat"
   },
   "9e0d899cc30f": {
     "pt-BR": "gerar a versão final",
@@ -11401,6 +12029,10 @@
     "pt-BR": "Nao consegui transcrever: {p0}",
     "en": "I could not transcribe: {p0}"
   },
+  "a06b0e222fc8": {
+    "pt-BR": "Este link não vale (ou foi copiado pela metade, ou já foi trocado por um mais novo). Gere outro com: sudo dgclaw primeiro-acesso",
+    "en": "This link is invalid (it was either not copied in full or has been replaced with a newer one). Generate another with: sudo dgclaw primeiro-acesso"
+  },
   "a0893d4744cf": {
     "pt-BR": "Mandar um recado",
     "en": "Send a message"
@@ -11428,6 +12060,10 @@
   "a0c5b2d19471": {
     "pt-BR": "Outra resposta para a pergunta ",
     "en": "Another answer to question "
+  },
+  "a0dfda82a55e": {
+    "pt-BR": "Pronto: {quantidade} imagens entraram dentro do arquivo, {tamanho} no total.",
+    "en": "Done: {quantidade} images were embedded in the file, {tamanho} in total."
   },
   "a0f0694f707d": {
     "pt-BR": "Cabem até ",
@@ -11553,6 +12189,10 @@
     "pt-BR": "Não consegui {p0} a conversa como não lida ({p1}).",
     "en": "I could not {p0} the conversation as unread ({p1})."
   },
+  "a2a7167fb2a6": {
+    "pt-BR": "O servidor não aceitou o hash gerado ({p0}). Rode no servidor: sudo dgclaw senha",
+    "en": "The server rejected the generated hash ({p0}). Run on the server: sudo dgclaw senha"
+  },
   "a2ce0f7879cf": {
     "pt-BR": "Você escolhe um nome, conta o que quer delegar e acompanha tudo por aqui. Depois, é só conversar com seu agente pelo menu à esquerda.",
     "en": "Choose a name, explain what you want to delegate and follow progress here. Then talk to your agent using the menu on the left."
@@ -11573,9 +12213,17 @@
     "pt-BR": "Remover",
     "en": "Remove"
   },
+  "a321bad69864": {
+    "pt-BR": " {quantidade} arquivos não entraram (a própria página lista quais).",
+    "en": " {quantidade} files were not included (the page itself lists which files)."
+  },
   "a32bdddf3af3": {
     "pt-BR": "O servidor não trouxe o plano. Rode \"sudo dgclaw emergencia simular\".",
     "en": "The server did not return the plan. Run \"sudo dgclaw emergencia simular\"."
+  },
+  "a32f12b74401": {
+    "pt-BR": "Estado real e Modo aula",
+    "en": "Actual status and Presentation mode"
   },
   "a34032fc9cb2": {
     "pt-BR": "Negado. Aguardando o agente continuar…",
@@ -11737,6 +12385,10 @@
     "pt-BR": "Cada colaborador aparece num cartão, com o estado dele (aguardando o primeiro acesso, ativo) e os botões para mandar o convite de novo ou revogar o acesso. O formulário para convidar mais uma pessoa fica sempre logo abaixo dos cartões.",
     "en": "Each collaborator has a card showing their status (awaiting first access or active), with buttons to resend the invitation or revoke access. The form for inviting another person stays below the cards."
   },
+  "a4fb9c5b0a15": {
+    "pt-BR": "o agente não tem casa registrada no host",
+    "en": "the agent has no home directory registered on the host"
+  },
   "a500c717ce53": {
     "pt-BR": "Não existe agente com o id \"{p0}\". Veja GET /api/v1/agents.",
     "en": "No agent has the id \"{p0}\". See GET /api/v1/agents."
@@ -11797,6 +12449,10 @@
     "pt-BR": "O cofre é só do dono do DG Claw.",
     "en": "The vault is only for the DG Claw owner."
   },
+  "a57bc35681b9": {
+    "pt-BR": "Com a atualização automática do Ubuntu ligada (o padrão), a correção entra sozinha e você não precisa decidir nada. Se ela não estiver ligada, o botão Pedir ao Admin abre a conversa com o pedido já escrito. O Admin também recebe um recado sobre elas e confere isso. Por isso elas não entram no aviso de risco nem no selo, e ficam recolhidas aqui, à vista.",
+    "en": "With Ubuntu automatic updates enabled (the default), the fix is installed automatically and you do not need to decide anything. If they are disabled, the Ask the Admin button opens the conversation with the request already written. The Admin also receives a message about these vulnerabilities and checks this. That is why they do not appear in the risk warning or badge, and remain collapsed here, in view."
+  },
   "a582623a07d3": {
     "pt-BR": "esta tela não sabe marcar como não lida",
     "en": "this screen cannot mark conversations unread"
@@ -11848,6 +12504,10 @@
   "a6451912abc9": {
     "pt-BR": "O cartão pergunta ao programa do agente como está a conta dele. Se já estiver conectado, só aparece o aviso, sem botões.",
     "en": "The card asks the agent runtime about its account. If already connected, it only shows a notice, without buttons."
+  },
+  "a645ec5d8d57": {
+    "pt-BR": "Ligado em ",
+    "en": "Connected to "
   },
   "a64f0fd3e4f2": {
     "pt-BR": "O visual não mandou texto nenhum.",
@@ -11917,6 +12577,10 @@
     "pt-BR": "Agora não",
     "en": "Not now"
   },
+  "a73acd903370": {
+    "pt-BR": "não é um arquivo comum",
+    "en": "is not a regular file"
+  },
   "a74c4a40021b": {
     "pt-BR": "Feche o editor, abra o arquivo de novo e refaça a edição.",
     "en": "Close the editor, open the file again, and repeat your edit."
@@ -11960,6 +12624,10 @@
   "a80de96d9716": {
     "pt-BR": "Histórico",
     "en": "History"
+  },
+  "a8118f8af8ba": {
+    "pt-BR": "A correção do achado {id} já existe e entra pela atualização do sistema (automática), então o painel não tem nada a aplicar nem a agendar. Se quiser adiantar, peça ao Admin.",
+    "en": "The fix for finding {id} is already available through automatic system updates, so the dashboard has nothing to apply or schedule. To install it sooner, ask the Admin."
   },
   "a81ad646c356": {
     "pt-BR": "Nada a fazer. Se um site recusar o login, tente de novo pela tela e avise o agente.",
@@ -12045,6 +12713,10 @@
     "pt-BR": "Ajuda sobre o nome",
     "en": "Help with the name"
   },
+  "a8d9f0ca4af3": {
+    "pt-BR": "A senha precisa ter pelo menos 12 caracteres (a sua tem {p0}).",
+    "en": "Your password must have at least 12 characters (yours has {p0})."
+  },
   "a8df3b8d3f2f": {
     "pt-BR": "No Android e no computador, com Chrome ou Edge, o toque abre o pedido de instalação do navegador. No iPhone e no iPad, o item mostra o caminho: Compartilhar e depois Adicionar à Tela de Início. O item some sozinho quando o app já está instalado.",
     "en": "On Android and computers with Chrome or Edge, tapping opens the browser's installation prompt. On iPhone and iPad, it shows the steps: Share, then Add to Home Screen. The item disappears automatically once the app is installed."
@@ -12109,6 +12781,10 @@
     "pt-BR": "As sessões de trabalho deste agente, que andam em paralelo com a conversa principal. Veja o que cada uma está fazendo, leia a conversa, aprove ou negue pedidos de permissão, mande recado e crie sessões novas.",
     "en": "This agent's work sessions run alongside the main conversation. See what each is doing, read conversations, approve or deny permission requests, send messages and create sessions."
   },
+  "aa89b87c74cf": {
+    "pt-BR": "Outros componentes: {n} correções na fila da atualização do sistema",
+    "en": "Other components: {n} fixes queued for the system update"
+  },
   "aab7b89a1c76": {
     "pt-BR": "a fazer",
     "en": "to do"
@@ -12140,6 +12816,14 @@
   "aae57b720baa": {
     "pt-BR": "Registros",
     "en": "Logs"
+  },
+  "aaec739977b5": {
+    "pt-BR": "A integração {p0} não está no mapa deste agente, então não a desliguei.",
+    "en": "Integration {p0} is not on this agent's map, so I did not disable it."
+  },
+  "aafc1ef704f2": {
+    "pt-BR": "Amabilidade",
+    "en": "Agreeableness"
   },
   "ab0d0e07c5bc": {
     "pt-BR": "Como conectar",
@@ -12249,6 +12933,10 @@
     "pt-BR": "Manter o registro deixa claro o que valeu e quando mudou, e permite conferir depois por que um agente agiu de certo jeito.",
     "en": "Keeping the record shows what applied and when it changed, so you can later check why an agent acted a certain way."
   },
+  "ac539d090951": {
+    "pt-BR": "não pôde ser examinado ({p0})",
+    "en": "could not be examined ({p0})"
+  },
   "ac745c4b7d30": {
     "pt-BR": "Ex.: Maria Souza, CPF 123.456.789-00, telefone (11) 91234-5678",
     "en": "E.g.: Maria Souza, CPF 123.456.789-00, phone (11) 91234-5678"
@@ -12336,6 +13024,10 @@
   "adb85d845d4f": {
     "pt-BR": "a rede caiu antes da resposta (",
     "en": "the network disconnected before the reply ("
+  },
+  "adbaba04e674": {
+    "pt-BR": "As integrações são só do dono, pelo painel. Agente não usa esta rota.",
+    "en": "Integrations are only available to the owner through the panel. Agents cannot use this route."
   },
   "adbbcf741cdb": {
     "pt-BR": "Copiar mensagem",
@@ -12537,6 +13229,10 @@
     "pt-BR": " Tente de novo às ",
     "en": " Try again at "
   },
+  "aff948967bc0": {
+    "pt-BR": "Estado desconhecido",
+    "en": "Unknown status"
+  },
   "affe3acb8086": {
     "pt-BR": "Aqui você fala com ele",
     "en": "Talk to your agent here"
@@ -12548,6 +13244,10 @@
   "b00c578f8764": {
     "pt-BR": "formato inesperado (esperava {\"versao\":1,\"proximo_id\":N,\"pedidos\":[...]})",
     "en": "unexpected format (expected {\"versao\":1,\"proximo_id\":N,\"pedidos\":[...]})"
+  },
+  "b01b36a65721": {
+    "pt-BR": "Neuroticismo",
+    "en": "Neuroticism"
   },
   "b0303b47ef1e": {
     "pt-BR": "Uma lista vazia pode querer dizer \"o agente não fez nada\" ou \"o servidor não conseguiu ler\". Os cartões separam as duas coisas.",
@@ -12773,6 +13473,10 @@
     "pt-BR": "O cursor das sessões não tem posição. Peça a primeira página de novo, sem o parâmetro \"cursor\".",
     "en": "The session cursor has no position. Request the first page again without the \"cursor\" parameter."
   },
+  "b385835b5a98": {
+    "pt-BR": "O sistema pediu para ir mais devagar: o limite de uso foi atingido.",
+    "en": "The system requested a slower rate: the usage limit was reached."
+  },
   "b385f626d379": {
     "pt-BR": "Você acompanha o trabalho sem interromper a conversa com o agente.",
     "en": "Follow the work without interrupting the agent conversation."
@@ -12989,6 +13693,10 @@
     "pt-BR": "A tela usa uma conexão contínua (WebSocket), e alguns endereços de acesso não a deixam passar. Testar antes evita uma tela preta sem explicação.",
     "en": "The screen uses a continuous WebSocket connection, which some access addresses block. Testing first prevents an unexplained black screen."
   },
+  "b60f2ae30e9b": {
+    "pt-BR": " Trocar senha muda a senha com que você entra no painel e exige a senha atual.",
+    "en": " Change password updates the password you use to sign in to the panel and requires your current password."
+  },
   "b614789b8b6c": {
     "pt-BR": "As pastas vêm antes dos arquivos",
     "en": "Folders appear before files"
@@ -13005,6 +13713,10 @@
     "pt-BR": "enviando…",
     "en": "sending…"
   },
+  "b642e2cd881c": {
+    "pt-BR": "Não consegui mudar isso agora.",
+    "en": "I could not change this now."
+  },
   "b65469ff7ec9": {
     "pt-BR": "Arquivar não apaga nada: a conversa continua guardada e o card pode ser retomado. É a forma de limpar a lista sem perder o trabalho.",
     "en": "Archiving deletes nothing: the conversation stays stored and the card can resume. It clears the list without losing work."
@@ -13016,6 +13728,14 @@
   "b66608b620f0": {
     "pt-BR": "O formulário para você avisar os agentes. O aviso sai com o seu nome (\"Você\") e não tem limite de frequência.",
     "en": "The form for notifying agents. The notice is posted under your name (\"You\") and has no frequency limit."
+  },
+  "b671c68dea82": {
+    "pt-BR": "Pedir ao Admin para verificar",
+    "en": "Ask the Admin to check"
+  },
+  "b675e4443f43": {
+    "pt-BR": "Este convite era de um agente que foi removido. Peça um convite novo ao dono.",
+    "en": "This invitation was for an agent that has been removed. Ask the owner for a new invitation."
   },
   "b67fc4e346ed": {
     "pt-BR": "hoje ",
@@ -13049,6 +13769,10 @@
     "pt-BR": "A próxima vez é calculada pelo servidor na regra e no fuso dele. Pausar não acumula nada: ao retomar, vale a próxima hora a partir de agora. O Histórico mostra cada vez que o lembrete tocou e como terminou.",
     "en": "The server calculates the next occurrence using its rules and time zone. Pausing does not build a backlog: on resuming, the next time is calculated from now. History shows each occurrence and its outcome."
   },
+  "b6cadb2bddad": {
+    "pt-BR": "O hash da senha não vale: {p0}.",
+    "en": "The password hash is invalid: {p0}."
+  },
   "b6cbe92266d0": {
     "pt-BR": "Escolha um agente",
     "en": "Choose an agent"
@@ -13072,6 +13796,10 @@
   "b6de4879dc7f": {
     "pt-BR": "ainda não",
     "en": "not yet"
+  },
+  "b6f3724d11fa": {
+    "pt-BR": "Deu um erro que não foi possível classificar.",
+    "en": "An error occurred that could not be classified."
   },
   "b6f6daf078c9": {
     "pt-BR": "a última mudança foi sua",
@@ -13136,6 +13864,10 @@
   "b7fc7d8227c5": {
     "pt-BR": ". Recarregue a página; se continuar, peça ao Admin para conferir o painel.",
     "en": ". Reload the page. If this continues, ask Admin to check the dashboard."
+  },
+  "b801a3cbfee3": {
+    "pt-BR": "Ligar no mapa",
+    "en": "Enable on the map"
   },
   "b82332f9f99d": {
     "pt-BR": "A chave foi guardada, mas o agente ainda não a tem: ele só lê o cofre quando inicia.",
@@ -13228,6 +13960,10 @@
   "b91d6da09da0": {
     "pt-BR": "Não consegui nem conferir se dá para reiniciar daqui.",
     "en": "I could not even check whether restarting from here is possible."
+  },
+  "b9210f10160a": {
+    "pt-BR": "Fechar o cartão",
+    "en": "Close the card"
   },
   "b92922fb8a56": {
     "pt-BR": "Cada pessoa liga no próprio aparelho e vê só os aparelhos dela. Quem não ligar não percebe nada.",
@@ -13325,6 +14061,10 @@
     "pt-BR": "id repetido",
     "en": "duplicate id"
   },
+  "ba5c33095ca3": {
+    "pt-BR": " e o link de recuperação pendente continua valendo",
+    "en": " and the pending recovery link remains valid"
+  },
   "ba601c27d787": {
     "pt-BR": "Recarregue a página e tente de novo.",
     "en": "Reload the page and try again."
@@ -13353,6 +14093,10 @@
     "pt-BR": "pausado",
     "en": "paused"
   },
+  "baa504b2ebda": {
+    "pt-BR": "Não gravei a preferência da integração {p0}: o arquivo preferencias.json em {p1} existe, mas está ilegível ou fora do formato, e gravar agora apagaria o que ele guarda.",
+    "en": "I did not save the preference for integration {p0}: preferencias.json at {p1} exists but is unreadable or malformed, and saving now would erase its contents."
+  },
   "bac8add3b49b": {
     "pt-BR": "Baixa o arquivo com os dados reais no lugar dos marcadores",
     "en": "Downloads the file with original details in place of placeholders"
@@ -13372,6 +14116,10 @@
   "bb1e96dc6898": {
     "pt-BR": "A casa do agente {p0} ({p1}) pertence ao root; recusei gravar anexo ali, porque o Web gravaria como root. Confira o home_host no registro de agentes.",
     "en": "Agent {p0}'s home ({p1}) belongs to root; saving an attachment there was refused because the Web would write as root. Check home_host in the agent registry."
+  },
+  "bb1f091ba3fb": {
+    "pt-BR": "Modo aula",
+    "en": "Presentation mode"
   },
   "bb29c4ffa5a0": {
     "pt-BR": "Tutorial da linha do tempo",
@@ -13605,6 +14353,10 @@
     "pt-BR": "Abra o painel pelo endereço dele e refaça a ação por lá.",
     "en": "Open the panel at its own address and repeat the action there."
   },
+  "bdc12e27b45d": {
+    "pt-BR": "Não consegui gravar a senha no servidor ({p0}). A senha antiga continua valendo e o link de recuperação pendente continua valendo; peça ao Admin para conferir o espaço e a permissão da pasta de configuração.",
+    "en": "Could not save the password on the server ({p0}). Your old password and pending recovery link remain valid; ask the Admin to check free space and configuration folder permissions."
+  },
   "bdc3a099f479": {
     "pt-BR": "Aguardando correção oficial",
     "en": "Awaiting official fix"
@@ -13825,6 +14577,10 @@
     "pt-BR": "Handoff pedido ao card.",
     "en": "Handoff requested from the card."
   },
+  "c154f369ead2": {
+    "pt-BR": "nenhuma skill declarou",
+    "en": "no skills have declared this system"
+  },
   "c15fa80bdab5": {
     "pt-BR": "contados no disco na hora em que você abriu esta etapa. Não é o que o catálogo pediu: é o que está lá.",
     "en": "counted from disk when you opened this stage. This is what actually exists, not what the catalog requested."
@@ -13888,6 +14644,10 @@
   "c2217565ce6c": {
     "pt-BR": "Reiniciando o agente...",
     "en": "Restarting the agent..."
+  },
+  "c22677966f2d": {
+    "pt-BR": "Falta o usuário do painel (DGCLAW_PANEL_USER).",
+    "en": "The dashboard username (DGCLAW_PANEL_USER) is missing."
   },
   "c227d2059067": {
     "pt-BR": "Entrar com a senha",
@@ -14121,6 +14881,10 @@
     "pt-BR": "O arquivo {p0} não tem o formato esperado. Rode \"sudo dgclaw atualizar --checar\" no servidor para refazê-lo.",
     "en": "File {p0} does not have the expected format. Run \"sudo dgclaw atualizar --checar\" on the server to rebuild it."
   },
+  "c586d3be9f40": {
+    "pt-BR": "este agente não é medido (sem casa registrada, ou é o Admin)",
+    "en": "this agent is not measured (no registered home directory, or it is the Admin)"
+  },
   "c58bf7b68dbe": {
     "pt-BR": "O que depende de você fica à vista, mesmo quando você está em outra aba.",
     "en": "Items that depend on you stay visible, even on another tab."
@@ -14185,9 +14949,17 @@
     "pt-BR": "Não consegui ler {p0} ({p1}). Sem ler a configuração eu não sei se este agente está com a anonimização ligada, então nada passa.",
     "en": "I could not read {p0} ({p1}). Without reading the configuration, I cannot determine whether anonymization is enabled for this agent, so nothing is allowed through."
   },
+  "c61e636e53d6": {
+    "pt-BR": "Voz: leitura em voz alta e conversa contínua",
+    "en": "Voice: read replies aloud and continuous conversation"
+  },
   "c62101be6c45": {
     "pt-BR": "O documento do aviso de atualização não foi encontrado no servidor. Reinstale o DG Claw Web.",
     "en": "The update notice document was not found on the server. Reinstall DG Claw Web."
+  },
+  "c62861c37cdf": {
+    "pt-BR": "a casa do agente não pertence ao agente",
+    "en": "the agent home directory is not owned by the agent"
   },
   "c6328c1a88ec": {
     "pt-BR": "Criar senha - {{MARCA_NOME}}",
@@ -14213,6 +14985,14 @@
     "pt-BR": "Chave de API \"{v0}\" criada. {v1}",
     "en": "API key \"{v0}\" created. {v1}"
   },
+  "c66060369f42": {
+    "pt-BR": "o arquivo não é um arquivo comum do agente",
+    "en": "the file is not a regular file owned by the agent"
+  },
+  "c66e58110fdf": {
+    "pt-BR": "Última vez que funcionou",
+    "en": "Last successful use"
+  },
   "c67a7ea1c1d3": {
     "pt-BR": "biometria",
     "en": "biometrics"
@@ -14225,6 +15005,10 @@
     "pt-BR": "Use POST para mandar o convite de novo.",
     "en": "Use POST to resend the invitation."
   },
+  "c6a53818137a": {
+    "pt-BR": "o saldo ou crédito acabou",
+    "en": "the balance or credit has run out"
+  },
   "c6b329914d7a": {
     "pt-BR": " para conectar aqui.",
     "en": " account to connect here."
@@ -14232,6 +15016,10 @@
   "c6beea2938b8": {
     "pt-BR": "Não consegui abrir a lista de chaves de acesso.",
     "en": "Could not open the access key list."
+  },
+  "c6f22ca8b034": {
+    "pt-BR": "O id \"{p0}\" não é válido para uma integração.",
+    "en": "The id \"{p0}\" is not valid for an integration."
   },
   "c6f3910834b8": {
     "pt-BR": "o hash não está no formato scrypt$N$r$p$sal$hash",
@@ -14253,6 +15041,10 @@
     "pt-BR": "O pedido tem um tipo de conteúdo que a aba Sessões não aceita. Só vale JSON (application/json) ou envio de arquivo (multipart/form-data), que é o que a tela manda.",
     "en": "The request has a content type the Sessions tab does not accept. Only JSON (application/json) or file upload (multipart/form-data), as sent by the screen, is accepted."
   },
+  "c73707e13887": {
+    "pt-BR": "Em que sistemas ele está ligado",
+    "en": "Which systems it is connected to"
+  },
   "c73980318089": {
     "pt-BR": ": o agente ainda está respondendo a anterior",
     "en": ": the agent is still replying to the previous message"
@@ -14269,6 +15061,10 @@
     "pt-BR": "Aprovar",
     "en": "Approve"
   },
+  "c76641f53568": {
+    "pt-BR": "Não foi possível medir as integrações agora.",
+    "en": "Integration status could not be measured now."
+  },
   "c77a2b117213": {
     "pt-BR": "Não consegui entregar a mensagem: ",
     "en": "Could not deliver the message: "
@@ -14284,6 +15080,10 @@
   "c7928475583f": {
     "pt-BR": "o áudio veio vazio ou curto demais para transcrever.",
     "en": "the audio was empty or too short to transcribe."
+  },
+  "c7a1891efc7c": {
+    "pt-BR": "Funcionando",
+    "en": "Working"
   },
   "c7aec7a1167f": {
     "pt-BR": "Reiniciar o agente agora?",
@@ -14313,6 +15113,10 @@
     "pt-BR": "Cole a chave no campo e toque em Salvar no cofre. O valor vai direto para o cofre de ",
     "en": "Paste the key into the field and tap Save in vault. The value goes directly into the vault of "
   },
+  "c7f0d88cc5e0": {
+    "pt-BR": "Já há uma troca de senha em andamento. Espere alguns segundos e tente de novo.",
+    "en": "A password change is already in progress. Wait a few seconds and try again."
+  },
   "c80a38fa8f1f": {
     "pt-BR": "Anexa uma foto ou arquivo: o caminho dele entra no recado para o card ler.",
     "en": "Attaches a photo or file and adds its path to the message for the card to read."
@@ -14332,6 +15136,10 @@
   "c88ba7bb9e34": {
     "pt-BR": "projeto",
     "en": "project"
+  },
+  "c89017204644": {
+    "pt-BR": "O servidor não trouxe o texto do pedido. Atualize a página e tente de novo.",
+    "en": "The server did not provide the request text. Refresh the page and try again."
   },
   "c8976b202e2d": {
     "pt-BR": "lido da pasta",
@@ -14384,6 +15192,10 @@
   "c949e120409a": {
     "pt-BR": "Abre logo abaixo do cartão, com o arquivo daquela etapa. Clicar de novo fecha. A tela se atualiza sozinha a cada minuto e o que você deixou aberto continua aberto.",
     "en": "It opens below the card, showing the stage's file. Select again to close. This screen updates every minute and keeps your open items open."
+  },
+  "c9566ca43bdc": {
+    "pt-BR": "Voz",
+    "en": "Voice"
   },
   "c95691072213": {
     "pt-BR": "A conexão da tela não abriu em 8 segundos.",
@@ -14528,6 +15340,10 @@
   "cb81964c40f4": {
     "pt-BR": "Cria uma tarefa para um agente, em nome do dono.",
     "en": "Creates a task for an agent on behalf of the owner."
+  },
+  "cb83ff80b128": {
+    "pt-BR": "Não consegui carregar as integrações.",
+    "en": "I could not load integrations."
   },
   "cb8e9975e279": {
     "pt-BR": "Guardar uma chave",
@@ -14733,6 +15549,10 @@
     "pt-BR": "Não consegui falar com o app para ",
     "en": "Could not reach the app to "
   },
+  "ce5c8c2d6395": {
+    "pt-BR": "O servidor não aceitou o hash gerado ({p0}). Rode: sudo dgclaw primeiro-acesso",
+    "en": "The server did not accept the generated hash ({p0}). Run: sudo dgclaw primeiro-acesso"
+  },
   "ce9db45aa473": {
     "pt-BR": "Este formato não abre dentro do navegador.",
     "en": "This format cannot open in the browser."
@@ -14857,6 +15677,10 @@
     "pt-BR": "(conferida",
     "en": "(checked"
   },
+  "cffcc9d9cff0": {
+    "pt-BR": "Reconhecimento",
+    "en": "Recognition"
+  },
   "d01399228be4": {
     "pt-BR": "o arquivo tem mais de um nome no disco (hardlink); recusei por segurança",
     "en": "the file has more than one name on disk (hardlink); refused for security"
@@ -14873,9 +15697,17 @@
     "pt-BR": "me lembra das tarefas do dia\"",
     "en": "remind me of today's tasks\""
   },
+  "d08bb0884438": {
+    "pt-BR": "o arquivo não pôde ser lido com segurança",
+    "en": "the file could not be read securely"
+  },
   "d0ab6a8f9da9": {
     "pt-BR": "O registro não tem nenhum agente.",
     "en": "The registry contains no agents."
+  },
+  "d0b2b71d2689": {
+    "pt-BR": "Quando algo fica vermelho, o cartão diz o que aconteceu e quando, para você saber o que pedir ao agente. Desligar no mapa só muda o desenho e a conta: não desconecta nada no sistema de verdade.",
+    "en": "When something turns red, the card tells you what happened and when, so you know what to ask the agent. Disabling a system on the map only changes the drawing and the count: it does not disconnect anything in the actual system."
   },
   "d0c17e757269": {
     "pt-BR": ". Mande o convite de novo.",
@@ -15049,6 +15881,10 @@
     "pt-BR": "Um selo que aparece só quando a anonimização de documentos está ligada para ",
     "en": "A badge shown only when document anonymization is enabled for "
   },
+  "d367f9c7bed0": {
+    "pt-BR": "Lembrar em 1 hora",
+    "en": "Remind me in 1 hour"
+  },
   "d36c5e504eb7": {
     "pt-BR": "Parar",
     "en": "Stop"
@@ -15093,6 +15929,10 @@
     "pt-BR": "Não consegui pedir o reinício.",
     "en": "Could not request a restart."
   },
+  "d458270a598e": {
+    "pt-BR": " sistemas",
+    "en": " systems"
+  },
   "d46c2ccfbbf5": {
     "pt-BR": "o r do hash precisa estar entre 1 e 32",
     "en": "the hash r must be between 1 and 32"
@@ -15129,6 +15969,10 @@
     "pt-BR": "Uma etiqueta que o sistema põe para agrupar execuções parecidas.",
     "en": "A label the system uses to group similar runs."
   },
+  "d4e1ecb99ca6": {
+    "pt-BR": "Conversa contínua: ligada",
+    "en": "Continuous conversation: on"
+  },
   "d4eeb90eba7f": {
     "pt-BR": "Mandar na hora enquanto o card trabalha pode interromper o raciocínio dele; a fila evita isso. Se o card está esperando uma permissão, o recado fica desligado, porque ele cairia dentro do menu de permissão.",
     "en": "Sending immediately while a card works can interrupt its reasoning; queuing avoids that. Messages are disabled while permission is pending because they would enter the permission menu."
@@ -15140,6 +15984,14 @@
   "d4fe7c40ead3": {
     "pt-BR": "Quando o agente concluir esta etapa, o arquivo dela aparece aqui.",
     "en": "Its file appears here when the agent completes the stage."
+  },
+  "d50d2b3f59ed": {
+    "pt-BR": "Desligado de fábrica. Ligado, quando uma integração fica com defeito o Web escreve um pedido com texto fixo e o entrega ao Admin: investigar e propor, sem aplicar nada antes do seu ok. Há limites: um pedido por defeito, um a cada 6 horas por integração e cinco por dia. Para ligar, a tela mostra o risco e pede a sua confirmação.",
+    "en": "Disabled by default. When enabled, if an integration fails, the Web writes a request using fixed text and delivers it to the Admin: investigate and propose, without applying anything before your approval. Limits apply: one request per fault, one every 6 hours per integration and five per day. To enable it, the screen shows the risk and asks for your confirmation."
+  },
+  "d511291a2e8f": {
+    "pt-BR": "Quais skills usam",
+    "en": "Skills that use this system"
   },
   "d5156c1298e6": {
     "pt-BR": "pensando",
@@ -15269,6 +16121,10 @@
     "pt-BR": "Regula se ele espera você pedir ou se ele se antecipa, e com que frequência ele fala com você sem ser chamado.",
     "en": "Controls whether the agent waits for requests or acts proactively, and how often it contacts you without being called."
   },
+  "d6941b5d3e95": {
+    "pt-BR": "Não consegui guardar a escolha no disco, então o automático continua desligado. Confira o espaço e as permissões de {p0} e tente de novo.",
+    "en": "I could not save the choice to disk, so automatic requests remain disabled. Check disk space and permissions for {p0} and try again."
+  },
   "d697c8ad7862": {
     "pt-BR": "Revogar a chave \"{v0}\"?",
     "en": "Revoke key \"{v0}\"?"
@@ -15365,6 +16221,10 @@
     "pt-BR": "path required",
     "en": "path required"
   },
+  "d7d14d9d91bf": {
+    "pt-BR": "O mapa dos sistemas externos em que o agente está ligado (WhatsApp, Instagram, banco e outros). A cor de cada um vem do uso real: verde funciona, amarelo pede atenção, vermelho está com defeito.",
+    "en": "A map of the external systems the agent is connected to (WhatsApp, Instagram, banking, and others). Each color comes from actual use: green means working, yellow needs attention, and red means not working."
+  },
   "d7dbbf917baa": {
     "pt-BR": "Quantas vezes ela rodou neste mês.",
     "en": "Number of runs this month."
@@ -15409,6 +16269,10 @@
     "pt-BR": "O filtro \"estado\" aceita ativo, pausado ou encerrado; recebi \"{p0}\".",
     "en": "The \"estado\" filter accepts ativo, pausado, or encerrado; received \"{p0}\"."
   },
+  "d88811aa1b62": {
+    "pt-BR": "{p0} não é um arquivo comum",
+    "en": "{p0} is not a regular file"
+  },
   "d8a7906393a0": {
     "pt-BR": "Enquanto isso, dá para escrever normalmente.",
     "en": "You can still type normally."
@@ -15416,6 +16280,10 @@
   "d8b550253b8b": {
     "pt-BR": "É a segunda porta: além de entrar no painel, quem abre a tela precisa dessa senha. Tem de 6 a 8 caracteres, porque o VNC (o programa que mostra a tela) só olha os 8 primeiros; o painel recusa mais que isso em vez de cortar sem avisar. Trocar a senha desconecta quem estiver vendo a tela agora.",
     "en": "This is a second lock: opening the screen requires its own password in addition to dashboard login. It must contain 6 to 8 characters because VNC, the screen program, reads only the first 8. Longer passwords are refused rather than silently cut. Changing the password disconnects current viewers."
+  },
+  "d8c20da59bb3": {
+    "pt-BR": "Não consegui abrir a conversa com o Admin (o atalho não carregou). Recarregue a página e tente de novo.",
+    "en": "I could not open the conversation with the Admin (the shortcut did not load). Reload the page and try again."
   },
   "d8ce8349b48d": {
     "pt-BR": "{v0} caracteres",
@@ -15432,6 +16300,10 @@
   "d8e48ade7de0": {
     "pt-BR": "\"de segunda a sexta, às 8h,",
     "en": "\"Monday to Friday at 8 a.m.,"
+  },
+  "d8f730273bd6": {
+    "pt-BR": "Não consegui gravar a senha no servidor ({p0}). A senha antiga continua valendo{p1}; peça ao Admin para conferir a permissão do arquivo de configuração.",
+    "en": "Could not save the password on the server ({p0}). Your old password remains valid{p1}; ask the Admin to check the configuration file permissions."
   },
   "d9106d284b73": {
     "pt-BR": "Para convidar mais uma pessoa para este agente, preencha abaixo. Ela recebe um e-mail com o link, o login e uma senha temporária.",
@@ -15669,6 +16541,10 @@
     "pt-BR": "A mensagem não foi encontrada na tela. Tente novamente.",
     "en": "The message was not found on screen. Try again."
   },
+  "dc9e9fef8b2f": {
+    "pt-BR": "Um aviso de que uma integração de algum agente (WhatsApp, Instagram, uma chave de IA e outras) está com defeito.",
+    "en": "A warning that an integration used by an agent (WhatsApp, Instagram, an AI key, or another system) is not working."
+  },
   "dcbb0bfddd52": {
     "pt-BR": "Sem ela, uma resposta que demora e um agente travado são a mesma coisa na tela: silêncio. O botão de parar existe porque pedir para ele parar é mais educado do que fechar a página no meio.",
     "en": "Without this indicator, a slow response and a frozen agent both look like silence. The stop button lets you ask it to stop instead of closing the page midway."
@@ -15684,6 +16560,10 @@
   "dce6b9fa8d80": {
     "pt-BR": "abrir e editar",
     "en": "open and edit"
+  },
+  "dcf8db996a28": {
+    "pt-BR": "Digite a senha.",
+    "en": "Enter your password."
   },
   "dcfa0669c0e6": {
     "pt-BR": ". Como resolver: abra o painel pelo endereço que começa com https:// (o instalador mostrou esse link no fim da instalação). Se o painel ainda não tem um endereço com HTTPS, peça ao Admin para conferir o certificado ou para trocar o endereço por um domínio seu. Enquanto isso, a sua senha continua valendo normalmente.",
@@ -15769,6 +16649,10 @@
     "pt-BR": "uma parte desta tela",
     "en": "part of this screen"
   },
+  "de6df819d1f0": {
+    "pt-BR": "não consegui abrir {p0} ({p1})",
+    "en": "I could not open {p0} ({p1})"
+  },
   "de762d4b0a2c": {
     "pt-BR": "O navegador do seu agente, aberto aqui dentro. Faça login nos sistemas que ele vai usar: ele usa esse mesmo navegador, já logado, e a sua senha nunca passa pela conversa.",
     "en": "Your agent's browser, embedded here. Sign in to the systems it will use: it uses this same browser, already signed in, and your password never enters the conversation."
@@ -15780,6 +16664,14 @@
   "de9a178e70a9": {
     "pt-BR": "Escolha um arquivo do seu computador e ele é guardado na pasta que está aberta agora. Se já existir um com o mesmo nome, eu aviso em vez de escrever por cima.",
     "en": "Choose a file from your computer to save in the currently open folder. If the name already exists, you get a warning instead of an overwrite."
+  },
+  "de9fb54f704c": {
+    "pt-BR": "Com defeito",
+    "en": "Not working"
+  },
+  "dea73b0f87f7": {
+    "pt-BR": "A cor vem do uso real, anotado pelos programas que falam com cada sistema, e não de um teste que o painel faz. Verde: a última vez que o agente usou deu certo. Amarelo: houve um problema que pode passar sozinho (sem internet, limite, resultado incerto) ou uma falha só, ainda não confirmada. Vermelho: duas falhas graves com pelo menos 2 minutos de diferença e nenhum sucesso depois, ou o WhatsApp avisando que desconectou o aparelho. Cinza: desligado por você. Azul claro: sem uso há mais de 7 dias. Cada estado tem também um desenho próprio ao lado da palavra (círculo com visto, triângulo, losango com X, círculo tracejado e relógio), então a cor não é a única pista. Um quadradinho anda pela linha quando o sistema funciona e, no vermelho, para no meio, onde fica um X. As placas mais próximas aparecem maiores e as mais distantes, menores e um pouco apagadas, só para dar profundidade.",
+    "en": "The color comes from actual use, recorded by the programs that communicate with each system, rather than from a test run by the panel. Green: the agent’s last use succeeded. Yellow: a potentially temporary problem occurred (no internet, a usage limit, or an uncertain result), or there was a single failure that has not yet been confirmed. Red: two serious failures at least 2 minutes apart with no success afterward, or WhatsApp reporting that the device disconnected. Gray: disabled by you. Light blue: no use for more than 7 days. Each status also has its own shape beside the word (a circle with a check, a triangle, a diamond with an X, a dashed circle, and a clock), so color is not the only clue. A small square moves along the line when the system is working; for red, it stops in the middle at an X. Nearer tiles look larger, and more distant tiles look smaller and slightly faded, just to add depth."
   },
   "deb9f7506f20": {
     "pt-BR": "demorou mais de 1,5 s",
@@ -15837,6 +16729,10 @@
     "pt-BR": "sem horário",
     "en": "no schedule"
   },
+  "df57de1a7790": {
+    "pt-BR": "A conexão foi encerrada e precisa ser refeita.",
+    "en": "The connection was closed and needs to be re-established."
+  },
   "df5837de7fd7": {
     "pt-BR": "MEMORY.md, a memória longa",
     "en": "MEMORY.md, long-term memory"
@@ -15864,6 +16760,10 @@
   "dfc6c1ac4a1f": {
     "pt-BR": "fora do ar",
     "en": "offline"
+  },
+  "dfd3c4833382": {
+    "pt-BR": "Pronto: {quantidade} imagem entrou dentro do arquivo, {tamanho} no total.",
+    "en": "Done: {quantidade} image was embedded in the file, {tamanho} in total."
   },
   "dfd982162d11": {
     "pt-BR": "a marca de \"{p0}\"/\"{p1}\" não é true",
@@ -15993,6 +16893,10 @@
     "pt-BR": "A pasta {p0} não existe ({p1}).",
     "en": "Directory {p0} does not exist ({p1})."
   },
+  "e1b3edaf3fed": {
+    "pt-BR": "O painel não conseguiu ler o registro das integrações.",
+    "en": "The panel could not read the integration registry."
+  },
   "e1cd46050dde": {
     "pt-BR": "Para você ter o histórico e não ver a mesma falha de novo como se fosse novidade.",
     "en": "Keep a history without seeing the same issue again as new."
@@ -16000,6 +16904,10 @@
   "e1d12d1a29a7": {
     "pt-BR": "Enviar",
     "en": "Send"
+  },
+  "e1e024a23268": {
+    "pt-BR": "o estado.json lista mais de {p0} integrações",
+    "en": "estado.json lists more than {p0} integrations"
   },
   "e1e2d02ee1fb": {
     "pt-BR": "Acordando",
@@ -16012,6 +16920,10 @@
   "e1ee68c39e71": {
     "pt-BR": "Qual modelo de inteligência artificial fez o trabalho.",
     "en": "Which AI model did the work."
+  },
+  "e1f54f47a63b": {
+    "pt-BR": "Não consegui medir as integrações de {nome}: {motivo}",
+    "en": "I could not measure the integrations for {nome}: {motivo}"
   },
   "e20733a4362e": {
     "pt-BR": "{v0} Carregando o arquivo...",
@@ -16229,6 +17141,10 @@
     "pt-BR": "Escreva para o ajudante. Para autorizar uma mudança que ele propôs, responda sim.",
     "en": "Write to the helper. To authorize a proposed change, reply yes."
   },
+  "e4bf81e9ae5a": {
+    "pt-BR": "O que o mapa mostra",
+    "en": "What the map shows"
+  },
   "e4c133da0c3d": {
     "pt-BR": "(sem custos registrados)",
     "en": "(no recorded costs)"
@@ -16316,6 +17232,10 @@
   "e59efe7c3043": {
     "pt-BR": "Agora carregue a versão dele e cole a sua mudança no lugar certo.",
     "en": "Now load the agent's version and paste your change in the right place."
+  },
+  "e5ad5b18f531": {
+    "pt-BR": "{nome}: {n} correção na fila da atualização do sistema",
+    "en": "{nome}: {n} fix queued for the system update"
   },
   "e5bfe90915fd": {
     "pt-BR": "Enviando suas escolhas…",
@@ -16449,6 +17369,10 @@
     "pt-BR": "Quanto tempo a resposta levou e quanto ela gastou da conta Claude desta máquina (estimativa do próprio Claude).",
     "en": "Response time and estimated usage of this machine's Claude account, as reported by Claude."
   },
+  "e723bda46b39": {
+    "pt-BR": "Digite a senha atual e escolha a nova. Os outros aparelhos em que você está logado vão precisar entrar de novo.",
+    "en": "Enter your current password and choose a new one. Your other signed-in devices will need to sign in again."
+  },
   "e72d91376dae": {
     "pt-BR": "Pedido inválido: o arquivo pedido cai fora da pasta de material deste conteúdo.",
     "en": "Invalid request: the requested file is outside this content's material directory."
@@ -16501,6 +17425,10 @@
     "pt-BR": "Esta ocorrência está \"{p0}\"{p1}, então não dá para adiar.",
     "en": "This occurrence is \"{p0}\"{p1}, so it cannot be postponed."
   },
+  "e85b1015de4b": {
+    "pt-BR": "Um botão com o ícone de alto-falante que guarda os dois controles de voz: \"Ler respostas em voz alta\" e \"Conversa contínua\". Ele fica destacado quando qualquer um dos dois está ligado.",
+    "en": "A speaker button containing both voice controls: \"Read responses aloud\" and \"Continuous conversation\". It is highlighted when either is enabled."
+  },
   "e864b41a15a7": {
     "pt-BR": "No iPhone use o Safari, ou escreva no campo de texto.",
     "en": "On iPhone, use Safari, or type in the text field."
@@ -16524,6 +17452,10 @@
   "e8baef6804ec": {
     "pt-BR": "Você confere quem está com acesso e quando usou, e corta quando quiser.",
     "en": "Check who has access and when they used it, and revoke it whenever you choose."
+  },
+  "e8c925a0fa60": {
+    "pt-BR": "Sem uso recente",
+    "en": "No recent use"
   },
   "e8d894990269": {
     "pt-BR": "{v0}Não achei um handoff pronto na conversa. Peço que o card escreva um?",
@@ -16556,6 +17488,10 @@
   "e93f15ef0e82": {
     "pt-BR": "O horário da última ronda de segurança e o da próxima.",
     "en": "The last and next security scan times."
+  },
+  "e94160340151": {
+    "pt-BR": "Atualizações do sistema ({n})",
+    "en": "System updates ({n})"
   },
   "e9596f1aa8cf": {
     "pt-BR": "{v0}min atrás",
@@ -16596,6 +17532,10 @@
   "e9d6bf82454c": {
     "pt-BR": "O áudio chegou com {p0} bytes, que é menos de 1 KB: a gravação veio vazia.",
     "en": "The audio arrived with {p0} bytes, less than 1 KB: the recording was empty."
+  },
+  "e9d8554c62dd": {
+    "pt-BR": "Mostra só os sistemas que estão funcionando. Serve para apresentar numa aula.",
+    "en": "Shows only systems that are working. Useful for demonstrations in a class."
   },
   "e9f674c8744a": {
     "pt-BR": "Dispensar o cartão de ",
@@ -16749,6 +17689,10 @@
     "pt-BR": "Se a tela não abre, a causa quase sempre é uma destas três. Mostrar as três de uma vez poupa você de adivinhar qual faltou.",
     "en": "If the screen does not open, one of these three is usually the cause. Showing them together saves guesswork."
   },
+  "ec123d2d694a": {
+    "pt-BR": "Ligado.",
+    "en": "Enabled."
+  },
   "ec12c2a4fb94": {
     "pt-BR": "Uma conversa só, e não uma por lugar. Se fossem duas, ele lembraria de metade do que vocês combinaram, dependendo de onde você tivesse falado. Quando o painel é aberto pela plataforma, a conversa é a tela principal do agente (o chat): o botão Conversa leva para lá, e o painel guarda as demais páginas dele.",
     "en": "One conversation across locations prevents the agent from remembering only half your agreements. When opened through the platform, chat is the agent's main screen: Conversation takes you there, while the dashboard holds its other pages."
@@ -16840,6 +17784,10 @@
   "ed51b2b9fcdd": {
     "pt-BR": "Toque no menu à esquerda e escolha o nome do agente.",
     "en": "Tap the menu on the left and choose the agent's name."
+  },
+  "ed5e13a61b16": {
+    "pt-BR": "Teimosia",
+    "en": "Stubbornness"
   },
   "ed6b5fa739b7": {
     "pt-BR": "é a MESMA conversa: as duas caem na mesma sessão, em ordem.",
@@ -17093,6 +18041,10 @@
     "pt-BR": "Reinicie o agente pelo Admin. Se continuar, o instalador precisa ser rodado de novo.",
     "en": "Restart the agent through the Admin. If this persists, the installer needs to be run again."
   },
+  "f0a5b4c98ffb": {
+    "pt-BR": "a conexão caiu e precisa ser refeita",
+    "en": "the connection dropped and needs to be re-established"
+  },
   "f0b02b5fc6c0": {
     "pt-BR": "Nome do seu agente",
     "en": "Your agent's name"
@@ -17141,6 +18093,10 @@
     "pt-BR": "Mostrar a chave",
     "en": "Show key"
   },
+  "f119efadc554": {
+    "pt-BR": "Não consegui gravar a preferência da integração {p0} em {p1}: {p2}",
+    "en": "I could not save the preference for integration {p0} at {p1}: {p2}"
+  },
   "f11b6bc7eb8e": {
     "pt-BR": "Voltar para {v1}.",
     "en": "Back to {v1}."
@@ -17176,6 +18132,10 @@
   "f1aa5d87002d": {
     "pt-BR": "Qual modelo de IA o agente usa (o cérebro dele) e como isso é pago: pela assinatura do Claude ou do ChatGPT, ou por uma chave de API. O painel mostra o que está escolhido e o que o programa do agente confirma.",
     "en": "Which AI model the agent uses and how it is paid for: a Claude or ChatGPT subscription, or an API key. The dashboard shows your selection and what the agent runtime confirms."
+  },
+  "f1acc5fd2596": {
+    "pt-BR": "Integração com defeito",
+    "en": "Integration not working"
   },
   "f1d4032957c2": {
     "pt-BR": "O material que o agente juntou, para você ver",
@@ -17353,6 +18313,14 @@
     "pt-BR": "Use GET para ler e POST com {\"vistos\": [\"id\"], \"nao_mostrar_mais\": true} para guardar.",
     "en": "Use GET to read and POST with {\"vistos\": [\"id\"], \"nao_mostrar_mais\": true} to save."
   },
+  "f467650e8911": {
+    "pt-BR": "As falhas de pacotes do Ubuntu (o kernel Linux, por exemplo) que já têm correção pronta. Ficam numa linha por componente, como \"Kernel Linux: 12 correções na fila da atualização do sistema\". Toque na linha para ver cada falha.",
+    "en": "Vulnerabilities in Ubuntu packages (the Linux kernel, for example) that already have fixes available. They appear in one row per component, such as \"Linux kernel: 12 fixes queued for the system update\". Tap the row to see each vulnerability."
+  },
+  "f46bddee2395": {
+    "pt-BR": "Crons",
+    "en": "Crons"
+  },
   "f475024882ca": {
     "pt-BR": "Tutorial do seletor de agente",
     "en": "Agent selector tutorial"
@@ -17408,6 +18376,10 @@
   "f584b069d58a": {
     "pt-BR": "As chaves de serviço que este agente pode usar (gerar imagem, transcrever áudio).",
     "en": "Service keys this agent can use (image generation, audio transcription)."
+  },
+  "f584cea4f657": {
+    "pt-BR": "Não consegui montar o mapa de integrações: {p0}",
+    "en": "I could not build the integration map: {p0}"
   },
   "f58a169b8017": {
     "pt-BR": " confere a cada 15 segundos. Na hora marcada, avisa na faixa da conversa, no aparelho e pelo agente, e repete até você tocar Feito ou Adiar.",
@@ -17504,6 +18476,10 @@
   "f6d9ca8c6638": {
     "pt-BR": "Fale mais perto do microfone e grave de novo. Nada foi perdido: voce ainda pode escrever.",
     "en": "Speak closer to the microphone and record again. Nothing was lost: you can still type."
+  },
+  "f6fa8edc8711": {
+    "pt-BR": "Todos os sistemas estão desligados no mapa.",
+    "en": "All systems are disabled on the map."
   },
   "f6fd847a1a42": {
     "pt-BR": "A decisão não é tomada aqui de propósito: um card não pode aprovar o próprio pedido, e só o login do dono no DG Telegram pode decidir. O painel mostra o pedido e leva você até lá.",
@@ -17685,6 +18661,10 @@
     "pt-BR": "Aparece quando todos os agentes que usam assinatura estão conectados. Diz onde acessar o painel e o que você vai ver.",
     "en": "Appears when all subscription-based agents are connected. Shows how to access the dashboard and what you will see."
   },
+  "f9a5f22ec965": {
+    "pt-BR": "o arquivo não pôde ser lido",
+    "en": "the file could not be read"
+  },
   "f9beea7c807b": {
     "pt-BR": "Use POST para abrir o item.",
     "en": "Use POST to open the item."
@@ -17753,6 +18733,10 @@
     "pt-BR": "em produção",
     "en": "in production"
   },
+  "faed796048f8": {
+    "pt-BR": "Estado real",
+    "en": "Actual status"
+  },
   "fb086626f707": {
     "pt-BR": " mensagem não lida",
     "en": " unread message"
@@ -17817,6 +18801,10 @@
     "pt-BR": "Avisar quando um agente terminar",
     "en": "Notify when an agent finishes"
   },
+  "fbf97cc10b19": {
+    "pt-BR": "Nenhuma atualização do sistema na fila.",
+    "en": "No system updates queued."
+  },
   "fc06aa2af8f9": {
     "pt-BR": "O documento do Face ID não foi encontrado no servidor. Reinstale o DG Claw Web.",
     "en": "The Face ID document was not found on the server. Reinstall DG Claw Web."
@@ -17840,6 +18828,10 @@
   "fc51c5c42445": {
     "pt-BR": "Mais ações de {v0}",
     "en": "More actions for {v0}"
+  },
+  "fc85588f2878": {
+    "pt-BR": "o sistema está fora do ar",
+    "en": "the system is offline"
   },
   "fcc887252ae6": {
     "pt-BR": "Isto reinicia o processo do agente quando ele travar. A conversa continua de onde estava.",
@@ -17945,6 +18937,10 @@
     "pt-BR": "Nao consegui transcrever o seu audio.",
     "en": "I could not transcribe your audio."
   },
+  "fe1a2bb869b9": {
+    "pt-BR": "Desligado: o Admin só é chamado quando você pede, pelo botão da faixa de integrações.",
+    "en": "Disabled: the Admin is only called when you request it using the button in the integrations banner."
+  },
   "fe20ffb0f532": {
     "pt-BR": "O arquivo {p0} está corrompido ({p1}). {p2}",
     "en": "File {p0} is corrupted ({p1}). {p2}"
@@ -18000,6 +18996,10 @@
   "feec190fa1f0": {
     "pt-BR": "Esta chave foi colada por uma pessoa, nesta tela.",
     "en": "A person pasted this key on this screen."
+  },
+  "ff013f6352b5": {
+    "pt-BR": "O web.env não tem o usuário do painel (DGCLAW_PANEL_USER) preenchido, ou tem outra definição que prevaleceria sobre o hash novo. Com a senha gravada nele, o próximo reinício trancaria o login, então nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env (ou rode no servidor: sudo dgclaw senha).",
+    "en": "web.env has no dashboard username (DGCLAW_PANEL_USER), or another setting would override the new hash. Saving the password would lock sign-in after the next restart, so nothing was saved and your old password remains valid. Ask the Admin to restore web.env (or run on the server: sudo dgclaw senha)."
   },
   "ff17e8ef5d17": {
     "pt-BR": "Os dois botões de cada colaborador do agente.",

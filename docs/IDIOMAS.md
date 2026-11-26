@@ -115,6 +115,9 @@ opcional de QA; não adiciona dependência de produção:
 npm install --prefix /tmp/dgclaw-i18n-qa --ignore-scripts jsdom@26.1.0
 NODE_PATH=/tmp/dgclaw-i18n-qa/node_modules node qa/idiomas.cjs
 NODE_PATH=/tmp/dgclaw-i18n-qa/node_modules node qa/painel-idiomas.cjs
+NODE_PATH=/tmp/dgclaw-i18n-qa/node_modules node qa/idiomas-atualizacao.cjs
+NODE_PATH=/tmp/dgclaw-i18n-qa/node_modules node qa/seguranca-idiomas.cjs
+NODE_PATH=/tmp/dgclaw-i18n-qa/node_modules node qa/integracoes-idiomas.cjs
 ```
 
 O QA cobre troca PT/EN, marca, nome do agente, rascunho, primeiro acesso fictício,

@@ -56,3 +56,22 @@ test("sem arquivo ou com linha truncada no fim: não afirma nada, e diz por quê
   fs.writeFileSync(arquivo, JSON.stringify(pedido(T0)) + "\n" + JSON.stringify(sintetica(T0 + 1000)) + "\n{\"type\":\"assis");
   assert.equal(loginExpiradoNoFimDoTranscript(ID, 0, config).expirado, true, "a linha cortada no fim é ignorada");
 });
+
+test("acharArquivoDaSessao: erro numa pasta de projeto não interrompe a busca; só é inconclusivo se não achar em nenhuma", async () => {
+  const { inspecionarArquivoDaSessao } = await import("./transcript.js");
+  const cfg = pastaTemporaria("transcript-eloop");
+  const raiz = path.join(cfg, "projects");
+  fs.mkdirSync(raiz, { recursive: true });
+  const id = "99999999-aaaa-bbbb-cccc-dddddddddddd";
+  // "a" é um link para si mesmo: olhar a/<id>.jsonl dá ELOOP (um erro que não é "não existe").
+  fs.symlinkSync("a", path.join(raiz, "a"));
+  assert.equal(inspecionarArquivoDaSessao(id, cfg).estado, "inconclusivo", "sem o arquivo em nenhuma pasta: não deu para olhar tudo");
+  fs.mkdirSync(path.join(raiz, "z"));
+  fs.writeFileSync(path.join(raiz, "z", `${id}.jsonl`), "{}\n");
+  const r = inspecionarArquivoDaSessao(id, cfg);
+  assert.equal(r.estado, "achou", "o erro da pasta 'a' não impediu de achar na pasta 'z' (que vem depois)");
+  fs.rmSync(path.join(raiz, "z", `${id}.jsonl`));
+  const vazio = inspecionarArquivoDaSessao(id, cfg);
+  assert.equal(vazio.estado, "inconclusivo");
+  assert.match((vazio as { motivo: string }).motivo, /ELOOP|too many/i);
+});

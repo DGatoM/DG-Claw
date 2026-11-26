@@ -39,10 +39,12 @@ Run as root: `sudo dgclaw <comando>`. `--ensaio` applies to any command and show
 | `dgclaw agente reiniciar` | Stops and starts again. For a stuck agent; do not use for updates | [ATUALIZAR.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/ATUALIZAR.md) |
 | `dgclaw agente reparar` | Rewrites `config.sh` and rebuilds the inside (runner, panel and routines) | [ATUALIZAR.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/ATUALIZAR.md) |
 | `dgclaw agente recriar` | Replaces the container with the new image while keeping home, vault, ports and routines. `--forcar` recreates even with the same image | [ATUALIZAR.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/ATUALIZAR.md) |
+| `dgclaw agente prioridade` | Shows or changes the agent's memory priority (`alta`, `normal` or `baixa`). Takes effect on the next recreation | [TELA-DO-AGENTE.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/TELA-DO-AGENTE.md) |
 | `dgclaw agente identidade` | Rewrites only `identidade.md`; takes effect in the next session | [PERSONALIZAR.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/PERSONALIZAR.md) |
 | `dgclaw agente cofre` | Stores, revokes, lists or applies agent API keys (`guardar`, `revogar`, `listar`, `aplicar`). The value always comes through STDIN | [COFRE-POR-API.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/COFRE-POR-API.md) |
 | `dgclaw agente tela` | Checks the agent's Screen and lists what is missing line by line | [TELA-DO-AGENTE.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/TELA-DO-AGENTE.md) |
 | `dgclaw agente tela-senha` | Changes the Screen password (6 to 8 ASCII characters, through STDIN) | [TELA-DO-AGENTE.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/TELA-DO-AGENTE.md) |
+| `dgclaw agente youtube` | Enables or disables use of Screen cookies by the agent's `yt-dlp` (`conta-dedicada sim\|nao`, off by default; only with a Google account dedicated to the agent) | [CHANGELOG.md](https://github.com/DGatoM/DG-Claw/blob/main/CHANGELOG.md) |
 | `dgclaw agente restricoes` | Shows or changes agent restrictions (`--sem-bash`, `--sem-enviar-arquivo`, `--escrita-so-em` or `--escrita-livre`). They stay outside the container and return automatically on create, repair, recreate and update. Does not apply to the Admin or, in this version, Codex agents | [RESTRICOES-DO-AGENTE.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/RESTRICOES-DO-AGENTE.md) |
 | `dgclaw agente remover` | Takes the agent offline without deleting it: home moves to `/var/lib/dgclaw/aposentados/`. Asks for confirmation, or `--sim` | [ATUALIZAR.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/ATUALIZAR.md) |
 
@@ -151,8 +153,10 @@ Who: the work agent at the owner's request. The Admin is refused (exit code 2): 
 | `dgclaw-agente canal whatsapp parear` | Pairs a secondary number and prints only the code | [CANAL-WHATSAPP.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/CANAL-WHATSAPP.md) |
 | `dgclaw-agente canal whatsapp permitir` | Adds the owner's number to the allowlist | [CANAL-WHATSAPP.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/CANAL-WHATSAPP.md) |
 | `dgclaw-agente canal whatsapp remover` | Removes a number from the allowlist | [CANAL-WHATSAPP.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/CANAL-WHATSAPP.md) |
+| `dgclaw-agente canal whatsapp grupo` | Lists, allows or removes groups the agent can write to through Z-API (`listar`, `liberar <id>`, `remover <id>`) | [CANAL-WHATSAPP.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/CANAL-WHATSAPP.md) |
 | `dgclaw-agente canal whatsapp ligar` | Enables the WhatsApp bridge | [CANAL-WHATSAPP.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/CANAL-WHATSAPP.md) |
 | `dgclaw-agente canal whatsapp desligar` | Disables the bridge (`--apagar` removes pairing) | [CANAL-WHATSAPP.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/CANAL-WHATSAPP.md) |
+| `dgclaw-agente canal whatsapp retomar` | Resumes sending after the ban safeguards have stopped it, once the owner has checked the number | [CANAL-WHATSAPP.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/CANAL-WHATSAPP.md) |
 
 ### `dgclaw-card` (parallel sessions) {#dgclaw-card-sessoes-paralelas}
 
@@ -183,6 +187,7 @@ Served by DG Claw Web. Who: Owner unless the column says otherwise. Collab only 
 | `/api/saude` | Web liveness response: agent count, whether the agent list is readable and whether login is locked | Public | [SEGURANCA.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/SEGURANCA.md) |
 | `/api/v1/eu` | Reports who is signed in, their role (owner or collaborator) and whether a password change is required | Owner, Collab | [COLABORADORES.md](https://github.com/DGatoM/DG-Claw/blob/main/web/docs/COLABORADORES.md) |
 | `/api/v1/eu/senha` | Collaborator changes their own password (POST) | Collab | [COLABORADORES.md](https://github.com/DGatoM/DG-Claw/blob/main/web/docs/COLABORADORES.md) |
+| `/api/v1/dono/senha` | Signed-in owner changes the panel password, providing the current one (POST) | Owner | [seguranca.md](seguranca.md) |
 | `/api/v1/colaboradores` | Lists, invites (POST), resends invitations and revokes collaborator access | **Owner session only**. Collab and Mailbox receive 403 | [COLABORADORES.md](https://github.com/DGatoM/DG-Claw/blob/main/web/docs/COLABORADORES.md) |
 | `/api/v1/logs` | Reads agent history for Logs (agent list, events and search), read-only | **Owner session only**. Collab receives 403; agents and Admin using tokens cannot access it | [LOGS.md](https://github.com/DGatoM/DG-Claw/blob/main/web/docs/LOGS.md) |
 | `/api/v1/login` | Documentation for AI account login inside conversation (`/api/v1/agents/<slug>/login`: view, start, send code, cancel) | Owner. Collab receives 403 | [LOGIN-NA-CONVERSA.md](https://github.com/DGatoM/DG-Claw/blob/main/web/docs/LOGIN-NA-CONVERSA.md) |
@@ -246,6 +251,7 @@ Served by DG Claw Web. Who: Owner unless the column says otherwise. Collab only 
 | Route | Purpose | Who | Details |
 | --- | --- | --- | --- |
 | `/api/v1/atualizacao` | Reports a new version and summarizes changes; `/descansar` (POST with published commit) dismisses the banner until another version appears | Owner. Mailbox receives 403 | [ATUALIZACAO.md](https://github.com/DGatoM/DG-Claw/blob/main/web/docs/ATUALIZACAO.md) |
+| `/api/v1/integracoes` | Faulty integrations: the red banner, `/lembrar` (postpones 1 hour), `/silenciar` and `/reativar` (POST with agent and integration), `/automatico` (POST: calls the Admin automatically, off by default) | Owner only: collaborators and mailbox receive 403 | [INTEGRACOES.md](https://github.com/DGatoM/DG-Claw/blob/main/web/docs/INTEGRACOES.md) |
 | `/api/v1/seguranca` | DG Claw security notices: `/boletins`, and per-id `/adiar` and `/dispensar` | Owner. Mailbox receives 403 | [SEGURANCA-BOLETINS.md](https://github.com/DGatoM/DG-Claw/blob/main/web/docs/SEGURANCA-BOLETINS.md) |
 | `/api/v1/seguranca/ronda` | Patrol results and requests to apply, schedule and undo (`/ronda/:id/aplicar`) | Owner | [RONDA-PAINEL.md](https://github.com/DGatoM/DG-Claw/blob/main/web/docs/RONDA-PAINEL.md) |
 | `/api/v1/seguranca/emergencia` | Emergency button state and `preparar`, `cortar` and `religar` requests | Owner | [RONDA-PAINEL.md](https://github.com/DGatoM/DG-Claw/blob/main/web/docs/RONDA-PAINEL.md) |
@@ -277,6 +283,7 @@ Public routes without login because the sign-in screen also uses the name, logo 
 | `/manifest.webmanifest` | Installed app name and icons |
 | `GET /marca/favicon` | Brand favicon in each agent panel |
 | `GET /marca/icone-app` | Installed app icon in each agent panel |
+| `GET /marca/logo` | Brand logo in each agent panel (center of the Integrations tab when the agent has no photo) |
 
 ## Routes in each agent's panel {#rotas-do-painel-de-cada-agente}
 
@@ -335,6 +342,9 @@ Each agent has its own panel. The Owner arrives through `/p/<slug>/`; the Admin 
 | `GET /api/diary` | Agent diary | No dedicated document |
 | `GET /api/cerebro` | Memory X-ray: files the agent reads, gathered on one screen | [CEREBRO.md](https://github.com/DGatoM/DG-Claw/blob/main/panel/docs/CEREBRO.md) |
 | `GET /api/radiografia` | "How your agent works inside" text (the X-ray), read from the installed copy | [RADIOGRAFIA.md](https://github.com/DGatoM/DG-Claw/blob/main/docs/RADIOGRAFIA.md) |
+| `GET /api/integracoes` | Agent's integrations map: state of each connected system (WhatsApp, Instagram, transcription and others), read from the record maintained by `dgclaw-integracao` | [INTEGRACOES.md](https://github.com/DGatoM/DG-Claw/blob/main/panel/docs/INTEGRACOES.md) |
+| `POST /api/integracoes/:id/desligar` | Disables an integration on the map (owner preference; does not change the system itself) | [INTEGRACOES.md](https://github.com/DGatoM/DG-Claw/blob/main/panel/docs/INTEGRACOES.md) |
+| `POST /api/integracoes/:id/ligar` | Undoes disabling | [INTEGRACOES.md](https://github.com/DGatoM/DG-Claw/blob/main/panel/docs/INTEGRACOES.md) |
 | `GET /api/operacoes` | System operations in small squares | [OPERACOES.md](https://github.com/DGatoM/DG-Claw/blob/main/panel/docs/OPERACOES.md) |
 | `GET /api/operations/crons` | Lists fixed routines | No dedicated document |
 | `GET /api/operations/logs` | Reads agent logs | No dedicated document |

@@ -2,28 +2,37 @@
 # lib/limites.sh: limites de memoria e de CPU dos containers dos agentes (carregado com source por bin/dgclaw).
 #
 # O container do agente nasce com um teto de memoria e de CPU. Um teto fixo e pequeno demais numa maquina
-# grande (um subagente com imagem passou de 1,2 GB e o cgroup matou o processo), e dar a CADA agente 75% da RAM
-# superalocava a maquina assim que existia mais de um. A memoria agora sai de uma divisao da RAM total
-# ($R/proc/meminfo):
+# grande (um subagente com imagem passou de 1,2 GB e o cgroup matou o processo), e dividir a RAM de antemao entre os
+# agentes deixava quem tem varios com 1 a 2 GB em cada um. O desenho agora e este (RAM total em $R/proc/meminfo):
 #   RESERVA   = o maior entre 1536 MB e 15% da RAM, para o sistema e para os servicos do DG Claw (painel, Admin, rondas);
+#   --memory  = o maior entre 2048 MB e RAM - reserva, para TODO agente (principal e adicional). Nao e uma divisao: e so a
+#               protecao da maquina contra um agente que enlouquece. Os agentes usam a memoria livre, quem precisar pega;
 #   PRINCIPAL = o primeiro agente criado que ainda existe (o de menor numero no registro.tsv, 3a coluna; o agentes.json
-#               nao serve de ordem, porque agentes_registrar move o slug para o fim). Recebe o maior entre 2048 MB e
-#               RAM - reserva. Ele nunca e reduzido por causa de um agente criado depois;
-#   ADICIONAL = os demais. A folga e RAM - reserva - soma dos limites de memoria dos OUTROS containers de agente (lidos do
-#               cgroup; container parado ou ilegivel conta pelo valor que o calculo daria, e o texto diz que foi estimado;
-#               container sem limite conta como sem folga). O limite e o menor entre 2048 MB e a folga, nunca abaixo de
-#               1024 MB; com folga menor que 2048 MB o DG Claw avisa, com os numeros e como mudar.
+#               nao serve de ordem, porque agentes_registrar move o slug para o fim). E o protegido:
+#                 --oom-score-adj -900 (o ultimo que o kernel mata),
+#                 --memory-reservation = garantia G = 50% de (RAM - reserva), no minimo 1024 MB e nunca acima do --memory
+#                   (vira memory.low no cgroup do container),
+#                 --cgroup-parent dgclaw_principal.slice, com MemoryLow=G no arquivo $R/etc/systemd/system/dgclaw_principal.slice.
+#                   O nome tem sublinhado e nao hifen de proposito: hifen em nome de slice cria hierarquia, e o pai teria
+#                   memory.low 0, que anula a protecao (no cgroup v2 o memory.low do filho so vale ate o do pai);
+#   ADICIONAL = os demais, com o nivel de prioridade que o dono escolheu (dgclaw agente prioridade, guardado em
+#               $DG_ETC/prioridades): alta (oom 0, sem memory.high), normal (oom 300, memory.high em 75% do --memory, o padrao)
+#               e baixa (oom 700, memory.high em 50%). O principal ignora o nivel;
 #   CPUs      = o maior entre 1.0 e (nucleos - 0.2), com uma casa decimal (le `nproc`). Nao depende do papel.
-# Quem quiser outro valor define no /etc/dgclaw/dgclaw.env (vale para qualquer agente e vence o calculo; se a soma passar
-# de RAM - reserva, o DG Claw avisa, sem barrar):
+# Sem meminfo o --memory e 2048m e nao ha reservation nem slice.
+# Recriar e reparar nunca reduzem a memoria de um agente que ja existe (limites_manter_atual e limites_ajustar_existente).
+# O `agente criar` de um agente que nao sera o principal confere o uso real de memoria dos existentes e recusa quando a
+# previsao passa do que a maquina tem (limites_conferir_risco); --mesmo-assim segue por conta do dono.
+# Quem quiser outro valor define no /etc/dgclaw/dgclaw.env (vale para qualquer agente e vence o calculo e o "nunca reduz"):
 #   DGCLAW_CONTAINER_MEMORIA=4g     (numero seguido de m ou g)
 #   DGCLAW_CONTAINER_CPUS=1.5       (numero com ate uma casa decimal)
 # O limite de processos nao entra aqui: e fixo em LIMITE_PIDS.
 
 LIMITE_PIDS=4096
-LIMITE_MEM_PISO_MB=2048          # piso do principal e teto padrao do adicional
+LIMITE_MEM_PISO_MB=2048          # piso do --memory de qualquer agente
 LIMITE_MEM_RESERVA_MIN_MB=1536   # piso da reserva do sistema (a reserva e 15% da RAM quando isso passa disso)
-LIMITE_MEM_ADICIONAL_MIN_MB=1024 # piso do adicional, mesmo sem folga
+LIMITE_GARANTIA_MIN_MB=1024      # piso da garantia (memory.low) do principal
+LIMITE_SLICE_PRINCIPAL="dgclaw_principal.slice"
 
 # O ambiente DESTE processo, guardado ao carregar o arquivo (antes de carregar_env_dgclaw, que executa o dgclaw.env e
 # sobrescreveria a variavel). Assim criar, recriar e reparar leem os valores do mesmo jeito: variavel de ambiente
@@ -116,46 +125,10 @@ limites_principal() {
         [ -n "$s" ] || continue
         n=""
         if [ -f "$DG_REGISTRO" ]; then
-            n="$(awk -F'\t' -v s="$s" '$1 == s && NF >= 3 && $3 ~ /^[0-9]+$/ {print $3 + 0; exit}' "$DG_REGISTRO")"
+            n="$(awk -F'\t' -v s="$s" '$1 "" == s "" && NF >= 3 && $3 ~ /^[0-9]+$/ {print $3 + 0; exit}' "$DG_REGISTRO")"
         fi
         printf '%s %s\n' "${n:-999999999}" "$s"
     done | sort -k1,1n -k2,2 | head -n 1 | cut -d' ' -f2
-}
-
-# _limites_somar_outros <slug> <ram-mb> <reserva-mb> <principal>: soma o limite de memoria dos OUTROS containers de agente.
-# Preenche LIM_OUTROS_MB, LIM_OUTROS_ESTIMADOS (slugs cujo valor foi estimado) e LIM_OUTROS_SEMLIMITE (slugs lidos sem
-# limite, que contam como a RAM inteira: sem folga). Container parado conta pelo HostConfig.Memory guardado no podman
-# (zero com consulta bem-sucedida = sem limite); consulta que falha, estimado. Usa limites_ler_atuais, entao mexe nas variaveis ATU_*.
-_limites_somar_outros() {
-    local slug="$1" ram="$2" reserva="$3" principal="$4" s mb bytes
-    LIM_OUTROS_MB=0; LIM_OUTROS_ESTIMADOS=""; LIM_OUTROS_SEMLIMITE=""
-    while IFS= read -r s; do
-        if [ -z "$s" ] || [ "$s" = "$slug" ]; then continue; fi
-        if [ "$ENSAIO" != 1 ] && limites_ler_atuais "dgclaw-$s" && [ "$ATU_MEM_OK" = 1 ]; then
-            if [ "$ATU_MEM_ILIM" = 1 ]; then
-                LIM_OUTROS_SEMLIMITE="$LIM_OUTROS_SEMLIMITE $s"; mb="$ram"
-            else
-                mb="$ATU_MEM_MB"
-            fi
-        else
-            # Container parado: o cgroup nao existe, mas o podman guarda o limite com que ele foi criado. Consulta que tem
-            # sucesso e devolve 0 quer dizer SEM TETO (conta como a RAM inteira); so consulta que falha ou vem vazia ou
-            # ilegivel cai na estimativa.
-            bytes=""
-            if [ "$ENSAIO" != 1 ]; then bytes="$(podman inspect -f '{{.HostConfig.Memory}}' "dgclaw-$s" 2>/dev/null)" || bytes=""; fi
-            case "$bytes" in ''|*[!0-9]*) bytes=estimar ;; *) bytes=$((10#$bytes)) ;; esac
-            if [ "$bytes" = estimar ]; then
-                LIM_OUTROS_ESTIMADOS="$LIM_OUTROS_ESTIMADOS $s"
-                if [ "$s" = "$principal" ]; then mb="$(_limites_alvo_principal_mb "$ram" "$reserva")"; else mb="$LIMITE_MEM_PISO_MB"; fi
-            elif [ "$bytes" -eq 0 ]; then
-                LIM_OUTROS_SEMLIMITE="$LIM_OUTROS_SEMLIMITE $s"; mb="$ram"
-            else
-                mb=$((bytes / 1048576))
-            fi
-        fi
-        LIM_OUTROS_MB=$((LIM_OUTROS_MB + mb))
-    done < <(_limites_existentes)
-    LIM_OUTROS_ESTIMADOS="${LIM_OUTROS_ESTIMADOS# }"; LIM_OUTROS_SEMLIMITE="${LIM_OUTROS_SEMLIMITE# }"
 }
 
 # --- trava do calculo ate o create ----------------------------------------------------------
@@ -181,11 +154,57 @@ limites_trava_pegar() {
 # limites_trava_soltar: larga a trava (fecha o descritor 7).
 limites_trava_soltar() { exec 7>&-; }
 
+# DG_PRIORIDADES: o nivel de prioridade de cada agente adicional, uma linha `slug<TAB>nivel` (alta, normal ou baixa), 0600.
+# Agente sem linha e normal. O arquivo e editado linha a linha por `dgclaw agente prioridade` (bin/dgclaw).
+DG_PRIORIDADES="$DG_ETC/prioridades"
+
+# _limites_nivel_de <slug>: alta, normal ou baixa. Em `agente criar --prioridade`, C_PRIORIDADE vale antes de o arquivo ser gravado.
+_limites_nivel_de() {
+    local slug="$1" n=""
+    if [ -n "${C_PRIORIDADE:-}" ] && [ "${C_SLUG:-}" = "$slug" ]; then
+        n="$C_PRIORIDADE"
+    elif [ -r "$DG_PRIORIDADES" ]; then
+        n="$(awk -F'\t' -v s="$slug" '$1 "" == s "" { n = $2 } END { print n }' "$DG_PRIORIDADES")"
+    fi
+    case "$n" in alta|normal|baixa) ;; *) n=normal ;; esac
+    printf '%s' "$n"
+}
+
+# _limites_prioridade <slug>: com LIM_PAPEL, LIM_MEM_MB, LIM_RAM_MB e LIM_RESERVA_MB ja preenchidos, define o que protege o
+# container: LIM_NIVEL, LIM_OOM_ADJ, LIM_RESERVA_GARANTIDA_MB (vazio se nao ha), LIM_HIGH_BYTES (vazio se nao ha) e
+# LIM_CGROUP_PARENT (vazio se nao ha). Chamada de novo por limites_manter_atual quando o --memory muda.
+# shellcheck disable=SC2034 # lidas por quem carrega este arquivo
+_limites_prioridade() {
+    local slug="$1" g pct=""
+    LIM_NIVEL="$(_limites_nivel_de "$slug")"
+    LIM_OOM_ADJ=""; LIM_RESERVA_GARANTIDA_MB=""; LIM_HIGH_BYTES=""; LIM_CGROUP_PARENT=""
+    if [ "$LIM_PAPEL" = principal ]; then
+        LIM_OOM_ADJ=-900
+        # Sem meminfo nao ha como medir a garantia: sem reservation e sem slice.
+        if [ "$LIM_RAM_MB" -gt 0 ]; then
+            g=$(((LIM_RAM_MB - LIM_RESERVA_MB) / 2))
+            [ "$g" -ge "$LIMITE_GARANTIA_MIN_MB" ] || g="$LIMITE_GARANTIA_MIN_MB"
+            if [ "$LIM_MEM_MB" -gt 0 ] && [ "$g" -gt "$LIM_MEM_MB" ]; then g="$LIM_MEM_MB"; fi
+            LIM_RESERVA_GARANTIDA_MB="$g"
+            LIM_CGROUP_PARENT="$LIMITE_SLICE_PRINCIPAL"
+        fi
+    else
+        case "$LIM_NIVEL" in
+            alta) LIM_OOM_ADJ=0 ;;
+            normal) LIM_OOM_ADJ=300; pct=75 ;;
+            baixa) LIM_OOM_ADJ=700; pct=50 ;;
+        esac
+        if [ -n "$pct" ] && [ "$LIM_MEM_MB" -gt 0 ]; then
+            LIM_HIGH_BYTES=$((LIM_MEM_MB * 1048576 * pct / 100))
+        fi
+    fi
+}
+
 # limites_calcular <slug>: preenche LIM_MEM_MB (inteiro), LIM_MEM_ARG (valor do --memory), LIM_CPUS_DEC (decimos de CPU,
 # inteiro) e LIM_CPUS_ARG (valor do --cpus), mais o que explica a memoria: LIM_PAPEL (principal ou adicional), LIM_RAM_MB,
-# LIM_RESERVA_MB, LIM_FOLGA_MB (so adicional sem sobrescrita; vazio senao), LIM_OUTROS_MB, LIM_SOBRESCRITA (0 ou 1) e
-# LIM_EXCESSO_MB (quanto a sobrescrita passa de RAM - reserva; 0 se cabe). <slug> pode ser de um agente que ainda nao
-# existe. Valor estranho em variavel de sobrescrita e erro, nao palpite. Quem imprime o resultado e limites_relatar.
+# LIM_RESERVA_MB, LIM_SOBRESCRITA (0 ou 1) e o que protege o container (ver _limites_prioridade): LIM_NIVEL, LIM_OOM_ADJ,
+# LIM_RESERVA_GARANTIDA_MB, LIM_HIGH_BYTES e LIM_CGROUP_PARENT. <slug> pode ser de um agente que ainda nao existe. Valor
+# estranho em variavel de sobrescrita e erro, nao palpite. Quem imprime o resultado e limites_relatar.
 # shellcheck disable=SC2034 # lidas por quem carrega este arquivo
 limites_calcular() {
     local slug="${1:-}" n mb dec cfg_mem cfg_cpus ram reserva principal
@@ -196,30 +215,10 @@ limites_calcular() {
     ram="$(_limites_ram_mb)"
     reserva="$(_limites_reserva_mb "$ram")"
     principal="$(limites_principal "$slug")"
-    LIM_RAM_MB="$ram"; LIM_RESERVA_MB="$reserva"; LIM_FOLGA_MB=""; LIM_OUTROS_MB=0
-    LIM_OUTROS_ESTIMADOS=""; LIM_OUTROS_SEMLIMITE=""; LIM_SOBRESCRITA=0; LIM_EXCESSO_MB=0
-    if [ "$slug" = "$principal" ]; then
-        LIM_PAPEL=principal
-        mb="$(_limites_alvo_principal_mb "$ram" "$reserva")"
-        # O principal nunca e reduzido, mas a soma dos tetos pode passar da maquina (adicionais antigos): so para avisar.
-        if [ "$ram" -gt 0 ]; then
-            _limites_somar_outros "$slug" "$ram" "$reserva" "$principal"
-            LIM_EXCESSO_MB=$((LIM_OUTROS_MB + mb - (ram - reserva)))
-            [ "$LIM_EXCESSO_MB" -gt 0 ] || LIM_EXCESSO_MB=0
-        fi
-    else
-        LIM_PAPEL=adicional
-        mb="$LIMITE_MEM_PISO_MB"
-        # Sem meminfo nao ha como medir a folga: fica o padrao de 2048 MB.
-        if [ "$ram" -gt 0 ]; then
-            _limites_somar_outros "$slug" "$ram" "$reserva" "$principal"
-            LIM_FOLGA_MB=$((ram - reserva - LIM_OUTROS_MB))
-            if [ "$LIM_FOLGA_MB" -lt "$LIMITE_MEM_PISO_MB" ]; then
-                mb="$LIM_FOLGA_MB"
-                [ "$mb" -ge "$LIMITE_MEM_ADICIONAL_MIN_MB" ] || mb="$LIMITE_MEM_ADICIONAL_MIN_MB"
-            fi
-        fi
-    fi
+    LIM_RAM_MB="$ram"; LIM_RESERVA_MB="$reserva"; LIM_SOBRESCRITA=0
+    if [ "$slug" = "$principal" ]; then LIM_PAPEL=principal; else LIM_PAPEL=adicional; fi
+    # Todo agente recebe o mesmo teto, so como protecao: o maior entre 2048 MB e RAM - reserva (sem meminfo, 2048 MB).
+    mb="$(_limites_alvo_principal_mb "$ram" "$reserva")"
     LIM_MEM_MB="$mb"
     LIM_MEM_ARG="${mb}m"
     if [ -n "$cfg_mem" ]; then
@@ -240,13 +239,8 @@ limites_calcular() {
         LIM_MEM_MB="${cfg_mem%[mg]}"
         [ "${cfg_mem: -1}" = g ] && LIM_MEM_MB=$((LIM_MEM_MB * 1024))
         LIM_SOBRESCRITA=1
-        LIM_FOLGA_MB=""
-        if [ "$ram" -gt 0 ]; then
-            # Os outros ja foram somados acima, para o principal e para o adicional.
-            LIM_EXCESSO_MB=$((LIM_OUTROS_MB + LIM_MEM_MB - (ram - reserva)))
-            [ "$LIM_EXCESSO_MB" -gt 0 ] || LIM_EXCESSO_MB=0
-        fi
     fi
+    _limites_prioridade "$slug"
     n="$(nproc 2>/dev/null || true)"
     case "$n" in ''|*[!0-9]*|0) n=1 ;; esac
     dec=$((n * 10 - 2))
@@ -267,42 +261,195 @@ limites_calcular() {
     fi
 }
 
-# limites_relatar <container> <slug>: conta o que limites_calcular decidiu (info) e, quando a memoria esta apertada, avisa.
-limites_relatar() {
-    local c="$1" slug="$2" det nota=""
-    if [ "$LIM_SOBRESCRITA" = 1 ]; then
-        det="valor definido por DGCLAW_CONTAINER_MEMORIA"
-    elif [ "$LIM_PAPEL" = principal ]; then
-        det="agente principal: RAM de $LIM_RAM_MB MB menos a reserva de $LIM_RESERVA_MB MB para o sistema e o DG Claw"
-    elif [ -n "$LIM_FOLGA_MB" ]; then
-        det="agente adicional: RAM de $LIM_RAM_MB MB, reserva de $LIM_RESERVA_MB MB, outros agentes somam $LIM_OUTROS_MB MB, folga de $LIM_FOLGA_MB MB"
-    else
-        det="agente adicional: nao consegui ler a RAM da maquina, ficou o padrao de $LIMITE_MEM_PISO_MB MB"
+# limites_manter_atual <slug>: o DG Claw nunca reduz a memoria de um agente que ja existe. Chamada pelo recriar depois de
+# limites_calcular e ANTES de remover o container: le o --memory atual (cgroup se o container esta ligado; parado, o
+# HostConfig.Memory que o podman guardou; 0 ou max = sem limite). Sem sobrescrita: limite finito maior que o calculado
+# fica; sem limite continua sem limite (e avisa); menor sobe para o calculado. DGCLAW_CONTAINER_MEMORIA vence tudo isso.
+limites_manter_atual() {
+    local slug="$1" c="dgclaw-$1" bytes="" mb st
+    [ "$ENSAIO" != 1 ] || return 0
+    [ "$LIM_SOBRESCRITA" != 1 ] || return 0
+    # `container exists` devolve 0 (existe), 1 (nao existe: recriar --forcar de um agente ausente, nada a preservar) ou outro
+    # codigo (125: erro do podman). So o 1 libera; qualquer outro falha, porque nao se sabe se o container existe.
+    local rc=0 dica="defina DGCLAW_CONTAINER_MEMORIA (por exemplo 4g) em $DG_ETC/dgclaw.env, ou confira com: podman inspect $c, e rode de novo."
+    podman container exists "$c" >/dev/null 2>&1 || rc=$?
+    if [ "$rc" -eq 1 ]; then return 0; fi
+    if [ "$rc" -ne 0 ]; then
+        falha "nao consegui saber se o container $c existe (podman container exists terminou com codigo $rc). Para nao arriscar reduzir a memoria dele, o container nao foi parado, removido nem recriado." "$dica"
     fi
-    info "limites do container $c: memoria $LIM_MEM_ARG, CPUs $LIM_CPUS_ARG, processos $LIMITE_PIDS ($det)"
-    [ -n "$LIM_OUTROS_ESTIMADOS" ] && nota=" Os limites de $LIM_OUTROS_ESTIMADOS nao puderam ser lidos (container parado ou ilegivel), entao entraram na soma pelo valor que o calculo daria (estimado)."
-    if [ -n "$LIM_OUTROS_SEMLIMITE" ]; then
-        nota="$nota Os containers $LIM_OUTROS_SEMLIMITE estao sem limite de memoria e contam como sem folga."
+    # Primeiro o memory.max do cgroup, lido sozinho (nao depende de o memory.swap.max estar legivel); `max` = sem limite.
+    # O HostConfig.Memory so vale para container comprovadamente parado: no podman 4.9 ele e o valor da criacao, e um
+    # `podman update` so muda o cgroup, entao num container ligado ele poderia reduzir o limite.
+    bytes="$(_limites_cgroup_arquivo "$c" memory.max)" || bytes=""
+    if [ "$bytes" = max ]; then bytes=0; fi
+    case "$bytes" in ''|*[!0-9]*)
+        st="$(podman inspect -f '{{.State.Status}}' "$c" 2>/dev/null)" || st=""
+        case "$st" in
+            exited|stopped|created|configured)
+                bytes="$(podman inspect -f '{{.HostConfig.Memory}}' "$c" 2>/dev/null)" || bytes=""
+                case "$bytes" in ''|*[!0-9]*)
+                    falha "nao consegui ler o limite de memoria atual do container parado $c (HostConfig.Memory do podman). Para nao arriscar reduzir a memoria dele, o container nao foi parado, removido nem recriado." "$dica" ;;
+                esac ;;
+            *)
+                falha "nao consegui ler o limite de memoria atual do container $c (memory.max do cgroup), e ele ${st:+esta $st}${st:-esta num estado que nao consegui ler}. Para nao arriscar reduzir a memoria dele, o container nao foi parado, removido nem recriado." "$dica" ;;
+        esac ;;
+    esac
+    bytes=$((10#$bytes))
+    if [ "$bytes" -eq 0 ]; then
+        LIM_MEM_ARG=""; LIM_MEM_MB=0
+        aviso "o container $c esta sem limite de memoria, e o DG Claw nunca reduz o limite de um agente que ja existe: o container novo tambem fica sem teto. Sem teto, um agente descontrolado pode derrubar a maquina inteira. Para botar um teto, defina DGCLAW_CONTAINER_MEMORIA (por exemplo 4g) em $DG_ETC/dgclaw.env e rode: dgclaw agente recriar $slug --forcar"
+    elif [ "$bytes" -gt $((LIM_MEM_MB * 1048576)) ]; then
+        mb=$(((bytes + 1048575) / 1048576))
+        info "mantido o limite atual de $mb MB, maior que o calculado ($LIM_MEM_MB MB); o DG Claw nunca reduz o limite de um agente que ja existe"
+        LIM_MEM_MB="$mb"; LIM_MEM_ARG="${mb}m"
     fi
-    [ -n "$LIM_OUTROS_ESTIMADOS" ] && info "limites dos outros agentes: $LIM_OUTROS_ESTIMADOS entraram na soma por estimativa (container parado ou ilegivel), pelo valor que o calculo daria."
-    if [ "$LIM_SOBRESCRITA" = 1 ]; then
-        if [ "$LIM_EXCESSO_MB" -gt 0 ]; then
-            aviso "com DGCLAW_CONTAINER_MEMORIA=$LIM_MEM_ARG para o agente $slug, a soma dos limites passa em $LIM_EXCESSO_MB MB do que a maquina tem depois da reserva ($LIM_RAM_MB MB de RAM, $LIM_RESERVA_MB MB reservados, outros agentes somam $LIM_OUTROS_MB MB). O DG Claw aplicou o valor mesmo assim, e o servidor pode ficar sem memoria sob carga. Para mudar, ajuste a linha DGCLAW_CONTAINER_MEMORIA em $DG_ETC/dgclaw.env ou use uma VPS com mais memoria.$nota"
+    _limites_prioridade "$slug"
+}
+
+# _limites_cgroup_arquivo <container> <arquivo>: imprime o conteudo de um arquivo do cgroup do container (caminho do
+# State.CgroupPath, com a mesma validacao de limites_ler_atuais); retorna 1 se nao leu.
+_limites_cgroup_arquivo() {
+    local cg
+    cg="$(podman inspect -f '{{.State.CgroupPath}}' "$1" 2>/dev/null)" || return 1
+    case "$cg" in /*) ;; *) return 1 ;; esac
+    case "$cg" in *..*|*[!A-Za-z0-9/._:@-]*) return 1 ;; esac
+    _limites_cgroup_valor "$R/sys/fs/cgroup$cg/$2"
+}
+
+# _limites_uso_bytes <container>: imprime o uso REAL de memoria (memory.current do cgroup, lido pelo host); retorna 1 se nao leu.
+_limites_uso_bytes() {
+    local v
+    v="$(_limites_cgroup_arquivo "$1" memory.current)" || return 1
+    case "$v" in ''|*[!0-9]*) return 1 ;; esac
+    printf '%s' "$v"
+}
+
+# limites_conferir_risco <slug> <mesmo-assim 0|1>: no `agente criar` de um agente que NAO sera o principal, confere se a
+# maquina aguenta mais um. Olha cada agente existente:
+#   - ligado e legivel: soma o uso real (memory.current); a media M (so sobre esses) e o que o novo deve usar, e 1024 MB se nenhum foi lido;
+#   - ligado e ilegivel (ou estado que o podman nao respondeu): e risco, porque nao se sabe quanto ele usa;
+#   - created ou configured (criado e ainda nao ligado, como uma criacao que acabou de soltar a trava): entra na previsao com M;
+#   - exited ou stopped: conta 0 e nao entra no divisor da media.
+# Previsao P = U + M contra D = RAM - reserva. E risco P > D, agente ligado ilegivel, ou M maior que o MemAvailable de
+# $R/proc/meminfo (se a linha existir). Com risco, falha (sem --mesmo-assim) ou avisa e segue (com ele). Sem meminfo ou no
+# ensaio, nao confere. Nunca e chamada pelo recriar, pelo reparar nem pelo atualizar. Roda antes de reservar uid, portas ou casa.
+limites_conferir_risco() {
+    local slug="$1" mesmo="$2" pend s n=0 lidos=0 uso=0 st b naolidos="" criados="" nc=0 d p m avail txt risco=0
+    [ "$ENSAIO" != 1 ] || return 0
+    [ "$LIM_PAPEL" = adicional ] || return 0
+    # Rodar o criar de novo num agente cujo container ja esta ligado nao acrescenta nada a maquina
+    # (so se ele esta ligado: container parado ou so criado vai usar memoria quando ligar, e entra na conferencia normal.)
+    if [ "$(podman inspect -f '{{.State.Status}}' "dgclaw-$slug" 2>/dev/null || true)" = running ]; then return 0; fi
+    while IFS= read -r s; do
+        if [ -z "$s" ] || [ "$s" = "$slug" ]; then continue; fi
+        n=$((n + 1))
+        st="$(podman inspect -f '{{.State.Status}}' "dgclaw-$s" 2>/dev/null)" || st=""
+        case "$st" in
+            '') naolidos="$naolidos $s" ;;
+            exited|stopped) ;;
+            created|configured) criados="$criados $s"; nc=$((nc + 1)) ;;
+            *)
+                if b="$(_limites_uso_bytes "dgclaw-$s")"; then
+                    lidos=$((lidos + 1)); uso=$((uso + b / 1048576))
+                else
+                    naolidos="$naolidos $s"
+                fi ;;
+        esac
+    done < <(_limites_existentes)
+    naolidos="${naolidos# }"; criados="${criados# }"
+    if [ "$lidos" -gt 0 ]; then m=$((uso / lidos)); else m=1024; fi
+    uso=$((uso + nc * m))
+    d=$((LIM_RAM_MB - LIM_RESERVA_MB))
+    p=$((uso + m))
+    pend=$((nc + 1))
+    avail=""
+    if [ -r "$R/proc/meminfo" ]; then
+        avail="$(awk '/^MemAvailable:/ { print int($2 / 1024); exit }' "$R/proc/meminfo" 2>/dev/null)"
+        case "$avail" in *[!0-9]*) avail="" ;; esac
+    fi
+    txt="com o agente $slug esta VPS fica no limite de memoria:"
+    if [ "$LIM_RAM_MB" -le 0 ]; then
+        risco=1
+        txt="$txt nao consegui ler a RAM total da maquina (MemTotal em /proc/meminfo), entao nao tenho como saber se ela aguenta mais um agente."
+    elif [ "$d" -lt "$LIMITE_MEM_PISO_MB" ]; then
+        risco=1
+        txt="$txt a VPS e pequena demais para mais de um agente: tem $LIM_RAM_MB MB de RAM, e depois da reserva de $LIM_RESERVA_MB MB para o sistema e o DG Claw sobram $d MB, menos que os $LIMITE_MEM_PISO_MB MB que um agente pode precisar."
+    elif [ "$p" -gt "$d" ]; then
+        risco=1
+        txt="$txt os $n agentes usam hoje $uso MB (media de $m MB cada) e, com mais um, a previsao e de $p MB para $d MB disponiveis (RAM de $LIM_RAM_MB MB menos a reserva de $LIM_RESERVA_MB MB para o sistema e o DG Claw)."
+        [ -z "$criados" ] || txt="$txt Os agentes $criados foram criados e ainda nao ligaram, entao entraram na conta com a media de $m MB cada."
+    fi
+    if [ -n "$naolidos" ]; then
+        risco=1
+        txt="$txt Nao consegui ler o uso de memoria de $naolidos (agente ligado sem memory.current legivel no cgroup do host), entao nao sei se a maquina aguenta mais um."
+    fi
+    if [ -n "$avail" ] && [ $((m * pend)) -gt "$avail" ]; then
+        risco=1
+        txt="$txt A memoria disponivel agora na maquina (MemAvailable) e de $avail MB, menos que os $((m * pend)) MB que o novo agente e os $nc ainda nao ligados devem usar ($pend x a media de $m MB)."
+    fi
+    [ "$risco" = 1 ] || return 0
+    if [ "$mesmo" = 1 ]; then
+        aviso "$txt Criei mesmo assim, por sua conta e risco (--mesmo-assim): o servidor pode ficar sem memoria sob carga. O certo e aumentar a memoria da VPS ou criar outra VPS para este agente."
+        return 0
+    fi
+    falha "$txt O certo e aumentar a memoria da VPS ou criar outra VPS para este agente." \
+        "nada foi criado. Para criar mesmo assim, por sua conta e risco: dgclaw agente criar $slug ... --mesmo-assim"
+}
+
+# limites_preparar_slice: so para o principal com garantia. Grava (se o conteudo mudou) o slice que carrega o MemoryLow e o
+# carrega no systemd. Falha aqui vira aviso, nao impede a criacao: a reserva do principal fica sem efeito ate corrigir.
+limites_preparar_slice() {
+    [ "$LIM_PAPEL" = principal ] && [ -n "$LIM_RESERVA_GARANTIDA_MB" ] || return 0
+    local g="$LIM_RESERVA_GARANTIDA_MB" arq="$DG_UNITS/$LIMITE_SLICE_PRINCIPAL" novo atual="" tmp=""
+    if [ "$ENSAIO" = 1 ]; then
+        info "[ensaio] gravaria $arq com MemoryLow=${g}M e recarregaria o systemd"
+        return 0
+    fi
+    novo="$(printf '[Unit]\nDescription=DG Claw: agente principal (memoria protegida)\n\n[Slice]\nMemoryLow=%sM\n' "$g")"
+    [ ! -f "$arq" ] || atual="$(cat "$arq" 2>/dev/null || true)"
+    if [ "$novo" != "$atual" ]; then
+        if ! { mkdir -p "$DG_UNITS" && tmp="$(mktemp "$DG_UNITS/.$LIMITE_SLICE_PRINCIPAL.XXXXXX")" \
+                && printf '%s\n' "$novo" >"$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$arq"; }; then
+            [ -z "$tmp" ] || rm -f -- "$tmp"
+            aviso "nao consegui gravar $arq (o slice que protege a memoria do agente principal). O agente sera criado, mas a reserva de ${g} MB dele fica sem efeito ate isso ser corrigido: confira o espaco em disco e a permissao de $DG_UNITS e rode: dgclaw agente recriar <agente> --forcar"
+            return 0
         fi
+    fi
+    if ! systemctl daemon-reload >/dev/null 2>&1; then
+        aviso "gravei $arq, mas o systemctl daemon-reload falhou. O agente sera criado, mas a reserva de ${g} MB do agente principal fica sem efeito ate o systemd ler o slice: rode systemctl daemon-reload e depois dgclaw agente recriar <agente> --forcar."
         return 0
     fi
-    if [ "$LIM_PAPEL" = principal ]; then
-        [ "$LIM_EXCESSO_MB" -gt 0 ] || return 0
-        aviso "o agente principal $slug recebeu o maximo, $LIM_MEM_MB MB (RAM de $LIM_RAM_MB MB menos a reserva de $LIM_RESERVA_MB MB), e os outros agentes ja somam $LIM_OUTROS_MB MB: a soma dos tetos passa em $LIM_EXCESSO_MB MB do que a maquina tem depois da reserva. Os tetos sao limites, nao reservas: so pesa se todos os agentes usarem muita memoria ao mesmo tempo. Para aliviar, baixe o limite de um agente adicional (DGCLAW_CONTAINER_MEMORIA em $DG_ETC/dgclaw.env e dgclaw agente recriar <agente> --forcar) ou use uma VPS com mais memoria. O principal nao foi reduzido.$nota"
-        return 0
-    fi
-    [ "$LIM_PAPEL" = adicional ] && [ -n "$LIM_FOLGA_MB" ] || return 0
-    [ "$LIM_FOLGA_MB" -lt "$LIMITE_MEM_PISO_MB" ] || return 0
-    if [ "$LIM_FOLGA_MB" -le 0 ]; then
-        aviso "nao sobra memoria para o agente $slug: a maquina tem $LIM_RAM_MB MB, $LIM_RESERVA_MB MB ficam reservados para o sistema e o DG Claw e os outros agentes ja somam $LIM_OUTROS_MB MB (folga de $LIM_FOLGA_MB MB). O agente principal nao foi mexido. O DG Claw aplicou o piso de $LIM_MEM_MB MB a este agente, e o servidor pode ficar sem memoria sob carga. Para outro valor, ponha DGCLAW_CONTAINER_MEMORIA=<valor> (por exemplo 1536m) em $DG_ETC/dgclaw.env, o que vale para todos os agentes criados depois. A outra saida e uma VPS com mais memoria.$nota"
+    # O slice so existe de fato quando o primeiro container nasce nele; se ainda nao existe, o set-property falha e tudo bem.
+    systemctl set-property --runtime "$LIMITE_SLICE_PRINCIPAL" "MemoryLow=${g}M" >/dev/null 2>&1 || true
+}
+
+# limites_relatar <container> <slug>: conta o que limites_calcular decidiu (info).
+limites_relatar() {
+    local c="$1" det prio memtxt="${LIM_MEM_ARG:-sem limite}"
+    if [ "$LIM_SOBRESCRITA" = 1 ]; then
+        det="agente $LIM_PAPEL: memoria definida por DGCLAW_CONTAINER_MEMORIA"
+    elif [ "$LIM_RAM_MB" -gt 0 ]; then
+        det="agente $LIM_PAPEL: RAM de $LIM_RAM_MB MB menos a reserva de $LIM_RESERVA_MB MB para o sistema e o DG Claw; e um teto de protecao, nao uma fatia"
     else
-        aviso "sobra pouca memoria para o agente $slug: a maquina tem $LIM_RAM_MB MB, $LIM_RESERVA_MB MB ficam reservados para o sistema e o DG Claw e os outros agentes somam $LIM_OUTROS_MB MB, entao a folga e de $LIM_FOLGA_MB MB (o padrao de um adicional e $LIMITE_MEM_PISO_MB MB). O agente principal nao foi mexido. O DG Claw aplicou $LIM_MEM_MB MB a este agente. Para outro valor, ponha DGCLAW_CONTAINER_MEMORIA=<valor> (por exemplo 2g) em $DG_ETC/dgclaw.env, o que vale para todos os agentes criados depois. A outra saida e uma VPS com mais memoria.$nota"
+        det="agente $LIM_PAPEL: nao consegui ler a RAM da maquina, ficou o padrao de $LIMITE_MEM_PISO_MB MB"
     fi
+    info "limites do container $c: memoria $memtxt, CPUs $LIM_CPUS_ARG, processos $LIMITE_PIDS ($det)"
+    if [ "$LIM_PAPEL" = principal ]; then
+        prio="agente principal, protegido: oom_score_adj $LIM_OOM_ADJ"
+        if [ -n "$LIM_RESERVA_GARANTIDA_MB" ]; then
+            prio="$prio, memoria protegida de $LIM_RESERVA_GARANTIDA_MB MB (memory.low, no slice $LIM_CGROUP_PARENT; protecao de melhor esforco do kernel)"
+        else
+            prio="$prio, sem memoria protegida (nao consegui ler a RAM da maquina)"
+        fi
+    else
+        prio="agente adicional, prioridade $LIM_NIVEL: oom_score_adj $LIM_OOM_ADJ"
+        if [ -n "$LIM_HIGH_BYTES" ]; then
+            prio="$prio, memory.high de $((LIM_HIGH_BYTES / 1048576)) MB (acima disso o kernel segura o agente antes de ele pesar na maquina)"
+        else
+            prio="$prio, sem memory.high"
+        fi
+    fi
+    info "prioridade do container $c: $prio"
 }
 
 _limites_mb_texto() { awk -v mb="$1" 'BEGIN { printf "%.1f GB", mb / 1024 }'; }
@@ -384,9 +531,15 @@ _limites_mem_abaixo() { [ "$ATU_MEM_OK" = 1 ] && [ "$ATU_MEM_ILIM" != 1 ] && [ "
 _limites_cpu_abaixo() { [ "$ATU_CPU_OK" = 1 ] && [ "$ATU_CPU_ILIM" != 1 ] && [ $((ATU_CPU_QUOTA * 10)) -lt $((LIM_CPUS_DEC * ATU_CPU_PERIODO)) ]; }
 _limites_pids_abaixo() { [ "$ATU_PIDS_OK" = 1 ] && [ "$ATU_PIDS_ILIM" != 1 ] && [ "$ATU_PIDS" -lt "$LIMITE_PIDS" ]; }
 
-# O padrao antigo do DG Claw (antes do calculo pela maquina): 2 GiB, 1.0 CPU e 1024 processos. O reparar so mexe num recurso
-# que ainda esta nesse valor; qualquer outro valor (acima ou abaixo do calculado) conta como escolha do dono.
-_limites_mem_antiga() { [ "$ATU_MEM_ILIM" != 1 ] && [ "$ATU_MEM_B" -eq 2147483648 ]; }
+# O padrao antigo do DG Claw (antes do calculo pela maquina): memoria em MiB inteiros: 2048 MiB exatos no principal e de 1024 a 2048 MiB no adicional (o 2 GiB fixo de antes e o que as versoes
+# intermediarias deram aos agentes adicionais, de 1 a 2 GB; abaixo de 1024 MiB so a mao do dono), 1.0 CPU e 1024 processos. O reparar so mexe num recurso que
+# ainda esta nesse valor; qualquer outro valor (por exemplo 3 GiB, mesmo abaixo do calculado) conta como escolha do dono.
+# So conta valor em MiB inteiros. O principal so teve o 2 GiB exato; o adicional, de 1024 a 2048 MiB inclusive.
+_limites_mem_antiga() {
+    [ "$ATU_MEM_ILIM" != 1 ] && [ $((ATU_MEM_B % 1048576)) -eq 0 ] || return 1
+    if [ "$LIM_PAPEL" = principal ]; then [ "$ATU_MEM_B" -eq 2147483648 ]
+    else [ "$ATU_MEM_B" -ge 1073741824 ] && [ "$ATU_MEM_B" -le 2147483648 ]; fi
+}
 # CPU: o padrao antigo e o par exato quota 100000 e periodo 100000 (o antigo --cpus 1.0). Outro periodo (50000 50000, por
 # exemplo) e escolha do dono.
 _limites_cpu_antiga() { [ "$ATU_CPU_ILIM" != 1 ] && [ "$ATU_CPU_QUOTA" -eq 100000 ] && [ "$ATU_CPU_PERIODO" -eq 100000 ]; }
@@ -406,8 +559,42 @@ _limites_id_confere() {
     return 1
 }
 
+# _limites_ler_protecoes <container>: le o que o podman registrou na criacao (HostConfig) em PROT_OOM, PROT_RES (bytes) e
+# PROT_PAI; retorna 1 se nao leu.
+# shellcheck disable=SC2034 # lidas por quem carrega este arquivo
+_limites_ler_protecoes() {
+    local lido
+    lido="$(podman inspect -f '{{.HostConfig.OomScoreAdj}}|{{.HostConfig.MemoryReservation}}|{{.HostConfig.CgroupParent}}' "$1" 2>/dev/null)" || return 1
+    case "$lido" in *'|'*'|'*) ;; *) return 1 ;; esac
+    IFS='|' read -r PROT_OOM PROT_RES PROT_PAI <<<"$lido"
+    case "$PROT_OOM" in ''|*[!0-9-]*) return 1 ;; esac
+    case "$PROT_RES" in ''|*[!0-9]*) PROT_RES=0 ;; esac
+    return 0
+}
+
+# _limites_protecoes_conferem: o que _limites_ler_protecoes leu bate com LIM_* (oom do papel; no principal, tambem a reserva e o slice)?
+_limites_protecoes_conferem() {
+    [ "$PROT_OOM" = "$LIM_OOM_ADJ" ] || return 1
+    if [ -n "$LIM_RESERVA_GARANTIDA_MB" ]; then
+        [ "$PROT_RES" -eq $((LIM_RESERVA_GARANTIDA_MB * 1048576)) ] && [ "$PROT_PAI" = "$LIM_CGROUP_PARENT" ] || return 1
+    fi
+    return 0
+}
+
+# _limites_avisar_protecoes <container> <slug>: o reparar nao mexe em oom_score_adj, memory.reservation nem slice (o podman 4.9
+# nao os atualiza de forma persistente). Se o container ja existente nao tem o que o papel e o nivel atuais pedem, so conta
+# que isso entra no proximo recriar. Consulta que falha nao diz nada.
+_limites_avisar_protecoes() {
+    local c="$1" slug="$2" papel
+    _limites_ler_protecoes "$c" || return 0
+    _limites_protecoes_conferem && return 0
+    if [ "$LIM_PAPEL" = principal ]; then papel="principal, protegido"; else papel="adicional, prioridade $LIM_NIVEL"; fi
+    # shellcheck disable=SC2016 # as crases fazem parte do texto
+    info "o container $c ainda nao tem as protecoes de memoria do papel atual do agente $slug ($papel). O reparar nao as muda; elas entram com \`dgclaw agente recriar $slug --forcar\` ou na proxima atualizacao do DG Claw que recriar o agente."
+}
+
 # limites_ajustar_existente <slug>: poe o container que ja existe no limite calculado, SEM recriar, com
-# `podman update`. So sobe o que ainda esta no padrao antigo do DG Claw (2 GiB, 1.0 CPU, 1024 processos); o que esta sem limite
+# `podman update`. So sobe o que ainda esta no padrao antigo do DG Claw (memoria de 1 a 2 GiB, 1.0 CPU, 1024 processos); o que esta sem limite
 # (max) fica sem limite, e qualquer outro valor (a pessoa aumentou ou diminuiu a mao) fica como esta, e o log diz que foi mantido e por que. Se o podman
 # da maquina nao tem o `update` ou nao aceita um dos flags, avisa e segue (nunca derruba o reparar). O resultado de
 # cada recurso vem da RELEITURA do cgroup depois do update, nao do codigo de saida do podman.
@@ -424,6 +611,7 @@ limites_ajustar_existente() {
         return 0
     fi
     limites_relatar "$c" "$1"
+    _limites_avisar_protecoes "$c" "$1"
     id="$(podman inspect -f '{{.Id}}' "$c" 2>/dev/null)" || id=""
     case "$id" in
         ''|*[!A-Za-z0-9._-]*)
@@ -464,7 +652,7 @@ limites_ajustar_existente() {
         mantidos+=("processos em $ATU_PIDS")
     elif _limites_pids_abaixo; then grupos+=("--pids-limit=$LIMITE_PIDS"); quer_pids=1; fi
     for f in "${mantidos[@]}"; do
-        info "mantido: $f no container $c. Esse valor nao e o padrao antigo do DG Claw (2 GB, 1.0 CPU, 1024 processos), entao conta como escolha do dono e nao foi mexido."
+        info "mantido: $f no container $c. Esse valor nao e o padrao antigo do DG Claw (memoria de 1 a 2 GB, 1.0 CPU, 1024 processos), entao conta como escolha do dono e nao foi mexido."
     done
     if [ "${#grupos[@]}" -eq 0 ]; then
         if [ "${#mantidos[@]}" -gt 0 ]; then
@@ -589,9 +777,9 @@ limites_ajustar_existente() {
     done
     if [ "${#subiram[@]}" -gt 0 ]; then
         ok "subiram em $c: ${subiram[*]}. O ajuste vale para o container ligado; o limite definitivo entra na proxima vez que o agente for recriado (por exemplo ao atualizar a imagem com dgclaw atualizar)."
-        if [ "$LIM_PAPEL" = principal ] && [[ " ${subiram[*]} " == *" memoria "* ]]; then
+        if [[ " ${subiram[*]} " == *" memoria "* ]]; then
             # shellcheck disable=SC2016 # as crases fazem parte do texto
-            info "o agente $1 e o principal: o podman nao guarda o ajuste de memoria quando o servidor ou o container reinicia. Para o novo limite sobreviver a um reinicio, rode \`dgclaw agente recriar $1 --forcar\` (sem o --forcar, com a imagem atual, o recriar responde \"nada a recriar\"; o --forcar pula a conferencia de arquivos que so existem dentro do container, entao copie para a casa do agente antes o que precisar guardar)."
+            info "o podman nao guarda o ajuste de memoria do agente $1 quando o servidor ou o container reinicia. Para o novo limite sobreviver a um reinicio, rode \`dgclaw agente recriar $1 --forcar\` (sem o --forcar, com a imagem atual, o recriar responde \"nada a recriar\"; o --forcar pula a conferencia de arquivos que so existem dentro do container, entao copie para a casa do agente antes o que precisar guardar)."
         fi
     fi
     _limites_id_confere "$c" "$id" "$1" || rc=1

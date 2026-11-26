@@ -16,7 +16,8 @@ const path = require('path');
 
 /** Pastas onde procurar: a do agente e as extras de DGCLAW_PANEL_SKILLS_DIR (separadas por virgula). */
 function pastasDeSkills(agentDir, extras) {
-  const lista = [path.join(agentDir, '.claude', 'skills')];
+  // `.agents/skills` e onde o Codex procura as skills (paridade com o Claude).
+  const lista = [path.join(agentDir, '.claude', 'skills'), path.join(agentDir, '.agents', 'skills')];
   for (const e of String(extras || '').split(',')) {
     const p = e.trim();
     if (p && !lista.includes(p)) lista.push(p);
@@ -28,6 +29,42 @@ function tiraAspas(v) {
   const t = v.trim();
   if (t.length >= 2 && ((t[0] === '"' && t.endsWith('"')) || (t[0] === "'" && t.endsWith("'")))) return t.slice(1, -1);
   return t;
+}
+
+const ID_INTEGRACAO = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+/** `integracoes: instagram, openai` (uma linha, separada por virgula) vira a lista de ids validos. */
+function lerIntegracoes(valor) {
+  const ids = [];
+  for (const parte of String(valor || '').split(',')) {
+    const id = parte.trim();
+    if (ID_INTEGRACAO.test(id) && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+const MAX_CABECALHO = 64 * 1024;
+
+/**
+ * Le so o comeco do SKILL.md (o cabecalho basta): abre sem seguir atalho e sem travar em FIFO, confere pelo
+ * descritor que e arquivo comum e le no maximo 64 KB. O agente escreve esse arquivo, entao e entrada de fora.
+ */
+function lerCabecalho(arquivo) {
+  const flags = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0) | (fs.constants.O_NOFOLLOW || 0);
+  const fd = fs.openSync(arquivo, flags);
+  try {
+    if (!fs.fstatSync(fd).isFile()) throw new Error('não é um arquivo comum');
+    const buf = Buffer.alloc(MAX_CABECALHO);
+    let lidos = 0;
+    while (lidos < MAX_CABECALHO) {
+      const n = fs.readSync(fd, buf, lidos, MAX_CABECALHO - lidos, lidos);
+      if (n <= 0) break;
+      lidos += n;
+    }
+    return buf.subarray(0, lidos).toString('utf-8');
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 /** Devolve { name, description } do frontmatter, ou null se o arquivo nao abre com `---`. */
@@ -75,15 +112,17 @@ function listar(agentDir, extras) {
       if (!fs.existsSync(arquivo)) continue;
       const item = { nome: ent.name, descricao: '', pasta, origem: dir };
       try {
-        const fm = lerFrontmatter(fs.readFileSync(arquivo, 'utf-8'));
+        const fm = lerFrontmatter(lerCabecalho(arquivo));
         if (!fm) item.erro = `O SKILL.md em ${arquivo} não começa com o bloco de cabeçalho entre "---". Peça ao agente para corrigir o arquivo.`;
         else {
           if (fm.name) item.nome = fm.name;
           item.descricao = fm.description || '';
+          item.integracoes = lerIntegracoes(fm.integracoes);
           if (!item.descricao) item.erro = `O cabeçalho de ${arquivo} não tem "description".`;
         }
       } catch (e) {
         item.erro = `Não consegui ler ${arquivo}: ${e.message}`;
+        console.warn(`[painel] ignorei a skill em ${arquivo}: ${e.message}.`);
       }
       skills.push(item);
     }
@@ -91,4 +130,4 @@ function listar(agentDir, extras) {
   return { skills, pastas: infoPastas };
 }
 
-module.exports = { listar, pastasDeSkills, lerFrontmatter };
+module.exports = { listar, lerCabecalho, MAX_CABECALHO, pastasDeSkills, lerFrontmatter, lerIntegracoes };

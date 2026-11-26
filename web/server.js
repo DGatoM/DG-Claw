@@ -47,11 +47,14 @@ const { criarEstados } = require('./lib/estados');
 const { criarPrefsAtencao } = require('./lib/prefs-atencao');
 const { criarModalLoginPrefs } = require('./lib/modal-login-prefs');
 const { criarVigiaAtencao } = require('./lib/vigia-atencao');
+const { criarVigiaSaudeRetida } = require('./lib/vigia-saude-retida');
+const { lerSeguro } = require('./lib/diagnostico/arquivos');
 const { criarMesa } = require('./lib/mesa');
 const { criarPedidos } = require('./lib/pedidos');
 const { criarManual } = require('./lib/manual');
 const { criarAvisos } = require('./lib/avisos');
 const { criarAtualizacao } = require('./lib/atualizacao');
+const { criarIntegracoesVigia } = require('./lib/integracoes-vigia');
 const { criarSeguranca } = require('./lib/seguranca');
 const { criarLogsRotas, autorizado: logsAutorizado } = require('./lib/logs-rotas');
 const { criarRondaPainel } = require('./lib/ronda-painel');
@@ -178,7 +181,7 @@ function criarServidor(opcoes) {
   // Conexões abertas (stream da conversa) de cada colaborador: ao revogar ou trocar a senha, fecham junto com a sessão.
   const streamsDoColaborador = new Map();
   const fechaStreamsDe = (id) => { for (const r of streamsDoColaborador.get(id) || []) r.destroy(); streamsDoColaborador.delete(id); proxy.fecharDoColaborador(id); };
-  const primeiroAcesso = criarPrimeiroAcesso({ config, auth, log, agora: opcoes.agora });
+  const primeiroAcesso = criarPrimeiroAcesso({ config, auth, log, agora: opcoes.agora, revalidarProxy: () => proxy.revalidar(), travaEsperaMs: opcoes.travaEsperaMs });
   const avatares = criarAvatar({ dataDir: config.dataDir, log });
   const marca = criarMarca({ dir: config.marcaDir, padraoJson: path.join(__dirname, 'marca-padrao.json'), padraoDir: path.join(__dirname, 'public', 'ds', 'marca-padrao'), log });
   const midia = criarMidia({ dataDir: config.dataDir, log, registro, publicDir: config.publicDir });
@@ -236,9 +239,13 @@ function criarServidor(opcoes) {
   const prefsAtencao = criarPrefsAtencao({ arquivo: path.join(config.dataDir, 'push', 'preferencias.json'), log });
   const modalLoginPrefs = criarModalLoginPrefs({ arquivo: path.join(config.dataDir, 'modal-login.json'), log });
   const vigiaAtencao = criarVigiaAtencao({ registro, estados, lerThread: conversa.threadCompartilhada, push: opcoes.push || push, prefs: prefsAtencao, relogio: opcoes.agora, log, intervaloMs: opcoes.vigiaIntervaloMs });
+  // Avisa o dono quando um agente com avisos retidos (DGCLAW_AVISOS_RETIDOS=1) para de responder. Só lê a saúde; nada vai à conversa do agente.
+  const vigiaSaudeRetida = criarVigiaSaudeRetida({ registro, lerArquivo: lerSeguro, push: opcoes.push || push, relogio: opcoes.agora, log, intervaloMs: opcoes.vigiaSaudeIntervaloMs, primeiraRodadaMs: opcoes.vigiaSaudePrimeiraMs, dataDir: config.dataDir, tz: config.tz, comando: config.equipeAvisoCmd, executor: opcoes.vigiaSaudeExecutor });
   // /api/v1/estados NÃO entra na caixa: ela só atende agentes de trabalho, e um agente não tem por que
   // enxergar o estado (nem o nome) dos vizinhos. O Admin, no host, lê os documentos e a tela.
   const atualizacao = criarAtualizacao({ dataDir: config.dataDir, log });
+  // Integrações com defeito: só o dono, pelo painel (fora de caixa.permitir de propósito: agente não chama estas rotas).
+  const integracoesVigia = criarIntegracoesVigia({ dataDir: config.dataDir, registro, runner, log, agora: opcoes.agora, leitura: opcoes.leituraIntegracoes, catalogoArquivo: opcoes.catalogoIntegracoes, intervaloMs: opcoes.integracoesIntervaloMs, filtro: filtroAnon });
   // Aviso de segurança: só o dono, pelo painel (mesma regra da faixa de versão), por isso também fora de caixa.permitir.
   const seguranca = criarSeguranca({ dataDir: config.dataDir, log, agora: opcoes.agora });
   // Ronda de fábrica e botão de emergência: também só do dono (fora de caixa.permitir). O Web só grava pedidos; o root executa.
@@ -250,6 +257,7 @@ function criarServidor(opcoes) {
   // Chave de suporte: lê só o diagnóstico (ver docs/interno/PLANO-DIAGNOSTICO-REMOTO.md).
   const chavesApi = criarChavesApi({ config, log, agora: opcoes.agora });
   const diagnostico = opcoes.diagnostico || montaDiagnostico({ config, registro, runner, log, agora: opcoes.agora });
+  const vigiaYoutube = diagnostico.vigiarYoutube ? diagnostico.vigiarYoutube({ intervaloMs: opcoes.youtubeIntervaloMs, primeiraMs: opcoes.youtubePrimeiraMs }) : null;
 
   let versaoJsCache = { ts: 0, valor: '0' };
   /** Versão da tela: mtime de conversa.js. A tela compara com a que carregou e se recarrega sozinha. */
@@ -441,8 +449,9 @@ function criarServidor(opcoes) {
   // ── login ────────────────────────────────────────────────────────────────
   // Formulário (navegador): erro volta como 302 para /login?erro=<código>&next=...
   // Códigos: credenciais, limite, origem, campos, bloqueado. JSON (Accept/Content-Type): status e {ok,erro}.
-  function voltaAoLogin(res, codigo, next, usuario) {
+  function voltaAoLogin(res, codigo, next, usuario, espera) {
     let destino = `/login?erro=${codigo}`;
+    if (espera > 0) destino += `&espera=${Math.ceil(espera)}`; // minutos que faltam (a tela só mostra se for um número)
     if (next && next !== '/') destino += `&next=${encodeURIComponent(next)}`;
     if (usuario && usuario.length < 80) destino += `&usuario=${encodeURIComponent(usuario)}`;
     res.writeHead(302, { Location: destino, 'Cache-Control': 'no-store' });
@@ -487,7 +496,7 @@ function criarServidor(opcoes) {
       log('aviso', `Login bloqueado por excesso de tentativas (ip ${ip}); libera em ${r.retryAfter} s.`);
       if (json) return H.erroJson(res, 429, r.erro, { retryAfter: r.retryAfter }, { 'Retry-After': String(r.retryAfter) });
       res.setHeader('Retry-After', String(r.retryAfter));
-      return voltaAoLogin(res, 'limite', next, usuarioDigitado);
+      return voltaAoLogin(res, 'limite', next, usuarioDigitado, r.retryAfter / 60);
     }
     if (r.trancado) {
       log('aviso', `Tentativa de login com o acesso trancado (ip ${ip}).`);
@@ -497,7 +506,7 @@ function criarServidor(opcoes) {
       log('aviso', `Login recusado (ip ${ip}): a senha temporária de um colaborador venceu.`);
       return json ? H.erroJson(res, 401, r.erro) : voltaAoLogin(res, 'vencida', next, usuarioDigitado);
     }
-    log('aviso', `Login recusado (ip ${ip}): usuário ou senha incorretos.`);
+    log('aviso', `Login recusado (ip ${ip}): ${r.campo ? `${r.campo} não confere` : 'usuário ou senha incorretos'}.`);
     if (json) return H.erroJson(res, 401, r.erro);
     return voltaAoLogin(res, 'credenciais', next, usuarioDigitado);
   }
@@ -515,6 +524,19 @@ function criarServidor(opcoes) {
     const r = await primeiroAcesso.consumir(campos && typeof campos === 'object' ? campos : {}, ip, req);
     const cab = { 'Cache-Control': 'no-store' };
     if (r.cookie) cab['Set-Cookie'] = r.cookie;
+    if (r.status === 429 && r.corpo.retryAfter) cab['Retry-After'] = String(r.corpo.retryAfter);
+    if (r.status >= 400) return H.erroJson(res, r.status, r.corpo.erro, r.corpo.retryAfter ? { retryAfter: r.corpo.retryAfter } : undefined, cab);
+    return H.enviaJson(res, r.status, r.corpo, cab);
+  }
+
+  // ── troca da senha do dono (sessão do dono; exige a senha atual) ─────────
+  async function postTrocarSenhaDono(req, res, sessao) {
+    const ip = H.ipDoPedido(req, config.proxiesConfiaveis);
+    let campos;
+    try { campos = await H.lerJson(req, 8 * 1024); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
+    const r = await primeiroAcesso.trocarSenhaDono(campos && typeof campos === 'object' ? campos : {}, ip, req, sessao);
+    const cab = { 'Cache-Control': 'no-store' };
+    if (r.cookies) cab['Set-Cookie'] = r.cookies;
     if (r.status === 429 && r.corpo.retryAfter) cab['Retry-After'] = String(r.corpo.retryAfter);
     if (r.status >= 400) return H.erroJson(res, r.status, r.corpo.erro, r.corpo.retryAfter ? { retryAfter: r.corpo.retryAfter } : undefined, cab);
     return H.enviaJson(res, r.status, r.corpo, cab);
@@ -595,6 +617,8 @@ function criarServidor(opcoes) {
 
     if ((p === '/api/v1/atualizacao' || p.startsWith('/api/v1/atualizacao/')) && await atualizacao.rotas(req, res, url, sessao)) return undefined;
 
+    if ((p === '/api/v1/integracoes' || p.startsWith('/api/v1/integracoes/')) && await integracoesVigia.rotas(req, res, url, sessao)) return undefined;
+
     if (p.startsWith('/api/v1/seguranca/') && await rondaPainel.rotas(req, res, url, sessao)) return undefined;
 
     if ((p === '/api/v1/seguranca' || p.startsWith('/api/v1/seguranca/')) && await seguranca.rotas(req, res, url, sessao)) return undefined;
@@ -647,6 +671,12 @@ function criarServidor(opcoes) {
     if (p === '/api/v1/eu/senha') {
       if (m !== 'POST') return H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use POST com {\"nova\": \"...\", \"confirmacao\": \"...\", \"atual\": \"...\"}."));
       return colabRotas.trocarSenha(req, res, sessao);
+    }
+
+    if (p === '/api/v1/dono/senha') {
+      if (m !== 'POST') return H.erroJson(res, 405, 'Use POST com {"atual": "...", "nova": "...", "confirmacao": "..."}.');
+      if (sessao.via || sessao.papel === 'colaborador') return H.erroJson(res, 403, 'A senha do dono só é trocada pelo próprio dono, logado no painel.');
+      return postTrocarSenhaDono(req, res, sessao);
     }
 
     if (p === '/api/v1/agents' && m === 'GET') {
@@ -1072,12 +1102,21 @@ function criarServidor(opcoes) {
    * reenviado nesse meio tempo não pode concluir o que começou.
    */
   function sessaoAindaVale(req, sessao) {
-    if (!ehColab(sessao)) return true;
+    if (!ehColab(sessao)) {
+      // Caixa do agente e host não têm cookie: não há o que conferir. O dono precisa do cookie do pedido ainda abrindo a mesma sessão.
+      if (!sessao || sessao.via || sessao.papel !== 'dono') return true;
+      const d2 = auth.sessaoDoPedido(req);
+      return !!d2 && d2.papel === 'dono' && d2.usuario === sessao.usuario;
+    }
     const s2 = auth.sessaoDoPedido(req);
     return !!s2 && s2.papel === 'colaborador' && s2.colaborador_id === sessao.colaborador_id
       && s2.senha_versao === sessao.senha_versao && s2.agente === sessao.agente;
   }
   function recusaSessaoVelha(res, sessao) {
+    if (!ehColab(sessao)) {
+      log('aviso', `Pedido do dono ${sessao.usuario} recusado: a sessão deixou de valer enquanto o pedido estava em andamento (senha trocada ou sessão encerrada).`);
+      return H.erroJson(res, 401, 'Sua sessão foi encerrada (a senha do painel foi trocada). Entre de novo.');
+    }
     log('aviso', `Pedido do colaborador ${sessao.usuario} recusado: a sessão deixou de valer enquanto o corpo chegava (acesso revogado ou convite reenviado).`);
     return H.erroJson(res, 401, dgIdiomaBackend.mensagem("Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente."));
   }
@@ -1535,8 +1574,9 @@ function criarServidor(opcoes) {
         if (RX_SLUG_ROTA.test(slugPainel)) marcaAutor(slugPainel, sessao, null);
       }
       const quemP = quemDoProxy(sessao, req);
-      // Dono com Face ID ligado: como o colaborador, o Web lê o corpo antes e só então abre a conexão com o painel (o painel age quando o corpo termina).
-      if (!sessao.via && !quemP.colaborador_id && cadeado.ligado(req, sessao)) quemP.lerCorpoAntes = true;
+      // Dono por cookie (com ou sem Face ID): como o colaborador, o Web lê o corpo antes, confere a sessão (req.dgRevalidar) e só então
+      // abre a conexão com o painel. Sem isso, uma escrita iniciada antes da troca de senha terminaria depois dela.
+      if (!sessao.via && !quemP.colaborador_id) quemP.lerCorpoAntes = true;
       // O dono também inicia/cancela o login da conta de IA pelo painel do agente, sem passar pelas rotas /login do Web:
       // aqui respeita a reserva do colaborador e invalida a autoria dele (web/lib/conta-colaborador.js).
       if (!ehColab(sessao) && !sessao.via && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(m) && /^\/api\/provedor(\/|$)/i.test(pp[2])) {
@@ -1586,7 +1626,7 @@ function criarServidor(opcoes) {
 
     if (p === '/trocar-senha' && (m === 'GET' || m === 'HEAD')) {
       if (!sessao) return semSessaoPagina(req, res, url);
-      if (sessao.papel !== 'colaborador') { res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' }); return res.end(); }
+      if (sessao.via) { res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' }); return res.end(); }
       if (!servirArquivo(req, res, path.join(config.publicDir, 'trocar-senha.html'), 'no-store')) {
         log('erro', `A tela de trocar senha não está instalada: falta ${path.join(config.publicDir, 'trocar-senha.html')}.`);
         H.paginaErro(res, 500, dgIdiomaBackend.mensagem("Tela não instalada"), dgIdiomaBackend.mensagem("O arquivo da tela de trocar senha não foi encontrado no servidor. Reinstale o DG Claw Web."));
@@ -1813,7 +1853,7 @@ function criarServidor(opcoes) {
   }
 
   return {
-    servidor, servidorAdmin, caminhoSocketAdmin, config, registro, auth, colaboradores, cadeado, contaColab, proxy, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, chavesApi, diagnostico, estados, vigiaAtencao, prefsAtencao,
+    servidor, servidorAdmin, caminhoSocketAdmin, config, registro, auth, colaboradores, cadeado, contaColab, proxy, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, chavesApi, diagnostico, estados, vigiaAtencao, vigiaSaudeRetida, prefsAtencao, integracoesVigia,
     ouvir(porta, host) {
       return new Promise((resolve, reject) => {
         servidor.once('error', reject);
@@ -1823,12 +1863,15 @@ function criarServidor(opcoes) {
           lembretes.iniciar();
           avisos.iniciar();
           vigiaAtencao.iniciar();
+          vigiaSaudeRetida.iniciar();
+          integracoesVigia.iniciar();
+          if (vigiaYoutube) vigiaYoutube.iniciar();
           if (opcoes.semSocketAdmin) return resolve(servidor.address());
           return abreSocketAdmin().then(() => resolve(servidor.address()));
         });
       });
     },
-    fechar() { return cadeado.aguardar().catch(() => {}).then(() => new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidorAdmin.closeAllConnections(); servidorAdmin.close(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); })); },
+    fechar() { return cadeado.aguardar().catch(() => {}).then(() => new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); vigiaSaudeRetida.parar(); integracoesVigia.parar(); if (vigiaYoutube) vigiaYoutube.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidorAdmin.closeAllConnections(); servidorAdmin.close(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); })); },
   };
 }
 

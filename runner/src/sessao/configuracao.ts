@@ -245,6 +245,9 @@ export function escreverSettings(s: Sessao, nonce: string): string | null {
       },
     };
     if (s.motor.provedor === "claude") {
+      // Só o Claude tem SubagentStart e SubagentStop: dizem ao runner que o subagente começou e terminou (ver subagentesAtivos).
+      (settings.hooks as Record<string, unknown>).SubagentStart = para("SubagentStart");
+      (settings.hooks as Record<string, unknown>).SubagentStop = para("SubagentStop");
       const dono = statusLineDeOutroDono(s);
       if (dono) {
         log.aviso(

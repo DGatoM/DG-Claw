@@ -430,6 +430,10 @@ const dgUiLabel_sigilo_js = (el, fonte, atributo) => { if (globalThis.DGI18n) gl
       btn.classList.toggle('on', ligado);
       btn.setAttribute('aria-pressed', String(ligado));
       const l = btn.querySelector('.lbl'); if (l) l.textContent = ligado ? 'escondido' : 'mostrando';
+      // sem texto em tela larga: o estado também aparece no ícone, no title e no aria-label
+      const u = btn.querySelector('use'); if (u) u.setAttribute('href', '/ds/icones.svg#' + (ligado ? 'i-eye-off' : 'i-eye'));
+      const nome = ligado ? 'Modo escondido ligado: toque para desligar' : 'Modo escondido desligado: toque para ligar';
+      btn.title = nome; btn.setAttribute('aria-label', nome);
     }
     function pintaAviso() {
       if (!aviso) return;
@@ -512,7 +516,7 @@ const dgUiLabel_sigilo_js = (el, fonte, atributo) => { if (globalThis.DGI18n) gl
       btn.setAttribute('aria-label', btn.title);
       btn.setAttribute('aria-pressed', 'false');
       btn.innerHTML = dgUiHtml_sigilo_js("<svg class=\"ds-ico\" aria-hidden=\"true\"><use href=\"/ds/icones.svg#i-eye\"/></svg> <span class=\"lbl\"><!--dg-i18n:2b963bfc3f6f-->mostrando<!--/dg-i18n--></span>");
-      if (tools) tools.insertBefore(btn, doc.getElementById('btnLer') || (doc.getElementById('btnLembretes') || {}).nextSibling || tools.firstChild); else (doc.getElementById('cabecalho') || corpo).appendChild(btn);
+      if (tools) tools.insertBefore(btn, doc.getElementById('btnVoz') || (doc.getElementById('btnLembretes') || {}).nextSibling || tools.firstChild); else (doc.getElementById('cabecalho') || corpo).appendChild(btn);
       btn.addEventListener('click', () => liga(!ligado));
       criaAviso();
       wrap.addEventListener('click', aoClicar, true);

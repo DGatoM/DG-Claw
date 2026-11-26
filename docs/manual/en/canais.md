@@ -62,6 +62,10 @@ Underneath: `dgclaw-agente canal whatsapp parear <numero-secundario>`,
 **Requirements.** A secondary SIM or number with WhatsApp. Works with Claude and Codex agents.
 **Limits.** Only allowlisted numbers can talk to the agent; others are ignored and only produce a log line.
 Groups, lists, channels and statuses are ignored. Received media is saved in the agent's folder (up to 25 MB).
+A reaction (👍, for example) reaches the agent as a line of text containing the excerpt of the message it replies to,
+in an envelope marked `tipo="reacao"` by the bridge (typed text imitating this does not count). The agent only
+understands 👍 ✅ 👌 🙏 as "yes" when the excerpt is a yes-or-no question it sent itself (if the bridge cannot
+identify the message, it asks again), and a reaction is never enough for a sensitive action.
 The agent can only send files from its own home. A WhatsApp message is always an external conversation: it never
 changes the number list, credentials or channels, and never runs a slash command. Only the owner, through panel
 chat, can change the list.

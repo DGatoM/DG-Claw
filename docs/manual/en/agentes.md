@@ -108,7 +108,7 @@ The Admin, the server's administrative session, creates and looks after agents. 
 
 A skill is a written procedure (a `SKILL.md` file) that the agent reads before doing a job. The owner asks in Portuguese and the agent chooses a skill; to invoke one directly, type `/` in the conversation (see [conversa-e-telas.md](conversa-e-telas.md)). `aba:skills` lists all the agent's skills. When the owner and agent repeat a process with 3 or more steps, `aprender` offers to save it as a custom skill and only creates it with the owner's "yes".
 
-Creating an agent connects these 14 skills to its home: `agenda`, `lembretes`, `aprender`, `avisos`, `memory`, `foco`, `avatar`, `report`, `slide-animado`, `site-animado`, `video-animado`, `groq-audio`, `gemini-gratuito` and `visuais-na-conversa`. The Admin receives `criar-agente` and `trocar-dominio`. The rest are in the repository (`/opt/dgclaw/app/skills/`), but neither the installer nor agent creation connects them to anyone.
+Creating an agent connects these 15 skills to its home: `agenda`, `lembretes`, `aprender`, `avisos`, `memory`, `foco`, `avatar`, `report`, `slide-animado`, `site-animado`, `video-animado`, `groq-audio`, `gemini-gratuito`, `visuais-na-conversa` and `whatsapp-enviar`. The Admin receives `criar-agente` and `trocar-dominio`. The rest are in the repository (`/opt/dgclaw/app/skills/`), but neither the installer nor agent creation connects them to anyone.
 
 | Skill | Who has it | What it does |
 | --- | --- | --- |
@@ -119,6 +119,7 @@ Creating an agent connects these 14 skills to its home: `agenda`, `lembretes`, `
 | `foco` | agents | Builds the focus-mode list |
 | `gemini-gratuito` | agents | Connects the free Gemini key and enables video analysis |
 | `groq-audio` | agents | Connects the free Groq key for audio speech and transcription |
+| `whatsapp-enviar` | agents | Sends WhatsApp messages to other people with safeguards against bans (random intervals, limits, rejection of repeated text, and a stop on the first error) |
 | `lembretes` | agents | Schedules reminders that persist until the owner confirms |
 | `memory` | agents | Searches past conversations and memory, and manages memory. See [memoria-e-rotinas.md](memoria-e-rotinas.md) |
 | `report` | agents | Builds an error report for the author without personal data |

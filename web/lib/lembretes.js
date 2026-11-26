@@ -212,6 +212,7 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
         return { ok: false, erro: e.message };
       }
       const r = await runner.input(ag, { text: recado, submit: true, injectWhenIdle: true });
+      if (r.ok && r.entregaIncerta) log('aviso', `Lembrete ${o.id} (${o.agente}): entrega incerta do recado ao agente: ${r.aviso} Confira a conversa antes de reenviar.`);
       if (r.ok) return { ok: true };
       log('aviso', `Lembrete ${o.id} (${o.agente}): o recado ao agente não foi entregue: ${r.erro}`);
       return { ok: false, erro: r.erro };

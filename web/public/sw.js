@@ -6,7 +6,7 @@ const dgUiText_sw_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) :
    abrir rápido e para o app instalado ter o que mostrar. NUNCA mexe em /api/,
    /p/, /login, /sair nem nas páginas de conversa (/a/...): conteúdo da conversa,
    painéis e sessão passam direto para a rede, sem cópia nenhuma. */
-const VERSAO = 'dgclaw-estaticos-v42';
+const VERSAO = 'dgclaw-estaticos-v43';
 const ESTATICOS = [
   '/conversa.css', '/chat.css', '/conversa.js', '/menu-lado.js', '/menu-lado.css', '/casca.js', '/casca.css', '/login-cartao.js', '/login-expirado.js', '/login-expirado.css', '/trilha-tela.js', '/rolagem.js', '/conversa-puro.js', '/tour.js',
   '/onboarding.js', '/onboarding.css',
@@ -15,7 +15,7 @@ const ESTATICOS = [
   '/sigilo.js', '/sigilo.css',
   '/avisos-aparelho.js',
   '/lembretes-faixa.js', '/lembretes.js', '/lembretes.css',
-  '/atualizacao-faixa.js', '/atualizacao-faixa.css',
+  '/atualizacao-faixa.js', '/atualizacao-faixa.css', '/integracoes-faixa.js', '/integracoes-faixa.css',
   '/seguranca-resumo.js', '/seguranca-resumo.css',
   '/seguranca.js', '/seguranca.css', '/ronda-comum.js',
   '/conectar.js', '/conectar.css', '/conectar-puro.js', '/conectar-cartoes.js', '/conectar-cartoes.css', '/provedores.js', '/modal-login.js', '/modal-login.css',

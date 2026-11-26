@@ -290,6 +290,40 @@ trava_faixa_pegar() {
 # trava_faixa_soltar: larga a trava (fecha o descritor 8).
 trava_faixa_soltar() { exec 8>&-; }
 
+# trava_arquivo_pegar <arquivo> / trava_arquivo_soltar <arquivo>
+# Trava por pasta (mkdir e atomico) em volta da leitura+escrita de um arquivo de configuracao que o painel tambem
+# grava (web.env): sem ela, o hash de uma troca de senha feita pelo painel no meio de uma regravacao voltaria ao antigo.
+# O caminho e <pasta do arquivo>/.<nome do arquivo>.trava (o do web.env e o mesmo que web/lib/primeiro-acesso.js usa).
+# Trava com mais de 30 s e tratada como abandonada (quem a pegou morreu) e removida.
+trava_arquivo_caminho() { printf '%s/.%s.trava' "$(dirname "$1")" "$(basename "$1")"; }
+
+trava_arquivo_pegar() {
+    [ "$ENSAIO" = 1 ] && return 0
+    local trava espera=10 inicio agora mtime
+    trava="$(trava_arquivo_caminho "$1")"
+    if [ -n "$R" ] && [ -n "${DGCLAW_TRAVA_ESPERA_S:-}" ]; then espera="$DGCLAW_TRAVA_ESPERA_S"; fi
+    mkdir -p "$(dirname "$1")"
+    inicio="$(date +%s)"
+    until mkdir "$trava" 2>/dev/null; do
+        agora="$(date +%s)"
+        mtime="$(stat -c %Y "$trava" 2>/dev/null || echo "$agora")"
+        if [ $((agora - mtime)) -gt 30 ]; then
+            rmdir "$trava" 2>/dev/null || true
+            continue
+        fi
+        if [ $((agora - inicio)) -ge "$espera" ]; then
+            falha "outro processo esta gravando $(basename "$1") agora (a trava $trava ficou ocupada por mais de ${espera}s)." \
+                "espere um pouco e rode de novo. Se nada estiver rodando, apague a pasta da trava: rmdir $trava"
+        fi
+        sleep 0.1
+    done
+}
+
+trava_arquivo_soltar() {
+    [ "$ENSAIO" = 1 ] && return 0
+    rmdir "$(trava_arquivo_caminho "$1")" 2>/dev/null || true
+}
+
 # --- trava por agente (reparar e recriar) -------------------------------------------------
 # Reparar e recriar do MESMO agente nao podem rodar juntos: um troca o container enquanto o outro ajusta os limites
 # dele. Uma trava exclusiva por agente, em $DG_ETC/travas/agentes/<slug>.lock (pasta propria: um agente chamado "limites" nao pode colidir com a trava global), e o descritor 6 do processo (o podman roda com
@@ -335,8 +369,10 @@ trava_agente_pegar() {
 # Regra do projeto: arquivo de configuracao que ja existe se edita linha a linha.
 definir_linha_env() {
     local arq="$1" chave="$2" valor="$3" modo="${4:-644}"
+    trava_arquivo_pegar "$arq"
     if [ ! -f "$arq" ]; then
         printf '%s=%s\n' "$chave" "$valor" | escrever_arquivo "$arq" "$modo"
+        trava_arquivo_soltar "$arq"
         return 0
     fi
     # O modo do arquivo que ja existe vence: web.env e 600 e nao pode virar 644 por aqui.
@@ -346,6 +382,7 @@ definir_linha_env() {
         index($0, k "=") == 1 {if (!feito) print linha; feito = 1; next}
         {print}
         END {if (!feito) print linha}' "$arq" | escrever_arquivo "$arq" "$modo"
+    trava_arquivo_soltar "$arq"
 }
 
 # git_do_clone <pasta> <argumentos do git...>: git em outro clone, sem pergunta de senha e sem
@@ -613,15 +650,122 @@ caddy_site_e_gerado() {
 CADDY_SITE_MUDOU=0
 CADDY_SITE_ARQUIVO=""
 CADDY_SITE_COPIA=""
+CADDY_SITE_SHA=""    # sha256 do que o instalador gravou (so no encode em arquivo personalizado)
+CADDY_SITE_BACKUP="" # copia durabil de antes (idem)
+CADDY_SITE_IDENT=""  # "inode dono grupo modo" do arquivo gravado (idem)
 
 # caddy_restaurar_site: desfaz a ultima escrever_site_caddy (a validacao do Caddy recusou o arquivo novo).
+# Se o arquivo mudou depois de gravado pelo instalador (alguem editou no meio), nao restaura por cima: avisa.
 caddy_restaurar_site() {
+    local tmp
     [ "$CADDY_SITE_MUDOU" = 1 ] && [ -n "$CADDY_SITE_ARQUIVO" ] || return 0
+    if [ -n "$CADDY_SITE_SHA" ]; then
+        # Arquivo gravado pelo encode em site personalizado: so volta se ainda for exatamente o que gravamos
+        # (arquivo comum, nao link, mesmo inode, dono, grupo, modo e conteudo). Senao alguem mexeu: preserva.
+        if [ -L "$CADDY_SITE_ARQUIVO" ] || [ ! -f "$CADDY_SITE_ARQUIVO" ] \
+            || [ "$(stat -c '%i %u %g %a' "$CADDY_SITE_ARQUIVO")" != "$CADDY_SITE_IDENT" ] \
+            || [ "$(sha256sum <"$CADDY_SITE_ARQUIVO" | cut -d' ' -f1)" != "$CADDY_SITE_SHA" ]; then
+            aviso "${CADDY_SITE_ARQUIVO#"$R"} mudou depois que o instalador o gravou; nao voltei a copia por cima para nao apagar essa edicao. A copia de antes esta em ${CADDY_SITE_BACKUP#"$R"}."
+            return 0
+        fi
+        # Troca atomica de um arquivo preparado na mesma pasta, com o modo e o dono do original.
+        tmp="$(mktemp "$(dirname "$CADDY_SITE_ARQUIVO")/.$(basename "$CADDY_SITE_ARQUIVO").XXXXXX")" || return 0
+        if cp --preserve=all "$CADDY_SITE_COPIA" "$tmp" && mv -f "$tmp" "$CADDY_SITE_ARQUIVO"; then return 0; fi
+        rm -f "$tmp"
+        aviso "nao consegui voltar ${CADDY_SITE_ARQUIVO#"$R"} ao que era. A copia de antes esta em ${CADDY_SITE_BACKUP#"$R"}."
+        return 0
+    fi
     if [ -n "$CADDY_SITE_COPIA" ] && [ -f "$CADDY_SITE_COPIA" ]; then
         cp -p "$CADDY_SITE_COPIA" "$CADDY_SITE_ARQUIVO"
     else
         rm -f "$CADDY_SITE_ARQUIVO"
     fi
+}
+
+# caddy_gerar_com_encode <origem> <porta> <saida>: grava em <saida> o Caddyfile de <origem> com o bloco encode
+# acrescentado logo antes do reverse_proxy, ou sai com 1 sem gravar nada quando nao da para ter certeza de
+# onde ele entra. So aceita um site plano: um unico bloco de site (uma linha que abre "{" e uma que fecha "}"),
+# sem blocos aninhados (handle, route, snippet), sem import, sem "encode" e com um unico reverse_proxy, na
+# linha "reverse_proxy 127.0.0.1:<porta>". Qualquer outra forma continua sendo do dono e recebe so o aviso.
+# O resto do arquivo sai identico, linha a linha.
+caddy_gerar_com_encode() {
+    local origem="$1" porta="$2" saida="$3" tipos="" tipo
+    for tipo in "${CADDY_TIPOS_COMPRIMIDOS[@]}"; do tipos="$tipos $tipo"; done
+    awk -v porta="$porta" -v tipos="$tipos" '
+        { linhas[NR] = $0 }
+        END {
+            abre = 0; fecha = 0; proxy = 0; alvo = 0; primeiro = 0; ultimo = 0
+            for (n = 1; n <= NR; n++) {
+                l = linhas[n]; t = l; sub(/^[ \t]+/, "", t); sub(/[ \t]+#.*$/, "", t); sub(/[ \t\r]+$/, "", t)
+                if (t == "" || t ~ /^#/) continue
+                if (!primeiro) primeiro = n
+                ultimo = n
+                if (t ~ /^import([ \t]|$)/ || t ~ /^encode([ \t{]|$)/) exit 1
+                if (t ~ /<</ || index(t, "`") > 0) exit 1
+                q = t; if (gsub(/"/, "", q) % 2 == 1) exit 1
+                if (t ~ /\{$/) { abre++; if (n != primeiro) exit 1 }
+                else if (t == "}") { fecha++; lastclose = n }
+                if (t ~ /reverse_proxy/) {
+                    proxy++
+                    if (l ~ ("^(\t|    )reverse_proxy 127\\.0\\.0\\.1:" porta "[ \t\r]*$")) alvo = n
+                }
+            }
+            if (lastclose != ultimo) exit 1
+            if (abre != 1 || fecha != 1 || proxy != 1 || alvo == 0) exit 1
+            for (n = 1; n <= NR; n++) {
+                if (n == alvo) {
+                    match(linhas[n], /^[ \t]+/); i = substr(linhas[n], RSTART, RLENGTH)
+                    print i "encode {"; print i i "zstd"; print i i "gzip"; print i i "match {"
+                    q = split(tipos, tp, " ")
+                    for (k = 1; k <= q; k++) print i i i "header Content-Type " tp[k] "*"
+                    print i i "}"; print i "}"
+                }
+                print linhas[n]
+            }
+        }
+    ' "$origem" >"$saida"
+}
+
+# caddy_acrescentar_encode <arquivo> <porta>: acrescenta o bloco encode a um Caddyfile personalizado simples.
+# Devolve 0 se acrescentou (e preenche CADDY_SITE_*), 1 se o arquivo nao e do formato aceito ou algo impediu
+# (nesse caso nada foi alterado e o chamador so avisa). Cuidados:
+#  - link simbolico, ou arquivo que nao termina em quebra de linha, nunca sao tocados;
+#  - o candidato nasce como copia do original (cp --preserve=all: modo, dono, ACL e xattr) e so o conteudo muda;
+#  - as copias (a de antes, que fica, e a de restauracao) vivem em $DG_ETC/caddy-copias, pasta do root com modo
+#    0700, com nomes unicos de mktemp: ninguem de fora le o conteudo e nenhum nome pode ser pre-plantado;
+#  - o candidato sai da copia de antes, e a troca so acontece se o original continua igual a ela, no conteudo e
+#    na identidade (inode, dono, grupo, modo, tamanho, data).
+caddy_acrescentar_encode() {
+    local alvo="$1" porta="$2" pasta="$DG_ETC/caddy-copias" cand durabil rest antes sha ident
+    [ -f "$alvo" ] && [ ! -L "$alvo" ] || return 1
+    [ "$(stat -c %h "$alvo")" = 1 ] || return 1
+    [ -z "$(tail -c 1 "$alvo")" ] || return 1
+    [ ! -L "$pasta" ] || return 1
+    { (umask 077; mkdir -p "$pasta") && [ -d "$pasta" ] && [ ! -L "$pasta" ] && [ "$(stat -c %u "$pasta")" = 0 ] && chmod 700 "$pasta"; } 2>/dev/null || return 1
+    antes="$(stat -c '%i %u %g %a %s %.9Y %.9Z' "$alvo")" || return 1
+    durabil="$(mktemp "$pasta/$(basename "$alvo").antes-encode-$(date +%Y%m%d-%H%M%S).XXXXXX")" || return 1
+    rest="$(mktemp "$pasta/restaurar.XXXXXX")" || { rm -f "$durabil"; return 1; }
+    cand="$(mktemp "$(dirname "$alvo")/.$(basename "$alvo").XXXXXX")" || { rm -f "$durabil" "$rest"; return 1; }
+    if cp --preserve=all "$alvo" "$durabil" 2>/dev/null \
+        && cp --preserve=all "$alvo" "$rest" 2>/dev/null \
+        && cp --preserve=all "$alvo" "$cand" 2>/dev/null \
+        && caddy_gerar_com_encode "$durabil" "$porta" "$cand" \
+        && sha="$(sha256sum <"$cand" | cut -d' ' -f1)" && [ -n "$sha" ] \
+        && ident="$(stat -c '%i %u %g %a' "$cand")" \
+        && [ "$(stat -c '%i %u %g %a %s %.9Y %.9Z' "$alvo")" = "$antes" ] \
+        && cmp -s "$alvo" "$durabil" \
+        && mv -f "$cand" "$alvo"; then
+        CADDY_SITE_COPIA="$rest"
+        CADDY_SITE_BACKUP="$durabil"
+        CADDY_SITE_SHA="$sha"
+        CADDY_SITE_IDENT="$ident"
+        CADDY_SITE_MUDOU=1
+        CADDY_SITE_ARQUIVO="$alvo"
+        info "${alvo#"$R"} tem personalizacoes suas: acrescentei so o bloco de compressao (encode) e mantive o resto como estava. A copia de antes ficou em ${durabil#"$R"} (so o root le)"
+        return 0
+    fi
+    rm -f "$cand" "$rest" "$durabil"
+    return 1
 }
 
 # escrever_site_caddy <dominio> [trocar] [porta]: grava o site do DG Claw no Caddyfile proprio (quando e dele ou
@@ -633,6 +777,9 @@ escrever_site_caddy() {
     CADDY_SITE_MUDOU=0
     CADDY_SITE_ARQUIVO=""
     CADDY_SITE_COPIA=""
+    CADDY_SITE_SHA=""
+    CADDY_SITE_BACKUP=""
+    CADDY_SITE_IDENT=""
     if [ ! -f "$cf" ] || grep -q '^# DG Claw' "$cf" || caddyfile_e_padrao "$cf"; then
         alvo="$cf"
     else
@@ -671,6 +818,8 @@ escrever_site_caddy() {
                     falha "o site do DG Claw em ${alvo#"$R"} tem personalizacoes suas, e no modo tunel o instalador so aceita o site que ele mesmo gera: ele precisa garantir que o Caddy escute apenas em 127.0.0.1 e que o IP real de cada visitante (Cf-Connecting-IP) chegue ao painel, senao qualquer um alcanca o painel por fora do tunel ou bloqueia o seu login com 5 tentativas erradas." \
                         "guarde uma copia do arquivo (sudo cp ${alvo#"$R"} /root/caddy-site-antes-do-tunel), apague o original (sudo rm ${alvo#"$R"}) e rode ./install.sh de novo: ele gera o site padrao do modo tunel. Depois, se quiser, leve para dentro do bloco gerado as linhas suas que nao mexem em bind, endereco do site nem reverse_proxy, e rode caddy validate --config ${cf#"$R"} --adapter caddyfile && sudo systemctl reload caddy."
                 fi
+                # Site personalizado so na forma simples: acrescenta apenas o bloco encode (ver caddy_acrescentar_encode).
+                if caddy_acrescentar_encode "$alvo" "$porta"; then return 0; fi
                 aviso "${alvo#"$R"} tem personalizacoes suas e nao foi alterado, entao o site continua sem a compressao nova (a conversa e o painel ficam mais lentos no celular). Para ligar, acrescente dentro do bloco do site, antes do reverse_proxy: encode { zstd gzip match { header Content-Type text/html* header Content-Type text/css* header Content-Type text/plain* header Content-Type text/javascript* header Content-Type application/javascript* header Content-Type application/json* header Content-Type application/manifest+json* header Content-Type application/xml* header Content-Type image/svg+xml* } } (nao use 'text/*': ele comprimiria o stream da conversa, text/event-stream, e as mensagens deixariam de chegar na hora). Depois rode: caddy validate --config ${cf#"$R"} --adapter caddyfile && sudo systemctl reload caddy"
                 return 0
             fi

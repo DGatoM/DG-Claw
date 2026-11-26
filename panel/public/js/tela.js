@@ -221,11 +221,11 @@ const dgHtml_tela = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) :
           ${definida ? dgHtmlFull_tela(`<b><!--dg-i18n:7535b98a3ad6-->Trocar a senha desconecta quem estiver vendo a tela agora.<!--/dg-i18n--></b>`) : ''}</p>
         ${aviso_}
         <form id="tela-form-senha" autocomplete="off">
-          <div class="tela-campo"><label for="tela-senha-nova">${dgFragFull_tela(definida ? dgTexto_tela('Senha nova') : dgTextFull_tela("Senha da tela"))}</label>
+          <div class="tela-campo"><label for="tela-senha-nova">${dgFragFull_tela(definida ? 'Senha nova' : "Senha da tela")}</label>
             <input type="password" id="tela-senha-nova" autocomplete="new-password" minlength="6" required spellcheck="false"></div>
           <div class="tela-campo"><label for="tela-senha-repetir"><!--dg-i18n:d6df2bac4deb-->Repita a senha<!--/dg-i18n--></label>
             <input type="password" id="tela-senha-repetir" autocomplete="new-password" minlength="6" required spellcheck="false"></div>
-          <button type="submit" class="btn-principal" id="tela-senha-enviar">${dgFragFull_tela(definida ? dgTextFull_tela("Trocar a senha") : dgTextFull_tela("Definir a senha"))}</button>
+          <button type="submit" class="btn-principal" id="tela-senha-enviar">${dgFragFull_tela(definida ? "Trocar a senha" : "Definir a senha")}</button>
         </form>
       </div>`);
   }

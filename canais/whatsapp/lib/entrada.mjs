@@ -5,7 +5,7 @@ import { GUARDAR_IDS, LIMITE_MIDIA_ENTRADA } from './limites.mjs';
 import { numeroDeJid } from './numeros.mjs';
 import { dataLocal, escaparCorpo, extensaoDe, horaLocal, motivoErro, numeroDe } from './util.mjs';
 
-export function criarEntrada({ opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico, arqUltimo, dirUploads, downloadMediaMessage, pendentes }) {
+export function criarEntrada({ envioSeguro, ligacao, memoria, opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico, arqUltimo, dirUploads, downloadMediaMessage, pendentes }) {
   const idsVistos = new Set();
 
   const recusasRecentes = new Map();
@@ -89,6 +89,22 @@ export function criarEntrada({ opcoes, registrar, agora, lids, aprenderLid, esta
     return `[mensagem do tipo ${tipo}, que a ponte ainda não lê]`;
   }
 
+  function idDaReferencia(ref) {
+    return String((ref && ref.id) || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+  }
+
+  // null = reacao removida (emoji vazio): nada a entregar. So a pergunta que o agente enviou nesta
+  // mesma conversa e citada; qualquer outro caso vira "nao conseguiu identificar" e nunca confirma nada.
+  function descreverReacao(reacao, jid) {
+    const emoji = Array.from(String((reacao && reacao.text) || '').slice(0, 64).replace(/[\u0000-\u001f\u007f-\u009f]/g, '')).slice(0, 16).join('');
+    if (!emoji) return null;
+    const ref = reacao.key || {};
+    const mesmaConversa = !ref.remoteJid || ref.remoteJid === jid;
+    const trecho = ref.fromMe === true && mesmaConversa ? memoria.trecho(jid, ref.id) : null;
+    if (!trecho) return `[reagiu com ${emoji} a uma mensagem que a ponte não conseguiu identificar]`;
+    return `[reagiu com ${emoji} à sua mensagem: "${trecho.replace(/"/g, "'")}"]`;
+  }
+
   async function processarMensagem(sock, msg) {
     const key = msg && msg.key;
     if (!key || key.fromMe) return;
@@ -99,7 +115,7 @@ export function criarEntrada({ opcoes, registrar, agora, lids, aprenderLid, esta
     const conteudo = desembrulhar(msg.message);
     if (!conteudo) return;
     const tipo = Object.keys(conteudo).find((k) => k !== 'messageContextInfo' && k !== 'senderKeyDistributionMessage');
-    if (!tipo || tipo === 'reactionMessage' || tipo === 'protocolMessage') return;
+    if (!tipo || tipo === 'protocolMessage') return;
     const numero = remetente(key);
     if (!numero || !estaPermitido(numero)) {
       // No maximo uma linha por numero a cada 10 minutos: um desconhecido insistente nao
@@ -113,10 +129,13 @@ export function criarEntrada({ opcoes, registrar, agora, lids, aprenderLid, esta
     if (jaVisto(key.id)) return;
 
     const id = String(key.id || '').replace(/[^A-Za-z0-9_-]/g, '') || 'sem-id';
-    const corpo = await montarCorpo(msg, conteudo, tipo, id);
+    const corpo = tipo === 'reactionMessage' ? descreverReacao(conteudo.reactionMessage, jid) : await montarCorpo(msg, conteudo, tipo, id);
+    if (corpo === null) return;
     const seg = numeroDe(msg.messageTimestamp);
     const quando = Number.isFinite(seg) && seg > 0 ? new Date(seg * 1000) : agora();
-    const envelope = `<canal-externo origem="whatsapp" de="${numero}" msg="${id}" ts="${quando.toISOString()}">${escaparCorpo(corpo)}</canal-externo>`;
+    // tipo e ref so saem da ponte (valores limpos): o texto do contato nao consegue forja-los.
+    const marca = tipo === 'reactionMessage' ? ` tipo="reacao" ref="${idDaReferencia(conteudo.reactionMessage.key)}"` : '';
+    const envelope = `<canal-externo origem="whatsapp" de="${numero}" msg="${id}" ts="${quando.toISOString()}"${marca}>${escaparCorpo(corpo)}</canal-externo>`;
 
     const r = await entregar(envelope);
     if (!r.ok) {
@@ -125,7 +144,18 @@ export function criarEntrada({ opcoes, registrar, agora, lids, aprenderLid, esta
         ? 'Sua mensagem não chegou ao agente: ele está sem login ou sem chave. Avise o dono para abrir o painel do DG Claw.'
         : 'Sua mensagem não chegou ao agente agora. Tente de novo daqui a pouco.';
       try {
-        await sock.sendMessage(jid, { text: aviso });
+        // O aviso automatico tambem e mensagem enviada: passa pelas mesmas travas (ritmo, teto, trava).
+        const env = await envioSeguro.enviar({
+          para: numero, texto: aviso, prazoMs: 30000,
+          // Depois da espera do ritmo o socket pode ter sido trocado (reconexao) e o numero pode ter saido da lista.
+          conferir: () => {
+            if (!estaPermitido(numero)) return { ok: false, codigo: 'FORA_DA_LISTA', erro: `${numero} saiu da lista de permitidos` };
+            const l = ligacao();
+            return !l.conectado || !l.sock ? { ok: false, codigo: 'DESCONECTADO', erro: 'a conexao caiu enquanto o aviso esperava; nada foi enviado nem travado' } : null;
+          },
+          executar: () => ligacao().sock.sendMessage(jid, { text: aviso }),
+        });
+        if (!env.ok) registrar(`nao avisei ${numero} que a mensagem ${id} falhou (${env.codigo}): ${env.erro}`);
       } catch (e) {
         registrar(`nao consegui avisar ${numero} que a mensagem ${id} falhou: ${motivoErro(e)}`);
       }
@@ -143,8 +173,45 @@ export function criarEntrada({ opcoes, registrar, agora, lids, aprenderLid, esta
     }
   }
 
+  const TIPOS_REVOGA_OU_EDICAO = new Set([0, 14, 'REVOKE', 'MESSAGE_EDIT']);
+
+  // Edicao ou revogacao (vinda do contato ou do celular vinculado, em qualquer tipo de upsert):
+  // esquece o texto guardado, sem entregar nada ao agente.
+  function esquecerSeEditadaOuApagada(msg) {
+    const conteudo = msg && msg.message ? desembrulhar(msg.message) : null;
+    const proto = conteudo && conteudo.protocolMessage;
+    if (!proto || !proto.key || !msg.key || msg.key.fromMe !== true) return;
+    if (TIPOS_REVOGA_OU_EDICAO.has(proto.type) || proto.editedMessage) memoria.esquecerId(proto.key.id);
+  }
+
+  function aoAtualizar(atualizacoes) {
+    if (!Array.isArray(atualizacoes)) return;
+    for (const { key, update } of atualizacoes) {
+      // So edicao ou revogacao da propria conta: as mensagens do contato nao ficam na memoria.
+      if (!key || !update || key.fromMe !== true) continue;
+      if (update.message || update.messageStubType === 1 || update.messageStubType === 'REVOKE') memoria.esquecerId(key.id);
+    }
+  }
+
+  function aoApagar(info) {
+    if (!info) return;
+    if (Array.isArray(info.keys)) {
+      for (const k of info.keys) if (k) memoria.esquecerId(k.id);
+    } else if (info.all && info.jid) {
+      memoria.esquecerConversa(info.jid);
+    }
+  }
+
+  // "Apagar conversa" no celular vinculado (chats.delete): esquece as perguntas daquela conversa.
+  function aoApagarConversas(jids) {
+    if (!Array.isArray(jids)) return;
+    for (const jid of jids) if (typeof jid === 'string' && jid) memoria.esquecerConversa(jid);
+  }
+
   function aoReceber(sock, { messages, type }) {
-    if (type !== 'notify' || !Array.isArray(messages)) return;
+    if (!Array.isArray(messages)) return;
+    for (const msg of messages) esquecerSeEditadaOuApagada(msg);
+    if (type !== 'notify') return;
     for (const msg of messages) {
       const p = processarMensagem(sock, msg)
         .catch((e) => registrar(`erro ao tratar uma mensagem recebida: ${motivoErro(e)}`))
@@ -153,5 +220,5 @@ export function criarEntrada({ opcoes, registrar, agora, lids, aprenderLid, esta
     }
   }
 
-  return { aoReceber };
+  return { aoReceber, aoAtualizar, aoApagar, aoApagarConversas };
 }

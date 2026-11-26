@@ -116,7 +116,7 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     if (!qual) {
       const escrita = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
       if (!(quem && (quem.colaborador_id || quem.lerCorpoAntes) && escrita)) return encaminhar(req, res, slug, usuario, null, undefined, quem);
-      // Colaborador (e dono com Face ID ligado): o painel age quando o corpo termina. Lê tudo aqui, confere a sessão e o cadeado
+      // Colaborador e dono (por cookie): o painel age quando o corpo termina. Lê tudo aqui, confere a sessão e o cadeado
       // (req.dgRevalidar, em lerCorpo) e só então abre a conexão com o painel.
       const limite = config.maxUploadBytes + 64 * 1024;
       lerCorpo(req, limite).then((buf) => {

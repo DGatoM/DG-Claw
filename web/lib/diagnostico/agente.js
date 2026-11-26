@@ -8,6 +8,7 @@ const { classificar, total } = require('./classificar');
 const { lerJsonSeguro } = require('./arquivos');
 const { analisaLogin, analisaSessao } = require('./sessao');
 const { conferirRotinas } = require('./cron');
+const { tarefaYoutube } = require('./youtube');
 const U = require('./util');
 
 const { R, conserta } = U;
@@ -287,6 +288,9 @@ function tarefasDoAgente(ctx, ag) {
     },
   };
 
+  // ── download do YouTube ─────────────────────────────────────────────────
+  const youtube = tarefaYoutube(ctx, ag, container);
+
   // ── memória ─────────────────────────────────────────────────────────────
   const injecao = {
     sufixo: 'memoria.injecao', nome: `Memória entrando na conversa - ${nome}`,
@@ -372,7 +376,7 @@ function tarefasDoAgente(ctx, ag) {
     },
   };
 
-  return [container, sessao, login, saudeResposta, painel, telegram, whatsapp, rotinas, injecao, workingMemory, compactacao];
+  return [container, sessao, login, saudeResposta, painel, telegram, whatsapp, rotinas, injecao, workingMemory, compactacao, youtube];
 }
 
-module.exports = { tarefasDoAgente };
+module.exports = { tarefasDoAgente, FRASES_SAUDE };

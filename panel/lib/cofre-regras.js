@@ -48,6 +48,9 @@ const NOME_PERMITIDO = [
   /_REGION$/, /_BUCKET$/, /_PROJECT$/, /_ORG$/, /_VERSION$/, /_EMAIL$/,
   // Nome oficial de credencial que não termina em nenhum sufixo acima.
   /^GOOGLE_APPLICATION_CREDENTIALS$/,
+  // ID da instância da Z-API (conexão de WhatsApp). Nome exato, nunca o sufixo `_INSTANCE`: o sufixo
+  // liberaria variáveis que mudam o alvo de ferramentas, como `CLOUDSDK_SPANNER_INSTANCE` no gcloud.
+  /^ZAPI_INSTANCE$/,
 ];
 
 /**

@@ -206,7 +206,7 @@ const dgHtml_cofre = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) 
         <td data-rot="Nome"><code data-dg-i18n-title="9115fc40ba68" title="É por este nome que o agente procura a chave.">${esc(c.envName)}</code></td>
         <td data-rot="Chave"><span class="cofre-mascara" data-dg-i18n-title="91c19f293c52" title="Os quatro últimos caracteres da chave. Servem para você conferir que é a chave certa sem precisar ver a chave inteira.">••••${esc(c.ultimos4 || '')}</span></td>
         <td data-rot="Cadastrada por" title="Quem cadastrou e quando.">${esc(c.cadastradaPor || '')} <span class="cofre-quando">${esc(quando(c.cadastradaEm))}</span>
-          <span class="cofre-selo origem" title="${c.origem === 'api' ? dgTextFull_cofre("Esta chave foi colocada por outro assistente, usando uma chave de API, sem passar pela tela.") : dgTextFull_cofre("Esta chave foi colada por uma pessoa, nesta tela.")}">${dgFragFull_cofre(c.origem === 'api' ? dgTextFull_cofre("por API") : dgTextFull_cofre("pela tela"))}</span></td>
+          <span class="cofre-selo origem" title="${c.origem === 'api' ? dgTextFull_cofre("Esta chave foi colocada por outro assistente, usando uma chave de API, sem passar pela tela.") : dgTextFull_cofre("Esta chave foi colada por uma pessoa, nesta tela.")}">${dgFragFull_cofre(c.origem === 'api' ? "por API" : "pela tela")}</span></td>
         <td data-rot="Estado">${estado}</td>
         <td class="cofre-linha-acoes">${acao}</td>
       </tr>`);

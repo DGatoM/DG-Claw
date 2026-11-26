@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 const R = require('../public/ronda-comum');
 const T = require('../public/seguranca');
 
@@ -128,4 +129,19 @@ test('as janelas antigas não existem mais', () => {
   for (const n of ['seguranca-aviso.js', 'seguranca-aviso.css', 'ronda-aviso.js', 'ronda-aviso.css']) {
     assert.ok(!fs.existsSync(path.join(__dirname, '../public', n)), n);
   }
+});
+
+test('automático suspenso: a tela mostra o motivo fixo e a ação, com textContent', () => {
+  assert.match(pub('seguranca.html'), /id="autoAdminSuspenso"/);
+  const js = pub('seguranca.js');
+  assert.match(js, /automatico\.suspenso === true/);
+  assert.match(js, /incidentes\.json\.corrompido/);
+  assert.match(js, /Mexa no interruptor/);
+  const nos = Object.fromEntries(['autoAdminEstado', 'autoAdminAviso', 'autoAdminAcoes', 'autoAdminSuspenso'].map(id => [id, { textContent: '', hidden: true }]));
+  const helpers = js.split('\n').filter(l => /^const (dgSeg|RSegEsc)/.test(l)).join('\n');
+  const pinta = js.slice(js.indexOf('  function pintaAutoAdmin()'), js.indexOf('  function msgAuto('));
+  vm.runInNewContext(helpers + '\nconst $ = id => nos[id]; const auto = { suspenso: true, ligado: null, erro: null }; const TEXTO_SUSPENSO = "O pedido automático está suspenso: o arquivo de incidentes estava ilegível; confira incidentes.json.corrompido. Mexa no interruptor abaixo para retomar.";\n' + pinta + '\npintaAutoAdmin();', { nos });
+  assert.equal(nos.autoAdminSuspenso.hidden, false);
+  assert.match(nos.autoAdminSuspenso.textContent, /está suspenso.*incidentes\.json\.corrompido.*Mexa no interruptor/);
+  assert.equal(nos.autoAdminEstado.textContent, 'Conferindo…');
 });

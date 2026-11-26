@@ -101,6 +101,7 @@ igual "nenhum backup novo" "2" "$(find "$BACKUPS" -mindepth 1 -maxdepth 1 -type 
 echo "restaurar"
 printf 'novo conteudo da memoria\n' >"$LIB/agentes/ana/home/MEMORY.md"
 sleep 1
+mkdir -p "$LIB/agentes/ana/config" && printf 'sim\n' >"$LIB/agentes/ana/config/youtube-conta-dedicada"
 : >"$STUB_LOG"
 dgclaw restaurar "$B1" >"$TMP/o7.txt" 2>&1; rc=$?
 igual "restaurar sai com 0" "0" "$rc"
@@ -108,6 +109,10 @@ igual "restaurar sai com 0" "0" "$rc"
 afirma "a linha alterada do web.env voltou ao valor do backup" grep -qx 'GROQ_API_KEY=gsk_original' "$ETC/web.env"
 nega "a linha criada depois do backup saiu do web.env" grep -qx 'LINHA_NOVA=1' "$ETC/web.env"
 afirma "a memoria da Ana voltou" grep -q 'A Marta gosta de cafe' "$LIB/agentes/ana/home/MEMORY.md"
+nega "a conta dedicada do YouTube foi desligada pela restauracao" test -e "$LIB/agentes/ana/config/youtube-conta-dedicada"
+afirma "e o aviso diz como ligar de novo" grep -q 'conta dedicada do YouTube desligada no agente ana' "$TMP/o7.txt"
+afirma "e cai de novo DEPOIS da ultima extracao (marcador que veio no backup sai)" bash -c "awk '/^_restaurar_extrair_tudo\\(\\)/{f=1} f&&/^}/{f=0} f&&/_restaurar_desligar_youtube/{d=NR} f&&/_restaurar_extrair \\\"/{e=NR} END{exit !(d&&e&&d>e)}' '$REPO/lib/backup.sh'"
+afirma "a conta dedicada cai ANTES da primeira extracao (restauracao interrompida nao deixa o marcador)" bash -c "awk '/^_restaurar_extrair_tudo\(\)/{f=1} f&&/_restaurar_desligar_youtube/&&!d{d=NR} f&&/_restaurar_extrair \"/&&!e{e=NR} END{exit !(d&&e&&d<e)}' '$REPO/lib/backup.sh'"
 afirma "fez o backup antes-de-restaurar" grep -rqx 'motivo=antes-de-restaurar' "$BACKUPS"
 ANTES="$(grep -rlx 'motivo=antes-de-restaurar' "$BACKUPS" | head -n 1)"
 afirma "esse backup guardou o web.env de antes de restaurar (com a linha nova)" bash -c "tar -xzOf '$(dirname "$ANTES")/config.tar.gz' etc/dgclaw/web.env | grep -qx 'LINHA_NOVA=1'"

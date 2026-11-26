@@ -411,7 +411,7 @@ const dgHtml_provedor = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(font
 
       const campoChave = faltaChave ? `
         <div class="prov-chave">
-          <label for="prov-chave-in"><b>${dgFragFull_provedor(modo.ondeCriar ? dgTextFull_provedor("Chave da API") : dgTextFull_provedor("Código de acesso"))}</b></label>
+          <label for="prov-chave-in"><b>${dgFragFull_provedor(modo.ondeCriar ? "Chave da API" : "Código de acesso")}</b></label>
           <input type="password" id="prov-chave-in" autocomplete="off" spellcheck="false" placeholder="cole aqui">
           <small class="prov-fraco">${modo.ondeCriar
             ? dgHtmlFull_provedor(`<!--dg-i18n:54779a2fff74-->Ainda não há uma chave guardada no Cofre.<!--/dg-i18n--> <a href="${esc(modo.ondeCriar)}" target="_blank" rel="noopener noreferrer"><!--dg-i18n:700103f3313c-->Onde criar<!--/dg-i18n--></a><!--dg-i18n:fd615a8585c6-->. Depois de salva, ela não aparece mais em lugar nenhum.<!--/dg-i18n-->`)

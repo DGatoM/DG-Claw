@@ -15,6 +15,7 @@ const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
  *   GET  /api/memoria/arquivo    um arquivo de memória inteiro, com a versão lida
  *   PUT  /api/memoria/arquivo    grava a edição à mão (lib/memoria.js explica as travas)
  *   GET  /api/radiografia        o "Como ele funciona" (docs/RADIOGRAFIA.md do plugin)
+ *   GET  /api/integracoes        o mapa de integrações (lib/integracoes.js); POST .../:id/desligar e /ligar
  *
  * Todo erro sai com `error` (o que aconteceu) e `howToFix` (o que fazer), em
  * português, com o status HTTP certo. Nada de 500 genérico nem de `{}` calado.
@@ -34,6 +35,7 @@ function registrar(router, { CONFIG, pulso, serverDir, diagnostico }) {
     diagnostico,
   });
   const memoria = buildMemoria(CONFIG);
+  require('./integracoes').registrar(router, { CONFIG, serverDir });
 
   router.get('/api/operacoes', async (req, res) => {
     try {

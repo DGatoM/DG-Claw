@@ -187,6 +187,15 @@ const dgHtml_casca = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) 
     document.head.appendChild(s);
   }
 
+  /* A faixa de "integração com defeito" (só do dono) entra do mesmo jeito. */
+  function carregaFaixaIntegracoes() {
+    if (raiz.DGIntegracoesFaixa) return;
+    const s = document.createElement('script');
+    s.src = '/integracoes-faixa.js';
+    s.onerror = () => console.warn('casca: a faixa de integrações (/integracoes-faixa.js) não carregou; as telas seguem sem ela.');
+    document.head.appendChild(s);
+  }
+
   /* O aviso único de segurança (uma janela e um selo) também aparece em todas as telas que usam a casca. */
   function carregaAvisoSeguranca() {
     if (raiz.DGSegurancaResumo) return;
@@ -226,6 +235,7 @@ const dgHtml_casca = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) 
     // Faixa de versão e aviso de segurança são só do dono.
     if (!(raiz.DGPapel && raiz.DGPapel.colaborador)) {
       carregaFaixaAtualizacao();
+      carregaFaixaIntegracoes();
       carregaAvisoSeguranca();
     }
     $('btnMenu').onclick = () => abreMenu(true);

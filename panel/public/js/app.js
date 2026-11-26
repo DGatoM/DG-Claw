@@ -16,7 +16,7 @@ const dgTexto_app = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fo
 
 // ─── Helpers ───────────────────────────────────
 
-function makeBar(label, value, maxVal, colorClass, delta) {
+function makeBar(label, value, maxVal, colorClass, delta, proprio = false) {
   const pct = Math.round((value / maxVal) * 100);
   // Escala de 0 a 10 (personalidade, proatividade) mostra "7/10"; escrever "7%" ao lado
   // de uma barra 70% cheia fazia a tela se contradizer (vistoria de 08/10/2026).
@@ -34,7 +34,7 @@ function makeBar(label, value, maxVal, colorClass, delta) {
   }
   // Nome e numero na MESMA linha, barra embaixo: duas linhas por medida, nunca tres.
   return `<div class="rpg-bar">
-    <div class="rpg-bar-label"><span>${dgFragFull_app(label)}</span><span class="rpg-bar-value">${displayVal}${emDez ? '/' + maxVal : '%'}${deltaHtml}</span></div>
+    <div class="rpg-bar-label"><span>${proprio ? dgFragFull_app(label) : escapeHtml(label)}</span><span class="rpg-bar-value">${displayVal}${emDez ? '/' + maxVal : '%'}${deltaHtml}</span></div>
     <div class="rpg-bar-track"><div class="rpg-bar-fill ${escapeHtml(colorClass)}" style="width:${pct}%"></div></div>
   </div>`;
 }
@@ -431,6 +431,7 @@ const SUBTITULO_ABA = {
   como: 'as peças dele, com os números de agora',
   apps: 'o que ele já produziu, etapa por etapa',
   skills: 'o que ele sabe fazer, e onde cada skill fica salva',
+  integracoes: 'os sistemas em que ele está ligado, e se cada um funciona',
   rotinas: 'o que ele faz sozinho, na hora marcada',
   arquivos: 'os arquivos que ele guarda, e os que você sobe',
   cofre: 'as chaves de serviço que ele pode usar',
@@ -476,6 +477,8 @@ const EXPLICACAO_ABA = {
     + 'etapa por etapa.',
   skills: 'As skills são roteiros que ensinam o agente a fazer uma tarefa do seu jeito. Cada uma é uma pasta com um '
     + 'arquivo SKILL.md, e esta página lista todas e mostra onde cada uma fica salva.',
+  integracoes: 'O mapa dos sistemas externos em que o agente está ligado (WhatsApp, Instagram, banco e outros). A cor de cada um '
+    + 'vem do uso real: verde funciona, amarelo pede atenção, vermelho está com defeito.',
   rotinas: 'As rotinas e lembretes que ele marcou a seu pedido, com a próxima hora e como foi a última vez. '
     + 'A lista se atualiza sozinha enquanto a página está aberta.',
   arquivos: 'A pasta de trabalho do agente: o que ele guardou enquanto trabalhava, e onde você '
@@ -657,6 +660,7 @@ async function loadPanel(tab, force) {
     case 'como': await window.DGCerebro.carregarComoFunciona(); ligarLinksEntreAbas(); break;
     case 'apps': await window.DGApps.carregar(); break;
     case 'skills': await window.DGSkills.carregar(); break;
+    case 'integracoes': await window.DGIntegracoes.carregar({ foto: APP_CONFIG.avatar }); break;
     case 'rotinas': await carregarRotinas(); break;
     case 'arquivos': await window.DGArquivos.carregar(); break;
     // A aba Socorro (js/socorro.js, de outra frente) se carrega sozinha no clique da
@@ -1578,14 +1582,14 @@ function renderEmotions(data) {
   // Barras de emocao. Nome em portugues por extenso: o painel e pra ler, nao pra decifrar.
   const energyDelta = getDelta('mood.energy', mood.energy || 0);
   let barsHtml = `<div class="section-updated" style="grid-column:1/-1;margin:0 0 10px">${updatedTag(fileModified || lastUpdate, 'state.json')}</div>`;
-  barsHtml += makeBar(dgTexto_app('Energia'), mood.energy || 0, 1, 'joy', energyDelta);
+  barsHtml += makeBar('Energia', mood.energy || 0, 1, 'joy', energyDelta, true);
   setTracked('mood.energy', mood.energy || 0);
 
   for (const [key, val] of Object.entries(emotions)) {
     const dKey = `emotions.${key}`;
     const delta = getDelta(dKey, val);
     // A classe de cor e a propria emocao: o CSS ja sabe pintar alegria, medo e raiva.
-    barsHtml += makeBar(EMOCAO_LABELS[key] || key, val, 1, key, delta);
+    barsHtml += makeBar(Object.hasOwn(EMOCAO_LABELS, key) ? EMOCAO_LABELS[key] : key, val, 1, key, delta, Object.hasOwn(EMOCAO_LABELS, key));
     setTracked(dKey, val);
   }
   document.getElementById('emotion-bars').innerHTML = barsHtml;
@@ -1595,7 +1599,7 @@ function renderEmotions(data) {
   for (const [key, val] of Object.entries(needs || {})) {
     const dKey = `needs.${key}`;
     const delta = getDelta(dKey, val);
-    needsHtml += makeBar(NECESSIDADE_LABELS[key] || key, val, 1, 'trust', delta);
+    needsHtml += makeBar(Object.hasOwn(NECESSIDADE_LABELS, key) ? NECESSIDADE_LABELS[key] : key, val, 1, 'trust', delta, Object.hasOwn(NECESSIDADE_LABELS, key));
     setTracked(dKey, val);
   }
   document.getElementById('needs-bars').innerHTML = needsHtml ||
@@ -1608,7 +1612,7 @@ function renderEmotions(data) {
                  /negativ|error|fail|falh/.test(tipo) ? `<span class="status-err">${dsIcone('x')}</span>` :
                  `<span class="status-warn">${dsIcone('star')}</span>`;
     const vezes = e.count > 1 ? ` <span style="color:var(--fraco)">(${e.count}x)</span>` : '';
-    return `<div>${icon} ${dgFragFull_app(EVENTO_LABELS[tipo] || tipo.replace(/_/g, ' '))}${vezes} ` +
+    return `<div>${icon} ${Object.hasOwn(EVENTO_LABELS, tipo) ? dgFragFull_app(EVENTO_LABELS[tipo]) : escapeHtml(tipo.replace(/_/g, ' '))}${vezes} ` +
       `<span style="color:var(--fraco)">${formatDate(e.timestamp)}</span></div>`;
   }).join('');
   document.getElementById('recent-events').innerHTML = eventsHtml ||
@@ -1867,19 +1871,19 @@ async function loadPersonality() {
     const info = bigFiveLabels[key.toLowerCase()] || { label: key, color: 'trust' };
     const dKey = `bigfive.${key}`;
     const delta = getDelta(dKey, val);
-    bigFiveHtml += `<div>${makeBar(info.label, val, 10, info.color, delta)}</div>`;
+    bigFiveHtml += `<div>${makeBar(info.label, val, 10, info.color, delta, Object.hasOwn(bigFiveLabels, key.toLowerCase()))}</div>`;
     setTracked(dKey, val);
   }
   document.getElementById('big-five').innerHTML = bigFiveHtml || dgHtmlFull_app(`<span style="color:var(--text-dim)"><!--dg-i18n:8d5d1b2956e7-->Dados nao encontrados<!--/dg-i18n--></span>`);
 
   // Proactivity with deltas
-  const proLabels = { initiative: 'Iniciativa', humor: dgTexto_app('Humor'), curiosity: 'Curiosidade', stubbornness: 'Teimosia' };
+  const proLabels = { initiative: 'Iniciativa', humor: 'Humor', curiosity: 'Curiosidade', stubbornness: 'Teimosia' };
   const proColors = { initiative: 'trust', humor: 'joy', curiosity: 'trust', stubbornness: 'anger' };
   let proHtml = `<div class="section-updated">${updatedTag(data.proactivityModified, 'proactivity.json')}</div>`;
   for (const [key, val] of Object.entries(data.proactivity || {})) {
     const dKey = `proactivity.${key}`;
     const delta = getDelta(dKey, val);
-    proHtml += makeBar(proLabels[key] || key, val, 10, proColors[key] || 'trust', delta);
+    proHtml += makeBar(Object.hasOwn(proLabels, key) ? proLabels[key] : key, val, 10, proColors[key] || 'trust', delta, Object.hasOwn(proLabels, key));
     setTracked(dKey, val);
   }
   document.getElementById('proactivity-bars').innerHTML = proHtml;
@@ -1892,7 +1896,7 @@ async function loadPersonality() {
     opHtml += dgHtmlFull_app(`<div class="opinion-card">
       <div class="op-topic">${escapeHtml(op.topic || op.name || dgTextFull_app("Sem titulo"))}</div>
       <div class="op-position">${ricoLinha(op.position || op.stance || '')}</div>
-      ${makeBar('Intensidade', intensity, 10, 'joy')}
+      ${makeBar('Intensidade', intensity, 10, 'joy', undefined, true)}
       <div style="font-size:12px;color:var(--fraco);margin-top:4px">${dgFragFull_app("Em público: {v3}",{v3:(op.public_stance || '--')})}</div>
     </div>`);
   }
@@ -2629,10 +2633,10 @@ async function loadCosts(force) {
     .sort((a, b) => b[1].cost - a[1].cost)
     .map(([cat, v]) => {
       const catPct = Math.round((v.cost / totalForPct) * 100);
-      const label = CATEGORY_LABELS[cat] || cat;
+      const label = Object.hasOwn(CATEGORY_LABELS, cat) ? dgFragFull_app(CATEGORY_LABELS[cat]) : escapeHtml(cat);
       return `
         <div style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:4px">
-          <span style="min-width:200px">${dgFragFull_app(label)}</span>
+          <span style="min-width:200px">${label}</span>
           <div class="rpg-bar-track" style="flex:1;max-width:300px;height:10px">
             <div class="rpg-bar-fill green" style="width:${catPct}%"></div>
           </div>
@@ -2752,7 +2756,7 @@ async function runHaikuAnalysis(sessionId) {
       <div style="margin-top:6px"><strong><!--dg-i18n:ffc60bf73541-->Eficiência:<!--/dg-i18n--></strong> ${escapeHtml(a.efficiency || '--')}/10 <span style="color:var(--text-dim)">${ricoLinha(a.efficiency_reason || '')}</span></div>
       <div style="margin-top:6px"><strong><!--dg-i18n:112384a9df1e-->Sugestões:<!--/dg-i18n--></strong></div>
       <ul style="margin:4px 0 0 16px">${(a.suggestions || []).map(s => `<li>${ricoLinha(s)}</li>`).join('')}</ul>
-      <div style="margin-top:8px;color:var(--text-dim);font-size:12px">Transcript ${result.transcript_found ? 'encontrado' : dgTextFull_app("não encontrado")} · análise baseada ${dgFragFull_app(result.transcript_found ? dgTextFull_app("em transcript + métricas") : dgTextFull_app("só em métricas"))}</div>
+      <div style="margin-top:8px;color:var(--text-dim);font-size:12px">Transcript ${dgFragFull_app(result.transcript_found ? 'encontrado' : 'não encontrado')} · ${dgFragFull_app("análise baseada")} ${dgFragFull_app(result.transcript_found ? "em transcript + métricas" : "só em métricas")}</div>
     </div>
   `);
 }

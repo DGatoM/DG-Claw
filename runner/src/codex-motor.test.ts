@@ -329,6 +329,27 @@ test("vigia do rollout: entrega os eventos NA ORDEM e ignora o que é anterior a
   }
 });
 
+test("vigia do rollout: lerDesdeOInicio entrega o primeiro task_started mesmo com mais de 1 MiB depois; o padrão lê só o fim", async () => {
+  const home = pastaTemporaria("vigia-inicio");
+  const ev = (type: string, p: Record<string, unknown>) => JSON.stringify({ timestamp: new Date().toISOString(), type, payload: p });
+  const enchimento = ev("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "x".repeat(900) }] });
+  const linhas = [ev("event_msg", { type: "task_started" })];
+  for (let i = 0; i < 1300; i++) linhas.push(enchimento); // ~1,2 MiB
+  const rodar = async (id: string, extra: Record<string, unknown>): Promise<string[]> => {
+    const f = escreverRollout(home, id, "/c", linhas);
+    const recebidos: string[] = [];
+    const parar = vigiarRollout({ resolverArquivo: () => f, desdeMs: Date.now() - 5_000, intervaloMs: 30, aoEvento: (e) => recebidos.push(e.evento), ...extra });
+    try {
+      await new Promise((r) => setTimeout(r, 600));
+    } finally {
+      parar();
+    }
+    return recebidos;
+  };
+  assert.deepEqual(await rodar("ffffffff-0000-4000-8000-000000000011", { lerDesdeOInicio: () => true }), ["UserPromptSubmit"]);
+  assert.deepEqual(await rodar("ffffffff-0000-4000-8000-000000000012", {}), [], "padrão: só o último 1 MiB, o task_started do começo fica de fora");
+});
+
 test("vigia do rollout: medição de uso com data absurda não engole o fim de turno", async () => {
   // Revisão adversarial do PR #58: resets_at acima do limite do Date lançava RangeError e o
   // task_complete seguinte se perdia, deixando a sessão presa em "trabalhando".
@@ -474,5 +495,26 @@ test("vigia do rollout: aoErroDeTurno só recebe o erro de depois do spawn, e o 
     assert.deepEqual(ordem, ["Stop", "erro:unauthorized"]);
   } finally {
     parar();
+  }
+});
+
+test("vigia do rollout: acento e emoji cortados na fronteira do bloco chegam íntegros", async () => {
+  const home = pastaTemporaria("vigia-multibyte");
+  const texto = "preparação 😀 concluída";
+  const linha = JSON.stringify({ timestamp: new Date().toISOString(), type: "event_msg", payload: { type: "user_message", message: texto } }) + "\n";
+  const bytes = Buffer.from(linha, "utf8");
+  // Um bloco que termina no meio do "ç" (2 bytes) e outro no meio do emoji (4 bytes).
+  const cortes = [bytes.indexOf(Buffer.from("ç", "utf8")) + 1, bytes.indexOf(Buffer.from("😀", "utf8")) + 2];
+  for (const [i, corte] of cortes.entries()) {
+    const f = path.join(home, `rollout-${i}.jsonl`);
+    fs.writeFileSync(f, bytes);
+    const recebidos: string[] = [];
+    const parar = vigiarRollout({ resolverArquivo: () => f, desdeMs: Date.now() - 5_000, intervaloMs: 20, lerDesdeOInicio: () => true, aoEvento: (e) => recebidos.push(e.texto ?? "") }, corte);
+    try {
+      await esperarAte(() => recebidos.length >= 1, 4_000, "o texto do usuário");
+      assert.deepEqual(recebidos, [texto]);
+    } finally {
+      parar();
+    }
   }
 });
