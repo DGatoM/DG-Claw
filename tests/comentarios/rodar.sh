@@ -435,6 +435,8 @@ afirma "e conta os dois incertos" grep -q 'incertas=2' "$TMP/saida.txt"
 echo "ig-publish.py reply-comment: so recusa confirmada libera a reserva"
 IGP="$REPO/scripts/ig-publish.py"
 echo tokenfalso >"$TMP/tok"
+# Os eventos do mapa de integracoes vao para uma pasta do teste, nunca para a do agente real.
+export DGCLAW_INTEGRACOES_DIR="$TMP/integracoes"
 igp() { # $1 = status, $2 = corpo, [$3 = excecao]
     RC=0; python3 - "$IGP" "$1" "$2" "${3:-}" "$TMP/tok" >"$TMP/saida.txt" 2>&1 <<'PY' || RC=$?
 import importlib.util, sys, types, json
@@ -451,6 +453,7 @@ def post(*a, **k):
     return R()
 req.post = post
 sys.modules["requests"] = req
+import os; os.geteuid = lambda: 1000   # o registro recusa root; o teste simula o usuario do agente
 spec = importlib.util.spec_from_file_location("igp", caminho); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 sys.argv = ["ig-publish.py", "reply-comment", "--comment-id", "123", "--message", "oi", "--token-file", tok]
 sys.exit(m.main() or 0)
@@ -463,6 +466,49 @@ igp 400 '{"error":{"code":100,"message":"x"}}'; afirma "400 com erro da Graph AP
 igp 400 'null';                               afirma "400 com corpo estranho: incerto (4)" test "$RC" -eq 4
 igp 502 '{}';                                 afirma "502: incerto (4)" test "$RC" -eq 4
 igp 200 '{}' "tempo esgotado";                afirma "queda de rede: incerto (4)" test "$RC" -eq 4
+
+echo "ig-publish.py publish-image: depois do media_publish, so id valido vale ok"
+igpub() { # $1 = status do media_publish, $2 = corpo, [$3 = excecao]
+    rm -f "$DGCLAW_INTEGRACOES_DIR/eventos.jsonl"
+    RC=0; python3 - "$IGP" "$1" "$2" "${3:-}" "$TMP/tok" >"$TMP/saida.txt" 2>&1 <<'PY' || RC=$?
+import importlib.util, sys, types, json
+caminho, status, corpo, exc, tok = sys.argv[1:6]
+req = types.ModuleType("requests")
+class RequestException(Exception): pass
+req.RequestException = RequestException
+class R:
+    def __init__(self, s, c): self.status_code = s; self.text = c
+    def json(self): return json.loads(self.text)
+def post(url, *a, **k):
+    if url.endswith("/media"): return R(200, '{"id":"777"}')
+    if exc: raise RequestException(exc)
+    return R(int(status), corpo)
+def get(*a, **k): return R(200, '{"permalink":"https://exemplo.invalido/p/x"}')
+req.post = post; req.get = get
+sys.modules["requests"] = req
+import os; os.geteuid = lambda: 1000   # o registro recusa root; o teste simula o usuario do agente
+spec = importlib.util.spec_from_file_location("igp", caminho); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.time.sleep = lambda s: None
+sys.argv = ["ig-publish.py", "publish-image", "--account", "1", "--image-url", "https://exemplo.invalido/i.jpg", "--token-file", tok]
+sys.exit(m.main() or 0)
+PY
+}
+igpub 200 '{"id":"123456"}';          afirma "publicar com id de digitos: sucesso (0)" test "$RC" -eq 0
+afirma "e o evento ok foi gravado na pasta do teste" bash -c "tail -n 1 \"$DGCLAW_INTEGRACOES_DIR/eventos.jsonl\" | grep -q '\"id\":\"instagram\",\"resultado\":\"ok\"'"
+igpub 200 '{}';                       afirma "200 sem id: incerto (4), nao ok" test "$RC" -eq 4
+igpub 200 '{"id":""}';                afirma "200 com id vazio: incerto (4)" test "$RC" -eq 4
+igpub 200 '{"id":"12ab"}';            afirma "200 com id fora do formato: incerto (4)" test "$RC" -eq 4
+igpub 200 'null';                     afirma "200 com corpo null: incerto (4)" test "$RC" -eq 4
+igpub 200 'nao e json';               afirma "200 com corpo que nao e JSON: incerto (4)" test "$RC" -eq 4
+igpub 200 '{}' "tempo esgotado";      afirma "queda de rede no media_publish: incerto (4)" test "$RC" -eq 4
+afirma "e a mensagem diz que pode ter publicado" grep -q 'pode ter' "$TMP/saida.txt"
+afirma "e o evento incerto foi gravado na pasta do teste" bash -c "tail -n 1 \"$DGCLAW_INTEGRACOES_DIR/eventos.jsonl\" | grep -q '\"resultado\":\"incerto\"'"
+igpub 503 '{}';                       afirma "5xx depois do media_publish: incerto (4), como o timeout" test "$RC" -eq 4
+afirma "5xx: a mensagem e RESULTADO INCERTO e manda conferir a conta" grep -q 'RESULTADO INCERTO.*Confira na conta' "$TMP/saida.txt"
+afirma "5xx: o evento incerto foi gravado na pasta do teste" bash -c "tail -n 1 \"$DGCLAW_INTEGRACOES_DIR/eventos.jsonl\" | grep -q '\"resultado\":\"incerto\"'"
+igpub 400 '{"error":{"code":100,"message":"x"}}'; afirma "400 com erro da Graph API: falha (1)" test "$RC" -eq 1
+afirma "e o evento de falha foi gravado na pasta do teste" bash -c "tail -n 1 \"$DGCLAW_INTEGRACOES_DIR/eventos.jsonl\" | grep -qE '\"resultado\":\"(erro|credencial_recusada)\"'"
+unset DGCLAW_INTEGRACOES_DIR
 
 echo "enviar_respostas.py: texto invalido e lote grande"
 novo

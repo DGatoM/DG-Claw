@@ -156,6 +156,11 @@ Opções que você usa só quando preciso:
 2. **Pré-checagem do clone**: `git status --porcelain`. Com qualquer alteração local ele **para** e lista
    os arquivos. Com `--forcar-local` guarda tudo em `git stash push -u -m dgclaw-atualizar-<data>` e
    avisa o nome do stash. Nunca faz `reset --hard` nem `clean`.
+2b. **Confere a assinatura** (junto com o relatório "O que muda", antes do backup, quando a instalação tem a chave): só instala a tag `vX.Y.Z` assinada pela
+   chave do projeto. Se recusar, **não contorne e não use `--sem-baixar` para driblar**: conte ao dono o que a mensagem
+   disse e espere a versão assinada. Na primeira adoção (instalação sem a chave), mostre ao dono a impressão digital que
+   o comando imprime e peça que ele confira com a que o Danilo divulgou fora do repositório antes de seguir. Detalhes em
+   [ASSINATURA.md](ASSINATURA.md).
 3. **Confere o disco**: precisa do tamanho do backup mais uns 6 GB para a imagem nova.
 4. **Backup datado** em `/var/backups/dgclaw/<AAAAMMDD-HHMMSS>/` (pasta 700, só root): `config.tar.gz`
    (`/etc/dgclaw`), `dados.tar.gz` (`/var/lib/dgclaw` inteiro), `admin.tar.gz` (`/opt/dgclaw/admin`),
@@ -163,7 +168,7 @@ Opções que você usa só quando preciso:
    para o `--voltar` também achar o programa de antes) e o `MANIFESTO.txt` (commit anterior, lista de
    agentes, sha256 dos arquivos de configuração e das identidades). Cada tar é aberto (`tar -tzf`) antes
    de seguir: se não abrir, o comando para e nada foi mudado.
-5. **Baixa a versão nova**: `git fetch` e `git pull --ff-only`. Se o clone divergiu, para e explica;
+5. **Baixa a versão nova** (a tag assinada aceita no passo 2b): `git fetch` e `git merge --ff-only`. Se o clone divergiu, para e explica;
    nunca faz merge sozinho.
 6. **Roda o `install.sh` do clone** sem nenhuma pergunta, reaproveitando usuário, domínio e provedor que já
    estão configurados. A senha atual do painel continua valendo. O instalador edita as configurações

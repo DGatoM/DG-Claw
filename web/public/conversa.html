@@ -73,16 +73,24 @@ if (navigator.standalone === true ||
       <a id="btnAnon" class="btn" href="/anonimizar" hidden data-tour="btn-anon" title="Documentos anonimizados: abrir a tela de Anonimizar" aria-label="Documentos anonimizados"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-glasses"/></svg> <span class="lbl">Documentos anonimizados</span></a>
       <a id="btnLembretes" class="btn" href="/lembretes" data-tour="btn-lembretes" title="Abrir os lembretes" aria-label="Abrir os lembretes"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-clock"/></svg> <span class="lbl">Lembretes</span></a>
       <button id="btnNaoLida" class="btn" type="button" data-tour="btn-nao-lida" title="Marcar esta conversa como não lida e voltar à lista de agentes" aria-label="Marcar esta conversa como não lida"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-mail"/></svg> <span class="lbl">não lida</span></button>
-      <button id="btnLer" class="btn" title="Ler as respostas em voz alta" data-tour="ler"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-volume"/></svg> <span class="lbl">ler</span></button>
+      <!-- btnLer e btnContinua nascem aqui (como antes) para o sigilo.js de qualquer versão achar a âncora
+           dele dentro de #tools; o conversa.js, que carrega depois, os move para o #menuVoz -->
+      <button id="btnLer" class="btn" type="button" aria-pressed="false" aria-label="Leitura em voz alta: desligada" title="Ler as respostas em voz alta"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-volume"/></svg> <span class="lbl">Ler respostas em voz alta: desligado</span></button>
       <button id="btnContinua" class="btn" type="button" aria-pressed="false"
               aria-label="Conversa contínua: desligada"
-              title="Conversa contínua: ao terminar de tocar a resposta, grava de novo"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-repeat"/></svg> <span class="lbl">contínua</span></button>
+              title="Conversa contínua: ao terminar de tocar a resposta, grava de novo"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-repeat"/></svg> <span class="lbl">Conversa contínua: desligada</span></button>
+      <button id="btnVoz" class="btn" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-controls="menuVoz"
+              title="Voz: leitura em voz alta e conversa contínua" aria-label="Voz: leitura em voz alta e conversa contínua"
+              data-tour="voz"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-volume"/></svg> <span class="lbl">Voz</span></button>
       <button id="btnParar" class="btn" type="button" style="display:none">parar</button>
     </div>
     <i class="ferr-sombra esq" id="ferrEsq" aria-hidden="true"></i>
     <i class="ferr-sombra dir" id="ferrDir" aria-hidden="true"></i>
   </div>
 </header>
+
+  <!-- Fica fora do header e de #tools: a faixa rola e cortaria o popover, e o z-index do header ficaria abaixo da faixa de foco -->
+  <div id="menuVoz" class="menu-voz" role="group" aria-label="Voz" hidden></div>
 
 <!-- O menu vem da marcação da casca (casca.js, MARCACAO_MENU): uma fonte só para todas as telas -->
 <div id="menuPonto"></div>
@@ -194,6 +202,7 @@ if (navigator.standalone === true ||
 <script src="/sigilo.js"></script>
 <script src="/lembretes-faixa.js"></script>
 <script src="/atualizacao-faixa.js"></script>
+<script src="/integracoes-faixa.js"></script>
 <script src="/ronda-comum.js"></script>
 <script src="/seguranca-resumo.js"></script>
 <script src="/foco-tela.js"></script>

@@ -329,6 +329,27 @@ test("vigia do rollout: entrega os eventos NA ORDEM e ignora o que é anterior a
   }
 });
 
+test("vigia do rollout: lerDesdeOInicio entrega o primeiro task_started mesmo com mais de 1 MiB depois; o padrão lê só o fim", async () => {
+  const home = pastaTemporaria("vigia-inicio");
+  const ev = (type: string, p: Record<string, unknown>) => JSON.stringify({ timestamp: new Date().toISOString(), type, payload: p });
+  const enchimento = ev("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "x".repeat(900) }] });
+  const linhas = [ev("event_msg", { type: "task_started" })];
+  for (let i = 0; i < 1300; i++) linhas.push(enchimento); // ~1,2 MiB
+  const rodar = async (id: string, extra: Record<string, unknown>): Promise<string[]> => {
+    const f = escreverRollout(home, id, "/c", linhas);
+    const recebidos: string[] = [];
+    const parar = vigiarRollout({ resolverArquivo: () => f, desdeMs: Date.now() - 5_000, intervaloMs: 30, aoEvento: (e) => recebidos.push(e.evento), ...extra });
+    try {
+      await new Promise((r) => setTimeout(r, 600));
+    } finally {
+      parar();
+    }
+    return recebidos;
+  };
+  assert.deepEqual(await rodar("ffffffff-0000-4000-8000-000000000011", { lerDesdeOInicio: () => true }), ["UserPromptSubmit"]);
+  assert.deepEqual(await rodar("ffffffff-0000-4000-8000-000000000012", {}), [], "padrão: só o último 1 MiB, o task_started do começo fica de fora");
+});
+
 test("vigia do rollout: medição de uso com data absurda não engole o fim de turno", async () => {
   // Revisão adversarial do PR #58: resets_at acima do limite do Date lançava RangeError e o
   // task_complete seguinte se perdia, deixando a sessão presa em "trabalhando".

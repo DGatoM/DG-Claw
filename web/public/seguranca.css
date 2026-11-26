@@ -69,3 +69,9 @@ body.rp *{box-sizing:border-box}
 .rp-boletim-detalhe{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f6f8;border-radius:8px;padding:8px 10px}
 .rp-dispensados{margin-top:10px}
 .rp-card .rp-fraco{margin:6px 0}
+
+/* Atualizações do sistema: uma linha recolhida por componente; as falhas ficam dentro. */
+.rp-grupo-aguarda{margin-top:8px;border:1px solid var(--rp-linha);border-radius:12px;padding:4px 12px}
+.rp-grupo-aguarda>summary{overflow-wrap:anywhere;min-height:40px;line-height:1.35}
+.rp-grupo-aguarda[open]>summary{margin-bottom:8px}
+.rp-grupo-aguarda .rp-card:last-child{margin-bottom:8px}
