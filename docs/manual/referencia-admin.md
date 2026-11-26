@@ -47,6 +47,7 @@ mudar nada. Quem: Root. Detalhe geral em [ATUALIZAR.md](../ATUALIZAR.md) e no `d
 | `dgclaw agente reiniciar` | Desliga e liga de novo. Serve para um agente travado; não use para atualizar | [ATUALIZAR.md](../ATUALIZAR.md) |
 | `dgclaw agente reparar` | Regrava o `config.sh` e refaz a parte de dentro (runner, painel e rotinas) | [ATUALIZAR.md](../ATUALIZAR.md) |
 | `dgclaw agente recriar` | Troca o container pelo da imagem nova e mantém casa, cofre, portas e rotinas. `--forcar` recria mesmo com a imagem igual | [ATUALIZAR.md](../ATUALIZAR.md) |
+| `dgclaw agente prioridade` | Mostra ou muda a prioridade de memória do agente (`alta`, `normal` ou `baixa`). Vale na próxima recriação | [TELA-DO-AGENTE.md](../TELA-DO-AGENTE.md) |
 | `dgclaw agente identidade` | Regrava só o `identidade.md`; vale na próxima sessão | [PERSONALIZAR.md](../PERSONALIZAR.md) |
 | `dgclaw agente cofre` | Guarda, revoga, lista ou aplica chaves de API do agente (`guardar`, `revogar`, `listar`, `aplicar`). O valor vem sempre pelo STDIN | [COFRE-POR-API.md](../COFRE-POR-API.md) |
 | `dgclaw agente tela` | Confere a Tela do agente e diz, linha a linha, o que falta | [TELA-DO-AGENTE.md](../TELA-DO-AGENTE.md) |
