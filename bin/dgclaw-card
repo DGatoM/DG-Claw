@@ -6,6 +6,12 @@
 #   dgclaw-card abrir --provedor codex|claude [--auth assinatura|api|token] [--modelo M] --titulo "T"
 #                     (--pedido "texto" | --pedido-arquivo F | pedido pelo stdin)
 #                     [--monitor --entregue "criterio de entregue" [--cada MIN]]
+#                     [--espera-turno SEG]
+#                     --espera-turno: depois de entregar o pedido, o "abrir" espera ate SEG segundos (padrao 60,
+#                     de 0 a 3600; 0 desliga) o pedido virar o primeiro turno do card. Sem turno, sai com 12.
+#                     O id do card sai UMA vez, na primeira linha do stdout, assim que a criacao e confirmada,
+#                     mesmo quando o "abrir" termina com 8, 11, 12 ou 14. Com codigo diferente de 0, nao siga
+#                     adiante com o id: confira com "estado" e "ler".
 #                     --monitor liga o MODO MONITOR neste card (docs/MODO-MONITOR.md): um vigia sem modelo
 #                     que so acorda voce quando o card para, pede algo, trava ou erra. --entregue e
 #                     obrigatorio com --monitor; --cada e o intervalo em minutos (padrao 10).
@@ -14,13 +20,15 @@
 #   dgclaw-card esperar <id> [--max SEGUNDOS]        (padrao 900; olha a cada 5 s)
 #   dgclaw-card ler <id> [--n N]                     (padrao 4 mensagens)
 #   dgclaw-card listar                               (so os cards criados por esta via)
-#   dgclaw-card fechar <id>
+#   dgclaw-card fechar <id> [--forcar]               (card sem nenhum turno: pede --forcar)
 #   dgclaw-card ajuda
 #
 # Variaveis de ambiente:
 #   RUNNER_TOKEN_FILE   arquivo com o Bearer do runner (obrigatorio; o token NUNCA vem por argumento)
 #   RUNNER_PORT         porta do runner em 127.0.0.1 (padrao 4300; tem de ser numero)
+#   CARD_MAX_TEMPO      so para testes: prazo de cada chamada, em segundos (inteiro de 1 a 3600; fora disso vale 60)
 #   DGCLAW_CARD_INTERVALO  so para testes: segundos entre olhadas do "esperar" (padrao 5)
+#   DGCLAW_CARD_TEMPO_BASE so para testes: segundos de espera de cada chamada ao runner, antes do acrescimo da colagem (padrao 60)
 #
 # O endereco do runner e FIXO: http://127.0.0.1:$RUNNER_PORT. Nenhuma URL vinda de argumento,
 # de variavel ou de arquivo e usada: um e-mail ou pagina nao consegue apontar este comando para fora.
@@ -37,12 +45,32 @@
 #   4  limite de cards abertos atingido (429)
 #   5  o provedor deste agente ainda nao esta conectado (sem login ou sem chave)
 #   6  outro erro devolvido pelo runner (a mensagem dele e mostrada)
-#   7  "esperar" estourou o tempo: a sessao segue trabalhando
+#   7  "esperar" estourou o tempo sem o card terminar o turno (nao diz se ele trabalha ou esta parado)
 #      Se o "abrir" criar o card e falhar ao entregar o pedido, a saida e a do erro (2, 3, 4 ou 6) e a
 #      mensagem diz o id do card que ficou aberto; sem login, o card recem criado e fechado sozinho.
+#      So se diz "nao foi entregue" quando o runner recusou o pedido (resposta 4xx). Se a resposta se perdeu
+#      ou veio 5xx, a mensagem diz "entrega incerta": o card pode ja estar trabalhando. Confira com
+#      "dgclaw-card estado <id>", avise o dono e NUNCA repita o pedido.
 #      Se o card abriu mas o "dgclaw-monitor add" falhou, a saida e 8: o card esta aberto e SEM monitor,
 #      e a mensagem traz o comando para ligar o monitor a mao.
 #   8  (so no "abrir --monitor") o card abriu e o pedido foi entregue, mas o monitor nao ligou
+#   9  envios demais esperando para o card (429 ENVIOS_DEMAIS): o texto nao foi enviado; espere e tente de novo
+#   10 texto grande demais para um envio (413 TEXTO_GRANDE_DEMAIS): o texto nao foi enviado; reduza o texto
+#      (repetir o mesmo texto nao resolve) ou guarde-o num arquivo e peca ao card para le-lo
+#   11 ("mandar" e "abrir") a conexao caiu ou o tempo do curl esgotou DEPOIS de o texto sair, o runner respondeu que a
+#      entrega e incerta (202 com entregaIncerta), ou (so no "abrir") o card foi criado e o pedido entregue, mas nao
+#      consegui confirmar se ele aceitou o pedido (consulta recusada, erro do runner, de rede, resposta sem JSON ou sem o
+#      contador turnosAceitos): a entrega e INCERTA, o runner pode ainda estar colando ou ja ter enviado. NAO reenvie ja: confira com 'dgclaw-card estado <id>' (se aparecer 'na fila', o pedido esta guardado e sera entregue quando o card ficar ocioso) e com 'dgclaw-card ler <id> --n 20'; so reenvie se o card estiver ocioso, sem nada na fila, e o pedido nao aparecer na conversa (na duvida, pergunte ao dono). No "abrir" o card fica aberto e o id sai no stdout.
+#  12  (so no "abrir") o card foi criado, mas o runner nao OBSERVOU o primeiro turno do pedido dentro da espera
+#      (--espera-turno). Isso nao prova que o card esteja parado: o pedido ainda pode comecar (ou ja estar rodando sem
+#      ser observado). Nao feche e nao reenvie por conta propria (pode duplicar); confira com "estado" e "ler" depois
+#      de um tempo. Nao diga ao dono que o card esta trabalhando, nem que esta parado, antes de ver o primeiro turno.
+#      Com --monitor, o monitor e ligado logo depois de entregar o pedido, antes da espera pelo turno; assim os
+#      codigos 11, 12 e 14 tambem ficam com monitor. Falha ao ligar o monitor sai com 8.
+#  13  (so no "fechar") o runner ainda nao observou turno (turnosAceitosSessao igual a 0), ainda tem texto na fila ou sendo digitado, o runner ainda espera o recibo do Enter de um texto (reciboPendente) ou nao deu para ler o estado dele, ou ha pedido retido como entrega incerta (retidosIncertos).
+#      Fechar pode jogar fora o pedido. Repita com --forcar se for isso mesmo.
+#  14  (so no "abrir") o card aceitou o pedido (houve turno), mas o turno falhou e o card esta em erro. Veja o que
+#      ele fez com "dgclaw-card ler <id>" e conte ao dono. Nao e 0: nao anuncie que o trabalho esta indo bem.
 set -euo pipefail
 umask 077
 
@@ -72,15 +100,51 @@ carregar_token() {
 # --- chamada ao runner ----------------------------------------------------
 # chamar METODO CAMINHO [CORPO_JSON]  ->  preenche HTTP (codigo) e RESP (corpo). Retorna 2 se o runner nao respondeu.
 HTTP=""; RESP=""
+# Prazo de cada chamada, em segundos: inteiro decimal de 1 a 3600 (CARD_MAX_TEMPO, so para testes; sem ele vale
+# DGCLAW_CARD_TEMPO_BASE, padrao 60). Qualquer outra coisa (inclusive texto com quebra de linha) vira 60, com um aviso
+# no stderr. Roda em subshell, entao o aviso so sai uma vez por chamada. O codigo de saida do curl da ultima chamada fica
+# em CURL_RC (28 = tempo esgotado, 7 = conexao recusada). So o envio de texto aumenta o tempo (max_time_do_texto).
+TEMPO_BASE="${DGCLAW_CARD_TEMPO_BASE:-60}"
+[[ "$TEMPO_BASE" =~ ^[0-9]+$ ]] && [ "$TEMPO_BASE" -ge 1 ] || TEMPO_BASE=60
+PRAZO_DO_TEXTO=""; CURL_RC=0; ENVIANDO_TEXTO=0; ENVIO_MANDAR=0; ID_DO_ENVIO=""
+prazo_da_chamada() {
+  local p="${CARD_MAX_TEMPO:-$TEMPO_BASE}"
+  if [[ "$p" =~ ^[0-9]{1,4}$ ]] && [ $((10#$p)) -ge 1 ] && [ $((10#$p)) -le 3600 ]; then
+    printf '%s' "$((10#$p))"
+  else
+    erro "aviso: CARD_MAX_TEMPO precisa ser um numero inteiro de segundos, de 1 a 3600; usei 60."
+    printf '60'
+  fi
+}
+
+
+# O runner cola um texto acima de 256 caracteres em pedacos de PEDACO (128) unidades, com INTERVALO_MS (25 ms) de pausa entre um
+# pedaco e o seguinte (runner/src/sessao/constantes.ts; a rotina esta em runner/src/sessao/digitacao.ts). Antes do Enter ainda
+# ha a espera do recibo, que cabe na base de 60 s. Conta: pedacos = bytes / 128 (arredondado para cima; bytes passam das
+# unidades UTF-16, entao a conta sobra); colagem = pedacos x 25 ms; tempo = base + 2 x colagem (folga de 100% para a leitura da
+# tela entre os pedacos e para um terminal lento). Como 2 x 25 ms = 50 ms, o acrescimo e pedacos / 20 segundos.
+# Exemplo: 512 KiB = 4096 pedacos = 102 s de pausas, e o tempo vai a 60 + 205 = 265 s. O teto de um envio e 1 MiB (470 s).
+PEDACO_DO_RUNNER=128
+max_time_do_texto() { # $1 = tamanho do texto em bytes
+  local bytes="$1" pedacos
+  pedacos=$(( (bytes + PEDACO_DO_RUNNER - 1) / PEDACO_DO_RUNNER ))
+  echo $(( TEMPO_BASE + (pedacos + 19) / 20 ))
+}
+
 chamar() {
-  local metodo="$1" caminho="$2" corpo="${3:-}" cfg saida
-  cfg="$(printf 'url = "%s%s"\nrequest = "%s"\nheader = "Authorization: Bearer %s"\nmax-time = 60\nwrite-out = "\\n%%{http_code}"\n' "$BASE" "$caminho" "$metodo" "$TOKEN")"
+  local metodo="$1" caminho="$2" corpo="${3:-}" cfg saida prazo
+  # Envio de texto: o prazo cresce com o tamanho (PRAZO_DO_TEXTO). Nas demais chamadas vale o prazo validado.
+  if [ -n "$PRAZO_DO_TEXTO" ]; then prazo="$PRAZO_DO_TEXTO"; else prazo="$(prazo_da_chamada)"; fi
+  cfg="$(printf 'url = "%s%s"\nrequest = "%s"\nheader = "Authorization: Bearer %s"\nwrite-out = "\\n%%{http_code}"\n' "$BASE" "$caminho" "$metodo" "$TOKEN")"
   if [ -n "$corpo" ]; then
     corpo="${corpo//\\/\\\\}"; corpo="${corpo//\"/\\\"}"
     cfg+="$(printf '\nheader = "Content-Type: application/json"\ndata = "%s"' "$corpo")"
   fi
   # stderr do curl suprimido: a mensagem pode citar o Bearer. A falha vira HTTP=000 e falha_geral explica o que fazer.
-  if ! saida="$(printf '%s\n' "$cfg" | curl -sS -K - 2>/dev/null)"; then
+  # O prazo vai como argumento do curl, ja validado: nunca entra no arquivo de configuracao que leva o Bearer.
+  CURL_RC=0
+  saida="$(printf '%s\n' "$cfg" | curl -sS --max-time "$prazo" -K - 2>/dev/null)" || CURL_RC=$?
+  if [ "$CURL_RC" != 0 ]; then
     HTTP="000"; RESP=""
     return 2
   fi
@@ -102,6 +166,9 @@ chamar_ou_sair() {
 # Campo ausente ou resposta sem JSON viram texto vazio; cada chamador ja trata o vazio (erro, valor padrao ou nova tentativa).
 campo() { printf '%s' "$RESP" | jq -r "$1 // empty" 2>/dev/null || true; }
 
+# Como "campo", mas devolve "false" quando o valor e false (o "// empty" do jq descartaria o false). Ausente ou outro tipo: vazio.
+campo_booleano() { printf '%s' "$RESP" | jq -r "if ($1 | type) == \"boolean\" then $1 | tostring else empty end" 2>/dev/null || true; }
+
 nome_do_provedor() { # $1 = codex|claude|vazio
   case "$1" in codex) echo "Codex" ;; claude) echo "Claude" ;; *) echo "provedor" ;; esac
 }
@@ -109,6 +176,15 @@ nome_do_provedor() { # $1 = codex|claude|vazio
 # Fala do jeito que o agente pode repassar ao dono, e sai com o codigo certo.
 falha_geral() {
   local code err fix prov
+  # Falha de transporte durante o envio do texto do "mandar": so 5, 6 e 7 (proxy ou host nao resolvido, conexao recusada) provam que nada
+  # foi transmitido e deixam repetir. Qualquer outro codigo do curl (28 tempo esgotado, 52 resposta vazia, 56 falha ao receber, 55 falha
+  # ao enviar, 18 transferencia parcial...) pode ter acontecido DEPOIS de o pedido chegar, e repetir duplicaria a tarefa.
+  if [ "$HTTP" = "000" ] && [ "${CURL_RC:-0}" != 0 ] && [ "${ENVIANDO_TEXTO:-0}" = 1 ] && [ "${ENVIO_MANDAR:-0}" = 1 ]; then
+    case "$CURL_RC" in
+      5|6|7) ;;
+      *) CODIGO=11 die "a conexao com o runner caiu ou demorou depois de o texto ser enviado (curl $CURL_RC), e a entrega ao card e INCERTA: ele pode ainda estar colando o texto ou ja ter enviado. Nao reenvie ja. Confira com 'dgclaw-card estado ${ID_DO_ENVIO:-<id>}' (se aparecer 'na fila', o pedido esta guardado e sera entregue quando o card ficar ocioso) e com 'dgclaw-card ler ${ID_DO_ENVIO:-<id>} --n 20'. So reenvie se o card estiver ocioso, sem nada na fila, e o pedido nao aparecer na conversa; na duvida, pergunte ao dono." ;;
+    esac
+  fi
   if [ "$HTTP" = "000" ]; then
     CODIGO=2 die "o runner deste agente nao respondeu em 127.0.0.1:$PORTA. Ele pode estar reiniciando: espere cerca de um minuto e tente de novo. Se continuar assim, peca ao dono para tocar em Reiniciar no painel."
   fi
@@ -116,8 +192,18 @@ falha_geral() {
   case "$HTTP:$code" in
     401:*|403:*)
       CODIGO=3 die "o runner recusou o acesso (token invalido). Isso e um problema de instalacao, nao do pedido. Peca ao dono para reiniciar o agente pelo painel; se continuar, o instalador precisa ser rodado de novo." ;;
+    507:FILA_NAO_GRAVADA)
+      CODIGO=6 die "o pedido NAO ficou na fila: o runner nao conseguiu gravar o arquivo da fila (por exemplo, disco cheio). Nada foi enviado ao card. Corrija a gravacao (espaco em disco e permissoes da pasta de estado do runner) e reenvie com: dgclaw-card mandar ${ID_DO_ENVIO:-<id>} --arquivo <arquivo do pedido>." ;;
+    *:ENVIOS_DEMAIS)
+      CODIGO=9 die "ha envios demais esperando para este card: o runner so aceita alguns pedidos de cada vez e recusou este para nao se enrolar. Espere os envios anteriores a este card terminarem e tente de novo em alguns segundos. O texto NAO foi enviado." ;;
+    *:TEXTO_GRANDE_DEMAIS)
+      CODIGO=10 die "o texto do pedido e grande demais para um envio so: o runner recusou e nao escreveu nada. Repetir o mesmo texto nao resolve. Reduza o texto, ou guarde o conteudo num arquivo e mande ao card apenas o pedido para ler esse arquivo. O texto NAO foi enviado." ;;
     429:*|*:LIMITE_DE_SESSOES)
       CODIGO=4 die "${err:-Ja ha cards demais abertos.} Para liberar uma vaga, feche um card que nao precisa mais: veja com 'dgclaw-card listar' e feche com 'dgclaw-card fechar <id>'. Se o dono quiser mais vagas, o limite sobe em RUNNER_MAX_SESSOES_EXTRAS na unidade do runner." ;;
+    503:SEM_CAPACIDADE)
+      CODIGO=6 die "o runner recusou o pedido por falta de capacidade agora (HTTP 503 SEM_CAPACIDADE). O texto NAO foi enviado. Tente de novo em alguns minutos." ;;
+    500:NAO_ACORDOU)
+      CODIGO=6 die "o runner nao conseguiu acordar a sessao do card (HTTP 500 NAO_ACORDOU). O texto NAO foi enviado. Veja o motivo no painel (aba Sessoes ou Status) e conte ao dono." ;;
     *:SEM_LOGIN|*:SEM_CHAVE)
       prov="$(nome_do_provedor "${QUEM:-}")"
       CODIGO=5 die "o $prov deste agente ainda nao esta conectado. Peca ao dono para abrir o painel, aba Status, cartao Modelo e autenticacao, e usar Entrar com a assinatura (ou colar a chave de API). Depois que ele conectar, e so repetir o pedido." ;;
@@ -155,12 +241,16 @@ ler_texto() { # $1 = texto|"" ; $2 = arquivo|"" ; $3 = rotulo para a mensagem
 enviar_texto() { # $1 id ; texto em TEXTO
   local corpo
   corpo="$(printf '%s' "$TEXTO" | jq -Rsc '{text: ., submit: true}')"
+  PRAZO_DO_TEXTO="$(max_time_do_texto "$(printf '%s' "$corpo" | wc -c)")"
+  # Texto enviado e tempo esgotado (curl 28): o runner pode estar colando ou ja ter enviado. Nao e "runner fora do ar" e nao se reenvia.
+  ENVIANDO_TEXTO=1
   chamar_ou_sair POST "/api/agents/$1/input" "$corpo"
+  ENVIANDO_TEXTO=0; PRAZO_DO_TEXTO=""
 }
 
 # --- subcomandos ----------------------------------------------------------
 cmd_abrir() {
-  local provedor="" auth="" modelo="" titulo="" pedido="" arquivo="" monitor=0 entregue="" cada=""
+  local provedor="" auth="" modelo="" titulo="" pedido="" arquivo="" monitor=0 entregue="" cada="" espera=60
   while [ $# -gt 0 ]; do
     case "$1" in
       --provedor) provedor="${2:-}"; shift 2 || die "falta o valor de --provedor." ;;
@@ -172,11 +262,16 @@ cmd_abrir() {
       --monitor) monitor=1; shift ;;
       --entregue) entregue="${2:-}"; shift 2 || die "falta o valor de --entregue." ;;
       --cada) cada="${2:-}"; shift 2 || die "falta o valor de --cada." ;;
+      --espera-turno) espera="${2:-}"; shift 2 || die "falta o valor de --espera-turno." ;;
       *) die "opcao desconhecida em 'abrir': '$1'. Veja 'dgclaw-card ajuda'." ;;
     esac
   done
   case "$provedor" in codex|claude) ;; *) die "--provedor precisa ser codex ou claude (recebido: '${provedor}')." ;; esac
   case "$auth" in ""|assinatura|api|token) ;; *) die "--auth precisa ser assinatura, api ou token (recebido: '$auth')." ;; esac
+  if ! [[ "$espera" =~ ^[0-9]{1,4}$ ]] || [ $((10#$espera)) -gt 3600 ]; then
+    die "--espera-turno precisa ser um numero inteiro de segundos, de 0 a 3600 (0 desliga; recebido: '$espera'). Nenhum card foi aberto."
+  fi
+  espera=$((10#$espera))
   # Confere o monitor ANTES de criar o card: erro de uso nao pode deixar card aberto para tras.
   if [ "$monitor" = 1 ]; then
     [ -n "${entregue//[[:space:]]/}" ] || die "--monitor precisa de --entregue \"criterio de entregue\": diga como saber que o card terminou (ex.: --entregue \"o relatorio salvo em /home/agente/relatorio.md\"). Nenhum card foi aberto."
@@ -194,43 +289,276 @@ cmd_abrir() {
   chamar_ou_sair POST /api/sessoes "$corpo"
   id="$(campo .data.id)"
   [ -n "$id" ] || CODIGO=6 die "o runner criou o card mas nao devolveu o id (resposta inesperada). Veja 'dgclaw-card listar'."
+  [[ "$id" =~ ^[A-Za-z0-9._-]+$ ]] || CODIGO=6 die "o runner devolveu um id de card com caracteres invalidos. Veja 'dgclaw-card listar'."
+  # O id sai uma vez no stdout assim que o card existe, antes do /input: se este processo for interrompido na
+  # entrega, quem chamou ja tem o id para consultar o card.
+  echo "$id"
 
   # O /input pode falhar depois do card existir. Sem login, o card nao serve para nada: fecha para nao ocupar vaga.
   # Se a chamada falhar, HTTP fica 000 e o case abaixo cai no ramo de erro, que avisa e sai.
-  chamar POST "/api/agents/$id/input" "$(printf '%s' "$TEXTO" | jq -Rsc '{text: ., submit: true}')" || true
+  # O pedido do abrir leva o mesmo tempo do mandar: cresce com o tamanho do texto (colagem em pedacos).
+  local corpo_input
+  corpo_input="$(printf '%s' "$TEXTO" | jq -Rsc '{text: ., submit: true}')"
+  PRAZO_DO_TEXTO="$(max_time_do_texto "$(printf '%s' "$corpo_input" | wc -c)")"
+  chamar POST "/api/agents/$id/input" "$corpo_input" || true
+  PRAZO_DO_TEXTO=""
   case "$HTTP" in
     2??) ;;
+    000)
+      # Falha de transporte. Com curl 5, 6 ou 7 nada foi transmitido: segue como antes (avisa e sai com 2). Qualquer outro codigo
+      # (28, 52, 55, 56, 18...) pode ter acontecido DEPOIS de o pedido chegar: o card fica aberto e a entrega e incerta, para
+      # nao duplicar a tarefa com um reenvio.
+      case "${CURL_RC:-0}" in
+        5|6|7) erro "o card $id foi criado, mas o pedido nao foi entregue. Reenvie com: dgclaw-card mandar $id --arquivo <arquivo do pedido>, ou feche com: dgclaw-card fechar $id."
+               falha_geral ;;
+        *)
+          local sem_monitor=""
+          [ "$monitor" = 0 ] || sem_monitor=" O monitor NAO foi ligado: depois de conferir, ligue com: dgclaw-monitor add $id --entregue \"<criterio de entregue>\" [--cada MIN]."
+          CODIGO=11 die "o card $id foi criado, mas a conexao com o runner caiu ou demorou depois de o pedido ser enviado (curl $CURL_RC), e a entrega do pedido e INCERTA. Nao reenvie ja. Confira com 'dgclaw-card estado $id' (se aparecer 'na fila', o pedido esta guardado e sera entregue quando o card ficar ocioso) e com 'dgclaw-card ler $id --n 20'. So reenvie se o card estiver ocioso, sem nada na fila, e o pedido nao aparecer na conversa; na duvida, pergunte ao dono. Para reenviar, use: dgclaw-card mandar $id --arquivo <arquivo do pedido>.$sem_monitor" ;;
+      esac ;;
     *)
       # Guarda a resposta do /input: o DELETE logo abaixo sobrescreve HTTP e RESP.
       local http_input="$HTTP" resp_input="$RESP" code
       code="$(campo .code)"
       if [ "$code" = "SEM_LOGIN" ] || [ "$code" = "SEM_CHAVE" ]; then
-        chamar DELETE "/api/sessoes/$id" || erro "aviso: o card $id ficou aberto porque o runner nao respondeu ao pedido de fechamento. Feche com: dgclaw-card fechar $id."
-      else
-        erro "o card $id foi criado, mas o pedido nao foi entregue. Reenvie com: dgclaw-card mandar $id --arquivo <arquivo do pedido>, ou feche com: dgclaw-card fechar $id."
+        if ! chamar DELETE "/api/sessoes/$id"; then
+          erro "aviso: o card $id ficou aberto porque o runner nao respondeu ao pedido de fechamento. Feche com: dgclaw-card fechar $id --forcar."
+        else
+          case "$HTTP" in
+            2??) erro "aviso: o card $id foi fechado porque o agente esta sem login; o id acima nao vale mais." ;;
+            *) erro "aviso: nao confirmei a remocao do card $id (o runner respondeu HTTP $HTTP ao pedido de fechamento). O card pode ter ficado aberto. Confira com 'dgclaw-card listar' e feche com: dgclaw-card fechar $id --forcar." ;;
+          esac
+        fi
+        HTTP="$http_input"; RESP="$resp_input"
+        falha_geral
       fi
-      HTTP="$http_input"; RESP="$resp_input"
-      falha_geral ;;
+      case "$http_input:$code" in
+        507:FILA_NAO_GRAVADA)
+          # O runner nao conseguiu gravar o arquivo da fila (ex.: disco cheio): o pedido NAO ficou na fila. Recusa confirmada.
+          erro "o card $id foi criado, mas o pedido NAO ficou na fila: o runner nao conseguiu gravar o arquivo da fila (por exemplo, disco cheio). Corrija a gravacao (espaco em disco e permissoes da pasta de estado do runner) e reenvie com: dgclaw-card mandar $id --arquivo <arquivo do pedido>, ou feche com: dgclaw-card fechar $id --forcar.$(dica_monitor "$id" "$entregue" "$cada")"
+          HTTP="$http_input"; RESP="$resp_input"
+          falha_geral ;;
+        503:SEM_CAPACIDADE|500:NAO_ACORDOU)
+          # Recusa do runner por falta de capacidade ou por nao conseguir acordar a sessao: veio antes da fila.
+          erro "o card $id foi criado, mas o pedido nao foi entregue (o runner recusou antes da fila: HTTP $http_input $code); pode tentar de novo quando houver capacidade, com: dgclaw-card mandar $id --arquivo <arquivo do pedido>, ou feche com: dgclaw-card fechar $id --forcar.$(dica_monitor "$id" "$entregue" "$cada")"
+          HTTP="$http_input"; RESP="$resp_input"
+          falha_geral ;;
+      esac
+      case "$http_input" in
+        4??)
+          # Recusa do runner (4xx): so aqui se prova que o texto nao entrou na fila.
+          erro "o card $id foi criado, mas o pedido nao foi entregue (o runner o recusou antes de enfileirar). Reenvie com: dgclaw-card mandar $id --arquivo <arquivo do pedido>, ou feche com: dgclaw-card fechar $id --forcar.$(dica_monitor "$id" "$entregue" "$cada")"
+          HTTP="$http_input"; RESP="$resp_input"
+          falha_geral ;;
+        *)
+          # Resposta perdida (rede, tempo esgotado) ou 5xx: o texto pode ter entrado na fila. Nunca repetir.
+          local causa
+          if [ "$http_input" = "000" ]; then causa="o runner nao respondeu ao envio do pedido"
+          else HTTP="$http_input"; RESP="$resp_input"; causa="o runner respondeu HTTP $http_input ao envio do pedido"; fi
+          # Com --monitor, o vigia entra mesmo assim (o id ja e conhecido), para o card nao ficar sem acompanhamento.
+          local aviso_mon=""
+          if [ "$monitor" != 0 ]; then
+            if aviso_mon="$( { ligar_monitor "$id" "$entregue" "$cada" && printf '%s' "$MON_OUT"; } 2>&1 )"; then
+              aviso_mon=" Monitor ligado: $aviso_mon"
+            else
+              aviso_mon=" O monitor NAO ligou, o card esta sem vigia: $aviso_mon"
+            fi
+          fi
+          CODIGO=$([ "$http_input" = "000" ] && echo 2 || echo 6) die "entrega incerta: o card $id foi criado e nao sei se o pedido entrou ($causa). O card pode ja estar trabalhando. Confira com 'dgclaw-card estado $id' e 'dgclaw-card ler $id', conte ao dono o que viu e NAO reenvie o pedido nem faca a tarefa pela conversa principal.$aviso_mon" ;;
+      esac ;;
   esac
-  echo "$id"
-  echo "Card aberto em $(nome_do_provedor "$provedor"). Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
+  # O /input responde 202 assim que o texto entra na fila, antes de o CLI aceitar o pedido como turno.
+  # 202 com entregaIncerta: o runner nao sabe se o pedido chegou. Texto FIXO (nada da resposta dele), sem monitor e sem reenviar.
+  # O id ja saiu na primeira linha, assim que o card foi criado.
+  # 202 com entregaIncerta: o runner nao sabe se o pedido chegou. Texto FIXO (nada da resposta dele), sem monitor e sem reenviar.
+  if [ "$(campo .data.entregaIncerta)" = "true" ]; then
+    echo "ATENCAO: a entrega ao card $id e INCERTA, o texto pode ou nao ter chegado."
+    echo "Nao reenvie ja. Confira com 'dgclaw-card estado $id' (se aparecer 'na fila', o pedido esta guardado e sera entregue quando o card ficar ocioso) e com 'dgclaw-card ler $id --n 20'. So reenvie se o card estiver ocioso, sem nada na fila, e o pedido nao aparecer na conversa; na duvida, pergunte ao dono."
+    # Sai com 11, como a falha de transporte: quem encadeia "abrir && esperar" nao pode seguir como se o pedido tivesse chegado.
+    [ "$monitor" = 0 ] || erro "o card $id esta aberto, mas a entrega do pedido e incerta, por isso o monitor NAO foi ligado. Depois de conferir com 'dgclaw-card estado $id' e 'dgclaw-card ler $id --n 20' que o pedido chegou, ligue com: dgclaw-monitor add $id --entregue \"<criterio de entregue>\" [--cada MIN]"
+    exit 11
+  fi
+  # So dizemos "card aberto" depois de ver o primeiro turno; senao o agente avisa o dono de um trabalho que nao existe.
+  # O monitor entra ANTES da espera: se o pedido nao virar turno (12) ou a consulta falhar (11), o card ja tem vigia.
+  MON_OUT=""
   [ "$monitor" = 0 ] || ligar_monitor "$id" "$entregue" "$cada"
+  if [ "$espera" = 0 ]; then
+    echo "Card criado em $(nome_do_provedor "$provedor") e pedido entregue a fila. Com --espera-turno 0 o aceite do pedido NAO foi verificado: nao diga ao dono que o card esta trabalhando antes de conferir com 'dgclaw-card estado $id'."
+  else
+    ESPERANDO_DECISAO=0
+    esperar_primeiro_turno "$id" "$espera"
+    if [ "$ESPERANDO_DECISAO" = 1 ]; then
+      # O aviso nao aponta botao nem o 'ler' como fonte: a aba Sessoes nao mostra a operacao pendente e o 'ler' nao
+      # traz o bloco da pergunta de escolha. Quem decide e o dono, vendo exatamente o que foi pedido.
+      echo "Card aberto em $(nome_do_provedor "$provedor"): ele aceitou o pedido e $(aviso_decisao "$id")"
+    else
+      echo "Card aberto em $(nome_do_provedor "$provedor"). Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
+    fi
+  fi
+  [ -z "$MON_OUT" ] || echo "$MON_OUT"
 }
 
-# Liga o modo monitor num card que acabou de abrir. O dgclaw-monitor mora ao lado deste script.
-# Se falhar, o card segue aberto (o pedido ja foi entregue): avisa claro e sai com 8.
+# Comando para religar o monitor a mao (card criado, pedido a reenviar). O criterio vai escapado com printf %q.
+dica_monitor() { # $1 id ; $2 entregue ; $3 cada
+  [ "$monitor" != 0 ] || return 0
+  local q; q="$(printf '%q' "$2")"
+  printf ' Como o abrir foi pedido com --monitor, ANTES de reenviar ligue o monitor com o mesmo criterio e intervalo: dgclaw-monitor add %s --entregue %s%s (o criterio vai escapado para o shell; confira se ele ficou igual ao que voce pediu). So depois reenvie o pedido com dgclaw-card mandar.' "$1" "$q" "${3:+ --cada $3}"
+}
+
+# Mensagem LOCAL e fixa para uma falha de turno. Nada do texto livre do runner ou do hook (.data.error, .data.statusReason)
+# chega a saida: quem le (o Admin, root) nao pode receber texto que terceiros controlam. Usa so o nome do evento.
+mensagem_local_de_erro() { # $1 statusReason (so o nome do evento, antes do primeiro espaco, e usado)
+  local evento="${1%% *}"
+  case "$evento" in
+    *StopFailure*) printf '%s' "o turno terminou com falha (StopFailure)" ;;
+    *sem-login*) printf '%s' "o agente esta sem login" ;;
+    *sem-chave*) printf '%s' "o agente esta sem chave de API" ;;
+    *login-expirado*) printf '%s' "o login do agente expirou" ;;
+    *identidade-grande*) printf '%s' "as instrucoes do agente estao grandes demais" ;;
+    *) printf '%s' "o runner registrou um erro no card (detalhes com 'dgclaw-card ler <id>' ou no painel)" ;;
+  esac
+}
+
+# Decide com a ultima observacao quando o prazo acabou. Usa as variaveis locais de esperar_primeiro_turno (escopo dinamico do bash).
+decidir_no_prazo() { # $1 id ; $2 segundos
+    [ -z "$falha" ] || sem_confirmacao "$1" "$falha"
+    if [ -n "$erro_visto" ]; then
+      sem_confirmacao "$1" "vi um erro de turno ($erro_visto), mas ele pode ser de outra mensagem, porque o pedido ainda esta pendente (na fila, sendo digitado ou esperando o recibo do Enter)"
+    fi
+    [ "$fila_presa" = 0 ] || sem_confirmacao "$1" "o card teve um turno, mas ainda ha texto pendente (na fila ou sendo digitado); o pedido pode nao ter sido digitado ainda"
+    [ "$recibo_preso" = 0 ] || sem_confirmacao "$1" "o card teve um turno, mas o runner ainda espera o recibo do Enter de um texto digitado (o pedido pode estar na caixa de texto)"
+    # Resumable (tem conversa guardada, mas sem processo vivo): o contador da conversa pode ter zerado: dizer que o pedido nao virou turno seria um palpite.
+    case "$ultimo_status" in
+      resumable)
+        sem_confirmacao "$1" "o card esta sem processo vivo (status $ultimo_status), entao o contador desta conversa pode ter zerado; confira a conversa" ;;
+    esac
+    # Claude sem nenhum hook recebido: o contador de turnos nao enxerga o aceite, entao 12 seria um palpite.
+    if [ "${provedor:-}" = claude ] && [ "$(campo .data.hookActive)" != true ]; then
+      sem_confirmacao "$1" "o runner ainda nao recebeu nenhum hook do Claude neste card, entao o contador de turnos nao consegue ver se o pedido foi aceito"
+    fi
+    avisar_monitor
+    CODIGO=12 die "o card $1 foi criado, mas o runner nao observou o primeiro turno do pedido em $2 segundos. Isso nao prova que o card esteja parado: o pedido ainda pode comecar, ou ja estar rodando sem ter sido observado. Nao feche o card e nao reenvie por conta propria (isso pode duplicar o pedido). Confira com 'dgclaw-card estado $1' e 'dgclaw-card ler $1' depois de um tempo. Ate ver o primeiro turno, nao diga ao dono que o card esta trabalhando, e tambem nao diga que ele esta parado."
+}
+
+# Espera o pedido virar turno: turnosAceitosSessao > 0 (turnos da conversa ATUAL) ou status working. Sem turno no
+# prazo (e com a consulta funcionando), sai com 12. Se nao deu para OBSERVAR o estado (HTTP 401/403/5xx, rede,
+# consulta que estourou o tempo, JSON invalido, sem o contador), sai com 11: nunca 12 nem 0, porque nao se sabe se
+# o card aceitou o pedido. Card em erro: 14 (o pedido foi aceito, mas o turno falhou).
+# Cada consulta e cada pausa ficam limitadas ao tempo que resta do prazo (minimo 1 s para a consulta).
+esperar_primeiro_turno() { # $1 id ; $2 segundos
+  local limite inicio=$SECONDS passo="${DGCLAW_CARD_INTERVALO:-5}" turnos status falha="" resta erro_turno razao fila="" fila_presa=0 ultimo_status="" recibo="" retidos="" recibo_preso=0 erro_visto=""
+  [ "$passo" = 5 ] && passo=1
+  while :; do
+    falha=""; fila_presa=0; recibo_preso=0; erro_visto=""
+    resta=$(( $2 - (SECONDS - inicio) )); [ "$resta" -ge 1 ] || resta=1
+    # Prazo da consulta: o menor entre o prazo validado de cada chamada (CARD_MAX_TEMPO ou 60) e o que resta da espera.
+    limite="$(prazo_da_chamada)"; [ "$resta" -ge "$limite" ] || limite="$resta"
+    if ! CARD_MAX_TEMPO="$limite" chamar GET "/api/agents/$1"; then
+      falha="o runner nao respondeu a consulta do estado (erro de rede ou tempo esgotado)"
+    elif [ "$HTTP" != 200 ]; then
+      falha="o runner respondeu HTTP $HTTP ao consultar o card"
+    elif ! printf '%s' "$RESP" | jq -e '.data | type == "object"' >/dev/null 2>&1; then
+      falha="a resposta do runner nao e um JSON com o estado do card"
+    else
+      turnos="$(campo .data.turnosAceitosSessao)"; status="$(campo .data.status)"; ultimo_status="$status"
+      if ! [[ "$turnos" =~ ^[0-9]+$ ]]; then
+        # Esse campo nao aparece com o tempo: nao adianta esperar o prazo todo.
+        sem_confirmacao "$1" "a resposta do runner nao traz o contador turnosAceitosSessao (runner antigo ou resposta incompleta)"
+      fi
+      # Textos pendentes: os da fila mais o que esta sendo digitado agora (naFilaTotal). sessao.fila nao conta o item em voo.
+      fila="$(campo .data.naFilaTotal)"
+      if ! [[ "$fila" =~ ^[0-9]+$ ]]; then
+        sem_confirmacao "$1" "a resposta do runner nao traz o campo naFilaTotal (textos pendentes do card), entao nao da para ver se o pedido ja saiu da fila"
+      fi
+      # Recibo pendente: o texto ja saiu da fila, mas o runner ainda espera o recibo do Enter (o pedido pode estar so na caixa de texto).
+      recibo="$(campo_booleano .data.reciboPendente)"
+      if [ "$recibo" != true ] && [ "$recibo" != false ]; then
+        sem_confirmacao "$1" "a resposta do runner nao traz o campo reciboPendente (recibo do Enter de um texto digitado), entao nao da para ver se o pedido foi aceito pelo CLI"
+      fi
+      # Pedido retido como entrega incerta: o runner nao sabe se chegou e nunca o reenvia. Campo ausente (runner antigo): ignora.
+      retidos="$(campo .data.retidosIncertos)"
+      if [[ "$retidos" =~ ^[0-9]+$ ]] && [ "$retidos" -gt 0 ]; then
+        sem_confirmacao "$1" "o runner reteve um pedido deste card como entrega incerta"
+      fi
+      # Falha de turno conhecida: estado errored, campo de erro preenchido (inclusive em card dormindo/resumable)
+      # ou statusReason de falha. Do statusReason vale so o nome do evento (antes do primeiro espaco): o resto pode ser
+      # o nome de uma ferramenta (ex.: "hook:PreToolUse mcp__logs__error_report"), que nao e falha. Nenhuma delas conta como sucesso, mesmo que haja turno ou o status seja working.
+      erro_turno="$(campo .data.error)"; razao="$(campo .data.statusReason)"
+      if [ "$status" = errored ] || [ -n "$erro_turno" ] || printf '%s' "${razao%% *}" | grep -qiE 'falh|erro|error|sem-login|sem-chave|login-expirado|identidade-grande|StopFailure'; then
+        erro_turno="$(mensagem_local_de_erro "$razao")"
+        # Com o pedido ainda pendente (fila, item em voo ou recibo do Enter), o erro pode ser de OUTRA mensagem
+        # (ex.: uma enviada pelo painel): nao sai com 14, segue esperando e deixa o prazo decidir.
+        if [ "$turnos" != 0 ] && { [ "$fila" != 0 ] || [ "$recibo" = true ]; }; then
+          erro_visto="$erro_turno"
+        elif [ "$turnos" != 0 ]; then
+          avisar_monitor
+          CODIGO=14 die "o card $1 aceitou o pedido, mas o turno falhou e o card esta com erro: $erro_turno. Veja o que ele chegou a fazer com 'dgclaw-card ler $1' e conte ao dono o que aconteceu. Nao diga ao dono que o trabalho esta indo bem."
+        else
+          avisar_monitor
+          CODIGO=6 die "o card $1 foi criado, mas esta com erro antes de o pedido virar turno: $erro_turno. Veja 'dgclaw-card estado $1'. Nao diga ao dono que ele esta trabalhando."
+        fi
+      fi
+      # Card esperando decisao do dono sem o aceite do pedido confirmado: nao ha o que esperar no prazo, avisa ja (11).
+      if [ "$status" = waiting_input ] && { [ "$turnos" = 0 ] || [ "$fila" != 0 ] || [ "$recibo" = true ]; }; then
+        sem_confirmacao "$1" "o card esta esperando uma decisao do dono e a aceitacao do pedido ainda nao esta confirmada"
+      fi
+      # So o contador confirma o turno: working sozinho pode ser outra coisa (ex.: compactacao, hook:PreCompact).
+      # Um turno so confirma o pedido se o texto dele ja saiu da fila: o painel pode digitar uma mensagem direto no
+      # terminal (sem passar pela fila), e esse turno nao e o do pedido.
+      if [ "$turnos" != 0 ]; then
+        if [ "$fila" != 0 ]; then fila_presa=1
+        elif [ "$recibo" = true ]; then recibo_preso=1
+        else
+          case "$status" in
+            stopped|resumable)
+              sem_confirmacao "$1" "o runner viu o turno do pedido, mas o terminal do card ja esta fechado (status $status); confira com 'dgclaw-card ler $1' antes de dizer qualquer coisa ao dono" ;;
+          esac
+          if [ "$status" = waiting_input ]; then ESPERANDO_DECISAO=1; fi
+          return 0
+        fi
+      fi
+    fi
+    if [ $((SECONDS - inicio)) -ge "$2" ]; then decidir_no_prazo "$1" "$2"; fi
+    resta=$(( $2 - (SECONDS - inicio) ))
+    if [ "$resta" -lt 1 ] || [ "$(awk -v a="$passo" -v b="$resta" 'BEGIN{print (a>b)}')" = 1 ]; then passo="$resta"; fi
+    [ "$passo" != 0 ] && sleep "$passo"
+    # Passou o prazo durante a pausa: nao comeca outra consulta, decide com a ultima observacao.
+    if [ $((SECONDS - inicio)) -ge "$2" ]; then decidir_no_prazo "$1" "$2"; fi
+    passo="${DGCLAW_CARD_INTERVALO:-5}"; [ "$passo" = 5 ] && passo=1
+  done
+}
+
+avisar_monitor() { [ -z "${MON_OUT:-}" ] || erro "$MON_OUT"; }
+
+# Aviso unico de card em waiting_input: nao aponta botao nem o 'ler' como fonte (a aba Sessoes nao mostra a operacao
+# pendente e o 'ler' nao traz o bloco da pergunta de escolha). Usado pelo abrir, pelo 11 e pelo ler.
+aviso_decisao() { # $1 id
+  printf '%s' "esta esperando uma decisao do dono (uma pergunta de escolha ou uma permissao). Avise o dono agora. NAO aprove, NAO negue e NAO mande nada ao card por conta propria (um Enter pode escolher a opcao destacada ou autorizar a operacao). Nao diga ao dono para clicar em Aprovar sem que ele veja exatamente o que esta sendo pedido: o 'dgclaw-card ler $1' pode nao mostrar a pergunta nem os argumentos da ferramenta."
+}
+
+sem_confirmacao() { # $1 id ; $2 motivo
+  avisar_monitor
+  # Card em waiting_input (ex.: pediu permissao com o pedido ainda na fila): a decisao do dono nao pode esperar o aceite.
+  local decisao=""
+  [ "${ultimo_status:-}" != waiting_input ] || decisao=" Agora o card $(aviso_decisao "$1")"
+  CODIGO=11 die "nao consegui confirmar se o card $1 aceitou o pedido: $2. O card foi criado e o pedido foi entregue, mas nao sei se ele esta trabalhando. Nao reenvie ja: confira com 'dgclaw-card estado $1' e 'dgclaw-card ler $1 --n 20' antes de reenviar. Nao diga ao dono que ele esta trabalhando antes de ver isso, e nao reenvie nem feche por conta propria.$decisao"
+}
+
+# Liga o modo monitor num card que acabou de abrir (guarda a frase do monitor em MON_OUT). O dgclaw-monitor
+# mora ao lado deste script. Se falhar, o card segue aberto (o pedido ja foi entregue): avisa claro e sai com 8.
 ligar_monitor() { # $1 id ; $2 criterio ; $3 minutos|vazio
   local mon args out
   mon="$(dirname "$(readlink -f "$0")")/dgclaw-monitor"
   args=(add "$1" --entregue "$2")
   [ -z "$3" ] || args+=(--cada "$3")
+  # O id ja saiu no stdout (primeira linha) quando o card foi criado.
   if [ ! -x "$mon" ]; then
     CODIGO=8 die "o card $1 esta aberto, mas SEM monitor: nao achei o dgclaw-monitor ($mon). Avise quem mantem a imagem do agente. Quando existir, ligue com: dgclaw-monitor add $1 --entregue \"...\""
   fi
   if ! out="$("$mon" "${args[@]}" 2>&1)"; then
     CODIGO=8 die "o card $1 esta aberto e o pedido foi entregue, mas o monitor NAO ligou: ${out:-sem mensagem}. Para ligar a mao: dgclaw-monitor add $1 --entregue \"<criterio de entregue>\" [--cada MIN]"
   fi
-  echo "$out"
+  MON_OUT="$out"
 }
 
 cmd_mandar() {
@@ -244,7 +572,16 @@ cmd_mandar() {
   done
   ler_texto "$texto" "$arquivo" "texto a mandar"
   QUEM="$(provedor_do "$id")"
+  ENVIO_MANDAR=1; ID_DO_ENVIO="$id"
   enviar_texto "$id"
+  # 202 com entregaIncerta: o runner nao sabe se o texto chegou. Nao e "enviado" e nao se reenvia sozinho (duplicaria o pedido).
+  if [ "$(campo .data.entregaIncerta)" = "true" ]; then
+    # Texto FIXO, escrito aqui: nada da resposta do runner (o "aviso" dele) e repassado, para a saida nao carregar instrucao alheia.
+    echo "ATENCAO: a entrega ao card $id e INCERTA, o texto pode ou nao ter chegado."
+    echo "Nao reenvie ja. Confira com 'dgclaw-card estado $id' (se aparecer 'na fila', o pedido esta guardado e sera entregue quando o card ficar ocioso) e com 'dgclaw-card ler $id --n 20'. So reenvie se o card estiver ocioso, sem nada na fila, e o pedido nao aparecer na conversa; na duvida, pergunte ao dono."
+    # Sai com 11, como a falha de transporte: quem encadeia "mandar && esperar" nao pode seguir como se o texto tivesse chegado.
+    exit 11
+  fi
   echo "Texto enviado ao card $id. Para acompanhar: dgclaw-card esperar $id && dgclaw-card ler $id"
 }
 
@@ -259,15 +596,34 @@ provedor_do() {
 
 cmd_estado() {
   validar_id "${1:-}"
-  local id="$1" status titulo fila reason prov auth modelo
+  local id="$1" status titulo fila reason prov auth modelo turnos hook total recibo retidos razao_estado
   chamar_ou_sair GET "/api/agents/$id"
+  turnos="$(campo .data.turnosAceitosSessao)"
+  total="$(campo .data.naFilaTotal)"; recibo="$(campo_booleano .data.reciboPendente)"
   status="$(campo .data.status)"; titulo="$(campo .data.sessao.titulo)"; fila="$(campo .data.sessao.fila)"
-  reason="$(campo .data.error)"
+  reason="$(campo .data.error)"; razao_estado="$(campo .data.statusReason)"
+  retidos="$(campo .data.retidosIncertos)"
+  # Texto livre do runner nao vai para a saida: so uma mensagem local fixa.
+  if [ -n "$reason" ] || [ "$status" = errored ] || printf '%s' "${razao_estado%% *}" | grep -qiE 'falh|erro|error|sem-login|sem-chave|login-expirado|identidade-grande|StopFailure'; then
+    reason="$(mensagem_local_de_erro "$razao_estado")"
+  else
+    reason=""
+  fi
   chamar_ou_sair GET "/api/provedor?sessao=$id"
   prov="$(campo .provedor)"; auth="$(campo .auth)"; modelo="$(campo .modelo)"
   echo "$id: ${status:-desconhecido}${fila:+ (na fila: $fila)}${titulo:+ | titulo: $titulo}"
   echo "provedor: ${prov:-?} | auth: ${auth:-?} | modelo: ${modelo:-padrao}"
   [ -z "$reason" ] || echo "aviso do runner: $reason"
+  echo "textos pendentes (naFilaTotal): ${total:-?} | recibo do Enter pendente (reciboPendente): ${recibo:-?}"
+  if [[ "$retidos" =~ ^[0-9]+$ ]] && [ "$retidos" -gt 0 ]; then
+    echo "ATENCAO: o runner reteve $retidos pedido(s) deste card como entrega incerta (retidosIncertos). Nao reenvie nem feche sem conferir com o dono."
+  fi
+  if [ "$turnos" != 0 ] && { ! [[ "$total" =~ ^[0-9]+$ ]] || [ "$total" != 0 ] || [ "$recibo" != false ]; }; then
+    echo "a aceitacao do ultimo pedido ainda nao esta confirmada (ha texto pendente ou o runner nao informou); nao diga ao dono que a nova tarefa comecou"
+  fi
+  if [ "$turnos" = 0 ]; then
+    echo "primeiro turno ainda nao observado pelo runner (isso nao prova que o card esteja parado); confira com 'dgclaw-card ler $id'"
+  fi
 }
 
 cmd_esperar() {
@@ -287,7 +643,7 @@ cmd_esperar() {
     case "$status" in
       working) visto=1; seguidas=0 ;;
       errored)
-        CODIGO=6 die "o card $id parou com erro: $(campo .data.error). Veja 'dgclaw-card estado $id'; se for falta de login, peca ao dono para conectar o provedor no painel." ;;
+        CODIGO=6 die "o card $id parou com erro: $(mensagem_local_de_erro "$(campo .data.statusReason)"). Veja 'dgclaw-card estado $id'; se for falta de login, peca ao dono para conectar o provedor no painel." ;;
       idle|completed|resumable|stopped)
         if [ "$fila" = "0" ]; then
           # Fim do turno: o Stop do Claude/Codex vira "idle" no runner. Voltar a idle depois de ter
@@ -305,7 +661,7 @@ cmd_esperar() {
       *) seguidas=0 ;;
     esac
     if [ $((SECONDS - inicio)) -ge "$max" ]; then
-      CODIGO=7 die "passaram $max segundos e o card $id ainda nao terminou: ele segue trabalhando. Espere mais com 'dgclaw-card esperar $id --max <segundos>', ou leia o que ja existe com 'dgclaw-card ler $id'."
+      CODIGO=7 die "passaram $max segundos e o card $id nao terminou o turno nesse prazo. Espere mais com 'dgclaw-card esperar $id --max <segundos>', ou leia o que ja existe com 'dgclaw-card ler $id'."
     fi
     sleep "$passo"
   done
@@ -324,10 +680,39 @@ cmd_ler() {
   chamar_ou_sair GET "/api/agents/$id/conversation?limit=$n"
   # Resposta sem JSON conta como conversa vazia; ler de novo mostra o conteudo quando o runner voltar ao normal.
   if [ "$(printf '%s' "$RESP" | jq '.data | length' 2>/dev/null || echo 0)" = "0" ]; then
-    echo "O card $id ainda nao tem mensagens. Se acabou de ser aberto, espere com: dgclaw-card esperar $id"
+    explicar_conversa_vazia "$id"
     return 0
   fi
   printf '%s' "$RESP" | jq -r '.data[] | (if .role == "assistant" then "[resposta]" else "[pedido]" end) + "\n" + .text + "\n"'
+}
+
+# Diz por que a conversa do card esta vazia, pelo estado dele, em vez de so "sem mensagens".
+explicar_conversa_vazia() { # $1 id
+  local id="$1" status fila turnos total
+  if chamar GET "/api/agents/$id" && [[ "$HTTP" == 2* ]]; then
+    status="$(campo .data.status)"; fila="$(campo .data.sessao.fila)"; fila="${fila:-0}"; turnos="$(campo .data.turnosAceitosSessao)"; total="$(campo .data.naFilaTotal)"; total="${total:-$fila}"
+    if [ "$status" = waiting_input ]; then
+      echo "O card $id ainda nao tem mensagens para mostrar e $(aviso_decisao "$id")"
+    elif [ "$fila" != 0 ] && { [ "$status" = stopped ] || [ "$status" = resumable ]; }; then
+      echo "O card $id ainda nao tem mensagens: ha um pedido guardado na fila ($fila), mas a sessao esta sem terminal aberto. Retomar no painel (aba Sessoes) processa o pedido, sem reenviar o texto."
+    elif [ "$fila" != 0 ]; then
+      echo "O card $id ainda nao tem mensagens: ha texto na fila ($fila) e o runner ainda nao observou o primeiro turno (isso nao prova que esteja parado). Confira 'dgclaw-card estado $id' e leia de novo com 'dgclaw-card ler $id' mais tarde, sem reenviar por conta propria."
+    elif [ "$total" = 0 ] && { [ "$status" = stopped ] || { [ "$status" = resumable ] && [ "$turnos" = 0 ]; }; }; then
+      echo "O card $id ainda nao tem mensagens: nao ha terminal aberto e nao ha texto pendente na fila, entao nada vai comecar sozinho. Confira com o agente ou com o resultado esperado antes de reenviar. Para continuar, use Retomar no painel (aba Sessoes) ou 'dgclaw-card mandar $id \"...\"'."
+    elif [ "$status" = resumable ]; then
+      echo "O card $id ainda nao tem mensagens: a sessao esta dormindo (sem terminal aberto). Ela acorda quando voce manda um recado: dgclaw-card mandar $id \"...\""
+    elif [ "$turnos" = 0 ]; then
+      echo "O card $id ainda nao tem mensagens: o runner ainda nao observou o primeiro turno (estado $status). Isso nao prova que o card esteja parado: o pedido pode ainda comecar. Confira 'dgclaw-card estado $id' e leia de novo com 'dgclaw-card ler $id' mais tarde, e nao reenvie por conta propria."
+    elif [ "$status" = waiting_input ]; then
+      echo "O card $id ainda nao tem mensagens para mostrar e $(aviso_decisao "$id")"
+    elif [ "$status" = working ]; then
+      echo "O card $id esta com o terminal ativo e a conversa ainda nao gravou nada. Espere com: dgclaw-card esperar $id"
+    else
+      echo "O card $id ainda nao tem mensagens para mostrar (estado $status). Se acabou de ser aberto, espere com: dgclaw-card esperar $id"
+    fi
+  else
+    echo "O card $id ainda nao tem mensagens, e nao consegui ler o estado dele. Se acabou de ser aberto, espere com: dgclaw-card esperar $id"
+  fi
 }
 
 cmd_listar() {
@@ -346,8 +731,53 @@ cmd_listar() {
 
 cmd_fechar() {
   validar_id "${1:-}"
-  chamar_ou_sair DELETE "/api/sessoes/$1"
-  echo "Card $1 fechado. A conversa dele continua guardada no disco."
+  local id="$1" forcar=0 turnos fila
+  shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --forcar) forcar=1; shift ;;
+      *) die "opcao desconhecida em 'fechar': '$1'. Use --forcar." ;;
+    esac
+  done
+  # Card que nunca teve turno (turnosAceitosSessao igual a 0) ainda tem o pedido guardado so na fila ou na caixa
+  # de texto: fechar agora o joga fora. Se a leitura do estado falhar, nao da para saber: recusa tambem (13).
+  if [ "$forcar" = 0 ]; then
+    local motivo=""
+    if ! chamar GET "/api/agents/$id"; then
+      motivo="o runner nao respondeu a consulta do estado do card"
+    elif [ "$HTTP" != 200 ]; then
+      motivo="a consulta do estado do card voltou HTTP $HTTP"
+    else
+      turnos="$(campo .data.turnosAceitosSessao)"
+      if ! [[ "$turnos" =~ ^[0-9]+$ ]]; then
+        motivo="a resposta do runner nao traz o contador turnosAceitosSessao"
+      elif [ "$turnos" = 0 ]; then
+        motivo="o runner atual ainda nao observou um turno nesta conversa (pode haver respostas de antes de o runner reiniciar)"
+      else
+        fila="$(campo .data.naFilaTotal)"
+        if ! [[ "$fila" =~ ^[0-9]+$ ]]; then
+          motivo="a resposta do runner nao traz o campo naFilaTotal (textos pendentes do card)"
+        elif [ "$fila" != 0 ]; then
+          motivo="ainda ha $fila texto(s) pendente(s) no card (na fila ou sendo digitado), que seriam descartados"
+        else
+          recibo="$(campo_booleano .data.reciboPendente)"
+          retidos="$(campo .data.retidosIncertos)"
+          if [[ "$retidos" =~ ^[0-9]+$ ]] && [ "$retidos" -gt 0 ]; then
+            motivo="ha $retidos pedido(s) retido(s) como entrega incerta, que seriam descartados; so feche com --forcar depois de conferir com o dono"
+          elif [ "$recibo" = true ]; then
+            motivo="o runner ainda espera o recibo de um texto digitado, que seria descartado"
+          elif [ "$recibo" != false ]; then
+            motivo="a resposta do runner nao traz o campo reciboPendente (recibo do Enter de um texto digitado)"
+          fi
+        fi
+      fi
+    fi
+    if [ -n "$motivo" ]; then
+      CODIGO=13 die "nao posso fechar o card $id: $motivo. Fechar agora pode jogar o pedido fora. Em vez de fechar, confira com 'dgclaw-card estado $id' e 'dgclaw-card ler $id' e conte ao dono o que aconteceu. Se for fechar mesmo assim, repita com: dgclaw-card fechar $id --forcar"
+    fi
+  fi
+  chamar_ou_sair DELETE "/api/sessoes/$id"
+  echo "Card $id fechado. A conversa dele continua guardada no disco."
 }
 
 cmd_ajuda() {

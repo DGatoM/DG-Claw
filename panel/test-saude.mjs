@@ -218,6 +218,38 @@ ok(path.resolve(chamadas[0].cwd) !== path.resolve(WS), 'o cwd NÃO é a casa do 
 ok(!chamadas[0].env.includes('DGCLAW_PANEL_PASSWORD'), 'a senha do painel não entra no ambiente do socorro');
 ok(fs.readdirSync(path.join(WS, '.dgclaw', 'socorro')).some((f) => f.endsWith('.jsonl')), 'o histórico fica em .dgclaw/socorro/<data>.jsonl');
 
+// Confiança de pasta (Claude Code 2.1.326): o cwd (a sala) e o --add-dir (a casa) ficam marcados antes do spawn.
+{
+  const cj = JSON.parse(fs.readFileSync(path.join(HOME, '.claude.json'), 'utf8'));
+  ok(cj.projects?.[WS]?.hasTrustDialogAccepted === true, 'socorro: a casa do agente (--add-dir) fica marcada como confiável');
+  ok(cj.projects?.[path.join(WS, '.dgclaw', 'socorro', 'sala')]?.hasTrustDialogAccepted === true, 'socorro: a sala (cwd) fica marcada como confiável');
+  const { confiarNasPastas } = require('./lib/socorro');
+  const LIBDIR = path.resolve('..', 'scripts', '_lib');
+  const arq = path.join(RAIZ, 'trust-unit', '.claude.json');
+  fs.mkdirSync(path.dirname(arq), { recursive: true });
+  fs.writeFileSync(arq, JSON.stringify({ numStartups: 4, projects: { '/ja': { hasTrustDialogAccepted: true, x: 1 }, '/c': { allowed: [1] } } }), { mode: 0o640 });
+  fs.chmodSync(arq, 0o640);
+  ok(confiarNasPastas(LIBDIR, arq, ['/c', '/a', '/ja']) === null, 'confiança: o helper roda e não devolve motivo');
+  const o = JSON.parse(fs.readFileSync(arq, 'utf8'));
+  ok(o.numStartups === 4 && o.projects['/ja'].x === 1 && o.projects['/c'].allowed[0] === 1 && o.projects['/a'].hasTrustDialogAccepted === true && o.projects['/c'].hasTrustDialogAccepted === true, 'confiança: preserva chave alheia e o que já existia');
+  ok((fs.statSync(arq).mode & 0o777) === 0o640, 'confiança: preserva o modo do arquivo');
+  ok(fs.readdirSync(path.dirname(arq)).sort().join() === '.claude.json,.claude.json.dgclaw-trava', 'confiança: nenhum temporário sobra');
+  fs.writeFileSync(arq, '{"mcpServers":{"x":{"env":{"TOKEN": SEGREDO_FICTICIO_123456}}}}');
+  const motivo = confiarNasPastas(LIBDIR, arq, ['/c']);
+  ok(motivo && !/SEGREDO/.test(motivo) && /NAO foi alterado/.test(motivo), 'confiança: JSON inválido devolve motivo sem trecho do arquivo');
+  ok(fs.readFileSync(arq, 'utf8').includes('SEGREDO_FICTICIO_123456'), 'confiança: JSON inválido NÃO é apagado nem reescrito');
+  fs.writeFileSync(arq, '{}');
+  const marca = path.join(RAIZ, 'trust-unit-presa');
+  const { spawn: spawnDono } = require('child_process');
+  const dono = spawnDono('python3', ['-I', '-c', 'import fcntl,os,sys,time; fd=os.open(sys.argv[1], os.O_RDWR|os.O_CREAT); fcntl.flock(fd, fcntl.LOCK_EX); open(sys.argv[2],"w").close(); time.sleep(30)', `${arq}.dgclaw-trava`, marca], { stdio: 'ignore' });
+  for (let i = 0; i < 50 && !fs.existsSync(marca); i++) await new Promise((r) => setTimeout(r, 100));
+  const ocupada = confiarNasPastas(LIBDIR, arq, ['/c']);
+  ok(ocupada && /ocupada/.test(ocupada) && fs.readFileSync(arq, 'utf8') === '{}', 'confiança: com a trava presa por outro escritor, desiste e não grava');
+  dono.kill('SIGKILL');
+  await new Promise((r) => dono.on('exit', r));
+  ok(confiarNasPastas(LIBDIR, arq, ['/c']) === null, 'confiança: morto o dono, o sistema solta a trava');
+}
+
 r = await chamar('POST', '/api/socorro/mensagem', { body: { texto: 'sim, pode' } });
 for (let i = 0; i < 40; i++) {
   est = (await chamar('GET', '/api/socorro/estado')).corpo;

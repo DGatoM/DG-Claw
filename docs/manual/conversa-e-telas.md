@@ -62,6 +62,13 @@ Mais em [../../web/docs/ESTADO-DOS-AGENTES.md](../../web/docs/ESTADO-DOS-AGENTES
 **Limites.** Isso depende do motor: no Claude funciona; no Codex o pedido de permissão e a pergunta de escolha ainda não funcionam (veja [provedores.md](provedores.md)).
 **Se der erro.** Cartão que não aparece: o selo "precisa de você" no menu mostra que o agente está esperando. Mais em [../../web/docs/TRILHA-E-PERMISSAO.md](../../web/docs/TRILHA-E-PERMISSAO.md).
 
+### Parar o agente
+
+**O que é.** Quando o agente está trabalhando, a faixa "está trabalhando" ganha o botão **Parar**. Ele manda um Esc, o mesmo que apertar Esc no terminal: se ele estava no meio de um turno, o turno costuma parar em instantes (um comando que estava rodando pode continuar executando, e no Codex isso vale até para o que estava em primeiro plano; confira antes de mexer nos mesmos arquivos), sem reiniciar o agente e sem perder a conversa. Não pede confirmação.
+**Precisa de.** Ser o dono. O colaborador não tem o botão.
+**Limites.** Um comando que o agente deixou rodando em segundo plano pode continuar. Com o agente esperando uma permissão ou pergunta, o Parar não vale: responda no cartão. Entre um toque e outro é preciso esperar 3 segundos, porque dois Esc colados travam a sessão. Funciona no Claude e no Codex.
+**Se der erro.** A tela mostra o motivo. Se disser que o agente não tem sessão aberta, não há o que parar. Se disser que o serviço do agente é antigo, peça ao Admin para atualizar. Mais em [../../web/docs/PARAR.md](../../web/docs/PARAR.md).
+
 ### Mídias, links e arquivos (Compartilhados)
 
 **O que é.** Tocar na foto ou no nome do agente abre a lista de tudo o que foi trocado na conversa, em abas de mídias, links e arquivos.
@@ -182,6 +189,7 @@ Cada agente tem um painel em `/p/<slug>/` com abas. O colaborador convidado vê 
 | `aba:personality` | Os números que regulam o jeito dele e as metas | [agentes.md](agentes.md) |
 | `aba:apps` | O que o agente produziu sozinho, etapa por etapa | [../../panel/docs/ABA-APPS.md](../../panel/docs/ABA-APPS.md) |
 | `aba:skills` | Lista das skills do agente e onde cada uma fica | [agentes.md](agentes.md) |
+| `aba:integracoes` | O mapa dos sistemas externos em que o agente está ligado, com a cor do uso real de cada um | [../../panel/docs/INTEGRACOES.md](../../panel/docs/INTEGRACOES.md) |
 | `aba:rotinas` | Os compromissos que o agente marcou a pedido do dono | [memoria-e-rotinas.md](memoria-e-rotinas.md) |
 | `aba:arquivos` | A pasta do agente (aba Pasta): ver, baixar e enviar arquivos | [../../panel/docs/PASTA-E-ASSETS.md](../../panel/docs/PASTA-E-ASSETS.md) |
 | `aba:tela` | O navegador do agente, para o dono fazer logins | [agentes.md](agentes.md) |

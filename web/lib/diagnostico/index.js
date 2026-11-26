@@ -16,6 +16,7 @@ const { sanearOcorrencias } = require('./classificar');
 const { tarefasDaMaquina } = require('./maquina');
 const { tarefaDeVersao } = require('./versao');
 const { tarefasDoAgente } = require('./agente');
+const { testarYoutube, criarEstadoYoutube } = require('./youtube');
 const { analisaLogin, analisaSessao } = require('./sessao');
 const U = require('./util');
 
@@ -27,6 +28,8 @@ const PRAZO_COLETA_MS = 12000;     // a coleta inteira
 const GRACA_MS = 3000;             // depois do prazo da coleta, quanto esperar o que ficou pendente antes de liberar
 const IDADE_MAXIMA_CACHE_MS = 120000; // além disso o último resultado não é devolvido no lugar de uma coleta nova
 const SCHEMA = 1;
+const INTERVALO_YOUTUBE_MS = 6 * 3600 * 1000;
+const PRIMEIRA_RODADA_YOUTUBE_MS = 2 * 60 * 1000; // o painel acabou de subir: dá tempo de os containers subirem
 const GRAVIDADE = { ok: 0, nao_medido: 1, atencao: 2, quebrado: 3 };
 
 function criarDiagnostico(deps) {
@@ -49,6 +52,8 @@ function criarDiagnostico(deps) {
   const ctx = {
     config, runner: runnerComPrazo, log,
     exec: U.comPrazo(deps.exec || U.execPadrao, () => prazoAtual.getStore()),
+    // Para o que não cabe no prazo de uma verificação (o teste do YouTube roda em segundo plano): sem o cancelamento da coleta.
+    execSolto: deps.exec || U.execPadrao,
     lerArquivo: deps.lerArquivo || lerSeguro,
     agora: deps.agora || (() => Date.now()),
     statfs: deps.statfs || ((p) => fs.promises.statfs(p)),
@@ -272,7 +277,49 @@ function criarDiagnostico(deps) {
     }
   }
 
-  return { responder, coletar };
+  /** Espera os testes em segundo plano (o do YouTube) que ainda estiverem rodando. Usado pelos testes. */
+  const aguardarSegundoPlano = () => Promise.all(ctx.youtube ? [...ctx.youtube.andando.values()] : []);
+
+  /**
+   * Vigia periódico do YouTube: testa o download de cada agente. É o único que dispara o teste: a tela de diagnóstico só lê o último resultado.
+   */
+  function vigiarYoutube({ intervaloMs, primeiraMs } = {}) {
+    let timer = null;
+    let primeira = null;
+    let emCurso = false;
+
+    async function rodada() {
+      if (emCurso) return;
+      emCurso = true;
+      try {
+        const reg = registro.estado();
+        if (!reg.ok) return;
+        if (!ctx.youtube) ctx.youtube = criarEstadoYoutube(ctx);
+        const agentes = reg.agentes.filter((ag) => ag.tipo !== 'admin' && ag.container && U.RX_NOME_SEGURO.test(ag.slug));
+        for (const ag of agentes) {
+          try { await testarYoutube(ctx, ag); } catch (e) {
+            log('erro', `Vigia do YouTube: falha inesperada ao testar ${ag.nome} (${e.message}). Os outros agentes seguem sendo testados.`);
+          }
+        }
+      } finally { emCurso = false; }
+    }
+
+    function iniciar() {
+      if (timer) return;
+      const roda = () => { rodada().catch((e) => log('erro', `Vigia do YouTube: ${e.message}`)); };
+      primeira = setTimeout(roda, primeiraMs === undefined ? PRIMEIRA_RODADA_YOUTUBE_MS : primeiraMs);
+      primeira.unref();
+      timer = setInterval(roda, intervaloMs || INTERVALO_YOUTUBE_MS);
+      timer.unref();
+    }
+    function parar() {
+      if (primeira) { clearTimeout(primeira); primeira = null; }
+      if (timer) { clearInterval(timer); timer = null; }
+    }
+    return { iniciar, parar, rodada };
+  }
+
+  return { responder, coletar, aguardarSegundoPlano, vigiarYoutube };
 }
 
 module.exports = { criarDiagnostico, BASE };

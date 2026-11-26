@@ -335,6 +335,18 @@ test('saude.json: o campo "trecho" (texto de conversa) nunca sai', async () => {
   m.casa.limpa();
 });
 
+test('saude.json com tipo fila_parada: frase fixa em português para o dono', async () => {
+  const m = montar({ ajusta: (casa) => fs.writeFileSync(path.join(casa.home, '.dgclaw', 'logs', 'saude.json'), JSON.stringify({ estado: 'atencao', tipo: 'fila_parada', so_observou: true, frase: 'texto livre do vigia', desde: new Date(AGORA - H).toISOString(), verificadoEm: new Date(AGORA - 60000).toISOString() })) });
+  const r = await m.diag.coletar();
+  const s = achar(r, 'agente.tina.saude_resposta');
+  assert.equal(s.estado, 'atencao');
+  assert.match(s.motivo, /mensagens esperando na fila/);
+  assert.match(s.motivo, /botão Reiniciar/);
+  assert.ok(!/avisou/.test(s.motivo), 'a frase não afirma que o aviso foi entregue');
+  assert.ok(!JSON.stringify(r).includes('texto livre do vigia'));
+  m.casa.limpa();
+});
+
 test('saude.json que é link para fora da casa: sem medida e o conteúdo não vaza', async () => {
   const m = montar({
     ajusta: (casa) => {
@@ -507,14 +519,16 @@ test('responder: cache de 20 s compartilhado entre pedidos simultâneos', async 
     return res;
   };
   await Promise.all([chamar(), chamar(), chamar()]);
-  const depoisDoPrimeiro = m.chamadas.length;
+  // O teste do YouTube tem cadência própria (uma vez por dia): fica fora desta contagem.
+  const contar = () => m.chamadas.filter((c) => !c.includes('sh')).length;
+  const depoisDoPrimeiro = contar();
   assert.ok(depoisDoPrimeiro > 0);
   agora += 10000;
   await chamar();
-  assert.equal(m.chamadas.length, depoisDoPrimeiro, 'dentro de 20 s usa o cache, e os três pedidos simultâneos dividiram uma coleta');
+  assert.equal(contar(), depoisDoPrimeiro, 'dentro de 20 s usa o cache, e os três pedidos simultâneos dividiram uma coleta');
   agora += 11000;
   await chamar();
-  assert.equal(m.chamadas.length, depoisDoPrimeiro * 2, 'passados 20 s coleta de novo');
+  assert.equal(contar(), depoisDoPrimeiro * 2, 'passados 20 s coleta de novo');
   m.casa.limpa();
 });
 

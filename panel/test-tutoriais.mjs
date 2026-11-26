@@ -60,7 +60,7 @@ console.log('\nOs passos de cada aba');
 // 'pulso' saiu em 01/10/2026: a aba foi fundida na Operações. 'como' (Como
 // funciona) entrou no lugar.
 const ABAS = ['conversa', 'status', 'identity', 'personality', 'memory', 'costs',
-  'operations', 'como', 'posts', 'followers', 'reunioes', 'skills', 'rotinas'];
+  'operations', 'como', 'posts', 'followers', 'reunioes', 'skills', 'integracoes', 'rotinas'];
 for (const aba of ABAS) {
   const passos = passosDa(aba);
   ok(Array.isArray(passos) && passos.length > 0, `${aba} tem tutorial`);

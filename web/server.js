@@ -49,6 +49,7 @@ const { criarPedidos } = require('./lib/pedidos');
 const { criarManual } = require('./lib/manual');
 const { criarAvisos } = require('./lib/avisos');
 const { criarAtualizacao } = require('./lib/atualizacao');
+const { criarIntegracoesVigia } = require('./lib/integracoes-vigia');
 const { criarSeguranca } = require('./lib/seguranca');
 const { criarLogsRotas, autorizado: logsAutorizado } = require('./lib/logs-rotas');
 const { criarRondaPainel } = require('./lib/ronda-painel');
@@ -236,6 +237,8 @@ function criarServidor(opcoes) {
   // /api/v1/estados NÃO entra na caixa: ela só atende agentes de trabalho, e um agente não tem por que
   // enxergar o estado (nem o nome) dos vizinhos. O Admin, no host, lê os documentos e a tela.
   const atualizacao = criarAtualizacao({ dataDir: config.dataDir, log });
+  // Integrações com defeito: só o dono, pelo painel (fora de caixa.permitir de propósito: agente não chama estas rotas).
+  const integracoesVigia = criarIntegracoesVigia({ dataDir: config.dataDir, registro, runner, log, agora: opcoes.agora, leitura: opcoes.leituraIntegracoes, catalogoArquivo: opcoes.catalogoIntegracoes, intervaloMs: opcoes.integracoesIntervaloMs, filtro: filtroAnon });
   // Aviso de segurança: só o dono, pelo painel (mesma regra da faixa de versão), por isso também fora de caixa.permitir.
   const seguranca = criarSeguranca({ dataDir: config.dataDir, log, agora: opcoes.agora });
   // Ronda de fábrica e botão de emergência: também só do dono (fora de caixa.permitir). O Web só grava pedidos; o root executa.
@@ -247,6 +250,7 @@ function criarServidor(opcoes) {
   // Chave de suporte: lê só o diagnóstico (ver docs/interno/PLANO-DIAGNOSTICO-REMOTO.md).
   const chavesApi = criarChavesApi({ config, log, agora: opcoes.agora });
   const diagnostico = opcoes.diagnostico || montaDiagnostico({ config, registro, runner, log, agora: opcoes.agora });
+  const vigiaYoutube = diagnostico.vigiarYoutube ? diagnostico.vigiarYoutube({ intervaloMs: opcoes.youtubeIntervaloMs, primeiraMs: opcoes.youtubePrimeiraMs }) : null;
 
   let versaoJsCache = { ts: 0, valor: '0' };
   /** Versão da tela: mtime de conversa.js. A tela compara com a que carregou e se recarrega sozinha. */
@@ -592,6 +596,8 @@ function criarServidor(opcoes) {
 
     if ((p === '/api/v1/atualizacao' || p.startsWith('/api/v1/atualizacao/')) && await atualizacao.rotas(req, res, url, sessao)) return undefined;
 
+    if ((p === '/api/v1/integracoes' || p.startsWith('/api/v1/integracoes/')) && await integracoesVigia.rotas(req, res, url, sessao)) return undefined;
+
     if (p.startsWith('/api/v1/seguranca/') && await rondaPainel.rotas(req, res, url, sessao)) return undefined;
 
     if ((p === '/api/v1/seguranca' || p.startsWith('/api/v1/seguranca/')) && await seguranca.rotas(req, res, url, sessao)) return undefined;
@@ -831,6 +837,11 @@ function criarServidor(opcoes) {
       return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'TRILHA-E-PERMISSAO.md'), 'utf8'));
     }
 
+    if (p === '/api/v1/parar/docs.md' && m === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(fs.readFileSync(path.join(__dirname, 'docs', 'PARAR.md'), 'utf8'));
+    }
+
     let mm = /^\/api\/v1\/agents\/([^/]+)(?:\/([a-z-]+))?$/.exec(p);
     if (mm) {
       if (falhaDoRegistro(req, res, true)) return undefined;
@@ -887,6 +898,19 @@ function criarServidor(opcoes) {
         const r = await conversa.reiniciar(agente);
         return H.enviaJson(res, r.status, r.corpo);
       }
+      if (acao === 'parar' && m === 'POST') {
+        // O corpo não é usado: o runner recebe um Esc fixo. Só se lê (com limite pequeno) para validar o JSON e drenar.
+        try { await H.lerJson(req, 1024); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
+        const quem = sessao.papel === 'colaborador' ? `colaborador:${sessao.colaborador_id} (${sessao.usuario})` : 'dono';
+        // Só o dono para o agente: a autoria por turno não enxerga o que veio por Telegram ou canal.
+        if (sessao.papel === 'colaborador') {
+          log('aviso', `Parar ${agente.slug}: ${quem} barrado, só o dono pode parar.`);
+          return H.erroJson(res, 403, 'Só o dono do DG Claw pode parar o agente.', { codigo: 'SO_O_DONO' });
+        }
+        if (!sessaoAindaVale(req, sessao)) return recusaSessaoVelha(res, sessao);
+        const r = await conversa.parar(agente, quem);
+        return H.enviaJson(res, r.status, r.corpo);
+      }
       if (acao === 'lido' && m === 'POST') {
         let corpo;
         try { corpo = await H.lerJson(req, 1024); } catch (e) { return H.erroJson(res, e.status || 400, e.message); }
@@ -914,7 +938,7 @@ function criarServidor(opcoes) {
       if (acao === 'upload' && m === 'POST') return upload(req, res, agente, sessao);
       if (acao === 'comandos' && m === 'GET') return H.enviaJson(res, 200, Object.assign({ ok: true, agente: agente.slug }, await comandos.catalogo(agente)));
       if (acao === 'comando' && m === 'POST') return comandoPost(req, res, agente, sessao);
-      return H.erroJson(res, ['messages', 'stream', 'wait', 'send', 'upload', 'permissao', 'pergunta', 'reiniciar', 'lido', 'nao-lido', 'vendo', 'comandos', 'comando', ''].includes(acao) ? 405 : 404, `Não existe ${m} ${p}.`);
+      return H.erroJson(res, ['messages', 'stream', 'wait', 'send', 'upload', 'permissao', 'pergunta', 'reiniciar', 'parar', 'lido', 'nao-lido', 'vendo', 'comandos', 'comando', ''].includes(acao) ? 405 : 404, `Não existe ${m} ${p}.`);
     }
 
     mm = /^\/api\/v1\/media\/([0-9a-f]{16})\/visual$/.exec(p);
@@ -956,6 +980,7 @@ function criarServidor(opcoes) {
   async function atividadePara(sessao, agente, ativ) {
     if (!ehColab(sessao)) return ativ;
     const copia = Object.assign({}, ativ);
+    delete copia.na_fila;   // o colaborador não vê a fila de mensagens do dono
     vinculaPendencia(agente.slug, sessao, ativ);
     const id = (ativ.permissao && ativ.permissao.id) || (ativ.pergunta && ativ.pergunta.id) || null;
     if (!(await pendenciaEhDele(agente, sessao, id))) { delete copia.permissao; delete copia.pergunta; copia.detalhe = null; }
@@ -1791,7 +1816,7 @@ function criarServidor(opcoes) {
   }
 
   return {
-    servidor, servidorAdmin, caminhoSocketAdmin, config, registro, auth, colaboradores, cadeado, contaColab, proxy, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, chavesApi, diagnostico, estados, vigiaAtencao, prefsAtencao,
+    servidor, servidorAdmin, caminhoSocketAdmin, config, registro, auth, colaboradores, cadeado, contaColab, proxy, midia, conversa, anonimizar, filtroAnon, log, caixa, push, lembretes, avisos, chavesApi, diagnostico, estados, vigiaAtencao, prefsAtencao, integracoesVigia,
     ouvir(porta, host) {
       return new Promise((resolve, reject) => {
         servidor.once('error', reject);
@@ -1801,12 +1826,14 @@ function criarServidor(opcoes) {
           lembretes.iniciar();
           avisos.iniciar();
           vigiaAtencao.iniciar();
+          integracoesVigia.iniciar();
+          if (vigiaYoutube) vigiaYoutube.iniciar();
           if (opcoes.semSocketAdmin) return resolve(servidor.address());
           return abreSocketAdmin().then(() => resolve(servidor.address()));
         });
       });
     },
-    fechar() { return cadeado.aguardar().catch(() => {}).then(() => new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidorAdmin.closeAllConnections(); servidorAdmin.close(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); })); },
+    fechar() { return cadeado.aguardar().catch(() => {}).then(() => new Promise((resolve) => { caixa.parar(); lembretes.parar(); avisos.parar(); vigiaAtencao.parar(); integracoesVigia.parar(); if (vigiaYoutube) vigiaYoutube.parar(); proxy.fecharTudo(); anonimizar.encerrar(); servidorAdmin.closeAllConnections(); servidorAdmin.close(); servidor.closeAllConnections && servidor.closeAllConnections(); servidor.close(() => resolve()); })); },
   };
 }
 

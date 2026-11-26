@@ -153,7 +153,9 @@ _WA_TOOL_ARQUIVO = "__whatsapp_send_file"
 # O canal do WhatsApp: <canal-externo origem="whatsapp" de=".." msg=".." ts="..">corpo escapado</canal-externo>
 _EXTERNO_OPEN = re.compile(r'^<canal-externo\b([^>]*)>')
 _EXTERNO_ATTR = re.compile(r'\b(origem|de|msg|ts)="([^"]*)"')
-_EXTERNO_CLOSE = re.compile(r'</canal-externo>\s*$')
+# O aviso de atraso que o runner acrescenta DEPOIS do fechamento (fila.ts) e do runner, nao do dono. O corpo vem escapado, entao
+# nenhuma tag real pode vir de quem escreve; fora do formato exato, nada e cortado.
+_EXTERNO_CLOSE = re.compile(r'</canal-externo>(?:\n\n\[Aviso do sistema: a mensagem acima [^\]<>]*\])?\s*$')
 
 # Recado do SISTEMA que chega como user turn e nao e nem dono nem instrucao nossa.
 _RETORNO_DO_SISTEMA = re.compile(

@@ -8,6 +8,7 @@ const { classificar, total } = require('./classificar');
 const { lerJsonSeguro } = require('./arquivos');
 const { analisaLogin, analisaSessao } = require('./sessao');
 const { conferirRotinas } = require('./cron');
+const { tarefaYoutube } = require('./youtube');
 const U = require('./util');
 
 const { R, conserta } = U;
@@ -43,6 +44,7 @@ const FRASES_SAUDE = {
   sem_resposta: ['A sessão recebeu mensagens e não respondeu.', 'reiniciar a sessão'],
   erro_api: ['A API do Claude devolveu erro para a sessão.', 'reiniciar a sessão se persistir'],
   sessao_caida: ['A sessão do Claude caiu.', 'reiniciar a sessão'],
+  fila_parada: ['Há mensagens esperando na fila e o agente não está andando. O DG Claw não reinicia sozinho nesse caso; se ele não responder, use o botão Reiniciar.', 'reiniciar a sessão se ele não responder'],
 };
 
 function tarefasDoAgente(ctx, ag) {
@@ -286,6 +288,9 @@ function tarefasDoAgente(ctx, ag) {
     },
   };
 
+  // ── download do YouTube ─────────────────────────────────────────────────
+  const youtube = tarefaYoutube(ctx, ag, container);
+
   // ── memória ─────────────────────────────────────────────────────────────
   const injecao = {
     sufixo: 'memoria.injecao', nome: `Memória entrando na conversa - ${nome}`,
@@ -371,7 +376,7 @@ function tarefasDoAgente(ctx, ag) {
     },
   };
 
-  return [container, sessao, login, saudeResposta, painel, telegram, whatsapp, rotinas, injecao, workingMemory, compactacao];
+  return [container, sessao, login, saudeResposta, painel, telegram, whatsapp, rotinas, injecao, workingMemory, compactacao, youtube];
 }
 
 module.exports = { tarefasDoAgente };

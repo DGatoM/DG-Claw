@@ -243,6 +243,7 @@ Se o commit de antes não estiver no clone, o comando avisa no começo que não 
 como se essa opção estivesse ligada.
 
 Veja também `docs/BACKUP.md` para os backups manuais (`dgclaw backup`) e a restauração (`dgclaw restaurar`).
+Quem mantém o repositório e lança as versões segue `docs/RELEASE.md`.
 
 ## Ler o que muda antes de instalar
 

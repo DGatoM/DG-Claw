@@ -51,6 +51,7 @@ mudar nada. Quem: Root. Detalhe geral em [ATUALIZAR.md](../ATUALIZAR.md) e no `d
 | `dgclaw agente cofre` | Guarda, revoga, lista ou aplica chaves de API do agente (`guardar`, `revogar`, `listar`, `aplicar`). O valor vem sempre pelo STDIN | [COFRE-POR-API.md](../COFRE-POR-API.md) |
 | `dgclaw agente tela` | Confere a Tela do agente e diz, linha a linha, o que falta | [TELA-DO-AGENTE.md](../TELA-DO-AGENTE.md) |
 | `dgclaw agente tela-senha` | Troca a senha da Tela (6 a 8 caracteres ASCII, pelo STDIN) | [TELA-DO-AGENTE.md](../TELA-DO-AGENTE.md) |
+| `dgclaw agente youtube` | Liga ou desliga o uso dos cookies da Tela pelo `yt-dlp` do agente (`conta-dedicada sim\|nao`, padrão desligado; só com conta Google dedicada ao agente) | [CHANGELOG.md](../../CHANGELOG.md) |
 | `dgclaw agente restricoes` | Mostra ou muda as travas do agente (`--sem-bash`, `--sem-enviar-arquivo`, `--escrita-so-em` ou `--escrita-livre`). Ficam fora da caixa e voltam sozinhas ao criar, reparar, recriar e atualizar. Não vale para o Admin nem, nesta versão, para agentes no Codex | [RESTRICOES-DO-AGENTE.md](../RESTRICOES-DO-AGENTE.md) |
 | `dgclaw agente remover` | Tira o agente do ar sem apagar: a casa vai para `/var/lib/dgclaw/aposentados/`. Pede confirmação, ou `--sim` | [ATUALIZAR.md](../ATUALIZAR.md) |
 
@@ -212,6 +213,7 @@ Servidas pelo DG Claw Web. Quem: Dono, salvo o que a coluna disser. Colab só pa
 | `/api/v1/agents/:slug/permissao` | Responde a um pedido de permissão do agente | Dono, Colab (com o nome dele registrado) | [TRILHA-E-PERMISSAO.md](../../web/docs/TRILHA-E-PERMISSAO.md) |
 | `/api/v1/agents/:slug/pergunta` | Responde a uma pergunta de escolha do agente | Dono, Colab | [TRILHA-E-PERMISSAO.md](../../web/docs/TRILHA-E-PERMISSAO.md) |
 | `/api/v1/agents/:slug/reiniciar` | Reinicia a sessão do agente | Dono, Colab | Sem documento próprio |
+| `/api/v1/agents/:slug/parar` | Para o que o agente está fazendo (um Esc na sessão) | Dono. Colab recebe 403 | [PARAR.md](../../web/docs/PARAR.md) |
 | `/api/v1/agents/:slug/avatar` | Foto do agente | Dono, Colab | Sem documento próprio |
 | `/api/v1/agents/:slug/compartilhados` | Acervo de mídias e arquivos da conversa | Dono, Colab | [MIDIAS-CACHE.md](../../web/docs/MIDIAS-CACHE.md) |
 | `/api/v1/agents/:slug/lido` | Marca a conversa como lida até uma mensagem | Dono, Colab | [ESTADO-DOS-AGENTES.md](../../web/docs/ESTADO-DOS-AGENTES.md) |
@@ -223,6 +225,7 @@ Servidas pelo DG Claw Web. Quem: Dono, salvo o que a coluna disser. Colab só pa
 | `/api/v1/alertas` | Documentação dos alertas da conversa | Dono, Colab | [ALERTAS.md](../../web/docs/ALERTAS.md) |
 | `/api/v1/comandos` | Documentação dos comandos de barra | Dono, Colab | [COMANDOS-DE-BARRA.md](../../web/docs/COMANDOS-DE-BARRA.md) |
 | `/api/v1/trilha` | Documentação da trilha de ações e das permissões | Dono, Colab | [TRILHA-E-PERMISSAO.md](../../web/docs/TRILHA-E-PERMISSAO.md) |
+| `/api/v1/parar` | Documentação do botão Parar | Dono, Colab (só leitura) | [PARAR.md](../../web/docs/PARAR.md) |
 | `/api/v1/nao-lidas` | Quantas mensagens não lidas cada agente tem | Dono, Colab (só o dele) | [ESTADO-DOS-AGENTES.md](../../web/docs/ESTADO-DOS-AGENTES.md) |
 | `/api/v1/estados` | Estado de cada agente (trabalhando, precisa de você, terminou, ocioso, sem sinal) | Dono. Caixa recebe 403 | [ESTADO-DOS-AGENTES.md](../../web/docs/ESTADO-DOS-AGENTES.md) |
 | `/api/v1/compartilhados` | Documentação do acervo de mídias | Dono, Colab | [MIDIAS-CACHE.md](../../web/docs/MIDIAS-CACHE.md) |
@@ -254,6 +257,7 @@ Servidas pelo DG Claw Web. Quem: Dono, salvo o que a coluna disser. Colab só pa
 | Rota | Para que serve | Quem | Detalhe |
 | --- | --- | --- | --- |
 | `/api/v1/atualizacao` | Diz se há versão nova e o resumo do que mudou; `/descansar` (POST com o commit publicado) dispensa a faixa até sair outra | Dono. Caixa recebe 403 | [ATUALIZACAO.md](../../web/docs/ATUALIZACAO.md) |
+| `/api/v1/integracoes` | Integrações com defeito: a faixa vermelha, `/lembrar` (adia 1 hora), `/silenciar` e `/reativar` (POST com agente e integração), `/automatico` (POST: o Admin chamado sozinho, desligado de fábrica) | Só o dono: colaborador e caixa recebem 403 | [INTEGRACOES.md](../../web/docs/INTEGRACOES.md) |
 | `/api/v1/seguranca` | Avisos de segurança do DG Claw: `/boletins`, e por id `/adiar` e `/dispensar` | Dono. Caixa recebe 403 | [SEGURANCA-BOLETINS.md](../../web/docs/SEGURANCA-BOLETINS.md) |
 | `/api/v1/seguranca/ronda` | Resultado da ronda e os pedidos de aplicar, agendar e desfazer (`/ronda/:id/aplicar`) | Dono | [RONDA-PAINEL.md](../../web/docs/RONDA-PAINEL.md) |
 | `/api/v1/seguranca/emergencia` | Estado do botão de emergência e os pedidos `preparar`, `cortar` e `religar` | Dono | [RONDA-PAINEL.md](../../web/docs/RONDA-PAINEL.md) |
@@ -285,6 +289,7 @@ Rotas públicas, sem login, porque a tela de entrada também usa o nome, o logo 
 | `/manifest.webmanifest` | Nome e ícones do app instalado |
 | `GET /marca/favicon` | Favicon da marca, no painel de cada agente |
 | `GET /marca/icone-app` | Ícone do app instalado, no painel de cada agente |
+| `GET /marca/logo` | Logo da marca, no painel de cada agente (centro da aba Integrações quando o agente não tem foto) |
 
 ## Rotas do painel de cada agente
 
@@ -346,6 +351,9 @@ sem o cofre, as chaves de API, a conta de IA, a Tela, as credenciais de canal, o
 | `GET /api/diary` | O diário do agente | Sem documento próprio |
 | `GET /api/cerebro` | Raio-X da memória: os arquivos que o agente lê, reunidos numa tela | [CEREBRO.md](../../panel/docs/CEREBRO.md) |
 | `GET /api/radiografia` | O texto "Como o seu agente funciona por dentro" (a radiografia), lido da cópia instalada | [RADIOGRAFIA.md](../RADIOGRAFIA.md) |
+| `GET /api/integracoes` | O mapa de integrações do agente: estado de cada sistema ligado (WhatsApp, Instagram, transcrição e outros), lido do registro que o comando `dgclaw-integracao` mantém | [INTEGRACOES.md](../../panel/docs/INTEGRACOES.md) |
+| `POST /api/integracoes/:id/desligar` | Desliga uma integração no mapa (preferência do dono, não mexe no sistema em si) | [INTEGRACOES.md](../../panel/docs/INTEGRACOES.md) |
+| `POST /api/integracoes/:id/ligar` | Desfaz o desligar | [INTEGRACOES.md](../../panel/docs/INTEGRACOES.md) |
 | `GET /api/operacoes` | Operações do sistema, em quadradinhos | [OPERACOES.md](../../panel/docs/OPERACOES.md) |
 | `GET /api/operations/crons` | Lista as rotinas fixas | Sem documento próprio |
 | `GET /api/operations/logs` | Lê os logs do agente | Sem documento próprio |

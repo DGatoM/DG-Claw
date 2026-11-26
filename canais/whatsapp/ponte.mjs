@@ -26,8 +26,10 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { criarEntrada } from './lib/entrada.mjs';
 import { criarEntregaRunner } from './lib/entrega-runner.mjs';
+import { criarAnotadorIntegracao } from './lib/integracao.mjs';
 import { criarEnvioArquivo } from './lib/envio-arquivo.mjs';
 import { criarEnvioSeguro } from './lib/envio-seguro.mjs';
+import { criarMemoriaMensagens } from './lib/memoria-mensagens.mjs';
 import { criarLids } from './lib/lids.mjs';
 import { motivoNumeroInvalido, normalizar, numeroDeJid } from './lib/numeros.mjs';
 import { criarPedidos } from './lib/pedidos.mjs';
@@ -289,7 +291,7 @@ export async function iniciar(opcoes = {}) {
     estaEncerrando: () => encerrando,
     pendentes,
   });
-  const { entregar } = criarEntregaRunner({
+  const { entregar: entregarAoRunner } = criarEntregaRunner({
     opcoes, env, runnerUrl, tokenFile, runnerJson, esperasEntrega, dormir, estaEncerrando: () => encerrando,
   });
   // Travas contra banimento: ritmo, tetos, texto repetido e trava no primeiro erro (docs/CANAL-WHATSAPP.md).
@@ -297,16 +299,25 @@ export async function iniciar(opcoes = {}) {
     dir: path.join(dir, 'envio'), arqConfig: path.join(dir, 'envio.json'), agora, registrar,
     dormir: opcoes.dormirEnvio, aleatorio: opcoes.aleatorioEnvio,
   });
-  const { aoReceber } = criarEntrada({
+  // Mensagem entregue ao agente = o WhatsApp esta funcionando de ponta a ponta: anota no mapa de integracoes.
+  const { anotar: anotarIntegracao } = criarAnotadorIntegracao({ registrar, env, opcoes });
+  async function entregar(envelope) {
+    const r = await entregarAoRunner(envelope);
+    if (r && r.ok) anotarIntegracao('ok', 'uso');
+    return r;
+  }
+  const memoria = criarMemoriaMensagens();
+  const { aoReceber, aoAtualizar, aoApagar, aoApagarConversas } = criarEntrada({
     envioSeguro,
     ligacao: () => ({ conectado, sock: sockAtual }),
-    opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico,
+    memoria, opcoes, registrar, agora, lids, aprenderLid, estaPermitido, entregar, gravarAtomico,
     arqUltimo, dirUploads, downloadMediaMessage, pendentes,
   });
   const raizesArquivo = opcoes.raizesArquivo || [home];
   const { validarArquivo, montarEnvioArquivo } = criarEnvioArquivo({ home, raizesArquivo });
   const { tratarPedido } = criarPedidos({
     envioSeguro,
+    memoria,
     lerPermitidos,
     estaPermitido,
     validarArquivo,
@@ -346,6 +357,9 @@ export async function iniciar(opcoes = {}) {
       sock.ev.on('chats.phoneNumberShare', (d) => {
         if (minha === geracao && modo === 'servico' && d) aprenderLid(d.lid, numeroDeJid(d.jid));
       });
+      sock.ev.on('messages.update', (u) => { if (minha === geracao && modo === 'servico') aoAtualizar(u); });
+      sock.ev.on('messages.delete', (d) => { if (minha === geracao && modo === 'servico') aoApagar(d); });
+      sock.ev.on('chats.delete', (j) => { if (minha === geracao && modo === 'servico') aoApagarConversas(j); });
       sock.ev.on('messages.upsert', (u) => { if (minha === geracao && modo === 'servico') aoReceber(sock, u); });
       sock.ev.on('connection.update', async (u) => {
         if (minha !== geracao || encerrando) return;
@@ -413,6 +427,7 @@ export async function iniciar(opcoes = {}) {
         if (codigo === LOGGED_OUT) {
           registrar('o WhatsApp encerrou este aparelho (401). Pareie de novo com "dgclaw-agente canal whatsapp parear <numero-secundario>".');
           definirEstado('deslogado', 'o WhatsApp encerrou o aparelho; é preciso parear de novo');
+          await anotarIntegracao('desconectado', 'canal');   // espera (com prazo) antes de encerrar
           finalizar(0);
           return 'parar';
         }

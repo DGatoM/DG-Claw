@@ -31,3 +31,4 @@ export function gravarJsonAtomico(arquivo: string, conteudo: unknown, modoNovo =
     throw err;
   }
 }
+

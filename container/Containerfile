@@ -44,8 +44,8 @@ ARG COM_NAVEGADOR=1
 ARG NODE_MAJOR=22
 # Versões fixadas: a imagem tem que sair igual hoje e daqui a seis meses.
 ARG CLAUDE_CODE_VERSAO=2.1.296
-ARG CODEX_VERSAO=0.162.1
-ARG BUN_VERSAO=1.4.3
+ARG CODEX_VERSAO=0.167.1
+ARG BUN_VERSAO=1.4.5
 
 LABEL org.opencontainers.image.title="DG Claw agente" \
       org.opencontainers.image.version="${DGCLAW_VERSAO}" \
@@ -119,11 +119,25 @@ LABEL dgclaw.configuracao-administrada="1"
 # venv Python padrão. Existe para contornar o bloqueio PEP 668 do Ubuntu sem
 # --break-system-packages: o agente instala o que precisar com "pip install" normal.
 # playwright entra só como pacote; o navegador é do perfil COM_NAVEGADOR=1.
-# yt-dlp vem do pip porque é o jeito que recebe atualização (o do apt envelhece).
+# yt-dlp vem do pip porque é o jeito que recebe atualização (o do apt envelhece). Ele e o yt-dlp-ejs vão num passo próprio,
+# com versão e hash fixos (--require-hashes, sem dependências, só wheel), porque o yt-dlp roda com a sessão do agente. O yt-dlp-ejs resolve o desafio de JavaScript do YouTube (rodando no node da imagem); sem ele o download
+# falha mesmo com cookies. O link em /usr/local/bin deixa o comando achável por serviço que não herda o
+# PATH da imagem (unidade systemd do runner).
 RUN python3 -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir \
       'Pillow==13.0.0' 'requests==2.34.2' 'numpy==2.5.4' 'pyyaml==6.0.3' \
-      'openpyxl==3.1.5' 'pymupdf==1.28.2' 'playwright==1.63.0' 'yt-dlp==2026.8.19'
+      'openpyxl==3.1.5' 'pymupdf==1.28.2' 'playwright==1.63.0' \
+    && printf '%s\n' \
+      'yt-dlp==2026.11.23 --hash=sha256:e9188e0c559905f7ee05acc1ba0b6fb3f310e7565bf6dea5f62b5300e0775e35' \
+      'yt-dlp-ejs==0.8.0 --hash=sha256:79300e5fca7f937a1eeede11f0456862c1b41107ce1d726871e0207424f4bdb4' \
+      > /tmp/req-ytdlp.txt \
+    && /opt/venv/bin/pip install --no-cache-dir --require-hashes --no-deps --only-binary=:all: -r /tmp/req-ytdlp.txt \
+    && rm -f /tmp/req-ytdlp.txt \
+    && ln -s /opt/venv/bin/yt-dlp /usr/local/bin/yt-dlp
+# Configuração do sistema do yt-dlp (root:root 0644): só diz qual runtime de JavaScript usar. Cookies não entram
+# aqui; o agente os pede na própria chamada, e só para o YouTube.
+RUN printf '%s\n' '--js-runtimes node' > /etc/yt-dlp.conf \
+    && chown root:root /etc/yt-dlp.conf && chmod 0644 /etc/yt-dlp.conf
 ENV PATH=/opt/venv/bin:$PATH
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 
@@ -256,17 +270,25 @@ COPY --from=runner-build /build/runner/package.json /opt/dgclaw/app/runner/packa
 # dgclaw-monitor: o vigia sem modelo dos cards (docs/MODO-MONITOR.md); o timer dele nasce no install-timers.sh.
 # dgclaw-card: o agente abre um card em outro provedor (a skill cai no caminho completo se
 # o link faltar). dgclaw-api: o agente chama a API do Web pela caixa de arquivos (docs/CAIXA-DO-AGENTE.md).
+# dgclaw-integracao: os programas anotam o resultado de cada integracao (panel/docs/INTEGRACOES.md).
 # dgclaw-abrir-zip: extrai zip recebido como anexo numa pasta nova, com as travas contra zip slip e zip bomba.
 RUN ln -s /opt/dgclaw/app/bin/dgclaw-agente /usr/local/bin/dgclaw-agente \
  && ln -s /opt/dgclaw/app/bin/dgclaw-card /usr/local/bin/dgclaw-card \
  && ln -s /opt/dgclaw/app/bin/dgclaw-monitor /usr/local/bin/dgclaw-monitor \
  && ln -s /opt/dgclaw/app/bin/dgclaw-abrir-zip /usr/local/bin/dgclaw-abrir-zip \
- && ln -s /opt/dgclaw/app/bin/dgclaw-api /usr/local/bin/dgclaw-api
+ && ln -s /opt/dgclaw/app/bin/dgclaw-api /usr/local/bin/dgclaw-api \
+ && ln -s /opt/dgclaw/app/bin/dgclaw-integracao /usr/local/bin/dgclaw-integracao
 # dgclaw-mesa: o agente cria e atualiza as tarefas da Mesa (fala com o Web pela caixa, dgclaw-api).
 RUN ln -s /opt/dgclaw/app/bin/dgclaw-mesa /usr/local/bin/dgclaw-mesa
 # dgclaw-tela-navegador: o lançador do navegador da Tela (Google Chrome se existir, senão o Chromium
 # do Playwright). É o que o dgclaw-tela-chrome.service executa.
 RUN ln -s /opt/dgclaw/app/bin/dgclaw-tela-navegador /usr/local/bin/dgclaw-tela-navegador
+# dgclaw-pesado: roda render, ffmpeg e scripts de numpy num cgroup próprio, com teto de memória e de tempo.
+RUN ln -s /opt/dgclaw/app/bin/dgclaw-pesado /usr/local/bin/dgclaw-pesado
+# Linger do usuário agente: marca o user@1001.service (com memória, cpu e pids delegados) para existir sem login.
+# Como o systemd-logind sai do boot (mais acima), quem o sobe é a dependência Wants= do dgclaw-runner.service;
+# o dgclaw-pesado usa esse gerente para pôr o comando num cgroup próprio.
+RUN mkdir -p /var/lib/systemd/linger && touch /var/lib/systemd/linger/agente
 
 # O painel é JavaScript puro (express e afins), sem parte nativa: instala aqui, sem compilador.
 RUN cd /opt/dgclaw/app/panel && npm install --omit=dev --no-audit --no-fund && npm cache clean --force

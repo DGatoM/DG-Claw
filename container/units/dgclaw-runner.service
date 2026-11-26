@@ -1,6 +1,12 @@
 [Unit]
 Description=DG Claw runner (o processo que é o agente: abre o terminal do Claude/Codex e fala HTTP com o painel)
 After=network.target
+# O dgclaw-pesado usa o gerente systemd do usuário agente (user@1001.service, UID fixo do useradd da imagem).
+# A imagem tira o systemd-logind do boot, então só o arquivo de linger não o sobe: esta dependência sobe o
+# user@1001 antes do runner. Wants, e não Requires: se ele falhar o runner sobe igual, e o dgclaw-pesado cai
+# no modo sem teto de memória, avisando.
+Wants=user@1001.service
+After=user@1001.service
 # O runner.json vem de uma montagem somente leitura do host (o agente não o reescreve).
 # Sem ele o agente ainda não foi configurado: a unidade fica quieta em vez de falhar.
 ConditionPathExists=/etc/dgclaw-runner/runner.json
@@ -9,6 +15,10 @@ ConditionPathExists=/etc/dgclaw-runner/runner.json
 Type=simple
 User=agente
 Environment=HOME=/home/agente
+# O ENV PATH da imagem (e o profile de login) nao chega a servico do systemd: sem esta linha o agente nao
+# acha o que vive em /opt/venv/bin (yt-dlp e afins) e o setup-check das skills acusa "ausente". O venv vai
+# no FIM, para nao trocar o python3 do sistema que as skills ja usam (com os pacotes do apt).
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/venv/bin:/home/agente/.local/bin
 Environment=RUNNER_AGENT_FILE=/etc/dgclaw-runner/runner.json
 Environment=RUNNER_STATE_FILE=/home/agente/.plataforma/runner-state.json
 Environment=RUNNER_PORT=4300
@@ -20,6 +30,16 @@ Environment=RUNNER_TOKEN_FILE=/run/dgclaw/segredos/runner.token
 Environment=RUNNER_MAX_SESSOES_EXTRAS=8
 Environment=CLAUDE_CONFIG_DIR=/home/agente/.claude
 Environment=CODEX_HOME=/home/agente/.codex
+# Se o kernel matar um filho por falta de memória (um render, um script de numpy), o systemd não derruba o
+# serviço inteiro: o padrão (stop) parava o runner e o painel ficava sem resposta. Com continue, morre só o filho.
+OOMPolicy=continue
+# Os scopes do dgclaw-pesado ficam no gerente do usuário e sobrevivem a um SIGKILL ou restart do runner. O
+# runner e tudo o que ele abre usam o prefixo abaixo, e só esses scopes param aqui (um render de cron, que não é
+# do runner, usa o prefixo padrão e não é tocado). O ExecStopPost roda mesmo quando o processo principal morre por
+# SIGKILL, e com o runner parado os Claude que pediram esses renders já foram encerrados. O "-" ignora falha
+# (sem gerente do usuário não há scope a parar).
+Environment=DGCLAW_PESADO_PREFIXO=dgclaw-pesado-runner
+ExecStopPost=-/bin/sh -c 'XDG_RUNTIME_DIR=/run/user/1001 /usr/bin/systemctl --user stop "dgclaw-pesado-runner-*.scope"'
 # O runner junta esta frase ao aviso de "ainda não fez login" que o dono vê.
 Environment="RUNNER_LOGIN_HINT=Abra o painel do agente e use o botão Entrar com a assinatura."
 # Cofre do agente (chaves de API). O "-" deixa a unidade subir mesmo sem o arquivo.
@@ -39,6 +59,13 @@ UnsetEnvironment=CLAUDECODE CLAUDE_CODE_SESSION_ID CLAUDE_CODE_CHILD_SESSION CLA
 WorkingDirectory=/home/agente
 ExecStartPre=/bin/mkdir -p /home/agente/.dgclaw/logs
 ExecStart=/usr/bin/node /opt/dgclaw/app/runner/dist/index.js
+# Teto de tarefas (processos + threads) deste servico. Sem ele o systemd usa 15% do pids.max que o
+# container tinha NO BOOT (153 com --pids-limit 1024), e aumentar o limite do container depois nao muda
+# esse numero. Aqui dentro moram o Claude principal, os cards (um Claude cada), os hooks em node, os MCPs
+# e os renders headless. No teto de 153 o Claude principal aborta (SIGABRT), o node do hook trava no
+# arranque e um card fica parado com o pedido na caixa.
+# A trava real de consumo continua sendo a memoria do container (2 GB) e o --pids-limit 4096.
+TasksMax=2400
 Restart=always
 RestartSec=3
 

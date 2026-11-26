@@ -23,6 +23,7 @@
 //     `stopped`, `resumable`, `errored`), que o painel da pessoa já lê.
 import path from "node:path";
 import pty from "node-pty";
+import type { Terminal as TerminalXterm } from "@xterm/headless";
 import { EventEmitter } from "node:events";
 import { type ConfigDoRunner, PASTA_DE_ESTADO, STATE_FILE, gravarEstado, lerEstado } from "./config-runner.js";
 import { type ItemDaFila, caminhoDaFila, carregarFila } from "./fila-ocioso.js";
@@ -37,15 +38,21 @@ import { motorDe } from "./provedores/motores.js";
 import { parar, pararEEsperar, recusarPorRestricaoComContencao, reviver, subir, suspender, trocarPorSessaoLimpa } from "./sessao/ciclo.js";
 import { conferirContaComRestricoes } from "./restricoes-conta.js";
 import { ctxLeve, montarAmbienteBase } from "./sessao/configuracao.js";
-import { PAUSA_TECLA_PERGUNTA_MS, QUIETO_PARA_OLHAR_TRANSCRIPT_MS, RECIBO_VIGIA_PASSOS_MS, VIGIA_LOGIN_EXPIRADO_MS } from "./sessao/constantes.js";
+import {
+  BOOT_TIMER_MS, PAUSA_TECLA_PERGUNTA_MS, PRAZO_SEM_HOOKS_MS, QUIETO_PARA_OLHAR_TRANSCRIPT_MS, RECIBO_VIGIA_PASSOS_MS, TETO_BOOT_SEM_SINAL_MS, VIGIA_LOGIN_EXPIRADO_MS,
+} from "./sessao/constantes.js";
 import { digitarEEnviar, vencerTelaDeConfianca } from "./sessao/digitacao.js";
 import { MedidorDeUso } from "./uso.js";
 import { type PayloadDeHook, receberHook } from "./sessao/eventos.js";
-import { enfileirarQuandoOcioso, talvezSoltarFila } from "./sessao/fila.js";
+import { type ResultadoDoEnfileirar, type SemRecibo, enfileirarQuandoOcioso, itensNaoEntregues, recuperarDoDisco, suspenderPorRascunho, talvezSoltarFila } from "./sessao/fila.js";
 import { encerrarIncidenteDeLogin, entregarRecadoDeLogin, marcarLoginExpirado, retomarAposLoginExpirado } from "./sessao/login.js";
-import { ESC } from "./sessao/telas.js";
+import { ESC, ehEnterDoDono, ehEntradaSemEfeitoNoTexto } from "./sessao/telas.js";
+
 import { guardarEEmitir } from "./sessao/terminal.js";
 import type { AgentState } from "./tipos.js";
+
+/** Intervalo mínimo entre dois Esc no mesmo PTY (dois em menos de ~1 s abrem o menu de voltar). */
+const TRAVA_ESC_MS = 3000;
 
 export { QUIETO_PARA_OLHAR_TRANSCRIPT_MS } from "./sessao/constantes.js";
 export { ehDialogoDeBypass, nonceConfere, telaDeConfiancaDoCodex } from "./sessao/telas.js";
@@ -75,6 +82,12 @@ export interface OpcoesDaSessao {
   reintentoTelaBloqueadaMs?: number;
   /** Pausa entre as teclas da resposta de uma pergunta de escolha (ver responderPergunta). Testes usam valor curto. */
   pausaTeclaPerguntaMs?: number;
+  /** Quando o boot-timer olha se o SessionStart chegou (padrão 8 s). Testes usam valor curto. */
+  bootTimerMs?: number;
+  /** Teto da espera pelo SessionStart ou pela tela pronta antes de soltar a fila sem sinal (padrão 30 s). Testes usam valor curto. */
+  tetoBootSemSinalMs?: number;
+  /** Quanto tempo depois do spawn, sem nenhum hook, o Claude passa a ser tratado como "agente sem hooks" (padrão 60 s). Testes usam valor curto. */
+  prazoSemHooksMs?: number;
   /** Intervalos da vigia que insiste no Enter quando as tentativas normais não geraram recibo. Testes usam valores curtos. */
   reciboVigiaPassosMs?: number[];
   /** Comandos extras do evento UserPromptSubmit, depois do hook do runner. */
@@ -95,15 +108,37 @@ export class Sessao extends EventEmitter {
   proc: pty.IPty | null = null;
   buffer: string[] = [];
   bufferBytes = 0;
+  /** O emulador de terminal (headless) do spawn atual, alimentado com a mesma saída que vai para o buffer. Só ele sabe
+   *  o que está NA TELA agora: o buffer é o fluxo bruto, e um redesenho parcial com movimento de cursor não se lê nele. */
+  emulador: TerminalXterm | null = null;
+  /** Não nulo quando a escrita no emulador lançou e ele foi recriado vazio: a tela dele não é prova de nada até um redesenho
+   *  completo (só uma limpeza de tela integral, ESC[2J ou ESC c, restabelece). `telaAtual()` devolve vazio nesse período, e vazio nunca é "caixa vazia". */
+  emuladorNaoConfiavel: { desde: number; bytesNovos: number } | null = null;
+  /** Bytes escritos no emulador que ele ainda não confirmou (controle de fluxo do PTY). */
+  emuladorPendente = 0;
+  ptyPausadoPeloEmulador = false;
   seq = 0;
   nonce: string | null = null;
   hooksVivos = false;
   /** Quantos prompts o CLI já ACEITOU (hook UserPromptSubmit no Claude; `task_started` ou o
    *  nascimento do rollout no Codex). É o recibo do Enter; ver enviarComRecibo(). */
   promptsAceitos = 0;
+  /** Prompts aceitos DESDE que a sessão tem o sessionId atual: zera quando o sessionId troca (conversa nova).
+   *  É o que o estado expõe como `turnosAceitosSessao`; `promptsAceitos` segue monotônico por causa dos recibos. */
+  turnosDaSessao = 0;
+  /** Codex: os turnos que o rollout mostrou (`n` é o `promptsAceitos` logo depois do `task_started` dele) e os textos do
+   *  usuário gravados nesse turno. O recibo de um pedido só vale se o texto do turno for o do pedido (ver reciboDoTexto):
+   *  dois cards do Codex no mesmo diretório podem ter o rollout trocado, e o `task_started` do vizinho não prova nada.
+   *  Guarda só os últimos 50. */
+  turnosDoCodex: { n: number; textos: string[] }[] = [];
+  /** Codex: textos do usuário vistos antes do primeiro `task_started` (ou antes de o turno novo abrir). */
+  textosSoltosDoCodex: string[] = [];
   /** Quantas vezes o CLI começou a compactar (hook PreCompact). É o recibo do Enter de um comando de
    *  barra como `/compact`, que não dispara UserPromptSubmit; ver esperarRecibo(). */
   compactsIniciados = 0;
+  /** Codex: já contei um Compactado e ainda não houve turno novo (task_started) nem texto do usuário desde então. O rollout grava
+   *  `compacted` e `context_compacted` para a MESMA compactação; o segundo, sem turno no meio, não conta de novo. */
+  compactadoSemTurno = false;
   stopPendente: NodeJS.Timeout | null = null;
   /** Até quando um Stop deve ser ignorado porque a trava de resposta devolveu o turno (evento StopBloqueado). */
   stopBloqueadoAte = 0;
@@ -117,6 +152,16 @@ export class Sessao extends EventEmitter {
   readonly pausaTeclaPerguntaMs: number;
   /** true enquanto responderPergunta digita: ninguém mais escreve tecla crua nem permissão nesse intervalo. */
   respondendoPergunta = false;
+  /** Relógio da trava do Esc (trocável nos testes). */
+  agora: () => number = () => Date.now();
+  /** Quando o último Esc foi escrito no PTY (por /interromper ou pela permissão negada); 0 = nunca. */
+  ultimoEscEm = 0;
+  /** O PTY que está compactando (liga no PreCompact, desliga no SessionStart source=compact, em idle ou na troca de processo). */
+  compactando: unknown = null;
+  /** Quando o último PreCompact chegou (ms); o transcript só vale como recusa do /compact se for mais novo que isto. */
+  compactComecouEm = 0;
+  /** O Esc pendente do turno (o PRIMEIRO, de qualquer origem; os seguintes não sobrescrevem): só com ele o transcript prova uma interrupção. Cai quando o turno termina ou outro começa. */
+  ultimoEscReal: { em: number; proc?: unknown } | null = null;
   /**
    * A pergunta (processo + tool_use_id) cuja resposta já começou a ser digitada. Fica depois da trava cair:
    * a segunda aba que responde a mesma pergunta chega depois da última tecla e antes do PostToolUse, quando
@@ -135,11 +180,17 @@ export class Sessao extends EventEmitter {
   respostasDePergunta = 0;
   /** O tool_use_id do último PreToolUse (qualquer ferramenta), para o pendenteId da permissão. */
   ultimoToolUseId: string | null = null;
+  /** Subagentes (Agent tool) vivos, com o instante (ms) do último sinal: o SubagentStart e cada PreToolUse/PostToolUse
+   *  com `agent_id` o gravam, e o SubagentStop o apaga. Enquanto houver um com sinal recente, a sessão ociosa não é
+   *  suspensa (suspender mataria o subagente). */
+  subagentesAtivos = new Map<string, number>();
   /** Quando o login expirou (ms). Presente só enquanto o estado for runner:login-expirado. */
   loginExpiradoEmMs: number | null = null;
   vigiaDoLoginExpirado: NodeJS.Timeout | null = null;
   /** O incidente que acabou de ser resolvido e ainda não foi contado ao agente (ver entregarRecadoDeLogin). */
   recadoDeLogin: { expirouEm: number; voltouEm: number } | null = null;
+  /** Nova tentativa de entregar o recado de login quando a fila não conseguiu gravá-lo (timer único). */
+  reentregaDoRecado: NodeJS.Timeout | null = null;
   /** Quando o turno atual começou (UserPromptSubmit/PreToolUse vindo de fora de working): a linha
    *  turn_duration só vale como "acabou" se for posterior a isto. */
   turnoComecouEm = 0;
@@ -154,9 +205,29 @@ export class Sessao extends EventEmitter {
   filaQuandoIdle: ItemDaFila[] = [];
   readonly arquivoDaFila: string;
   /** O item que está sendo digitado agora. Continua no disco até a digitação terminar:
-   *  se o runner cair no meio, o texto sai de novo no próximo boot (repetir uma
-   *  mensagem é melhor que perder a de um cliente). */
+   *  se o runner cair no meio, no próximo boot ele aparece marcado como digitado e fica retido (incerto):
+   *  nunca é digitado de novo sozinho, mas também nunca se perde. */
   itemEmVoo: ItemDaFila | null = null;
+  /** Textos já digitados que o CLI ainda não confirmou (sem recibo). Vão junto no arquivo da fila, marcados
+   *  como digitados, e ficam retidos (incertos, nunca digitados de novo) se o terminal sair antes do recibo (ver sessao/fila.ts). */
+  semRecibo: SemRecibo[] = [];
+  /** O comando de barra (/compact, /clear) digitado que ainda espera o recibo próprio (PreCompact para o /compact).
+   *  Não entra em `semRecibo` (não tem UserPromptSubmit), mas fica no arquivo da fila até o recibo ou até ser retido
+   *  como incerto; a vigia do Enter o enxerga pelo próprio item que recebe. */
+  barraPendente: SemRecibo | null = null;
+  /** Fim do último texto colado: os envios de texto de um mesmo terminal são serializados nesta cadeia
+   *  (ver digitarEEnviar), para a fila e o POST /input não se intercalarem. */
+  cadeiaDeEnvio: Promise<void> = Promise.resolve();
+  /** Envios diretos esperando a vez na cadeia (pedidos e bytes somados): limitados por sessão (ver digitarEEnviar). */
+  diretosEsperando = { pedidos: 0, bytes: 0 };
+  /** true depois que o log disse que a suspensão da digitação continua (uma vez por suspensão). */
+  suspensaoLogada = false;
+  /** Quando o dono escreveu no terminal e um pedido ficou retido por isso: a digitação automática fica suspensa até
+   *  chegar um recibo ou um turno começar e terminar (ver suspenderPorRascunho). null quando não está suspensa. */
+  digitacaoSuspensaEm: number | null = null;
+  /** Pedidos retidos sem confirmação (`incerto`): ficam no arquivo da fila, nunca são enviados sozinhos e não
+   *  bloqueiam os próximos. */
+  retidos: ItemDaFila[] = [];
   /** true enquanto um item da fila está sendo digitado, para dois idles seguidos
    *  não soltarem dois itens por cima um do outro. */
   soltandoFila = false;
@@ -166,11 +237,24 @@ export class Sessao extends EventEmitter {
   /** Nova tentativa da fila depois de uma tela que bloqueia a caixa (timer único) e se o bloqueio já foi logado. */
   reintentoDaFila: NodeJS.Timeout | null = null;
   bloqueioDaFilaLogado = false;
+  /** A última representação da fila gravada com sucesso no disco (a mesma string que a gravação usa), ou null se não há
+   *  gravação confiável. Serve para não regravar, com fsync, uma fila que não mudou. */
+  ultimaFilaGravada: string | null = null;
   readonly reintentoTelaBloqueadaMs: number;
   /** Vigia do Enter sem recibo (ver vigiarReciboAtrasado): um timer por vez e os intervalos dela. */
   vigiaDoRecibo: NodeJS.Timeout | null = null;
+  /** O envio (item da fila) que a vigia atual acompanha; null quando a vigia é de uma chamada direta ou não há vigia. */
+  vigiaDoEnvio: SemRecibo | null = null;
+  /** Sobe a cada vigia instalada ou cancelada: um passo que esperava a tela sincronizar e acorda numa geração diferente não faz nada. */
+  vigiaGeracao = 0;
   readonly reciboVigiaPassosMs: number[];
+  readonly bootTimerMs: number;
+  readonly tetoBootSemSinalMs: number;
+  readonly prazoSemHooksMs: number;
   ultimaAtividade = Date.now();
+  /** Quando o último evento do agente chegou (hook do Claude ou evento do rollout do Codex), em ms. Não conta input nem fila:
+   *  é o sinal de que o agente anda, e o watchdog o usa para não tomar um turno longo por fila parada. */
+  ultimoEventoEm = 0;
   /** Quando o spawn atual foi uma RETOMADA, e quando ele começou. É o que
    *  permite separar "a sessão não abre" de "o agente trabalhou e saiu". */
   retomando: { sessionId: string; em: number } | null = null;
@@ -198,6 +282,9 @@ export class Sessao extends EventEmitter {
   /** O contexto do último spawn: dele saem o ambiente e a checagem de login/chave. */
   ctxVivo: CtxMotor | null = null;
   modoDoUltimoSpawn: "retomar" | "nova" | null = null;
+  /** O último spawn escolheu os argumentos de sessão nova (true) ou de retomada (false). Difere do modo quando se pede
+   *  "retomar" sem id anterior (o primeiro uso, via acordar()): o modo fica "retomar" mas os argumentos são de sessão nova. */
+  spawnSemRetomada = false;
 
   readonly estado: AgentState;
   readonly papel: "principal" | "paralela";
@@ -229,11 +316,15 @@ export class Sessao extends EventEmitter {
     this.vigiaLoginExpiradoMs = opcoes.vigiaLoginExpiradoMs ?? VIGIA_LOGIN_EXPIRADO_MS;
     this.reintentoTelaBloqueadaMs = opcoes.reintentoTelaBloqueadaMs ?? 5_000;
     this.reciboVigiaPassosMs = opcoes.reciboVigiaPassosMs ?? RECIBO_VIGIA_PASSOS_MS;
+    this.bootTimerMs = opcoes.bootTimerMs ?? BOOT_TIMER_MS;
+    this.tetoBootSemSinalMs = opcoes.tetoBootSemSinalMs ?? TETO_BOOT_SEM_SINAL_MS;
+    this.prazoSemHooksMs = opcoes.prazoSemHooksMs ?? PRAZO_SEM_HOOKS_MS;
     this.pausaTeclaPerguntaMs = opcoes.pausaTeclaPerguntaMs ?? PAUSA_TECLA_PERGUNTA_MS;
     this.arquivoDeEstado = opcoes.arquivoDeEstado ?? STATE_FILE;
     this.pastaDeEstado = opcoes.pastaDeEstado ?? PASTA_DE_ESTADO;
     this.arquivoDaFila = caminhoDaFila(this.pastaDeEstado, descritor.id);
     this.filaQuandoIdle = carregarFila(this.arquivoDaFila, this.a("fila"));
+    recuperarDoDisco(this);
     if (this.filaQuandoIdle.length) {
       log.info(
         this.a("fila"),
@@ -306,8 +397,13 @@ export class Sessao extends EventEmitter {
     return this.ultimaAtividade;
   }
 
+  /** A fila de texto que ainda não foi entregue ao agente: o item em digitação e os que esperam. */
+  pendentesDaFila(): ItemDaFila[] {
+    return itensNaoEntregues(this);
+  }
+
   tamanhoDaFila(): number {
-    return this.filaQuandoIdle.length;
+    return itensNaoEntregues(this).length;
   }
 
   marcarAtividade(): void {
@@ -332,6 +428,90 @@ export class Sessao extends EventEmitter {
 
   telaInteira(): string {
     return this.buffer.join("");
+  }
+
+  /** As linhas VISÍVEIS do terminal agora (o que a pessoa vê), sem escapes, unidas por "\n". Vazio sem emulador.
+   *
+   *  Na linha da caixa de composição (a que começa com o marcador ❯ ou ›) o texto de ajuda do CLI, que é desenhado esmaecido
+   *  (atributo dim, ou cinza "bright black"), é omitido: ele é o placeholder ("Ask Codex to do anything"), não texto de
+   *  ninguém, e a caixa com ele continua vazia. Texto digitado pelo dono, mesmo com as mesmas palavras, usa a cor normal e
+   *  continua contando como texto. */
+  telaAtual(): string {
+    const t = this.emulador;
+    if (!t || this.emuladorNaoConfiavel) return "";
+    const b = t.buffer.active;
+    const linhas: string[] = [];
+    for (let i = 0; i < t.rows; i++) {
+      const linha = b.getLine(b.viewportY + i);
+      if (!linha) {
+        linhas.push("");
+        continue;
+      }
+      const texto = linha.translateToString(true);
+      if (!/^[\s│┃|]*[❯›]/.test(texto)) {
+        linhas.push(texto);
+        continue;
+      }
+      // Linha da caixa: reconstrói célula a célula, pulando o texto esmaecido que vem depois do marcador.
+      let saida = "";
+      let marcou = false;
+      let cel = linha.getCell(0);
+      for (let x = 0; x < t.cols; x++) {
+        cel = linha.getCell(x, cel) ?? cel;
+        if (!cel || cel.getWidth() === 0) continue;
+        const ch = cel.getChars() || " ";
+        if (marcou && (cel.isDim() !== 0 || (cel.isFgPalette() && cel.getFgColor() === 8)) && ch.trim() !== "") continue;
+        saida += ch;
+        if (!marcou && (ch === "❯" || ch === "›")) marcou = true;
+      }
+      linhas.push(saida.replace(/\s+$/, ""));
+    }
+    return linhas.join("\n");
+  }
+
+  /** O mesmo que `telaAtual()`, depois de o emulador processar tudo o que já recebeu (a escrita nele é assíncrona). Toda
+   *  decisão que leva a uma escrita no terminal lê a tela por aqui. */
+  async telaAtualSincronizada(): Promise<string> {
+    const t = this.emulador;
+    if (!t) return "";
+    try {
+      await new Promise<void>((resolve) => t.write("", resolve));
+    } catch {
+      // A fila do emulador está estourada: a tela não é prova de nada (o terminal.ts já recria o emulador na próxima saída).
+      return "";
+    }
+    return this.telaAtual();
+  }
+
+  /** Um Enter vindo de fora (o dono, pelo terminal) pode virar um turno cujo recibo chega depois: até ele chegar, ou
+   *  até vencer o prazo, a fila não solta um pedido que o recibo poderia confirmar por engano. */
+  enterManualPendente: { promptsAntes: number; em: number; proc?: unknown } | null = null;
+
+  /** O número da última saída do terminal (`seq`) quando o dono escreveu por último, e o instante dessa escrita. A tela só
+   *  vale como prova de "caixa vazia" se o terminal desenhou alguma coisa DEPOIS dela: antes disso a tela é a imagem velha,
+   *  de antes da tecla. null = o dono nunca escreveu neste terminal. */
+  escritaDeForaSeq: number | null = null;
+  escritaDeForaEm = 0;
+  /** true quando, desde o último redesenho do terminal, o dono escreveu algo que PODE ter mudado o texto da caixa (caractere,
+   *  colagem, Backspace, Ctrl+U...). Só enquanto for false a regra do prazo (REDESENHO_DEPOIS_DA_TECLA_MS) vale. */
+  escritaDeForaComEfeito = false;
+  /** Chamado por toda escrita que vem de fora do runner (tecla do terminal, entrada crua). */
+  registrarEscritaDeFora(texto: string): void {
+    if (texto !== "") {
+      // Um redesenho depois da escrita anterior já provou o efeito dela: o que vale daqui em diante é só esta nova escrita.
+      if (this.escritaDeForaSeq !== null && this.seq > this.escritaDeForaSeq) this.escritaDeForaComEfeito = false;
+      if (!ehEntradaSemEfeitoNoTexto(texto)) this.escritaDeForaComEfeito = true;
+      this.escritaDeForaSeq = this.seq;
+      this.escritaDeForaEm = Date.now();
+    }
+    if (ehEnterDoDono(texto)) {
+      // `proc` é o terminal que recebeu a tecla: o recibo de outro terminal não pode ser dela (zerado também na troca, em ciclo.ts).
+      this.enterManualPendente = { promptsAntes: this.promptsAceitos, em: Date.now(), proc: this.proc };
+    } else if (texto !== "" && this.digitacaoSuspensaEm === null) {
+      // Um rascunho do dono (digitado ou colado), sem Enter, já está na caixa: nada é digitado por cima até a caixa
+      // aparecer vazia.
+      suspenderPorRascunho(this);
+    }
   }
 
   /** Os valores do cofre que não podem aparecer na tela nem no histórico. */
@@ -527,6 +707,11 @@ export class Sessao extends EventEmitter {
       return;
     }
     this.marcarAtividade();
+    // Todo Esc sozinho, venha de onde vier (Parar, negar permissão, cancelar pergunta), entra na trava de 3 s.
+    if (texto === ESC) {
+      this.ultimoEscEm = this.agora();
+      if (!this.ultimoEscReal || this.ultimoEscReal.proc !== this.proc) this.ultimoEscReal = { em: Date.now(), proc: this.proc };
+    }
     this.proc.write(texto);
   }
 
@@ -541,7 +726,7 @@ export class Sessao extends EventEmitter {
   responderPermissao(
     decisao: "aprovar" | "negar",
     toolUseId?: string | null,
-  ): { ok: true } | { ok: false; status: number; erro: string; comoResolver: string; code: string } {
+  ): { ok: true } | { ok: false; status: number; erro: string; comoResolver: string; code: string; espereS?: number } {
     if (this.motor.provedor !== "claude") {
       return { ok: false, status: 501, code: "PERMISSAO_SO_CLAUDE", erro: `O provedor ${this.motor.provedor} não expõe o pedido de permissão ao runner.`, comoResolver: "responder pelo terminal do agente" };
     }
@@ -561,9 +746,62 @@ export class Sessao extends EventEmitter {
     if (!this.proc) {
       return { ok: false, status: 409, code: "NO_PTY", erro: `O agente ${this.slug} não tem terminal vivo agora.`, comoResolver: "chamar POST /api/agents/:id/resume antes" };
     }
+    if (decisao === "negar") {
+      const trava = this.travaDoEsc();
+      if (trava) return trava;
+    }
     log.info(this.a("entrada"), `permissão ${decisao === "aprovar" ? "aprovada" : "negada"} por API`);
     this.escrever(decisao === "aprovar" ? "1" : ESC);
     return { ok: true };
+  }
+
+  /** null se pode escrever um Esc agora; senão o 429 MUITO_RAPIDO (dois Esc em menos de ~1 s abrem o menu de voltar). */
+  travaDoEsc(): { ok: false; status: number; erro: string; comoResolver: string; code: string; espereS: number } | null {
+    const falta = this.ultimoEscEm + TRAVA_ESC_MS - this.agora();
+    if (!(this.ultimoEscEm > 0 && falta > 0)) return null;
+    const espereS = Math.round(falta / 100) / 10 || 0.1;
+    return {
+      ok: false,
+      status: 429,
+      code: "MUITO_RAPIDO",
+      espereS,
+      erro: `O Esc anterior foi há menos de ${TRAVA_ESC_MS / 1000} s. Dois Esc seguidos abrem o menu de voltar do terminal e travam a sessão.`,
+      comoResolver: `esperar ${espereS} s e tentar de novo`,
+    };
+  }
+
+  /**
+   * O botão Parar: escreve um único Esc no PTY, o mesmo que apertar Esc no terminal. Dois Esc em menos de
+   * ~1 s abrem o menu de voltar do Claude Code e travam a sessão; por isso a trava de 3 s, que também conta
+   * o Esc da permissão negada. Nada do pedido HTTP chega ao PTY. Sessão sem PTY não é acordada.
+   */
+  interromper():
+    | { ok: true; enviadoEm: string; statusAntes: string; provedor: string }
+    | { ok: false; status: number; erro: string; comoResolver: string; code: string; espereS?: number } {
+    if (!this.proc) {
+      return { ok: false, status: 409, code: "NO_PTY", erro: `O agente ${this.slug} não tem terminal vivo agora, então não há o que parar.`, comoResolver: "nada a fazer: o próximo envio de mensagem abre a sessão" };
+    }
+    if (this.respondendoPergunta) {
+      return { ok: false, status: 409, code: "RESPOSTA_EM_ANDAMENTO", erro: `O agente ${this.slug} está recebendo a resposta de uma pergunta de escolha.`, comoResolver: "esperar alguns segundos e tentar de novo" };
+    }
+    // Esperando permissão ou pergunta: o Esc cairia no cartão (negaria). Conferência síncrona, logo antes de escrever.
+    if (this.estado.status === "waiting_input") {
+      return { ok: false, status: 409, code: "ESPERANDO_DECISAO", erro: `O agente ${this.slug} está esperando uma decisão sua (permissão ou pergunta de escolha).`, comoResolver: "responda no cartão da permissão ou da pergunta" };
+    }
+    // Só se escreve o Esc com o agente trabalhando. Conferência síncrona, imediatamente antes da escrita.
+    if (this.estado.status !== "working") {
+      return { ok: false, status: 409, code: "NAO_TRABALHANDO", erro: `O agente ${this.slug} não está trabalhando agora (status=${this.estado.status}); nada foi enviado.`, comoResolver: "esperar o agente começar um trabalho e apertar Parar de novo" };
+    }
+    // Compactando (o PreCompact pôs working): um Esc cortaria a compactação.
+    if (this.compactando !== null && this.compactando === this.proc) {
+      return { ok: false, status: 409, code: "COMPACTANDO", erro: `O agente ${this.slug} está compactando a conversa; nada foi enviado.`, comoResolver: "esperar a compactação terminar e apertar Parar de novo" };
+    }
+    const trava = this.travaDoEsc();
+    if (trava) return trava;
+    const statusAntes = this.estado.status;
+    this.escrever(ESC);
+    log.info(this.a("entrada"), `Esc enviado por API (parar): status antes=${statusAntes}, provedor=${this.motor.provedor}`);
+    return { ok: true, enviadoEm: new Date(this.ultimoEscEm).toISOString(), statusAntes, provedor: this.motor.provedor };
   }
 
   /**
@@ -575,7 +813,7 @@ export class Sessao extends EventEmitter {
   async responderPergunta(
     toolUseId: string,
     teclas: string[],
-  ): Promise<{ ok: true; teclas: number } | { ok: false; status: number; erro: string; comoResolver: string; code: string }> {
+  ): Promise<{ ok: true; teclas: number } | { ok: false; status: number; erro: string; comoResolver: string; code: string; espereS?: number }> {
     if (this.motor.provedor !== "claude") {
       return { ok: false, status: 501, code: "PERGUNTA_SO_CLAUDE", erro: `O provedor ${this.motor.provedor} não expõe a pergunta de escolha ao runner.`, comoResolver: "responder pelo terminal do agente" };
     }
@@ -588,6 +826,16 @@ export class Sessao extends EventEmitter {
     }
     if (this.perguntaTentada && this.perguntaTentada.proc === proc && this.perguntaTentada.toolUseId === toolUseId) {
       return { ok: false, status: 409, code: "PERGUNTA_JA_RESPONDIDA", erro: "A resposta desta pergunta já foi enviada (por esta ou outra aba). Atualize a conversa; se o terminal ficou no meio, termine pela aba Sessões.", comoResolver: "atualizar a conversa; se o terminal ficou no meio, terminar pela aba Sessões" };
+    }
+    // Cancelar a pergunta é um Esc sozinho: a lista é exatamente [ESC], ou nenhum item contém ESC. A trava vale ANTES de
+    // escrever qualquer tecla e de marcar a pergunta como tentada.
+    const soEsc = teclas.length === 1 && teclas[0] === ESC;
+    if (!soEsc && teclas.some((t) => t.includes(ESC))) {
+      return { ok: false, status: 400, code: "TECLAS_INVALIDAS", erro: "Um Esc só vale sozinho: a lista de teclas precisa ser exatamente [Esc] ou nenhum item pode conter Esc. Nada foi digitado.", comoResolver: "mandar o Esc numa resposta própria, sem outras teclas" };
+    }
+    if (soEsc) {
+      const trava = this.travaDoEsc();
+      if (trava) return trava;
     }
     const mudou = (): { status: number; code: string; erro: string; comoResolver: string } | null => {
       if (this.proc !== proc) {
@@ -659,6 +907,12 @@ export class Sessao extends EventEmitter {
     // O motivo só vale enquanto o status que o pediu vale: trocou de status sem dizer o motivo, ele cai.
     if (campos.status && campos.status !== this.estado.status && !("motivo" in campos)) campos = { ...campos, motivo: null };
     if (campos.status && campos.status !== this.estado.status && !("pendenteId" in campos)) campos = { ...campos, pendenteId: null };
+    // O Esc pendente é do turno: acaba quando ele termina (idle) e quando outro começa (working vindo de outro estado).
+    if (campos.status === "idle" || (campos.status === "working" && this.estado.status !== "working")) this.ultimoEscReal = null;
+    if (campos.status === "idle") this.compactando = null;
+    // Troca de uma conversa para OUTRA (id antigo conhecido e diferente): o contador da sessão recomeça.
+    // Descobrir o id pela primeira vez (null para um id) não zera: os turnos já são dessa conversa.
+    if ("sessionId" in campos && this.estado.sessionId && campos.sessionId !== this.estado.sessionId) this.turnosDaSessao = 0;
     Object.assign(this.estado, campos, { updatedAt: Date.now() });
     if ("sessionId" in campos || "previousSessionId" in campos || "status" in campos) {
       gravarEstado(
@@ -711,18 +965,18 @@ export class Sessao extends EventEmitter {
   }
 
   /** Digita e envia, com recibo do Enter (ver sessao/digitacao.ts). */
-  digitarEEnviar(texto: string, daFila = false): Promise<void> {
-    return digitarEEnviar(this, texto, daFila);
+  digitarEEnviar(texto: string, daFila = false, envio: SemRecibo | null = null, cancelado: () => boolean = () => false, sinal?: AbortSignal): Promise<boolean> {
+    return digitarEEnviar(this, texto, daFila, envio, cancelado, sinal);
   }
 
   /** Responde à tela de confiança de pasta do Codex (ver sessao/digitacao.ts). */
-  vencerTelaDeConfianca(daFila = false): Promise<void> {
-    return vencerTelaDeConfianca(this, daFila);
+  vencerTelaDeConfianca(daFila = false, proc: Sessao["proc"] = this.proc, envio: SemRecibo | null = null): Promise<void> {
+    return vencerTelaDeConfianca(this, daFila, proc, envio);
   }
 
   /** Guarda um texto para digitar quando o agente ficar ocioso (ver sessao/fila.ts). */
-  enfileirarQuandoOcioso(texto: string): void {
-    enfileirarQuandoOcioso(this, texto);
+  enfileirarQuandoOcioso(texto: string, esperou = false): ResultadoDoEnfileirar {
+    return enfileirarQuandoOcioso(this, texto, esperou);
   }
 
   /** Guarda no buffer da tela e entrega a quem ouve (ver sessao/terminal.ts). Os testes de tela chamam por aqui. */

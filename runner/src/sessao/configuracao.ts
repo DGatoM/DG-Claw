@@ -162,6 +162,10 @@ function statusLineDeOutroDono(s: Sessao): string | null {
   return s.descritor.config.statusLine ? "campo statusLine do descritor" : null;
 }
 
+type HookCmd = { type: string; command: string; timeout?: number };
+/** Segundos que o Claude espera por um hook do runner antes de matá-lo (ver escreverSettings). */
+export const HOOK_TIMEOUT_S = 10;
+
 export function escreverSettings(s: Sessao, nonce: string): string | null {
   try {
     const dir = pastaDeHooks(s);
@@ -172,11 +176,17 @@ export function escreverSettings(s: Sessao, nonce: string): string | null {
 
     const cfg = s.descritor.config;
     const base = `"${process.execPath}" "${handler}" --agent ${s.descritor.id} --port ${s.porta} --nonce ${nonce}`;
+    // Teto de cada hook do runner, em segundos. O handler saudável termina em até 2,5 s pelo cinto de
+    // segurança, mas um node que trava ANTES de executar o JavaScript (deadlock no arranque quando o
+    // serviço está no teto de tarefas) não roda timer nenhum. Sem `timeout` no settings o Claude espera o
+    // padrão dele, que é longo: o SessionStart ou o UserPromptSubmit fica em "running hook" e o pedido de
+    // um card fica parado na caixa. Com o teto o Claude mata o processo, registra o erro do hook (não
+    // bloqueante) e segue. A folga acima dos 2,5 s cobre a partida do node numa máquina carregada.
     const para = (ev: string, matcher = "") => [
-      { matcher, hooks: [{ type: "command", command: `${base} --event ${ev}` }] },
+      { matcher, hooks: [{ type: "command", command: `${base} --event ${ev}`, timeout: HOOK_TIMEOUT_S } as HookCmd] },
     ];
-    const stop: { type: string; command: string; timeout?: number }[] = [
-      { type: "command", command: `${base} --event Stop` },
+    const stop: HookCmd[] = [
+      { type: "command", command: `${base} --event Stop`, timeout: HOOK_TIMEOUT_S },
     ];
     // A trava de resposta (só Claude; o Codex ignora stopHooks) vem logo depois do hook do runner e antes
     // dos stopHooks do descritor. Falha ao gravar o arquivo tira só a trava, e o resto do settings segue.
@@ -235,6 +245,9 @@ export function escreverSettings(s: Sessao, nonce: string): string | null {
       },
     };
     if (s.motor.provedor === "claude") {
+      // Só o Claude tem SubagentStart e SubagentStop: dizem ao runner que o subagente começou e terminou (ver subagentesAtivos).
+      (settings.hooks as Record<string, unknown>).SubagentStart = para("SubagentStart");
+      (settings.hooks as Record<string, unknown>).SubagentStop = para("SubagentStop");
       const dono = statusLineDeOutroDono(s);
       if (dono) {
         log.aviso(

@@ -5,7 +5,7 @@ import { motivoNumeroInvalido, normalizar } from './numeros.mjs';
 import { falha, motivoErro } from './util.mjs';
 
 /** `ligacao()` diz, na hora do pedido, se a ponte esta conectada e qual e o socket do Baileys. */
-export function criarPedidos({ lerPermitidos, estaPermitido, validarArquivo, montarEnvioArquivo, ligacao, envioSeguro }) {
+export function criarPedidos({ memoria, lerPermitidos, estaPermitido, validarArquivo, montarEnvioArquivo, ligacao, envioSeguro }) {
   const jids = new Map();
 
   // Sem "para", so ha destino padrao quando a lista tem exatamente um numero. Com dois ou mais,
@@ -110,7 +110,12 @@ export function criarPedidos({ lerPermitidos, estaPermitido, validarArquivo, mon
         },
       });
       if (!r.ok) return r;
-      const ok = { ok: true, para: numero, id: (r.resultado && r.resultado.key && r.resultado.key.id) || null };
+      const envio = r.resultado;
+      const idEnviado = envio && envio.key && envio.key.id;
+      // Guarda o que de fato saiu: o audio, por exemplo, vai sem a legenda pedida.
+      const enviado = conteudo.text || conteudo.caption;
+      if (enviado) memoria.lembrar((envio && envio.key && envio.key.remoteJid) || jid, idEnviado, enviado);
+      const ok = { ok: true, para: numero, id: idEnviado || null };
       if (r.aviso) ok.aviso = r.aviso;
       return ok;
     } finally {

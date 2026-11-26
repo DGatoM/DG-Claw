@@ -84,7 +84,7 @@ ok(solto != null && !/casca|menu-lado/.test(solto), 'painel solto: nada da casca
 // ── 3. O menu lateral em grupos (painel solto: js/menu-grupos.js) ─────────────
 const idx = fs.readFileSync(path.join(AQUI, 'public/index.html'), 'utf-8');
 const abas = [...idx.matchAll(/<button class="tab[^"]*" data-tab="([a-z]+)"/g)].map((m) => m[1]);
-ok(abas.length === 19 && new Set(abas).size === 19, 'menu em grupos: as 19 abas continuam no menu, sem repetir nenhuma');
+ok(abas.length === 20 && new Set(abas).size === 20, 'menu em grupos: as 20 abas continuam no menu, sem repetir nenhuma');
 const grupos = [...idx.matchAll(/<div class="grupo" data-grupo="([a-z]+)">\s*<button type="button" class="grupo-cab" id="grp-([a-z]+)-b" aria-expanded="false" aria-controls="grp-([a-z]+)">/g)];
 ok(grupos.length === 6 && grupos.every((g) => g[1] === g[2] && g[2] === g[3]), 'menu em grupos: seis grupos, cada botão com aria-expanded e aria-controls do próprio conteúdo');
 ok(['perfil', 'dia', 'ferramentas', 'operacao', 'seguranca', 'conexoes'].every((g) => idx.includes(`id="grp-${g}" role="group" aria-labelledby="grp-${g}-b"`)), 'menu em grupos: cada conteúdo é um role=group nomeado pelo botão');

@@ -65,7 +65,9 @@ Testes: `node --test scripts/provedores/test_catalogo.mjs`.
 ## Achados dos testes (12/10/2026)
 
 Versões: Claude Code 2.1.296, Codex CLI 0.162.1. Tudo em pastas temporárias, chave falsa,
-nenhum agente vivo tocado.
+nenhum agente vivo tocado. (A imagem dos agentes hoje usa o Codex CLI 0.167.1; em 10/11/2026 o login por
+`--device-auth` e por chave, o flag de bypass como root, a tela de confiança da pasta e o formato do rollout foram
+reconferidos com essa versão.)
 
 ### 1. Claude Code na API: a pergunta "Detected a custom API key"
 

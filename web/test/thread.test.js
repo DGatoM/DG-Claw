@@ -298,3 +298,30 @@ test('thread: restricoes.json ilegivel nao entrega anexo e avisa no log', () => 
   assert.deepEqual(leitor.ler(transcript, agente).eventos, []);
   assert.ok(cap.linhas.some((l) => /restricoes\.json/.test(JSON.stringify(l))), 'o log diz qual arquivo');
 });
+
+test('thread: o aviso de atraso que o runner acrescenta depois do envelope não aparece na fala do dono', () => {
+  const { agente, leitor } = preparar();
+  const tmp = path.join(pastaTemp('jsonl'), 's.jsonl');
+  const conteudo = '<dgchat from="pessoa" chat="c_ana" msg="m1" ts="x">ok</dgchat>\n\n[Aviso do sistema: a mensagem acima foi escrita às 14:32 e esperou 8 min.]';
+  fs.writeFileSync(tmp, JSON.stringify({ type: 'user', timestamp: '2026-10-12T15:00:01.000Z', message: { content: conteudo } }) + '\n');
+  const r = leitor.ler(tmp, agente);
+  assert.deepEqual(r.eventos.map((e) => e.text), ['ok']);
+});
+
+const AVISO_WA = '\n\n[Aviso do sistema: a mensagem acima foi escrita às 14:32 e esperou 8 min na fila, enquanto você respondia outras coisas.]';
+function falasWhatsapp(conteudo) {
+  const { agente, leitor } = preparar();
+  const tmp = path.join(pastaTemp('jsonl'), 's.jsonl');
+  fs.writeFileSync(tmp, JSON.stringify({ type: 'user', timestamp: '2026-10-12T15:00:01.000Z', message: { content: conteudo } }) + '\n');
+  return leitor.ler(tmp, agente).eventos.map((e) => e.text);
+}
+const ENV_WA = (corpo) => `<canal-externo origem="whatsapp" de="5511900000000" msg="w1" ts="2026-11-18T17:32:00.000Z">${corpo}</canal-externo>`;
+
+test('thread: o aviso de atraso depois do fechamento do WhatsApp não aparece na fala do dono', () => {
+  assert.deepEqual(falasWhatsapp(ENV_WA('ok') + AVISO_WA), ['ok']);
+});
+
+test('thread: sem atraso, corpo do contato que termina igual ao aviso aparece inteiro', () => {
+  const corpo = 'ok' + AVISO_WA;
+  assert.deepEqual(falasWhatsapp(ENV_WA(corpo)), [corpo.trim()]);
+});

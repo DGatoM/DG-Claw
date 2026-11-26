@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# dgclaw-integracao: anota o resultado de uma integracao (Instagram, WhatsApp, ...) e mostra o estado.
+#   dgclaw-integracao registrar <id> <resultado> [--origem uso|canal]
+#   dgclaw-integracao estado
+# Detalhe em docs/PLANO-INTEGRACOES-E-VIGIA.md e panel/docs/INTEGRACOES.md.
+set -u
+AQUI="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+MODULO="$AQUI/../scripts/_lib/integracoes.py"
+[ -f "$MODULO" ] || { echo "dgclaw-integracao: nao achei $MODULO. Reinstale o DG Claw." >&2; exit 1; }
+exec python3 -I "$MODULO" "$@"
