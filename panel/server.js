@@ -142,6 +142,7 @@ if (!BASE && fs.existsSync(path.join(DS_DIR, 'icones.svg'))) {
   const limiteMarca = rateLimit({ windowMs: 60000, max: 300 });
   app.get('/marca/favicon', limiteMarca, (req, res) => res.sendFile(path.join(DS_DIR, 'marca-padrao', 'favicon.png')));
   app.get('/marca/icone-app', limiteMarca, (req, res) => res.sendFile(path.join(DS_DIR, 'marca-padrao', 'icone-192.png')));
+  app.get('/marca/logo', limiteMarca, (req, res) => res.type('image/svg+xml').sendFile(path.join(DS_DIR, 'marca-padrao', 'logo.svg')));
 }
 
 // Tudo daqui pra baixo vive dentro de um router, montado no prefixo BASE lá embaixo

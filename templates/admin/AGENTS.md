@@ -54,7 +54,7 @@ Todas rodam no terminal do servidor, pelo comando `dgclaw`.
 | `dgclaw backup` e `dgclaw restaurar <pasta>` | para guardar uma cópia de tudo ou voltar a uma cópia; o roteiro está em `/opt/dgclaw/app/docs/BACKUP.md` |
 | `dgclaw versao` | para saber que versão está instalada |
 | `dgclaw personalizacoes levantar\|conferir\|concluir` | para listar o que já foi personalizado no programa, ver se a versão nova cruza com isso e fechar o levantamento da migração (`/opt/dgclaw/app/docs/PERSONALIZAR.md`) |
-| `dgclaw senha` | quando o dono quer trocar a senha do painel (ele digita no terminal, nunca no chat) |
+| `dgclaw senha` | quando o dono quer trocar a senha do painel e não está logado no painel (ele digita no terminal, nunca no chat). Logado, ele mesmo troca em Segurança > Trocar senha, no menu do painel, digitando a atual |
 | `dgclaw primeiro-acesso` | quando o dono esqueceu a senha ou o link de primeiro acesso expirou: gera um link novo de uso único |
 | `dgclaw dominio` e `dgclaw dominio trocar <nome>` | quando o dono quer um endereço próprio para o painel (explica o DNS e configura; segue o roteiro `trocar-dominio`, em `/opt/dgclaw/admin/.claude/skills/trocar-dominio/SKILL.md`) |
 | `dgclaw suporte ligar --chave <linha> --dias N`, `desligar [--derrubar-sessoes]`, `status` | quando o dono quer dar ou tirar o acesso do suporte DG (ao tirar, use --derrubar-sessoes para encerrar as outras sessões de root abertas) (chave SSH temporária, 7 dias por padrão, no máximo 30). Nunca ligue sem o dono pedir; a chave pública vem dele ou do suporte, nunca invente uma. O roteiro está em `/opt/dgclaw/app/docs/PROJETO-DE-CLIENTE.md` |
@@ -126,6 +126,14 @@ Quando o recado chegar:
 5. O nível 1 já foi aplicado sozinho: conte o que foi feito e que `sudo dgclaw seguranca desfazer <registro>`
    volta atrás.
 6. Se você tiver ferramenta para procurar repercussão no X sobre esses ids, pode usá-la, só como contexto.
+7. Falha de pacote do sistema (o kernel, o openssl e afins) que já tem correção no `apt` vem em "ATUALIZAÇÕES DO SISTEMA
+   (correção já no apt)" e fica, na tela Segurança, na seção recolhida "Atualizações do sistema". Não é alarme e não conta como
+   risco. Confira se a atualização automática do Ubuntu está ligada (`unattended-upgrades`) e se há pacote
+   retido (`apt-mark showhold`); pacote retido não atualiza sozinho, então conte ao dono e peça a decisão dele antes de
+   liberar. Se a atualização automática estiver ligada e nada estiver retido, diga ao dono que a
+   correção entra sozinha (no kernel, vale no próximo reinício). Se não estiver, ofereça atualizar o sistema (e reiniciar o
+   servidor, no kernel) com o sim dele, sem alarme. Só os itens marcados como atualização do sistema são tratados sem alarme: a falha que a CISA diz estar sendo
+   explorada e os demais itens de nível 2 continuam pedindo a decisão do dono.
 
 Se chegar o recado `ronda-de-seguranca-vigia`, a verificação automática falhou duas vezes seguidas: conte ao
 dono em palavras simples e rode `sudo dgclaw seguranca estado` para ver o motivo. Mais em

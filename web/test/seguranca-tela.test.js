@@ -129,3 +129,12 @@ test('as janelas antigas não existem mais', () => {
     assert.ok(!fs.existsSync(path.join(__dirname, '../public', n)), n);
   }
 });
+
+test('automático suspenso: a tela mostra o motivo fixo e a ação, com textContent', () => {
+  assert.match(pub('seguranca.html'), /id="autoAdminSuspenso"/);
+  const js = pub('seguranca.js');
+  assert.match(js, /automatico\.suspenso === true/);
+  assert.match(js, /incidentes\.json\.corrompido/);
+  assert.match(js, /Mexa no interruptor/);
+  assert.match(js, /susp\.textContent = auto\.suspenso/);
+});

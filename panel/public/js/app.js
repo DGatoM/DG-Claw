@@ -431,6 +431,7 @@ const SUBTITULO_ABA = {
   como: 'as peças dele, com os números de agora',
   apps: 'o que ele já produziu, etapa por etapa',
   skills: 'o que ele sabe fazer, e onde cada skill fica salva',
+  integracoes: 'os sistemas em que ele está ligado, e se cada um funciona',
   rotinas: 'o que ele faz sozinho, na hora marcada',
   arquivos: 'os arquivos que ele guarda, e os que você sobe',
   cofre: 'as chaves de serviço que ele pode usar',
@@ -475,6 +476,8 @@ const EXPLICACAO_ABA = {
     + 'etapa por etapa.',
   skills: 'As skills são roteiros que ensinam o agente a fazer uma tarefa do seu jeito. Cada uma é uma pasta com um '
     + 'arquivo SKILL.md, e esta página lista todas e mostra onde cada uma fica salva.',
+  integracoes: 'O mapa dos sistemas externos em que o agente está ligado (WhatsApp, Instagram, banco e outros). A cor de cada um '
+    + 'vem do uso real: verde funciona, amarelo pede atenção, vermelho está com defeito.',
   rotinas: 'As rotinas e lembretes que ele marcou a seu pedido, com a próxima hora e como foi a última vez. '
     + 'A lista se atualiza sozinha enquanto a página está aberta.',
   arquivos: 'A pasta de trabalho do agente: o que ele guardou enquanto trabalhava, e onde você '
@@ -650,6 +653,7 @@ async function loadPanel(tab, force) {
     case 'como': await window.DGCerebro.carregarComoFunciona(); ligarLinksEntreAbas(); break;
     case 'apps': await window.DGApps.carregar(); break;
     case 'skills': await window.DGSkills.carregar(); break;
+    case 'integracoes': await window.DGIntegracoes.carregar({ foto: APP_CONFIG.avatar }); break;
     case 'rotinas': await carregarRotinas(); break;
     case 'arquivos': await window.DGArquivos.carregar(); break;
     // A aba Socorro (js/socorro.js, de outra frente) se carrega sozinha no clique da

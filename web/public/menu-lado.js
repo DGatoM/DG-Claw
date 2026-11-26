@@ -23,7 +23,7 @@
     ['cofre', 'i-vault', 'Cofre (chaves)'], ['arquivos', 'i-folder', 'Pasta do agente'],
     ['memory', 'i-layers', 'Memória'], ['operations', 'i-settings', 'Operações'], ['costs', 'i-gem', 'Custos'],
     ['como', 'i-info', 'Como funciona'], ['identity', 'i-id', 'Identidade'], ['personality', 'i-smile', 'Personalidade'],
-    ['apps', 'i-layout', 'Apps'], ['socorro', 'i-lifebuoy', 'Socorro'],
+    ['apps', 'i-layout', 'Apps'], ['integracoes', 'i-link', 'Integrações'], ['socorro', 'i-lifebuoy', 'Socorro'],
   ];
 
 
@@ -35,6 +35,7 @@
   const LINK_SEGURANCA = { nome: 'Segurança', ico: 'i-shield', href: '/seguranca' };
   const LINK_CONECTAR = { nome: 'Conectar conta', ico: 'i-key', href: '/conectar' };
   const LINK_FACEID = { nome: 'Face ID', ico: 'i-lock', href: '/face-id' };
+  const LINK_SENHA = { nome: 'Trocar senha', ico: 'i-key', href: '/trocar-senha' };
   const LINK_COLABORADOR = { nome: 'Convidar colaborador', ico: 'i-users', href: '/colaboradores' };
   const ehColaborador = () => !!(raiz.DGPapel && raiz.DGPapel.colaborador);
   const LINK_ANONIMIZAR = { nome: 'Anonimizar', ico: 'i-glasses', href: '/anonimizar' };
@@ -79,6 +80,7 @@
     if (caminho === '/conectar') return 'conectar';
     if (caminho === '/face-id') return 'face-id';
     if (caminho === '/colaboradores') return 'colaboradores';
+    if (caminho === '/trocar-senha') return 'senha';
     if (caminho === '/anonimizar') return 'anonimizar';
     if (caminho === '/logs') return 'logs';
     if (/^\/a\/[^/]+$/.test(caminho)) return 'conversa';
@@ -106,9 +108,9 @@
   const GRUPOS_MENU = [
     { id: 'perfil', nome: 'Perfil do agente', ico: 'i-id', chaves: ['identity', 'personality', 'memory'] },
     { id: 'dia', nome: 'Dia a dia', ico: 'i-calendar', chaves: ['rotinas', 'lembretes', 'sessoes'] },
-    { id: 'ferramentas', nome: 'Ferramentas', ico: 'i-package', chaves: ['skills', 'apps', 'conectar', 'faceid', 'anonimizar'] },
+    { id: 'ferramentas', nome: 'Ferramentas', ico: 'i-package', chaves: ['skills', 'apps', 'integracoes', 'conectar', 'faceid', 'anonimizar'] },
     { id: 'operacao', nome: 'Operação', ico: 'i-activity', chaves: ['status', 'operations', 'costs', 'logs'] },
-    { id: 'seguranca', nome: 'Segurança', ico: 'i-shield', chaves: ['seguranca', 'cofre', 'avisos', 'suporte', 'colaboradores'] },
+    { id: 'seguranca', nome: 'Segurança', ico: 'i-shield', chaves: ['seguranca', 'cofre', 'avisos', 'suporte', 'colaboradores', 'senha'] },
   ];
   const GRUPO_CONEXOES = { id: 'conexoes', nome: 'Conexões', ico: 'i-globe' };
   const CHAVES_FIXAS = ['arquivos'];
@@ -125,6 +127,7 @@
     fixo('conectar', LINK_CONECTAR, 'gm-conectar');
     fixo('faceid', LINK_FACEID, 'gm-faceid');
     if (!colab) fixo('anonimizar', LINK_ANONIMIZAR, 'gm-anonimizar');
+    if (!colab) itens.push({ chave: 'senha', nome: LINK_SENHA.nome, ico: LINK_SENHA.ico, href: LINK_SENHA.href, tour: 'gm-senha' });
     if (mostraLogs(ag, colab)) fixo('logs', LINK_LOGS, 'gm-logs');
     // Convidar colaborador: só o dono, e nunca para o Admin (o Admin mexe no servidor inteiro)
     if (!colab && ag && ag.tipo !== 'admin' && id) {
@@ -206,7 +209,7 @@
       alvo: '#mlMoldura', antes: abre, titulo: 'O menu do agente',
       oque: 'A foto, o nome e as páginas de ' + nome + ', sempre no lado esquerdo. No computador ele fica aberto o tempo todo; no celular abre pelo botão de menu (as três linhas).',
       como: (o.naConversa ? 'O item Conversa (esta tela) fica no alto.' : 'O item Conversa, no alto, leva de volta ao chat.') +
-        ' Os outros itens levam à Mesa, às Sessões de trabalho dele, à Tela (o navegador dele, onde você faz os logins), aos Lembretes, aos Avisos, ao Suporte remoto, à Segurança, à Anonimizar (documentos sem dados pessoais), aos Logs (só no Admin: o histórico do que cada agente fez), a Conectar conta (onde você conecta a conta do Claude de cada agente), ao Face ID (a trava do app com o rosto ou a digital, ligada aparelho por aparelho) e às páginas do painel dele. O Tutorial, aqui em cima, repete esta visita.',
+        ' Os outros itens levam à Mesa, às Sessões de trabalho dele, à Tela (o navegador dele, onde você faz os logins), aos Lembretes, aos Avisos, ao Suporte remoto, à Segurança, à Anonimizar (documentos sem dados pessoais), aos Logs (só no Admin: o histórico do que cada agente fez), a Conectar conta (onde você conecta a conta do Claude de cada agente), ao Face ID (a trava do app com o rosto ou a digital, ligada aparelho por aparelho), a Trocar senha (a senha com que você entra no painel; exige a atual) e às páginas do painel dele. O Tutorial, aqui em cima, repete esta visita.',
       porque: 'Assim a conversa e o painel de cada agente ficam no mesmo lugar, sem link escondido.',
     }];
     if (o.comTroca) {

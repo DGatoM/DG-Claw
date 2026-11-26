@@ -3695,9 +3695,33 @@ function pintaTrocaBaixo() {
 function centralizaTrocaBaixo() {
   const baixo = $('trocaBaixo'), atual = baixo && baixo.querySelector('.atual');
   if (atual && baixo.clientWidth) baixo.scrollLeft = atual.offsetLeft - (baixo.clientWidth - atual.offsetWidth) / 2;
+  if (baixo) confereSombraTroca();
+}
+// sombra na borda do lado que ainda tem agente escondido (mesmo padrão .tem-esq/.tem-dir da faixa de ferramentas)
+function confereSombraTroca() {
+  const baixo = $('trocaBaixo');
+  if (!baixo) return;
+  const max = baixo.scrollWidth - baixo.clientWidth;
+  baixo.classList.toggle('tem-esq', baixo.scrollLeft > 2);
+  baixo.classList.toggle('tem-dir', max > 2 && baixo.scrollLeft < max - 2);
+}
+// roda do mouse vertical vira rolagem para o lado, só quando há overflow horizontal e o deltaY domina
+function rodaViraLado(el) {
+  if (!el) return;
+  el.addEventListener('wheel', ev => {
+    // Ctrl + roda é o zoom do navegador; deltaMode 1 = linhas, 2 = páginas
+    if (ev.ctrlKey || el.scrollWidth <= el.clientWidth + 1 || Math.abs(ev.deltaY) <= Math.abs(ev.deltaX)) return;
+    ev.preventDefault();
+    el.scrollLeft += ev.deltaY * (ev.deltaMode === 1 ? 16 : ev.deltaMode === 2 ? el.clientWidth : 1);
+  }, { passive: false });
 }
 pintaTrocaBaixo();
 window.addEventListener('resize', centralizaTrocaBaixo);
+if ($('trocaBaixo')) {
+  $('trocaBaixo').addEventListener('scroll', confereSombraTroca, { passive: true });
+  rodaViraLado($('trocaBaixo'));
+}
+rodaViraLado($('tools'));
 // ?texto=... chega do painel (ex.: "editar" numa rotina): o pedido já vem escrito no campo, sem
 // enviar sozinho, e o parâmetro sai da barra para não reaparecer ao recarregar.
 try {
@@ -4902,6 +4926,68 @@ entrada.addEventListener('keydown', ev => {
   ev.preventDefault(); destravarAudio(); enviarDoCampo();
 });
 
+/* Botão Voz: fica destacado quando ler OU contínua está ligado; o popover (#menuVoz) guarda os dois controles */
+const btnVoz = $('btnVoz'), menuVoz = $('menuVoz');
+// ler e contínua nascem dentro de #tools (o sigilo.js usa a faixa como referência ao montar o botão dele);
+// aqui, já depois do sigilo.js, eles vão para o quadro da Voz
+if (btnVoz && menuVoz) { menuVoz.append(btnLer, btnContinua); btnVoz.hidden = false; }
+/* Com o quadro fechado, o botão diz qual modo está ligado: a contínua (que reabre o microfone)
+   tem ícone próprio e o nome avisa que ele volta a gravar. */
+function pintaVoz() {
+  if (!btnVoz) return;
+  btnVoz.classList.toggle('on', !!(lerRespostas || continua));
+  const u = btnVoz.querySelector('use');
+  if (u) u.setAttribute('href', '/ds/icones.svg#' + (continua ? 'i-repeat' : lerRespostas ? 'i-volume' : 'i-volume-off'));
+  const nome = continua ? 'Voz: conversa contínua ligada, o microfone volta a gravar depois de cada resposta'
+    : lerRespostas ? 'Voz: leitura em voz alta ligada' : 'Voz: leitura em voz alta e conversa contínua desligadas';
+  btnVoz.title = nome; btnVoz.setAttribute('aria-label', nome);
+}
+function posicionaMenuVoz() {
+  // fixo, calculado: a faixa de ferramentas rola e cortaria um popover absoluto
+  const r = btnVoz.getBoundingClientRect(), larg = Math.min(menuVoz.offsetWidth || 280, window.innerWidth - 16);
+  const esq = Math.max(8, Math.min(r.left, window.innerWidth - larg - 8));
+  menuVoz.style.left = esq + 'px';
+  menuVoz.style.top = (r.bottom + 6) + 'px';
+  // janela baixa: o quadro cabe no que sobra abaixo do botão e rola por dentro, para o controle
+  // da conversa contínua nunca ficar fora de alcance
+  menuVoz.style.maxHeight = Math.max(44, window.innerHeight - r.bottom - 14) + 'px';
+  menuVoz.style.overflowY = 'auto';
+}
+function abreMenuVoz(abre, devolveFoco) {
+  if (!btnVoz || !menuVoz) return;
+  menuVoz.hidden = !abre;
+  btnVoz.setAttribute('aria-expanded', String(abre));
+  if (abre) posicionaMenuVoz();
+  else if (devolveFoco) btnVoz.focus();
+}
+if (btnVoz && menuVoz) {
+  btnVoz.onclick = ev => {
+    abreMenuVoz(menuVoz.hidden);
+    // pelo teclado (Enter/Espaço chegam com detail 0) o foco entra no quadro; Esc devolve ao Voz
+    if (!menuVoz.hidden && ev.detail === 0) { const b = menuVoz.querySelector('button'); if (b) b.focus(); }
+  };
+  document.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape' && !menuVoz.hidden) { ev.stopPropagation(); abreMenuVoz(false, true); }
+  });
+  // captura na window (antes de qualquer tratador do document): o toque de fora fecha o quadro. Ele só é
+  // consumido quando cai na conversa (#chat) fora de um botão: tocar num balão ou num link poderia revelar
+  // um balão mascarado ou abrir uma mídia sem querer. Botão é ação explícita, com rótulo (esconder de novo,
+  // esconder ou ver dados reais), e recebe o toque; o cabeçalho e a barra de digitação também.
+  const conversaEl = $('chat');
+  window.addEventListener('click', ev => {
+    if (menuVoz.hidden) return;
+    // composedPath: pintaLer/pintaContinua trocam o innerHTML e o span tocado já saiu do DOM
+    const caminho = ev.composedPath();
+    if (caminho.includes(menuVoz) || caminho.includes(btnVoz)) return;
+    abreMenuVoz(false);
+    if (!conversaEl || !caminho.includes(conversaEl)) return;
+    // o botão de mídia (.mid) abre o visor: esse continua consumido, como no PASSA_CLIQUE do sigilo.js
+    if (caminho.some(n => n && n.tagName === 'BUTTON' && !n.classList.contains('mid'))) return;
+    ev.preventDefault(); ev.stopPropagation();
+  }, true);
+  window.addEventListener('resize', () => { if (!menuVoz.hidden) posicionaMenuVoz(); });
+}
+
 function pintaLer() {
   document.body.classList.toggle('ler-on', lerRespostas);   // mostra os fones dos balões
   btnLer.classList.toggle('on', lerRespostas);
@@ -4910,7 +4996,8 @@ function pintaLer() {
   btnLer.setAttribute('aria-pressed', String(lerRespostas));
   btnLer.setAttribute('aria-label', 'Leitura em voz alta: ' + (lerRespostas ? 'ligada' : 'desligada'));
   btnLer.innerHTML = (lerRespostas ? dsIcone('volume') : dsIcone('volume-off')) +
-    ' <span class="lbl">' + (lerRespostas ? 'ler: sim' : 'ler: não') + '</span>';
+    ' <span class="lbl">Ler respostas em voz alta: ' + (lerRespostas ? 'ligado' : 'desligado') + '</span>';
+  pintaVoz();
 }
 btnLer.onclick = () => {
   destravarAudio();
@@ -4924,7 +5011,8 @@ function pintaContinua() {
   btnContinua.classList.toggle('on', continua);
   btnContinua.setAttribute('aria-pressed', String(continua));
   btnContinua.setAttribute('aria-label', 'Conversa contínua: ' + (continua ? 'ligada' : 'desligada'));
-  btnContinua.innerHTML = dsIcone('repeat') + ' <span class="lbl">' + (continua ? 'contínua: sim' : 'contínua: não') + '</span>';
+  btnContinua.innerHTML = dsIcone('repeat') + ' <span class="lbl">Conversa contínua: ' + (continua ? 'ligada' : 'desligada') + '</span>';
+  pintaVoz();
 }
 btnContinua.onclick = () => {
   destravarAudio();
@@ -5127,6 +5215,10 @@ function passosTutorial() {
     como: 'Toque nele e a lista abre na mesma janela. Lá você cria, confirma e apaga lembretes.',
     porque: 'Lembrete que insiste até você confirmar só ajuda se for fácil de achar, por isso fica no topo.' });
   }
+  if (!document.documentElement.classList.contains('sem-voz')) passos.push({ alvo: '#btnVoz', titulo: 'O botão Voz',
+    oque: 'Um botão com o ícone de alto-falante que guarda os dois controles de voz: "Ler respostas em voz alta" e "Conversa contínua". Ele fica destacado quando qualquer um dos dois está ligado.',
+    como: 'Toque nele e abre um quadro com os dois controles, cada um dizendo por escrito se está ligado ou desligado. Ligando a leitura, as respostas de ' + nome + ' são faladas. Ligando a conversa contínua, o painel volta a gravar o seu microfone quando termina de tocar a resposta. Esc ou um toque fora fecha o quadro.',
+    porque: 'Os dois controles ficam juntos num botão só para sobrar espaço no topo; o nome de cada um aparece por escrito quando você abre.' });
   if ($('btnAnon') && !$('btnAnon').hidden) passos.push({ alvo: '#btnAnon', titulo: 'Documentos anonimizados',
     oque: 'Um selo que aparece só quando a anonimização de documentos está ligada para ' + nome + '. Ele leva à tela Anonimizar.',
     como: 'Os documentos que você manda pelo clipe passam por um filtro que troca nomes, CPF, telefone e outros dados por marcadores como [PESSOA_1]. O agente só vê os marcadores. Nas respostas dele, o botão "Ver com dados reais" mostra o texto de verdade e "Baixar versão final" entrega o arquivo com os dados reais.',

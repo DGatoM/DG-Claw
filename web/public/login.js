@@ -30,7 +30,11 @@
   if (q.has('erro')) {
     const cod = (q.get('erro') || '').toLowerCase();
     const caixa = document.getElementById('erro');
-    caixa.textContent = FRASES[cod] || 'Não foi possível entrar. Confira os dados e tente de novo.';
+    let texto = FRASES[cod] || 'Não foi possível entrar. Confira os dados e tente de novo.';
+    /* O servidor manda ?espera=<minutos> no bloqueio; só vale se for um número inteiro pequeno. */
+    const espera = /^\d{1,4}$/.test(q.get('espera') || '') ? Number(q.get('espera')) : 0;
+    if (cod === 'limite' && espera > 0) texto = 'Muitas tentativas seguidas. Tente de novo em ' + espera + ' min.';
+    caixa.textContent = texto;
     caixa.hidden = false;
   }
   /* O link do convite traz ?usuario=<e-mail>: o campo já vem preenchido, e a pessoa só digita a senha temporária. */

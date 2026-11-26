@@ -25,6 +25,14 @@ import tempfile
 import urllib.error
 import urllib.request
 
+# Registro de saude da integracao (docs/PLANO-INTEGRACOES-E-VIGIA.md). Nunca derruba o script.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "_lib"))
+try:
+    from integracoes import registrar_silencioso
+except ImportError:  # modulo ausente: a transcricao segue sem anotar o resultado
+    def registrar_silencioso(*_a, **_k):
+        sys.stderr.write("[transcribe] AVISO: modulo de registro de integracoes ausente; segui sem anotar.\n")
+
 LANG = os.environ.get("TRANSCRIBE_LANG", "pt")
 PROMPT = (
     f"Transcreva este audio em {'portugues do Brasil' if LANG == 'pt' else LANG}, "
@@ -59,6 +67,35 @@ def to_mp3(src):
 UA = "dgclaw-transcribe/1.0"
 
 
+class ErroHttp(RuntimeError):
+    """O provedor respondeu com um status de erro."""
+    def __init__(self, code, corpo):
+        super().__init__(f"HTTP {code}: {corpo}")
+        self.code = code
+
+
+class ErroRede(RuntimeError):
+    """Nao houve resposta do provedor (conexao, DNS ou tempo esgotado)."""
+
+
+def classificar_falha(exc):
+    """Resultado do registro de integracoes para uma falha de provedor, ou None se o provedor
+    nem foi chamado (chave ausente, ffmpeg, arquivo): ai nao ha o que anotar."""
+    if isinstance(exc, ErroHttp):
+        if exc.code in (401, 403):
+            return "credencial_recusada"
+        if exc.code == 402:
+            return "sem_saldo"
+        if exc.code == 429:
+            return "limite"
+        if exc.code >= 500:
+            return "fora_do_ar"
+        return "erro"
+    if isinstance(exc, ErroRede):
+        return "rede"
+    return None
+
+
 def _post(url, data, headers, timeout=180):
     headers = {"User-Agent": UA, **headers}
     req = urllib.request.Request(url, data=data, headers=headers)
@@ -66,7 +103,9 @@ def _post(url, data, headers, timeout=180):
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"HTTP {e.code}: {e.read().decode()[:400]}")
+        raise ErroHttp(e.code, e.read().decode()[:400])
+    except (urllib.error.URLError, OSError) as e:
+        raise ErroRede(f"sem conexao com o provedor ({type(e).__name__})")
 
 
 def _multipart(fields, filepath, filefield="file"):
@@ -220,11 +259,16 @@ def main():
             log(f"tentando {name}...")
             text = fn(path)
             if text:
+                if name != "local":
+                    registrar_silencioso(name, "ok")
                 log(f"OK via {name} ({len(text)} chars)")
                 print(text)
                 return
             errs.append(f"{name}: resposta vazia")
         except Exception as e:
+            resultado = classificar_falha(e) if name != "local" else None
+            if resultado:
+                registrar_silencioso(name, resultado)
             errs.append(f"{name}: {e}")
             log(f"{name} falhou: {e}")
     sys.exit("todos os providers falharam:\n  " + "\n  ".join(errs))
