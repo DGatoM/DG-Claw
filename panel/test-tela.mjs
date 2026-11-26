@@ -133,7 +133,7 @@ const visto = { cabecalhos: null, caminho: null };
 const conexoesFalsas = new Set();
 const falso = http.createServer((req, res) => {
   res.writeHead(req.url === '/' ? 200 : (req.url.startsWith('/vnc.html') ? 200 : 404), { 'content-type': 'text/html' });
-  res.end(req.url.startsWith('/vnc.html') ? 'NOVNC-FALSO' : 'ok');
+  res.end(req.url.startsWith('/vnc.html') ? '<html><head><title>x</title></head><body>NOVNC-FALSO</body></html>' : 'ok');
 });
 falso.on('upgrade', (req, socket) => {
   visto.cabecalhos = req.headers;
@@ -286,11 +286,30 @@ try {
   r = await fetch(`${p.url}/api/tela`, { headers: { Authorization: `Bearer ${chave}` } });
   ok(r.status === 200, 'a chave de API LÊ o status (só não troca a senha)');
 
+  console.log('\nO substituto de armazenamento (painel em sandbox)');
+  {
+    const { SHIM } = require('./lib/tela-armazenamento.js');
+    const vm = require('node:vm');
+    const bloqueada = {};
+    for (const n of ['localStorage', 'sessionStorage']) Object.defineProperty(bloqueada, n, { get() { throw new Error('SecurityError: sandboxed'); }, configurable: true });
+    bloqueada.console = console;
+    vm.runInNewContext(SHIM.replace(/window/g, 'W'), { W: bloqueada, console });
+    bloqueada.localStorage.setItem('a', 1);
+    ok(bloqueada.localStorage.getItem('a') === '1' && bloqueada.localStorage.getItem('b') === null && bloqueada.localStorage.length === 1 && bloqueada.localStorage.key(0) === 'a', 'sem armazenamento: localStorage vira memória');
+    bloqueada.localStorage.removeItem('a'); bloqueada.sessionStorage.setItem('x', 'y'); bloqueada.sessionStorage.clear();
+    ok(bloqueada.localStorage.length === 0 && bloqueada.sessionStorage.length === 0, 'removeItem e clear funcionam');
+    const normal = { localStorage: { getItem: () => null } };
+    vm.runInNewContext(SHIM.replace(/window/g, 'W'), { W: normal, console });
+    ok(normal.localStorage.getItem.toString() === '() => null', 'com armazenamento normal: o script não troca nada');
+  }
+
   console.log('\nOs arquivos do noVNC por HTTP');
   r = await fetch(`${p.url}/tela/novnc/vnc.html?autoconnect=1`, { redirect: 'manual' });
   ok(r.status === 302, 'sem login: não entrega o noVNC (redireciona para o login)');
   r = await fetch(`${p.url}/tela/novnc/vnc.html?autoconnect=1`, { headers: { cookie } });
-  ok(r.status === 200 && (await r.text()) === 'NOVNC-FALSO', 'com login: o arquivo vem do noVNC falso');
+  const htmlNovnc = await r.text();
+  ok(r.status === 200 && htmlNovnc.includes('NOVNC-FALSO'), 'com login: o arquivo vem do noVNC falso');
+  ok(htmlNovnc.indexOf('<script>') > htmlNovnc.indexOf('<head>') && htmlNovnc.indexOf('<script>') < htmlNovnc.indexOf('<title>') && htmlNovnc.includes('sessionStorage'), 'o vnc.html leva o substituto de localStorage antes de tudo (painel em sandbox)');
   r = await fetch(`${p.url}/tela/novnc/%2e%2e%2f%2e%2e%2fetc/passwd`, { headers: { cookie } });
   ok(r.status === 400, 'caminho com .. codificado: 400');
   r = await fetch(`${p.url}/tela/novnc/vnc.html`, { headers: { Authorization: `Bearer ${chave}` }, redirect: 'manual' });

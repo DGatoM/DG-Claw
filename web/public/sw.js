@@ -3,7 +3,7 @@
 
    Guarda só os arquivos estáticos da tela (CSS, JS, ícones, manifesto), para ela
    abrir rápido e para o app instalado ter o que mostrar. NUNCA mexe em /api/,
-   /p/, /login, /sair nem nas páginas de conversa (/a/...): conteúdo da conversa,
+   /p/, /pv/, /login, /sair nem nas páginas de conversa (/a/...): conteúdo da conversa,
    painéis e sessão passam direto para a rede, sem cópia nenhuma. */
 const VERSAO = 'dgclaw-estaticos-v43';
 const ESTATICOS = [
@@ -30,7 +30,7 @@ const ESTATICOS = [
 ];
 // /marca.css, /marca/* e /manifest.webmanifest NÃO entram: a marca (white label) pode mudar a qualquer hora e precisa vir sempre da rede.
 // /cadeado e /face-id também: a tela travada nunca pode vir de cópia guardada.
-const PROIBIDOS = [/^\/marca/, /^\/manifest\.webmanifest/, /^\/api\//, /^\/p\//, /^\/login/, /^\/sair/, /^\/a\//, /^\/cadeado/, /^\/face-id/];
+const PROIBIDOS = [/^\/marca/, /^\/manifest\.webmanifest/, /^\/api\//, /^\/p\//, /^\/pv\//, /^\/login/, /^\/sair/, /^\/a\//, /^\/cadeado/, /^\/face-id/];
 
 self.addEventListener('install', ev => {
   ev.waitUntil(

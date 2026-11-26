@@ -35,6 +35,7 @@ const http = require('http');
 const net = require('net');
 const rateLimit = require('express-rate-limit');
 const { validarSenha, gravarRfbauth } = require('./tela-senha');
+const { injetar } = require('./tela-armazenamento');
 
 const PADRAO_NOVNC = '127.0.0.1:6080';
 const PADRAO_SENHA = '/home/agente/.dgclaw/tela/vnc.senha';
@@ -268,6 +269,20 @@ function registrar(router, o) {
       host: novnc.host, port: novnc.port, path: bruto, method: 'GET', timeout: 10000,
       headers: { accept: req.headers.accept || '*/*', host: `${novnc.host}:${novnc.port}` },
     }, (pres) => {
+      // O vnc.html ganha o substituto de localStorage (o painel roda em sandbox sem allow-same-origin).
+      if (decodificado === '/vnc.html' && pres.statusCode === 200) {
+        const partes = [];
+        pres.on('data', (c) => partes.push(c));
+        pres.on('end', () => {
+          const corpo = Buffer.from(injetar(Buffer.concat(partes).toString('utf8')), 'utf8');
+          const hh = { 'content-type': pres.headers['content-type'] || 'text/html', 'content-length': corpo.length };
+          if (pres.headers['cache-control']) hh['cache-control'] = pres.headers['cache-control'];
+          res.writeHead(200, hh);
+          res.end(corpo);
+        });
+        pres.on('error', () => res.destroy());
+        return;
+      }
       const h = {};
       for (const k of ['content-type', 'content-length', 'cache-control', 'etag', 'last-modified']) {
         if (pres.headers[k]) h[k] = pres.headers[k];
