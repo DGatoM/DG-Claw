@@ -2650,6 +2650,7 @@ painel_gravar_senha() {
         falha "o gerador de hash devolveu um valor invalido." "isso e um erro do DG Claw; a senha nao foi trocada."
     fi
 
+    trava_arquivo_pegar "$web_env"
     # O hash entra no awk pelo ambiente, nao pelo argv: o hash tem `$` e `\` que o -v interpretaria.
     HASH_NOVO="$hash" awk '
         BEGIN {linha = "DGCLAW_PANEL_PASSWORD_HASH=\047" ENVIRON["HASH_NOVO"] "\047"}
@@ -2658,6 +2659,7 @@ painel_gravar_senha() {
         END {if (!feito) print linha}' "$web_env" | escrever_arquivo "$web_env" 600
     # Senha nova definida: um link de primeiro acesso pendente nao faz mais sentido.
     rm -f "$DG_ETC/primeiro-acesso.json"
+    trava_arquivo_soltar "$web_env"
     executar systemctl restart dgclaw-web
 }
 

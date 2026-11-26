@@ -96,8 +96,11 @@ de verdade.
 
 - **Primeiro acesso:** o instalador entrega um link de uso único, válido por 30 minutos (`/primeiro-acesso`). Você
   cadastra a senha ali (mínimo de 12 caracteres). Link perdido: peça ao Admin `sudo dgclaw primeiro-acesso`.
-- **Trocar a senha:** `sudo dgclaw senha trocar` (a senha nova vai pelo teclado, sem aparecer). Trocar a senha
-  derruba as sessões abertas.
+- **Trocar a senha:** logado como dono, abra Segurança > Trocar senha no menu do painel (ou `/trocar-senha`), digite a
+  senha atual e a nova duas vezes (mínimo de 12 caracteres). Sem acesso ao painel, use `sudo dgclaw senha trocar` (a senha
+  nova vai pelo teclado, sem aparecer). Nos dois casos as outras sessões abertas deixam de valer.
+- **Usuário do login:** o painel ignora maiúsculas e espaços nas pontas do usuário (o teclado do celular costuma
+  colocá-los); a senha continua exata.
 - **Tentativas erradas:** 5 erros em 15 minutos para a mesma conta e o mesmo endereço, ou 20 erros em 15 minutos
   para o mesmo endereço somando todas as contas, bloqueiam novas tentativas até a janela passar. Nem a senha certa
   entra durante o bloqueio, e a tela diz quantos segundos esperar.
