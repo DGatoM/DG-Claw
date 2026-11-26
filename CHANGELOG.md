@@ -32,6 +32,28 @@ Falhas reportadas por Renato Gracie (divulgação responsável).
    usa `--sem-baixar`, sabendo que nesse caso nada é conferido.
 4. **A atualização passa a instalar a versão (tag) assinada mais nova**, e não mais a ponta da `main`.
 
+**WhatsApp com travas contra banimento, em qualquer conexão.** Conectar o WhatsApp por uma API não oficial
+(a ponte do DG Claw, a Z-API, a Evolution) tem risco de banimento do número, e em alguns casos até pela API
+oficial. O risco vem de comportamento de robô: muitas mensagens de uma vez e o mesmo texto para várias pessoas.
+Usando o WhatsApp para análise, ou mandando como uma pessoa mandaria, o risco fica muito baixo. Agora o padrão do
+DG Claw já envia assim: uma mensagem por chamada; quando o agente fala com 2 pessoas ou mais em uma hora, espera
+um intervalo aleatório de 8 a 20 segundos entre uma mensagem e a seguinte; faz uma pausa de 30 minutos a cada 30
+mensagens; para em 60 mensagens por dia; recusa o mesmo texto para duas pessoas em 24 horas; e, no primeiro erro
+de envio ou sinal de bloqueio, trava tudo até você liberar. Conversar com uma pessoa só não tem espera nenhuma.
+Os valores vieram de uma pesquisa de recomendações atuais (fontes em `docs/CANAL-WHATSAPP.md`) e você muda todos em
+`~/.dgclaw/whatsapp/envio.json`, inclusive para ir mais devagar. A ponte já usa isso, e há um script e uma skill
+novos (`whatsapp-enviar`) para quem usa a Z-API. O comando novo `dgclaw-agente canal whatsapp retomar` libera
+os envios depois de uma trava, e o `canal status` mostra quando há uma.
+
+### Como atualizar (WhatsApp com travas)
+
+O `dgclaw atualizar` padrão basta, e nada que você configurou muda. Se o seu agente já usa o WhatsApp, ele passa a
+respeitar as travas assim que a ponte reiniciar (a atualização reinicia). Quem usa a Z-API precisa guardar no cofre
+do agente as chaves `ZAPI_INSTANCE`, `ZAPI_TOKEN` e `ZAPI_CLIENT_TOKEN`. Agentes criados antes desta versão não
+ganham a skill `whatsapp-enviar` sozinhos, mas as instruções do ambiente já apontam para o script e o documento.
+Se algum dia um envio vier travado, confira o número no celular e peça ao agente, no chat do DG Claw, para
+rodar `dgclaw-agente canal whatsapp retomar`.
+
 **Correção: render pesado não derruba o agente, e subagente em segundo plano não prende a fila.** Um agente com 2 GB de
 memória rodou um script de numpy sobre miniaturas de vídeo, passou de 1,2 GB, e o kernel matou o python. O systemd, que
 por padrão derruba o serviço inteiro quando um filho morre por falta de memória, parou o runner junto, e o painel ficou
