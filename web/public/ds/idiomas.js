@@ -7373,6 +7373,10 @@
     "pt-BR": "Não consegui ler o token do runner em {p0} (arquivo ausente, vazio ou sem permissão).",
     "en": "I could not read the runner token at {p0} (file missing, empty, or not readable)."
   },
+  "61a9978da14e": {
+    "pt-BR": "Quem abrir este link não precisa de senha, então mande só para quem deve ver.",
+    "en": "Anyone opening this link does not need a password, so only send it to people who should see it."
+  },
   "61c537c709d1": {
     "pt-BR": "{v0}\nFonte agora: {v1}.",
     "en": "{v0}\nCurrent source: {v1}."

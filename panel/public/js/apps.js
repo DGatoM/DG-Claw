@@ -546,14 +546,13 @@ const dgHtml_apps = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) :
    */
   async function gerarLink(slug, botao) {
     const saida = document.getElementById(`compartilhar-${slug}`);
-    const rotulo = botao.textContent;
     botao.disabled = true;
     dgBindFull_apps(botao,'gerando...',undefined);
     if (saida) saida.innerHTML = dgHtmlFull_apps(`<div class="app-carregando"><!--dg-i18n:8f144f3f20e7-->Montando a página com as imagens dentro. Isso leva alguns segundos.<!--/dg-i18n--></div>`);
 
     const r = await enviar(`/api/apps/${encodeURIComponent(appAtual)}/conteudos/${encodeURIComponent(slug)}/compartilhar`);
     botao.disabled = false;
-    botao.textContent = rotulo;
+    dgBindFull_apps(botao, 'Gerar link para o cliente');
     if (!saida) return;
 
     if (!r.ok) {
