@@ -29,7 +29,10 @@ aside#menu{
 .ml-foto img,.ml-mini img{width:100%;height:100%;object-fit:cover;display:block;border-radius:50%}
 .ml-nome{font-size:19px;font-weight:600;letter-spacing:-.01em;line-height:1.25;max-width:100%;overflow-wrap:anywhere}
 .ml-sub{font-size:12px;color:var(--ml-fraco);max-width:100%;overflow-wrap:anywhere;margin-bottom:8px}
-.ml-marca .gm-tut{margin-bottom:2px}
+/* Tutorial do menu: "?" redondo no canto superior esquerdo, espelhando o X de fechar (à direita) */
+aside#menu .gm-tut{position:absolute;top:calc(12px + env(safe-area-inset-top));left:10px;z-index:2;width:32px;height:32px;
+  min-height:0;padding:0;border-radius:50%;font-size:15px;font-weight:700;line-height:1;
+  display:inline-flex;align-items:center;justify-content:center}
 
 /* seletor de agente */
 .ml-troca{position:relative;width:100%;margin-top:10px}
@@ -130,23 +133,31 @@ aside#menu{
   font-size:12.5px;line-height:1.45;color:var(--ml-texto)}
 .ml-ajuda[hidden]{display:none}
 
-/* Uso das assinaturas: seção recolhível, mini barras por agente */
-#mlUsoDet summary{list-style:none;cursor:pointer;min-height:40px}
-#mlUsoDet summary::-webkit-details-marker{display:none}
-#mlUsoDet .ml-uso-seta{margin-left:auto;color:var(--ml-fraco);display:inline-flex;transition:transform var(--tempo-rapido)}
-#mlUsoDet[open] .ml-uso-seta{transform:rotate(180deg)}
-.ml-uso{display:grid;gap:10px;padding:4px 6px 6px}
-.ml-uso-ag{display:grid;gap:4px;min-width:0}
-.ml-uso-nome{font-size:12.5px;overflow-wrap:anywhere}
-.ml-uso-lin{display:flex;align-items:center;gap:6px;min-height:20px;font-size:11.5px}
-.ml-uso-rot{flex:0 0 26px;color:var(--ml-fraco)}
-.ml-uso-bar{flex:1 1 auto;min-width:0;height:8px;border-radius:999px;background:var(--ml-fundo2);border:1px solid var(--ml-linha);overflow:hidden}
-.ml-uso-bar i{display:block;height:100%;border-radius:999px;background:var(--cor-acento)}
+/* Uso da assinatura: bloco compacto sempre à mostra, logo abaixo do seletor de agentes */
+.ml-uso-bloco{flex:0 0 auto;display:grid;gap:6px;min-width:0}
+.ml-uso-card{display:grid;grid-template-columns:max-content minmax(0,1fr) auto;column-gap:8px;row-gap:2px;align-items:center;min-width:0;padding:6px 10px;border-radius:10px;background:var(--ml-fundo2);border:1px solid var(--ml-linha)}
+.ml-uso-tit{grid-column:1/-1;font-size:12px;line-height:1.2;font-weight:600;margin-bottom:2px;overflow-wrap:anywhere}
+.ml-uso-lin{display:contents}
+.ml-uso-rot{grid-column:1}
+.ml-uso-bar{grid-column:2}
+.ml-uso-pct{grid-column:3}
+.ml-uso-rot{min-width:0;font-size:11.5px;color:var(--ml-fraco);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ml-uso-bar{display:block;height:5px;border-radius:3px;background:var(--ml-linha);overflow:hidden;min-width:0}
+.ml-uso-bar i{display:block;height:100%;border-radius:3px;background:var(--cor-acento)}
 .ml-uso-bar.ambar i{background:#d98a12}
 .ml-uso-bar.vermelho i{background:#d6453a}
-.ml-uso-pct{flex:0 0 auto;min-width:34px;text-align:right;font-variant-numeric:tabular-nums}
-.ml-uso-pct.sem{color:var(--ml-fraco)}
-.ml-uso-nota{font-size:11.5px;line-height:1.4;color:var(--ml-fraco);overflow-wrap:anywhere}
+.ml-uso-pct{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;line-height:1.15;text-align:right;min-width:38px}
+.ml-uso-pct.verde{color:var(--cor-acento)}
+.ml-uso-pct.ambar{color:#d98a12}
+.ml-uso-pct.vermelho{color:#d6453a}
+.ml-uso-pct.sem{font-size:11px;font-weight:400;color:var(--ml-fraco)}
+.ml-uso-zera{grid-column:1/-1;font-size:11px;opacity:.75;line-height:1.2;margin-bottom:3px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ml-uso-rodape{grid-column:1/-1;font-size:10.5px;line-height:1.2;color:var(--ml-fraco);overflow-wrap:anywhere}
+.ml-uso-rodape.velho{color:#d98a12}
+.ml-uso-rodape.erro{color:#d6453a}
+@media (prefers-reduced-motion:no-preference){
+  .ml-uso-bar i{transition:width .4s ease}
+}
 
 aside#menu .pe{margin-top:auto;padding-top:6px}
 

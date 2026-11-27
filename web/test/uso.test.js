@@ -118,46 +118,164 @@ test('GET /api/v1/uso/docs.md serve a doc e a caixa do agente libera a rota', as
   } finally { await s.fechar(); }
 });
 
-test('menu ☰: seção "Uso das assinaturas" recolhida na casca, e a lista só é buscada ao abrir', () => {
+test('menu: bloco de uso sempre à mostra, depois de #mlTroca e antes de #mlTabs, sem <details>; colaborador não recebe', () => {
   const casca = require('../public/casca');
-  assert.match(casca.MARCACAO_MENU, /<details id="mlUsoDet">/);
-  assert.doesNotMatch(casca.MARCACAO_MENU, /<details id="mlUsoDet" open/);
-  assert.match(casca.MARCACAO_MENU, /Uso das assinaturas/);
+  const m = casca.MARCACAO_MENU;
+  assert.match(m, /<section class="ml-uso-bloco" id="mlUso" data-tour="gm-uso" aria-label="Uso da assinatura" role="status" aria-live="polite">/);
+  assert.doesNotMatch(m, /<details|mlUsoDet|mlUsoLista/);
+  assert.ok(m.indexOf('id="mlTroca"') < m.indexOf('id="mlUso"'));
+  assert.ok(m.indexOf('id="mlUso"') < m.indexOf('id="mlTabs"'));
+  assert.ok(m.indexOf('</div><section class="ml-uso-bloco"') > 0, 'logo depois do fechamento de .ml-marca');
+  assert.doesNotMatch(casca.MARCACAO_MENU_COLAB, /id="mlTroca"/);
+  assert.match(m, /<button type="button" class="gm-tut" id="gmTutorial" aria-label="Tutorial do menu" title="Tutorial: o que é cada parte e por que está aqui">\?<\/button>/);
+  assert.doesNotMatch(m, />Tutorial</);
+  const css = fs.readFileSync(path.join(__dirname, '../public/menu-lado.css'), 'utf8');
+  assert.match(css, /aside#menu \.gm-tut\{position:absolute;top:calc\(12px \+ env\(safe-area-inset-top\)\);left:10px;z-index:2;width:32px;height:32px;/);
+  assert.match(css, /\.ml-uso-zera\{grid-column:1\/-1;[^}]*margin-bottom:3px;[^}]*white-space:nowrap;overflow:hidden;text-overflow:ellipsis/);
+  assert.doesNotMatch(css.match(/\.ml-uso-zera\{[^}]*\}/)[0], /padding-left/);
+  assert.match(css, /\.ml-uso-card\{display:grid;grid-template-columns:max-content minmax\(0,1fr\) auto;column-gap:8px;row-gap:2px;/);
+  assert.match(css, /\.ml-uso-lin\{display:contents\}/);
+  assert.match(css, /\.ml-uso-tit\{grid-column:1\/-1;/);
+  assert.doesNotMatch(css + fs.readFileSync(path.join(__dirname, '../public/menu-lado.js'), 'utf8'), /ml-uso-cols/);
   const js = fs.readFileSync(path.join(__dirname, '../public/menu-lado.js'), 'utf8');
-  assert.match(js, /det\.addEventListener\('toggle'/);
-  const depoisDoToggle = js.slice(js.indexOf("det.addEventListener('toggle'"));
-  assert.equal((js.match(/carregaUso\(\);/g) || []).length, (depoisDoToggle.match(/carregaUso\(\);/g) || []).length, 'carregaUso() só é chamada dentro do toggle');
+  assert.doesNotMatch(js, /mlUsoDet|mlUsoLista|miniBarraUso|itemUso/);
 });
 
-test('menu ☰: faixas de cor, "sem dado" no lugar de 0%, vencida e escape de HTML', () => {
+const AGORA = new Date(2026, 9, 19, 12, 0).getTime();
+const iso = (...a) => new Date(...a).toISOString();
+const uso = (prov, pct5, pctS, zeraS, medido) => ({ uso: { provedor: prov,
+  sessao_5h: pct5 == null ? null : { usado_pct: pct5, zera_em: iso(2026, 9, 19, 18, 40), vencida: false },
+  semanal: pctS == null ? null : { usado_pct: pctS, zera_em: zeraS, vencida: false },
+  plano: null, medido_em: medido, fonte: 'statusline' } });
+
+test('agrupamento: 3 agentes Claude com a mesma semanal viram 1 bloco com a medição mais recente', () => {
+  const z = iso(2026, 9, 24, 9, 0);
+  const ag = { a: uso('claude', 10, 20, z, iso(2026, 9, 19, 11, 0)), b: uso('claude', 55, 33, z, iso(2026, 9, 19, 11, 58)), c: uso('claude', 30, 25, z, iso(2026, 9, 19, 11, 30)) };
+  const g = M.assinaturasDeUso(ag, { a: 'Ana', b: 'Bia', c: 'Cris' });
+  assert.equal(g.length, 1);
+  assert.equal(g[0].uso.sessao_5h.usado_pct, 55);
+  assert.deepEqual(g[0].agentes, ['Ana', 'Bia', 'Cris']);
+  const h = M.usoHtml(ag, {}, AGORA);
+  assert.equal((h.match(/class="ml-uso-card"/g) || []).length, 1);
+  assert.match(h, />Uso da assinatura</);
+  assert.match(h, /medido há 2 minutos/);
+});
+
+test('agrupamento: Claude + Codex viram 2 blocos com o rótulo do provedor', () => {
+  const z = iso(2026, 9, 24, 9, 0);
+  const h = M.usoHtml({ a: uso('claude', 10, 20, z, iso(2026, 9, 19, 11, 59)), b: uso('codex', 5, 8, iso(2026, 9, 25, 9, 0), iso(2026, 9, 19, 11, 59)) }, {}, AGORA);
+  assert.equal((h.match(/class="ml-uso-card"/g) || []).length, 2);
+  assert.match(h, /Uso da assinatura Claude/);
+  assert.match(h, /Uso da assinatura ChatGPT/);
+});
+
+test('agrupamento: mesma conta Claude com semanais diferentes viram blocos separados; erro e não medido não criam grupo', () => {
+  const g = M.assinaturasDeUso({
+    a: uso('claude', 1, 1, iso(2026, 9, 24, 9, 0), iso(2026, 9, 19, 11, 0)),
+    b: uso('claude', 1, 1, iso(2026, 9, 26, 9, 0), iso(2026, 9, 19, 11, 0)),
+    c: { uso: null, erro: 'falhou' },
+    d: { uso: { provedor: 'claude', sessao_5h: null, semanal: null, medido_em: null }, motivo: 'ainda não' },
+  });
+  assert.equal(g.length, 2);
+});
+
+test('agrupamento: semanal com segundos de diferença é a mesma conta; agente parado com semanal vencida não abre bloco', () => {
+  const vencida = (u) => { u.uso.semanal.vencida = true; return u; };
+  const g = M.assinaturasDeUso({
+    a: uso('claude', 10, 20, iso(2026, 9, 24, 9, 0, 0), iso(2026, 9, 19, 11, 50)),
+    b: uso('claude', 40, 22, iso(2026, 9, 24, 9, 0, 59), iso(2026, 9, 19, 11, 58)),
+    c: vencida(uso('claude', 90, 99, iso(2026, 9, 17, 9, 0), iso(2026, 9, 10, 8, 0))),
+  });
+  assert.equal(g.length, 1);
+  assert.equal(g[0].uso.sessao_5h.usado_pct, 40);
+});
+
+test('agrupamento: duas contas Claude levam o nome dos agentes no título', () => {
+  const h = M.usoHtml({
+    a: uso('claude', 1, 1, iso(2026, 9, 24, 9, 0), iso(2026, 9, 19, 11, 0)),
+    b: uso('claude', 1, 1, iso(2026, 9, 26, 9, 0), iso(2026, 9, 19, 11, 0)),
+  }, { a: 'Ana', b: '<Bia>' }, AGORA);
+  assert.match(h, /Uso da assinatura Claude \(Ana\)/);
+  assert.match(h, /Uso da assinatura Claude \(&lt;Bia&gt;\)/);
+});
+
+test('agrupamento: ninguém medido vira bloco "sem dado" com rodapé "sem medição ainda" e o motivo só no title', () => {
+  const h = M.usoHtml({ a: { uso: null, erro: 'falhou <b>feio</b>' } }, {}, AGORA);
+  assert.match(h, /sem dado/);
+  assert.match(h, /sem medição ainda/);
+  assert.match(h, /title="falhou &lt;b&gt;feio&lt;\/b&gt;"/);
+  assert.doesNotMatch(h, /<b>|0%/);
+  assert.doesNotMatch(M.usoHtml({ a: { uso: null, erro: 'x' } }, {}, AGORA), /ml-uso-nota/);
+});
+
+test('bloco: faixas de cor, "sem dado" no lugar de 0%, vencida, vírgula decimal e zero real', () => {
   assert.equal(M.corUso(69.9), 'verde');
   assert.equal(M.corUso(70), 'ambar');
   assert.equal(M.corUso(89.9), 'ambar');
   assert.equal(M.corUso(90), 'vermelho');
-  const semDado = M.miniBarraUso('5 h', null);
+  const semDado = M.janelaUso('5 horas', null);
   assert.match(semDado, /sem dado/);
   assert.doesNotMatch(semDado, /0%/);
-  const vencida = M.miniBarraUso('5 h', { usado_pct: 99, zera_em: PASSADO, vencida: true });
-  assert.match(vencida, /zerou/);
-  assert.doesNotMatch(vencida, /99%/);
-  const medida = M.miniBarraUso('Sem', { usado_pct: 93.5, zera_em: EM_BREVE, vencida: false });
+  const vencida = M.janelaUso('5 horas', { usado_pct: 99, zera_em: PASSADO, vencida: true });
+  assert.match(vencida, /ml-uso-pct verde">0%/);
+  assert.match(vencida, /ml-uso-bar verde" role="img" aria-label="5 horas: zerou"><i style="width:0%"/);
+  assert.match(vencida, /ml-uso-zera">zerou às \d+h/);
+  assert.doesNotMatch(vencida, /99%|>zerou</);
+  assert.doesNotMatch(semDado, /ml-uso-zera/);
+  const medida = M.janelaUso('Semana', { usado_pct: 93.5, zera_em: EM_BREVE, vencida: false });
   assert.match(medida, /93,5%/);
   assert.match(medida, /ml-uso-bar vermelho/);
   assert.match(medida, /width:93\.5%/);
-  const zero = M.miniBarraUso('Sem', { usado_pct: 0, zera_em: EM_BREVE, vencida: false });
-  assert.match(zero, /0%/);
-  assert.match(zero, /ml-uso-bar verde/);
-  const item = M.itemUso({ id: 'x', nome: '<img src=x>' }, { uso: null, erro: 'falhou <b>feio</b>' });
-  assert.doesNotMatch(item, /<img|<b>/);
-  assert.match(item, /sem dado/);
-  assert.match(item, /falhou &lt;b&gt;feio/);
+  assert.match(M.janelaUso('Semana', { usado_pct: 37, zera_em: EM_BREVE, vencida: false }), /ml-uso-pct verde">37%/);
+  assert.match(M.janelaUso('Semana', { usado_pct: 0, zera_em: EM_BREVE, vencida: false }), /ml-uso-pct verde">0%/);
+  assert.doesNotMatch(M.janelaUso('Semana', { usado_pct: null, zera_em: EM_BREVE }), /%/);
 });
 
-test('menu ☰: horário de zerar em hoje, amanhã, dia da semana e data', () => {
-  const agora = new Date(2026, 9, 19, 12, 0).getTime();
-  assert.equal(M.quandoZeraUso(new Date(2026, 9, 19, 18, 40).toISOString(), agora), 'hoje 18:40');
-  assert.equal(M.quandoZeraUso(new Date(2026, 9, 20, 9, 0).toISOString(), agora), 'amanhã 09:00');
-  assert.equal(M.quandoZeraUso(new Date(2026, 9, 21, 9, 0).toISOString(), agora), 'qua 09:00');
-  assert.equal(M.quandoZeraUso(new Date(2026, 9, 28, 9, 0).toISOString(), agora), '28/10 09:00');
-  assert.equal(M.quandoZeraUso('lixo', agora), '');
+test('bloco: linhas empilhadas na ordem 5h, frase, Semana, frase, rodapé', () => {
+  const z = iso(2026, 9, 24, 9, 0);
+  const h = M.usoHtml({ a: uso('claude', 37.5, 72, z, iso(2026, 9, 19, 11, 59)) }, {}, AGORA);
+  const pos = s => h.indexOf(s);
+  const ordem = ['ml-uso-tit', '>5 horas<', 'zera hoje às 18h40', '>Semana<', 'zera sáb às 9h', 'ml-uso-rodape'].map(pos);
+  assert.ok(ordem.every(n => n >= 0), 'todas as peças existem');
+  assert.deepEqual(ordem, ordem.slice().sort((a, b) => a - b));
+  assert.doesNotMatch(h, /ml-uso-cols| · /);
+  const v = M.usoHtml({ a: { uso: { provedor: 'claude', sessao_5h: { usado_pct: 90, zera_em: iso(2026, 9, 19, 14, 0), vencida: true }, semanal: null, medido_em: iso(2026, 9, 19, 11, 59) } } }, {}, AGORA);
+  assert.match(v, /ml-uso-zera">zerou às 14h</);
+  assert.equal((v.match(/ml-uso-zera/g) || []).length, 1, 'janela sem dado não tem frase');
+});
+
+test('bloco: horário de zerar em hoje, amanhã, dia da semana e data', () => {
+  assert.equal(M.quandoZeraUso(iso(2026, 9, 19, 18, 40), AGORA), 'hoje às 18h40');
+  assert.equal(M.quandoZeraUso(iso(2026, 9, 19, 14, 0), AGORA), 'hoje às 14h');
+  assert.equal(M.quandoZeraUso(iso(2026, 9, 20, 9, 5), AGORA), 'amanhã às 9h05');
+  assert.equal(M.quandoZeraUso(iso(2026, 9, 21, 9, 0), AGORA), 'qua às 9h');
+  assert.equal(M.quandoZeraUso(iso(2026, 9, 25, 9, 0), AGORA), 'dom às 9h');
+  assert.equal(M.quandoZeraUso(iso(2026, 9, 26, 9, 0), AGORA), '26/10 às 9h');
+  assert.equal(M.quandoZeraUso(iso(2026, 9, 28, 9, 0), AGORA), '28/10 às 9h');
+  assert.equal(M.quandoZeraUso('lixo', AGORA), '');
+});
+
+test('bloco: "medido há ..." e âmbar acima de 30 minutos', () => {
+  const t = min => M.tempoMedidoUso(new Date(AGORA - min * 60000).toISOString(), AGORA);
+  assert.equal(t(0.2).texto, 'medido agora');
+  assert.equal(t(1).texto, 'medido há 1 minuto');
+  assert.equal(t(5).texto, 'medido há 5 minutos');
+  assert.equal(t(60).texto, 'medido há 1 hora');
+  assert.equal(t(180).texto, 'medido há 3 horas');
+  assert.equal(t(47 * 60).texto, 'medido há 47 horas');
+  assert.equal(t(72 * 60).texto, 'medido há 3 dias');
+  assert.equal(t(30).velho, false);
+  assert.equal(t(31).velho, true);
+  const z = iso(2026, 9, 24, 9, 0);
+  assert.match(M.usoHtml({ a: uso('claude', 1, 1, z, new Date(AGORA - 40 * 60000).toISOString()) }, {}, AGORA), /ml-uso-rodape velho">medido há 40 minutos/);
+});
+
+test('bloco: escape de HTML no título, no motivo e no erro; erro da API em vermelho com causa no title', () => {
+  const z = iso(2026, 9, 24, 9, 0);
+  const h = M.usoHtml({ a: uso('claude', 1, 1, z, iso(2026, 9, 19, 11, 59)) }, { a: '<img src=x>' }, AGORA);
+  assert.doesNotMatch(h, /<img/);
+  assert.match(h, /&lt;img src=x&gt;/);
+  const e = M.usoErroHtml('não consegui ler o uso (resposta 500)', 'causa "feia" <script>');
+  assert.match(e, /ml-uso-rodape erro" title="causa &quot;feia&quot; &lt;script&gt;">não consegui ler o uso \(resposta 500\)/);
+  assert.doesNotMatch(e, /<script>/);
 });

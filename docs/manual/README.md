@@ -34,7 +34,7 @@ Os caminhos de teste são relativos à raiz do repositório.
 | Avisos no aparelho (web push) | Pronto | "Ativar avisos neste aparelho" | teste: `web/test/push.test.js` | [conversa-e-telas.md](conversa-e-telas.md) |
 | Modo foco | Pronto | "Monta meu foco de hoje" | teste: `web/test/foco.test.js`, `web/test/foco-hook.test.js`, `web/test/foco-tela.test.js` | [conversa-e-telas.md](conversa-e-telas.md) |
 | Alertas de entrega e de pedido | Pronto | Pilha à direita da conversa | teste: `web/test/alertas.test.js` | [conversa-e-telas.md](conversa-e-telas.md) |
-| Uso da assinatura | Pronto | Status do painel, ☰ Uso das assinaturas | teste: `web/test/uso.test.js`, `runner/src/uso.test.ts` | [conversa-e-telas.md](conversa-e-telas.md) |
+| Uso da assinatura | Pronto | Status do painel, bloco de uso no menu | teste: `web/test/uso.test.js`, `runner/src/uso.test.ts` | [conversa-e-telas.md](conversa-e-telas.md) |
 | Conectar conta de IA | Pronto | `/conectar` | teste: `web/test/conectar-rota.test.js`, `web/test/conectar-puro.test.js`, `web/test/login-conversa.test.js` | [conversa-e-telas.md](conversa-e-telas.md) |
 | Tutorial (visita guiada) em cada tela | Parcial (sem teste automático) | Botão Tutorial | lido no código (`web/public/tour.js`); só há teste de telas que citam o Tutorial | [conversa-e-telas.md](conversa-e-telas.md) |
 | Painel do agente: Status, Operações, Skills, Pasta | Pronto | `/p/<slug>/` | teste: `panel/test-operacoes.mjs`, `panel/test-skills.mjs`, `panel/test-arquivos-sem-pasta.mjs`, `panel/test-wm-status.mjs` | [conversa-e-telas.md](conversa-e-telas.md) |

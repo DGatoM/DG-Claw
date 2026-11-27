@@ -220,6 +220,14 @@
         porque: 'Você escolhe com quem falar sem sair desta tela. O Admin cuida da instalação e dos ajustes; os outros fazem o trabalho do dia a dia.',
       });
     }
+    if (raiz.document && raiz.document.getElementById('mlUso')) {
+      passos.push({
+        alvo: '#mlUso', antes: abre, titulo: 'Uso da assinatura',
+        oque: 'Quanto da sua assinatura de IA já foi gasto: a janela de 5 horas e a da semana, com o horário em que cada uma zera.',
+        como: 'O número vem do próprio Claude ou Codex a cada resposta do agente. Verde abaixo de 70%, âmbar de 70% a 89% e vermelho a partir de 90%. "Sem dado" quer dizer que ainda não foi medido, não que está zerado.',
+        porque: 'A assinatura é da conta, não de cada agente. Assim você vê de relance se ainda dá para pedir trabalho pesado.',
+      });
+    }
     // Os grupos: o passo seguinte aponta para um item que fica dentro de um grupo e abre esse grupo antes de apontar.
     const abreGrupo = id => {
       abre();
@@ -346,49 +354,139 @@
   }
 
 
-  /* Uso das assinaturas (menu > Uso das assinaturas). Verde abaixo de 70, âmbar de 70 a 89, vermelho a partir de 90. */
+  /* Uso da assinatura: bloco compacto, sempre à mostra logo abaixo do seletor de agentes. Verde abaixo de 70, âmbar de 70 a 89, vermelho a partir de 90. */
   function corUso(pct) { return pct >= 90 ? 'vermelho' : pct >= 70 ? 'ambar' : 'verde'; }
 
-  /* "hoje 18:40", "amanhã 09:00", "qua 09:00" ou "25/10 09:00", no horário do aparelho. */
+  const DIAS_USO = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+
+  /* "14h" quando os minutos são 00, senão "18h40". */
+  function horaUso(d) {
+    const m = d.getMinutes();
+    return d.getHours() + 'h' + (m ? String(m).padStart(2, '0') : '');
+  }
+
+  /* "hoje às 18h40", "amanhã às 14h", "sáb às 9h" (até 6 dias) ou "25/10 às 9h", no horário do aparelho. */
   function quandoZeraUso(iso, agora) {
     const d = new Date(iso), hoje = agora ? new Date(agora) : new Date();
     if (!isFinite(d.getTime())) return '';
-    const p2 = n => String(n).padStart(2, '0');
     const dia0 = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
     const dias = Math.round((dia0(d) - dia0(hoje)) / 86400000);
-    const hora = p2(d.getHours()) + ':' + p2(d.getMinutes());
+    const hora = 'às ' + horaUso(d);
     if (dias === 0) return 'hoje ' + hora;
     if (dias === 1) return 'amanhã ' + hora;
-    if (dias > 1 && dias < 7) return ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][d.getDay()] + ' ' + hora;
-    return p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + ' ' + hora;
+    if (dias > 1 && dias <= 6) return DIAS_USO[d.getDay()] + ' ' + hora;
+    return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + ' ' + hora;
   }
 
-  /* Uma mini barra. janela = { usado_pct, zera_em, vencida } ou null (não medido: "sem dado", nunca 0%). */
-  function miniBarraUso(rotulo, janela, agora) {
-    if (!janela || typeof janela.usado_pct !== 'number' || !isFinite(janela.usado_pct)) {
-      return `<div class="ml-uso-lin"><span class="ml-uso-rot">${esc(rotulo)}</span><span class="ml-uso-bar"><i style="width:0"></i></span><span class="ml-uso-pct sem">sem dado</span></div>`;
-    }
-    if (janela.vencida) {
-      return `<div class="ml-uso-lin" title="Zerou em ${esc(quandoZeraUso(janela.zera_em, agora))}. A nova medição chega na próxima resposta do agente."><span class="ml-uso-rot">${esc(rotulo)}</span><span class="ml-uso-bar"><i style="width:0"></i></span><span class="ml-uso-pct sem">zerou</span></div>`;
-    }
-    const pct = Math.max(0, Math.min(100, janela.usado_pct));
-    const txt = (Number.isInteger(pct) ? String(pct) : pct.toFixed(1).replace('.', ',')) + '%';
-    return `<div class="ml-uso-lin" title="Zera em ${esc(quandoZeraUso(janela.zera_em, agora))}"><span class="ml-uso-rot">${esc(rotulo)}</span>` +
-      `<span class="ml-uso-bar ${corUso(pct)}" role="img" aria-label="${esc(rotulo)}: ${esc(txt)} usado"><i style="width:${pct}%"></i></span><span class="ml-uso-pct">${esc(txt)}</span></div>`;
+  /* "medido agora", "medido há 1 minuto", "medido há 3 horas"... Devolve { texto, velho } (velho: mais de 30 minutos). */
+  function tempoMedidoUso(iso, agora) {
+    const t = new Date(iso).getTime();
+    if (!isFinite(t)) return null;
+    const seg = Math.max(0, ((agora == null ? Date.now() : agora) - t) / 1000);
+    const min = Math.floor(seg / 60), h = Math.floor(min / 60);
+    const velho = min > 30;
+    if (min < 1) return { texto: 'medido agora', velho };
+    if (min < 60) return { texto: 'medido há ' + (min === 1 ? '1 minuto' : min + ' minutos'), velho };
+    if (h <= 47) return { texto: 'medido há ' + (h === 1 ? '1 hora' : h + ' horas'), velho };
+    const dias = Math.floor(h / 24);
+    return { texto: 'medido há ' + dias + ' dias', velho };
   }
 
-  /* Um agente na lista de uso. entrada = { uso, motivo? } ou { uso:null, erro }. */
-  function itemUso(a, entrada, agora) {
-    const nome = `<b class="ml-uso-nome">${esc(a.nome || a.id)}</b>`;
-    if (!entrada) return `<div class="ml-uso-ag">${nome}<div class="ml-uso-nota">Sem resposta do servidor sobre este agente.</div></div>`;
-    if (entrada.erro || !entrada.uso) {
-      return `<div class="ml-uso-ag">${nome}${miniBarraUso('5 h', null)}${miniBarraUso('Sem', null)}` +
-        `<div class="ml-uso-nota">${esc(entrada.erro || 'Sem dado de uso.')}</div></div>`;
+  /* Percentual com vírgula decimal: 37,5%; inteiro sem casa. */
+  function pctTextoUso(pct) { return (Number.isInteger(pct) ? String(pct) : pct.toFixed(1).replace('.', ',')) + '%'; }
+
+  /* Uma janela = linha "5h [barra] 37,5%" e, embaixo, "zera hoje às 18h40" (largura toda).
+     Sem dado: "sem dado" e nenhuma frase (null nunca vira 0%). Vencida: 0% com a barra vazia e a frase "zerou às 14h". */
+  function janelaUso(rotulo, j, agora) {
+    const ini = `<div class="ml-uso-lin"><span class="ml-uso-rot">${esc(rotulo)}</span>`;
+    if (!j || typeof j.usado_pct !== 'number' || !isFinite(j.usado_pct)) {
+      return `${ini}<span class="ml-uso-bar"><i style="width:0"></i></span><span class="ml-uso-pct sem">sem dado</span></div>`;
     }
-    const u = entrada.uso;
-    const nota = entrada.motivo ? `<div class="ml-uso-nota">${esc(entrada.motivo)}</div>` : '';
-    return `<div class="ml-uso-ag">${nome}${miniBarraUso('5 h', u.sessao_5h, agora)}${miniBarraUso('Sem', u.semanal, agora)}${nota}</div>`;
+    let pct = 0, frase = '';
+    if (j.vencida) {
+      const d = new Date(j.zera_em);
+      frase = isFinite(d.getTime()) ? 'zerou às ' + horaUso(d) : 'zerou';
+    } else {
+      pct = Math.max(0, Math.min(100, j.usado_pct));
+      const q = j.zera_em ? quandoZeraUso(j.zera_em, agora) : '';
+      frase = q ? 'zera ' + q : '';
+    }
+    const txt = pctTextoUso(pct), cor = corUso(pct);
+    return `${ini}<span class="ml-uso-bar ${cor}" role="img" aria-label="${esc(rotulo)}: ${esc(j.vencida ? 'zerou' : txt + ' usado')}"><i style="width:${pct}%"></i></span>` +
+      `<span class="ml-uso-pct ${cor}">${esc(txt)}</span></div>` + (frase ? `<div class="ml-uso-zera">${esc(frase)}</div>` : '');
   }
+
+  /* Um cartão de uso. dados = { titulo, uso (ou null), dica, rodape: {texto, classe} }. */
+  function cartaoUso(dados, agora) {
+    const u = dados.uso;
+    const r = dados.rodape;
+    return `<div class="ml-uso-card"${dados.dica ? ` title="${esc(dados.dica)}"` : ''}>` +
+      `<div class="ml-uso-tit">${esc(dados.titulo)}</div>` +
+      janelaUso('5 horas', u && u.sessao_5h, agora) + janelaUso('Semana', u && u.semanal, agora) +
+      `<div class="ml-uso-rodape${r.classe ? ' ' + r.classe : ''}"${r.dica ? ` title="${esc(r.dica)}"` : ''}>${esc(r.texto)}</div></div>`;
+  }
+
+  /* Agrupa por assinatura: o mesmo provedor com a janela semanal zerando no mesmo horário (tolerância de 10 min,
+     porque o horário informado pode variar alguns segundos entre medições) é a mesma conta. Só entra quem tem
+     medição (medido_em); erro e "ainda não medido" não criam grupo. Em cada grupo vale a medição mais recente.
+     Medição de um agente parado há mais de uma semana (semanal vencida) não abre grupo próprio quando o mesmo
+     provedor já tem medição atual: ela é só um número velho da mesma conta.
+     agentes = o objeto de GET /api/v1/uso; nomesPorSlug = { slug: nome } (opcional, só para o title). */
+  function assinaturasDeUso(agentes, nomesPorSlug) {
+    const TOL = 10 * 60000;
+    const lidos = [];
+    Object.keys(agentes || {}).forEach(slug => {
+      const e = agentes[slug], u = e && e.uso;
+      if (!u || !u.medido_em) return;
+      const t = new Date(u.medido_em).getTime();
+      if (!isFinite(t)) return;
+      const z = u.semanal && u.semanal.zera_em ? new Date(u.semanal.zera_em).getTime() : NaN;
+      lidos.push({ slug, u, t, z, prov: u.provedor || '', velha: !!(u.semanal && u.semanal.vencida) });
+    });
+    const provComAtual = new Set(lidos.filter(x => !x.velha).map(x => x.prov));
+    const grupos = [];
+    lidos.sort((x, y) => (x.velha - y.velha) || (y.t - x.t)).forEach(x => {
+      let g = grupos.find(g => g.provedor === x.prov &&
+        ((isFinite(g.z) && isFinite(x.z) && Math.abs(g.z - x.z) <= TOL) || (!isFinite(g.z) && !isFinite(x.z))));
+      if (!g && x.velha && provComAtual.has(x.prov)) g = grupos.find(g => g.provedor === x.prov);
+      if (!g) { g = { provedor: x.prov, uso: x.u, t: x.t, z: x.z, slugs: [] }; grupos.push(g); }
+      g.slugs.push(x.slug);
+    });
+    const ordem = Object.keys(agentes || {});
+    return grupos.map(g => ({
+      provedor: g.provedor, uso: g.uso,
+      agentes: g.slugs.sort((a, b) => ordem.indexOf(a) - ordem.indexOf(b)).map(s => (nomesPorSlug && nomesPorSlug[s]) || s),
+    }));
+  }
+
+  /* O HTML de dentro do #mlUso para uma resposta boa de GET /api/v1/uso. */
+  function usoHtml(agentes, nomesPorSlug, agora) {
+    const grupos = assinaturasDeUso(agentes, nomesPorSlug);
+    if (!grupos.length) {
+      const e = Object.values(agentes || {}).find(x => x && (x.erro || x.motivo));
+      return cartaoUso({ titulo: 'Uso da assinatura', uso: null,
+        rodape: { texto: 'sem medição ainda', dica: e ? (e.erro || e.motivo) : '' } }, agora);
+    }
+    const rotulo = { claude: 'Claude', codex: 'ChatGPT' };
+    return grupos.map(g => {
+      const m = tempoMedidoUso(g.uso.medido_em, agora);
+      let sufixo = grupos.length > 1 && rotulo[g.provedor] ? ' ' + rotulo[g.provedor] : '';
+      // duas contas do mesmo provedor: o nome dos agentes diz qual é qual
+      if (grupos.filter(o => o.provedor === g.provedor).length > 1) sufixo += ' (' + g.agentes.join(', ') + ')';
+      return cartaoUso({
+        titulo: 'Uso da assinatura' + sufixo, uso: g.uso,
+        dica: g.agentes.length ? 'Medido pelo agente: ' + g.agentes.join(', ') : '',
+        rodape: { texto: m ? m.texto : 'medido', classe: m && m.velho ? 'velho' : '' },
+      }, agora);
+    }).join('');
+  }
+
+  /* Falha ao ler o uso: cartão vazio com o motivo curto no rodapé e a causa inteira no title. */
+  function usoErroHtml(curto, causa) {
+    return cartaoUso({ titulo: 'Uso da assinatura', uso: null, rodape: { texto: curto, classe: 'erro', dica: causa } });
+  }
+
+  const USO_CARREGANDO = cartaoUso({ titulo: 'Uso da assinatura', uso: null, rodape: { texto: 'conferindo...', classe: '' } });
 
   function linksPainel(a) {
     if (!a || !a.tem_painel) return [];
@@ -407,7 +505,7 @@
     return { tipo: 'sem', texto: 'Este navegador não oferece a instalação por aqui. No Chrome ou no Edge, abra o menu do navegador e procure Instalar app. No Firefox para computador, o recurso não existe.' };
   }
 
-  if (!raiz.document) return { GRUPOS_MENU, GRUPO_CONEXOES, montaItens, organizaMenu, menuHtml, grupoHtml, grupoDaChave, corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SUPORTE, LINK_MANUAL, LINK_SEGURANCA, LINK_CONECTAR, LINK_FACEID, LINK_COLABORADOR, LINK_ANONIMIZAR, LINK_LOGS, mostraLogs, linkSessoes, linkTela, itemAgente, bolinhaMenu, seloDe, totalNaoLidas, totalPrecisam, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
+  if (!raiz.document) return { GRUPOS_MENU, GRUPO_CONEXOES, montaItens, organizaMenu, menuHtml, grupoHtml, grupoDaChave, corUso, quandoZeraUso, tempoMedidoUso, horaUso, janelaUso, assinaturasDeUso, usoHtml, usoErroHtml, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SUPORTE, LINK_MANUAL, LINK_SEGURANCA, LINK_CONECTAR, LINK_FACEID, LINK_COLABORADOR, LINK_ANONIMIZAR, LINK_LOGS, mostraLogs, linkSessoes, linkTela, itemAgente, bolinhaMenu, seloDe, totalNaoLidas, totalPrecisam, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);
@@ -523,39 +621,65 @@
   }
 
 
-  /* ── Uso das assinaturas: só busca quando a seção é aberta, e repete a cada 60 s enquanto ela está aberta ── */
-  let timerUso = null;
+  /* ── Uso da assinatura: o bloco fica sempre à mostra; busca ao montar, ao abrir o menu e a cada 60 s enquanto o menu está na tela ── */
+  let timerUso = null, buscandoUso = false;
+
+  /* "Está na tela": no celular, só com a gaveta aberta; no computador, a barra lateral fixa. */
+  function menuNaTela() {
+    const menu = $('menu');
+    if (!menu) return false;
+    if (menu.classList.contains('abre')) return true;
+    const r = menu.getBoundingClientRect();
+    return r.width > 0 && r.right > 1 && r.left < (window.innerWidth || 0);
+  }
+
   async function carregaUso() {
-    const caixa = $('mlUsoLista');
-    if (!caixa) return;
-    if (!caixa.innerHTML) caixa.innerHTML = '<div class="ml-vazio">Conferindo o uso...</div>';
+    const caixa = $('mlUso');
+    if (!caixa || buscandoUso) return;
+    buscandoUso = true;
     try {
       const r = await fetch('/api/v1/uso', { cache: 'no-store', credentials: 'same-origin' });
       const d = await r.json().catch(() => null);
-      if (!r.ok || !d || d.ok === false) throw new Error((d && d.erro) || ('a API respondeu ' + r.status));
-      const lista = ultimaLista ? ultimaLista.lista : [];
-      const nomes = new Map(lista.map(a => [a.id, a]));
-      const slugs = Object.keys(d.agentes || {});
-      const ordem = lista.map(a => a.id).filter(id => slugs.includes(id)).concat(slugs.filter(id => !nomes.has(id)));
-      caixa.innerHTML = ordem.length
-        ? ordem.map(id => itemUso(nomes.get(id) || { id, nome: id }, d.agentes[id], Date.now())).join('')
-        : '<div class="ml-vazio">Nenhum agente no registro.</div>';
+      if (!r.ok || !d || d.ok === false) {
+        const e = new Error((d && d.erro) || ('a API respondeu ' + r.status));
+        e.curto = 'não consegui ler o uso (resposta ' + r.status + ')';
+        throw e;
+      }
+      const nomes = {};
+      (ultimaLista ? ultimaLista.lista : []).forEach(a => { nomes[a.id] = a.nome || a.id; });
+      Object.keys(d.agentes || {}).forEach(slug => {
+        const e = d.agentes[slug];
+        if (e && (e.erro || e.motivo)) console.warn('menu-lado: uso de ' + (nomes[slug] || slug) + ' sem medição: ' + (e.erro || e.motivo));
+      });
+      caixa.innerHTML = usoHtml(d.agentes || {}, nomes, Date.now());
     } catch (e) {
-      console.warn('menu-lado: não consegui ler o uso das assinaturas:', e.message);
-      caixa.innerHTML = `<div class="ml-vazio" role="alert">Não consegui ver o uso das assinaturas: ${esc(e.message)}. Feche e abra esta seção para tentar de novo.</div>`;
-    }
+      console.warn('menu-lado: não consegui ler o uso da assinatura:', e.message);
+      caixa.innerHTML = usoErroHtml(e.curto || 'sem conexão com o servidor', e.message);
+    } finally { buscandoUso = false; }
+  }
+
+  /* Só busca com a aba visível e o menu na tela. */
+  function atualizaUso() {
+    if (document.visibilityState === 'visible' && menuNaTela()) carregaUso();
   }
 
   function ligaUso() {
-    const det = $('mlUsoDet');
-    if (!det || det._ligado) return;
-    det._ligado = true;
-    det.addEventListener('toggle', () => {
-      if (timerUso) { clearInterval(timerUso); timerUso = null; }
-      if (!det.open) return;
-      carregaUso();
-      timerUso = setInterval(() => { if (document.visibilityState === 'visible') carregaUso(); }, 60000);
-    });
+    const caixa = $('mlUso');
+    if (!caixa || caixa._ligado) return;
+    caixa._ligado = true;
+    caixa.innerHTML = USO_CARREGANDO;
+    carregaUso();
+    timerUso = setInterval(atualizaUso, 60000);
+    document.addEventListener('visibilitychange', atualizaUso);
+    const menu = $('menu');
+    if (menu && typeof MutationObserver === 'function') {
+      let abriu = menu.classList.contains('abre');
+      new MutationObserver(() => {
+        const agora = menu.classList.contains('abre');
+        if (agora && !abriu) atualizaUso();
+        abriu = agora;
+      }).observe(menu, { attributes: true, attributeFilter: ['class'] });
+    }
   }
 
   let agenteAtual = null;
@@ -819,5 +943,5 @@
       .catch(e => { console.warn('menu-lado: não consegui saber quem está logado (' + e.message + '); o menu segue sem o nome.'); });
   }
 
-  return { GRUPOS_MENU, GRUPO_CONEXOES, montaItens, organizaMenu, menuHtml, grupoHtml, grupoDaChave, abreGrupo, corUso, quandoZeraUso, miniBarraUso, itemUso, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SUPORTE, LINK_MANUAL, LINK_SEGURANCA, LINK_CONECTAR, LINK_FACEID, LINK_COLABORADOR, LINK_ANONIMIZAR, LINK_LOGS, mostraLogs, linkSessoes, linkTela, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas, totalPrecisam, seloDe };
+  return { GRUPOS_MENU, GRUPO_CONEXOES, montaItens, organizaMenu, menuHtml, grupoHtml, grupoDaChave, abreGrupo, corUso, quandoZeraUso, tempoMedidoUso, horaUso, janelaUso, assinaturasDeUso, usoHtml, usoErroHtml, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SUPORTE, LINK_MANUAL, LINK_SEGURANCA, LINK_CONECTAR, LINK_FACEID, LINK_COLABORADOR, LINK_ANONIMIZAR, LINK_LOGS, mostraLogs, linkSessoes, linkTela, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas, totalPrecisam, seloDe };
 });

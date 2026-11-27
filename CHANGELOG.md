@@ -7,6 +7,21 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Ajuste no bloco de uso da assinatura do menu: um bloco só, sempre à mostra, logo abaixo do seletor de agentes.** O uso
+ficava numa seção recolhida, com uma lista repetida para cada agente, embora a assinatura seja da conta. Agora o menu mostra
+um bloco compacto com o título, a linha "5 horas" com a barra e o percentual, a frase de quando a janela zera ("zera hoje às
+18h40"), a linha "Semana" com a sua barra e a sua frase, e embaixo só "medido há 1 minuto". Os rótulos ficam numa coluna,
+as barras logo depois e os percentuais à direita, sem rolagem lateral no celular. Quando a janela já virou, aparece 0% com
+a frase "zerou às 14h". Os agentes que usam a mesma assinatura viram um bloco só, com a medição mais recente entre eles; um
+agente no ChatGPT, ou numa segunda conta, ganha o próprio bloco, com o nome do provedor no título. O número é atualizado a
+cada minuto enquanto o menu está à mostra. O botão Tutorial do menu virou um "?" pequeno no canto superior esquerdo, para
+não ocupar uma linha inteira.
+
+### Como atualizar (bloco de uso da assinatura)
+
+O `dgclaw atualizar` padrão já aplica tudo, sem passo manual. Se depois de atualizar o menu ainda mostrar a seção antiga
+"Uso das assinaturas", feche e abra o app (ou recarregue a página): é o navegador usando a cópia guardada da tela.
+
 **Correção nos limites de memória: o agente principal tem prioridade e os outros usam a memória livre.** Quem tinha vários
 agentes ficava com 1 a 2 GB em cada um, e o Admin chegava a recusar a atualização por causa disso. Agora todo agente recebe
 o mesmo teto, a RAM da VPS menos a reserva do sistema, só como proteção: ninguém fica com uma fatia fixa, e os agentes

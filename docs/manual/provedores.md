@@ -61,4 +61,4 @@ A análise completa, com as regras da Anthropic e da OpenAI citadas, está em [.
 
 ## Uso da assinatura
 
-O percentual gasto da janela de 5 horas e da janela semanal aparece no Status do painel e em ☰, item Uso das assinaturas. Está explicado em [conversa-e-telas.md](conversa-e-telas.md).
+O percentual gasto da janela de 5 horas e da janela semanal aparece no Status do painel e no menu, logo abaixo do seletor de agentes. Está explicado em [conversa-e-telas.md](conversa-e-telas.md).

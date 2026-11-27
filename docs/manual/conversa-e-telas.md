@@ -156,7 +156,7 @@ Mais em [../../web/docs/ALERTAS.md](../../web/docs/ALERTAS.md).
 
 ## Uso da assinatura
 
-**O que é.** Mostra quanto da janela de 5 horas e da janela semanal da assinatura de cada agente já foi gasto. Fica no Status do painel do agente e no menu ☰, item Uso das assinaturas. As cores são verde abaixo de 70%, âmbar de 70% a 89% e vermelho a partir de 90%.
+**O que é.** Mostra quanto da janela de 5 horas e da janela semanal da assinatura de cada agente já foi gasto. Fica no Status do painel do agente e no menu, logo abaixo do seletor de agentes, sempre à mostra, com um bloco por assinatura. As cores são verde abaixo de 70%, âmbar de 70% a 89% e vermelho a partir de 90%.
 **Como o agente usa.** Antes de uma tarefa pesada ele consulta o próprio uso. Passou de 90% na janela de 5 horas, ele avisa o dono.
 **Limites.** O número vem do próprio Claude Code (linha de status) ou do Codex (arquivo da conversa), a cada resposta. Antes da primeira resposta, o campo fica vazio, e vazio quer dizer "ainda não medido", nunca zero. Agente que paga por chave de API não tem janela.
 Mais em [../../web/docs/USO-DA-ASSINATURA.md](../../web/docs/USO-DA-ASSINATURA.md).
