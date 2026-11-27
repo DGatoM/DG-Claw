@@ -119,7 +119,19 @@ Para copiar mensagens próprias, use `atribuir(destino, ...fontes)` ou
 `objeto({ ...espalhar(origem) })`. A última propriedade prevalece: uma sobrescrita
 externa, mesmo com texto idêntico, perde a tradução anterior. Para alterar um campo
 de mensagem existente, use `definir(objeto, chave, valor)`. Isso também remove a
-identidade ao receber um dado comum. `mensagem()` é compatibilidade para diagnósticos
+identidade ao receber um dado comum. Campos próprios são acompanhados por acessores
+que conservam sua leitura primitiva e invalidam a identidade também em atribuições
+diretas e `Object.assign` nativo. Redefinir ou apagar o campo não transfere a
+identidade para o valor novo. O controle usa metadados privados e um símbolo não
+enumerável de estado; nenhum deles entra no JSON. Não há Proxy de DTO ou de Error.
+
+Um objeto selado continua permitindo as escritas antes permitidas; um objeto
+congelado recusa escrita em campo próprio com `TypeError`, inclusive se o chamador
+não estiver em modo estrito. Esse é o contrato dos campos instrumentados; os
+helpers já executam em modo estrito. Cópias para apresentação materializam valores,
+sem compartilhar os acessores com o DTO de origem. Se uma propriedade existente
+não puder ser acompanhada, ela permanece PT e não recebe identidade por aproximação.
+`mensagem()` é compatibilidade para diagnósticos
 PT, sem registro ou tradução implícita. Os gravadores isolados continuam sem
 dependência do catálogo e devolvem seus diagnósticos no idioma original.
 

@@ -484,13 +484,15 @@ function registrar(router, { CONFIG }) {
     if (!Number.isInteger(limite) || limite < 1 || limite > 300) {
       throw new ErroLocal(400, dgIdiomaBackend.descricao("O limite precisa ser um número inteiro de 1 a 300."));
     }
-    const { itens: todos, avisoRegistro } = await itens();
+    const resultado = await itens();
+    const todos = resultado.itens;
+    const avisoRegistro = dgIdiomaBackend.campo(resultado, 'avisoRegistro');
     const lista = montarLista(todos, { grupo, q: query.get('q') || '', limite });
     const corpo = {
       ok: true, gerado_em: new Date().toISOString(), contagem: lista.contagem, itens: lista.itens,
       total_filtrado: lista.total, agente: agenteSlug(), ve_tudo: true, fonte: FONTE,
     };
-    if (avisoRegistro) corpo.aviso_registro = avisoRegistro;
+    if (avisoRegistro) dgIdiomaBackend.definir(corpo, 'aviso_registro', avisoRegistro);
     enviarJson(res, 200, corpo);
   }
 

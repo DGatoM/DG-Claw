@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { setTimeout: pausa } = require('node:timers/promises');
 const UI = require('../lib/idioma-contexto');
 const I = require('../public/ds/idioma');
+const { types } = require('node:util');
 const req = idioma => ({ headers: { cookie: 'dgclaw_idioma=' + idioma } });
 const en = fn => UI.executar(req('en'), 'pt-BR', fn);
 const json = v => JSON.parse(JSON.stringify(v, UI.replacer));
@@ -107,6 +108,57 @@ test('descritores não são forjáveis por JSON, nomes ou objetos parecidos', ()
   assert.equal(UI.localizar(fake), fake);
   const dados = UI.objeto({ erro: fake, mensagem: 'Pedido inválido.' });
   assert.deepEqual(json(dados), dados);
+}));
+
+test('escrita direta e Object.assign nativo invalidam mesmo quando o texto é igual', () => en(() => {
+  const fonte = 'Pedido inválido.';
+  for (const altera of [
+    d => { d.erro = fonte; },
+    d => { Object.assign(d, { erro: fonte }); },
+    d => { d.erro = 'outro'; d.erro = fonte; },
+    d => { delete d.erro; d.erro = fonte; },
+    d => { Object.defineProperty(d, 'erro', { value: fonte }); },
+    d => { Object.defineProperty(d, 'erro', { get: () => fonte }); },
+  ]) {
+    const d = UI.objeto({ erro: UI.descricao(fonte) });
+    altera(d);
+    assert.equal(typeof d.erro, 'string'); assert.equal(json(d).erro, fonte);
+  }
+  const e = UI.criarErro(Error, [UI.descricao(fonte)]);
+  assert.ok(types.isNativeError(e));
+  e.message = fonte;
+  assert.equal(UI.localizar(UI.campo(e, 'message')), fonte);
+}));
+
+test('campos controlados continuam primitivos, clonáveis, seláveis e congeláveis', () => en(() => {
+  const fonte = 'Pedido inválido.';
+  const d = UI.objeto({ erro: UI.descricao(fonte) });
+  assert.deepEqual(Object.keys(d), ['erro']);
+  assert.deepEqual(structuredClone(d), { erro: fonte });
+  assert.equal(JSON.stringify(d), JSON.stringify({ erro: fonte }));
+  Object.seal(d); assert.equal(Object.isFrozen(d), false);
+  d.erro = 'outro'; assert.equal(d.erro, 'outro');
+  UI.definir(d, 'erro', UI.descricao(fonte));
+  assert.equal(json(d).erro, 'Invalid request.');
+  Object.freeze(d); assert.equal(Object.isFrozen(d), true);
+  assert.throws(() => { d.erro = fonte; }, TypeError);
+  assert.throws(() => Function('obj', 'valor', 'obj.erro = valor')(d, fonte), TypeError);
+  assert.equal(json(d).erro, 'Invalid request.');
+  const restrito = Object.seal({ erro: '' });
+  UI.definir(restrito, 'erro', UI.descricao(fonte));
+  assert.equal(restrito.erro, fonte);
+  assert.equal(json(restrito).erro, fonte, 'sem poder controlar a propriedade, não atribui identidade');
+}));
+
+test('escrita herdada e cópia HTTP não alteram o DTO de origem', () => en(() => {
+  const fonte = 'Pedido inválido.';
+  const pai = UI.objeto({ erro: UI.descricao(fonte), aviso: UI.descricao('Admin') });
+  const filho = Object.create(pai);
+  filho.erro = fonte;
+  assert.equal(json(filho).erro, fonte); assert.equal(json(pai).erro, 'Invalid request.');
+  const copia = UI.erro(pai);
+  copia.aviso = 'valor independente'; copia.erro = 'externo';
+  assert.equal(pai.aviso, 'Admin'); assert.equal(pai.erro, fonte);
 }));
 
 test('requisições simultâneas usam o idioma próprio sem alterar DTO compartilhado', async () => {

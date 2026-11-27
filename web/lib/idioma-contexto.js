@@ -6,6 +6,8 @@ const I = require('../public/ds/idioma');
 const contexto = new AsyncLocalStorage();
 const descricoes = new WeakMap();
 const propriedades = new WeakMap();
+const controles = new WeakMap();
+const gravavel = Symbol('dg-ui-gravavel');
 const objetoOuFuncao = v => v !== null && (typeof v === 'object' || typeof v === 'function');
 const ehDescricao = v => objetoOuFuncao(v) && descricoes.has(v);
 function executar(req, padrao, funcao) { return contexto.run({ idioma: I.doCookie(req.headers && req.headers.cookie, padrao) }, funcao); }
@@ -39,18 +41,48 @@ function ativa(obj, chave) {
   const r = propriedades.get(obj)?.get(chave);
   if (!r) return undefined;
   const p = Object.getOwnPropertyDescriptor(obj, chave);
-  if (p && Object.hasOwn(p, 'value') && p.value === r.original) return r.descricao;
+  const c = controles.get(obj)?.get(chave);
+  const estado = Object.getOwnPropertyDescriptor(obj, gravavel);
+  if (c && p && p.get === c.get && p.set === c.set && estado && estado.value === null && !estado.enumerable && !estado.configurable) return r.descricao;
   propriedades.get(obj).delete(chave);
   return undefined;
+}
+function controlar(obj, chave, esperado) {
+  const p = Object.getOwnPropertyDescriptor(obj, chave);
+  let mapa = controles.get(obj);
+  const existente = mapa?.get(chave);
+  if (existente && p?.get === existente.get && p?.set === existente.set) return existente.valor === esperado;
+  if (!p || !Object.hasOwn(p, 'value') || !p.configurable || p.value !== esperado) return false;
+  if (!Object.hasOwn(obj, gravavel)) {
+    if (!Object.isExtensible(obj)) return false;
+    // Seal mantém esse bit gravável; freeze o torna somente leitura. O símbolo
+    // não é enumerável, não é copiado por spread/assign e nunca entra no JSON.
+    Object.defineProperty(obj, gravavel, { value: null, writable: true, enumerable: false, configurable: false });
+  }
+  const c = { valor: p.value, gravavel: p.writable };
+  c.get = function () { return c.valor; };
+  c.set = function (valor) {
+    if (!c.gravavel || !Object.getOwnPropertyDescriptor(obj, gravavel)?.writable) throw new TypeError('Cannot assign to read only UI message property');
+    if (this !== obj) {
+      // Uma escrita num objeto que herdou o campo não altera o objeto de origem.
+      Object.defineProperty(this, chave, { value: valor, enumerable: true, writable: true, configurable: true });
+      return;
+    }
+    c.valor = original(valor);
+    propriedades.get(obj)?.delete(chave);
+    if (ehDescricao(valor)) marcar(obj, chave, valor);
+  };
+  Object.defineProperty(obj, chave, { get: c.get, set: c.set, enumerable: p.enumerable, configurable: p.configurable });
+  mapa = mapa || new Map(); mapa.set(chave, c); controles.set(obj, mapa);
+  return true;
 }
 function marcar(obj, chave, valor) {
   const mapa = propriedades.get(obj);
   if (mapa) mapa.delete(chave);
   if (!ehDescricao(valor)) return;
-  const p = Object.getOwnPropertyDescriptor(obj, chave);
-  if (!p || !Object.hasOwn(p, 'value') || p.value !== original(valor)) return;
+  if (!controlar(obj, chave, original(valor))) return;
   const registro = mapa || new Map();
-  registro.set(chave, { descricao: valor, original: original(valor) });
+  registro.set(chave, { descricao: valor });
   propriedades.set(obj, registro);
 }
 function campo(obj, chave) { const valor = obj[chave]; return valor ? (ativa(obj, chave) || valor) : valor; }
@@ -125,13 +157,21 @@ function erro(corpo) {
     const mudancas = []; vistos.set(v, v);
     for (const k of Object.keys(v)) {
       const p = Object.getOwnPropertyDescriptor(v, k);
-      if (!Object.hasOwn(p, 'value')) continue;
-      const propria = ativa(v, k), novo = propria ? renderizar(propria) : visitar(p.value);
-      if (novo !== p.value) mudancas.push([k, novo]);
+      const controle = controles.get(v)?.get(k);
+      const controlado = controle && p.get === controle.get && p.set === controle.set;
+      if (!Object.hasOwn(p, 'value') && !controlado) continue;
+      const valor = controlado ? controle.valor : p.value;
+      const propria = ativa(v, k), novo = propria ? renderizar(propria) : visitar(valor);
+      if (novo !== valor) mudancas.push([k, novo]);
     }
     if (!mudancas.length) return v;
     const descritores = Object.getOwnPropertyDescriptors(v);
-    for (const [k, novo] of mudancas) descritores[k] = { ...descritores[k], value: novo };
+    delete descritores[gravavel];
+    for (const [k, c] of controles.get(v) || []) {
+      const p = descritores[k];
+      if (p && p.get === c.get && p.set === c.set) descritores[k] = { value: c.valor, enumerable: p.enumerable, writable: true, configurable: true };
+    }
+    for (const [k, novo] of mudancas) descritores[k] = { value: novo, enumerable: true, writable: true, configurable: true };
     const copia = Object.defineProperties(Array.isArray(v) ? new Array(v.length) : Object.create(proto), descritores);
     vistos.set(v, copia); return copia;
   }
