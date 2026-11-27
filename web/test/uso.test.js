@@ -267,10 +267,13 @@ test('agente selecionado: Codex sem medição mostra sem medição ainda, não o
   assert.doesNotMatch(h, /11%/);
 });
 
-test('agente selecionado: com dois provedores o título leva o provedor do agente', () => {
-  const ag = { a: uso('claude', 11, 21, iso(2026, 9, 24, 9, 0), iso(2026, 9, 19, 11, 0)), c: uso('codex', 5, 6, iso(2026, 9, 25, 9, 0), iso(2026, 9, 19, 11, 0)) };
-  assert.match(M.usoHtml(ag, {}, AGORA, 'c'), /Uso da assinatura ChatGPT/);
-  assert.match(M.usoHtml(ag, {}, AGORA, 'a'), /Uso da assinatura Claude/);
+test('agente selecionado: com dois provedores na instalação o título leva o provedor do agente', () => {
+  // a resposta do menu vem filtrada, só com o agente selecionado
+  const c = { c: uso('codex', 5, 6, iso(2026, 9, 25, 9, 0), iso(2026, 9, 19, 11, 0)) };
+  const a = { a: uso('claude', 11, 21, iso(2026, 9, 24, 9, 0), iso(2026, 9, 19, 11, 0)) };
+  assert.match(M.usoHtml(c, {}, AGORA, 'c', true), /Uso da assinatura ChatGPT/);
+  assert.match(M.usoHtml(a, {}, AGORA, 'a', true), /Uso da assinatura Claude/);
+  assert.match(M.usoHtml(a, {}, AGORA, 'a', false), /ml-uso-tit">Uso da assinatura</);
 });
 
 test('agente selecionado: falhas diferentes em A e B, a dica é a do agente selecionado', () => {
