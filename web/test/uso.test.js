@@ -148,64 +148,23 @@ const uso = (prov, pct5, pctS, zeraS, medido) => ({ uso: { provedor: prov,
   semanal: pctS == null ? null : { usado_pct: pctS, zera_em: zeraS, vencida: false },
   plano: null, medido_em: medido, fonte: 'statusline' } });
 
-test('agrupamento: 3 agentes Claude com a mesma semanal viram 1 bloco com a medição mais recente', () => {
+test('sem agente selecionado: cartão sem números pedindo para escolher um agente', () => {
   const z = iso(2026, 9, 24, 9, 0);
-  const ag = { a: uso('claude', 10, 20, z, iso(2026, 9, 19, 11, 0)), b: uso('claude', 55, 33, z, iso(2026, 9, 19, 11, 58)), c: uso('claude', 30, 25, z, iso(2026, 9, 19, 11, 30)) };
-  const g = M.assinaturasDeUso(ag, { a: 'Ana', b: 'Bia', c: 'Cris' });
-  assert.equal(g.length, 1);
-  assert.equal(g[0].uso.sessao_5h.usado_pct, 55);
-  assert.deepEqual(g[0].agentes, ['Ana', 'Bia', 'Cris']);
-  const h = M.usoHtml(ag, {}, AGORA);
+  const h = M.usoHtml({ a: uso('claude', 10, 20, z, iso(2026, 9, 19, 11, 0)), b: uso('codex', 5, 8, z, iso(2026, 9, 19, 11, 0)) }, {}, AGORA);
   assert.equal((h.match(/class="ml-uso-card"/g) || []).length, 1);
-  assert.match(h, />Uso da assinatura</);
-  assert.match(h, /medido há 2 minutos/);
+  assert.match(h, /escolha um agente/);
+  assert.match(h, /title="O uso mostrado é o da assinatura do agente selecionado\."/);
+  assert.doesNotMatch(h, /10%|20%|medido há/);
+  for (const v of [undefined, null, '']) assert.match(M.usoHtml({ a: uso('claude', 1, 1, z, iso(2026, 9, 19, 11, 0)) }, {}, AGORA, v), /escolha um agente/);
 });
 
-test('agrupamento: Claude + Codex viram 2 blocos com o rótulo do provedor', () => {
-  const z = iso(2026, 9, 24, 9, 0);
-  const h = M.usoHtml({ a: uso('claude', 10, 20, z, iso(2026, 9, 19, 11, 59)), b: uso('codex', 5, 8, iso(2026, 9, 25, 9, 0), iso(2026, 9, 19, 11, 59)) }, {}, AGORA);
-  assert.equal((h.match(/class="ml-uso-card"/g) || []).length, 2);
-  assert.match(h, /Uso da assinatura Claude/);
-  assert.match(h, /Uso da assinatura ChatGPT/);
-});
-
-test('agrupamento: mesma conta Claude com semanais diferentes viram blocos separados; erro e não medido não criam grupo', () => {
-  const g = M.assinaturasDeUso({
-    a: uso('claude', 1, 1, iso(2026, 9, 24, 9, 0), iso(2026, 9, 19, 11, 0)),
-    b: uso('claude', 1, 1, iso(2026, 9, 26, 9, 0), iso(2026, 9, 19, 11, 0)),
-    c: { uso: null, erro: 'falhou' },
-    d: { uso: { provedor: 'claude', sessao_5h: null, semanal: null, medido_em: null }, motivo: 'ainda não' },
-  });
-  assert.equal(g.length, 2);
-});
-
-test('agrupamento: semanal com segundos de diferença é a mesma conta; agente parado com semanal vencida não abre bloco', () => {
-  const vencida = (u) => { u.uso.semanal.vencida = true; return u; };
-  const g = M.assinaturasDeUso({
-    a: uso('claude', 10, 20, iso(2026, 9, 24, 9, 0, 0), iso(2026, 9, 19, 11, 50)),
-    b: uso('claude', 40, 22, iso(2026, 9, 24, 9, 0, 59), iso(2026, 9, 19, 11, 58)),
-    c: vencida(uso('claude', 90, 99, iso(2026, 9, 17, 9, 0), iso(2026, 9, 10, 8, 0))),
-  });
-  assert.equal(g.length, 1);
-  assert.equal(g[0].uso.sessao_5h.usado_pct, 40);
-});
-
-test('agrupamento: duas contas Claude levam o nome dos agentes no título', () => {
-  const h = M.usoHtml({
-    a: uso('claude', 1, 1, iso(2026, 9, 24, 9, 0), iso(2026, 9, 19, 11, 0)),
-    b: uso('claude', 1, 1, iso(2026, 9, 26, 9, 0), iso(2026, 9, 19, 11, 0)),
-  }, { a: 'Ana', b: '<Bia>' }, AGORA);
-  assert.match(h, /Uso da assinatura Claude \(Ana\)/);
-  assert.match(h, /Uso da assinatura Claude \(&lt;Bia&gt;\)/);
-});
-
-test('agrupamento: ninguém medido vira bloco "sem dado" com rodapé "sem medição ainda" e o motivo só no title', () => {
-  const h = M.usoHtml({ a: { uso: null, erro: 'falhou <b>feio</b>' } }, {}, AGORA);
+test('agente sem medição: bloco "sem dado" com rodapé "sem medição ainda" e o motivo só no title', () => {
+  const h = M.usoHtml({ a: { uso: null, motivo: 'falhou <b>feio</b>' } }, {}, AGORA, 'a');
   assert.match(h, /sem dado/);
   assert.match(h, /sem medição ainda/);
   assert.match(h, /title="falhou &lt;b&gt;feio&lt;\/b&gt;"/);
   assert.doesNotMatch(h, /<b>|0%/);
-  assert.doesNotMatch(M.usoHtml({ a: { uso: null, erro: 'x' } }, {}, AGORA), /ml-uso-nota/);
+  assert.doesNotMatch(M.usoHtml({ a: { uso: null, erro: 'x' } }, {}, AGORA, 'a'), /ml-uso-nota/);
 });
 
 test('bloco: faixas de cor, "sem dado" no lugar de 0%, vencida, vírgula decimal e zero real', () => {
@@ -233,13 +192,13 @@ test('bloco: faixas de cor, "sem dado" no lugar de 0%, vencida, vírgula decimal
 
 test('bloco: linhas empilhadas na ordem 5h, frase, Semana, frase, rodapé', () => {
   const z = iso(2026, 9, 24, 9, 0);
-  const h = M.usoHtml({ a: uso('claude', 37.5, 72, z, iso(2026, 9, 19, 11, 59)) }, {}, AGORA);
+  const h = M.usoHtml({ a: uso('claude', 37.5, 72, z, iso(2026, 9, 19, 11, 59)) }, {}, AGORA, 'a');
   const pos = s => h.indexOf(s);
   const ordem = ['ml-uso-tit', '>5 horas<', 'zera hoje às 18h40', '>Semana<', 'zera sáb às 9h', 'ml-uso-rodape'].map(pos);
   assert.ok(ordem.every(n => n >= 0), 'todas as peças existem');
   assert.deepEqual(ordem, ordem.slice().sort((a, b) => a - b));
   assert.doesNotMatch(h, /ml-uso-cols| · /);
-  const v = M.usoHtml({ a: { uso: { provedor: 'claude', sessao_5h: { usado_pct: 90, zera_em: iso(2026, 9, 19, 14, 0), vencida: true }, semanal: null, medido_em: iso(2026, 9, 19, 11, 59) } } }, {}, AGORA);
+  const v = M.usoHtml({ a: { uso: { provedor: 'claude', sessao_5h: { usado_pct: 90, zera_em: iso(2026, 9, 19, 14, 0), vencida: true }, semanal: null, medido_em: iso(2026, 9, 19, 11, 59) } } }, {}, AGORA, 'a');
   assert.match(v, /ml-uso-zera">zerou às 14h</);
   assert.equal((v.match(/ml-uso-zera/g) || []).length, 1, 'janela sem dado não tem frase');
 });
@@ -267,12 +226,12 @@ test('bloco: "medido há ..." e âmbar acima de 30 minutos', () => {
   assert.equal(t(30).velho, false);
   assert.equal(t(31).velho, true);
   const z = iso(2026, 9, 24, 9, 0);
-  assert.match(M.usoHtml({ a: uso('claude', 1, 1, z, new Date(AGORA - 40 * 60000).toISOString()) }, {}, AGORA), /ml-uso-rodape velho">medido há 40 minutos/);
+  assert.match(M.usoHtml({ a: uso('claude', 1, 1, z, new Date(AGORA - 40 * 60000).toISOString()) }, {}, AGORA, 'a'), /ml-uso-rodape velho">medido há 40 minutos/);
 });
 
 test('bloco: escape de HTML no título, no motivo e no erro; erro da API em vermelho com causa no title', () => {
   const z = iso(2026, 9, 24, 9, 0);
-  const h = M.usoHtml({ a: uso('claude', 1, 1, z, iso(2026, 9, 19, 11, 59)) }, { a: '<img src=x>' }, AGORA);
+  const h = M.usoHtml({ a: uso('claude', 1, 1, z, iso(2026, 9, 19, 11, 59)) }, { a: '<img src=x>' }, AGORA, 'a');
   assert.doesNotMatch(h, /<img/);
   assert.match(h, /&lt;img src=x&gt;/);
   const e = M.usoErroHtml('não consegui ler o uso (resposta 500)', 'causa "feia" <script>');
@@ -321,16 +280,6 @@ test('agente selecionado: falhas diferentes em A e B, a dica é a do agente sele
   assert.match(hb, /runner da Bia fora do ar/);
   assert.doesNotMatch(hb, /sem login da Ana|11%/);
   assert.match(M.usoHtml(ag, {}, AGORA, 'a'), /sem login da Ana/);
-});
-
-test('conta do agente selecionado: sem atualId mostra todos os cartões', () => {
-  const ag = {
-    a: uso('claude', 11, 21, iso(2026, 9, 24, 9, 0), iso(2026, 9, 19, 11, 0)),
-    b: uso('claude', 66, 77, iso(2026, 9, 26, 9, 0), iso(2026, 9, 19, 11, 0)),
-  };
-  for (const id of [undefined, null, '']) {
-    assert.equal((M.usoHtml(ag, {}, AGORA, id).match(/class="ml-uso-card"/g) || []).length, 2);
-  }
 });
 
 test('atualId ausente da resposta: cartão sem números, agente indisponível', () => {

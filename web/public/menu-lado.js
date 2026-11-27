@@ -426,46 +426,13 @@
       `<div class="ml-uso-rodape${r.classe ? ' ' + r.classe : ''}"${r.dica ? ` title="${esc(r.dica)}"` : ''}>${esc(r.texto)}</div></div>`;
   }
 
-  /* Agrupa por assinatura: o mesmo provedor com a janela semanal zerando no mesmo horário (tolerância de 10 min,
-     porque o horário informado pode variar alguns segundos entre medições) é a mesma conta. Só entra quem tem
-     medição (medido_em); erro e "ainda não medido" não criam grupo. Em cada grupo vale a medição mais recente.
-     Medição de um agente parado há mais de uma semana (semanal vencida) não abre grupo próprio quando o mesmo
-     provedor já tem medição atual: ela é só um número velho da mesma conta.
-     agentes = o objeto de GET /api/v1/uso; nomesPorSlug = { slug: nome } (opcional, só para o title). */
-  function assinaturasDeUso(agentes, nomesPorSlug) {
-    const TOL = 10 * 60000;
-    const lidos = [];
-    Object.keys(agentes || {}).forEach(slug => {
-      const e = agentes[slug], u = e && e.uso;
-      if (!u || !u.medido_em) return;
-      const t = new Date(u.medido_em).getTime();
-      if (!isFinite(t)) return;
-      const z = u.semanal && u.semanal.zera_em ? new Date(u.semanal.zera_em).getTime() : NaN;
-      lidos.push({ slug, u, t, z, prov: u.provedor || '', velha: !!(u.semanal && u.semanal.vencida) });
-    });
-    const provComAtual = new Set(lidos.filter(x => !x.velha).map(x => x.prov));
-    const grupos = [];
-    lidos.sort((x, y) => (x.velha - y.velha) || (y.t - x.t)).forEach(x => {
-      let g = grupos.find(g => g.provedor === x.prov &&
-        ((isFinite(g.z) && isFinite(x.z) && Math.abs(g.z - x.z) <= TOL) || (!isFinite(g.z) && !isFinite(x.z))));
-      if (!g && x.velha && provComAtual.has(x.prov)) g = grupos.find(g => g.provedor === x.prov);
-      if (!g) { g = { provedor: x.prov, uso: x.u, t: x.t, z: x.z, slugs: [] }; grupos.push(g); }
-      g.slugs.push(x.slug);
-    });
-    const ordem = Object.keys(agentes || {});
-    return grupos.map(g => ({
-      provedor: g.provedor, uso: g.uso,
-      agentes: g.slugs.sort((a, b) => ordem.indexOf(a) - ordem.indexOf(b)).map(s => (nomesPorSlug && nomesPorSlug[s]) || s),
-    }));
-  }
-
   /* O HTML de dentro do #mlUso para uma resposta boa de GET /api/v1/uso.
      Com atualId (o slug do agente selecionado) presente na resposta, o bloco mostra UM cartão com a medição do próprio
      agente (nunca a de outro agente do grupo). Se ele não tem medição, mostra "sem medição ainda" com a causa dele,
      mesmo quando outros agentes têm medição. O título leva o provedor do agente quando a resposta tem medição de mais
      de um provedor. Se o agente tem erro, o rodapé diz "não consegui ler o uso" e a dica é o erro; se só tem motivo,
      "sem medição ainda" com o motivo. Com atualId que não está na resposta, mostra "agente indisponível". A visão
-     agrupada (todas as assinaturas) só aparece quando atualId não vem. */
+     agrupada não existe: sem atualId, o cartão pede para escolher um agente. */
   function usoHtml(agentes, nomesPorSlug, agora, atualId) {
     const rotulo = { claude: 'Claude', codex: 'ChatGPT' };
     const semMedicao = (dica) => cartaoUso({ titulo: 'Uso da assinatura', uso: null,
@@ -497,22 +464,8 @@
       }
       return semMedicao(e ? e.motivo : '');
     }
-    const todos = assinaturasDeUso(agentes, nomesPorSlug);
-    if (!todos.length) {
-      const e = Object.values(agentes || {}).find(x => x && (x.erro || x.motivo));
-      return semMedicao(e ? (e.erro || e.motivo) : '');
-    }
-    return todos.map(g => {
-      const m = tempoMedidoUso(g.uso.medido_em, agora);
-      let sufixo = todos.length > 1 && rotulo[g.provedor] ? ' ' + rotulo[g.provedor] : '';
-      // duas contas do mesmo provedor: o nome dos agentes diz qual é qual
-      if (todos.filter(o => o.provedor === g.provedor).length > 1) sufixo += ' (' + g.agentes.join(', ') + ')';
-      return cartaoUso({
-        titulo: 'Uso da assinatura' + sufixo, uso: g.uso,
-        dica: g.agentes.length ? 'Medido pelo agente: ' + g.agentes.join(', ') : '',
-        rodape: { texto: m ? m.texto : 'medido', classe: m && m.velho ? 'velho' : '' },
-      }, agora);
-    }).join('');
+    return cartaoUso({ titulo: 'Uso da assinatura', uso: null,
+      rodape: { texto: 'escolha um agente', dica: 'O uso mostrado é o da assinatura do agente selecionado.' } }, agora);
   }
 
   /* Falha ao ler o uso: cartão vazio com o motivo curto no rodapé e a causa inteira no title. */
@@ -539,7 +492,7 @@
     return { tipo: 'sem', texto: 'Este navegador não oferece a instalação por aqui. No Chrome ou no Edge, abra o menu do navegador e procure Instalar app. No Firefox para computador, o recurso não existe.' };
   }
 
-  if (!raiz.document) return { GRUPOS_MENU, GRUPO_CONEXOES, montaItens, organizaMenu, menuHtml, grupoHtml, grupoDaChave, corUso, quandoZeraUso, tempoMedidoUso, horaUso, janelaUso, assinaturasDeUso, usoHtml, usoErroHtml, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SUPORTE, LINK_MANUAL, LINK_SEGURANCA, LINK_CONECTAR, LINK_FACEID, LINK_COLABORADOR, LINK_ANONIMIZAR, LINK_LOGS, mostraLogs, linkSessoes, linkTela, itemAgente, bolinhaMenu, seloDe, totalNaoLidas, totalPrecisam, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
+  if (!raiz.document) return { GRUPOS_MENU, GRUPO_CONEXOES, montaItens, organizaMenu, menuHtml, grupoHtml, grupoDaChave, corUso, quandoZeraUso, tempoMedidoUso, horaUso, janelaUso, usoHtml, usoErroHtml, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SUPORTE, LINK_MANUAL, LINK_SEGURANCA, LINK_CONECTAR, LINK_FACEID, LINK_COLABORADOR, LINK_ANONIMIZAR, LINK_LOGS, mostraLogs, linkSessoes, linkTela, itemAgente, bolinhaMenu, seloDe, totalNaoLidas, totalPrecisam, horaCurta, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar };
 
   /* ── Parte com DOM ─────────────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);
@@ -671,8 +624,10 @@
     const caixa = $('mlUso');
     if (!caixa || buscandoUso) return;
     buscandoUso = true;
+    const ctl = new AbortController();
+    const prazo = setTimeout(() => ctl.abort(), 15000);
     try {
-      const r = await fetch('/api/v1/uso', { cache: 'no-store', credentials: 'same-origin' });
+      const r = await fetch('/api/v1/uso', { cache: 'no-store', credentials: 'same-origin', signal: ctl.signal });
       const d = await r.json().catch(() => null);
       if (!r.ok || !d || d.ok === false) {
         const e = new Error((d && d.erro) || ('a API respondeu ' + r.status));
@@ -683,12 +638,12 @@
       (ultimaLista ? ultimaLista.lista : []).forEach(a => { nomes[a.id] = a.nome || a.id; });
       const slugAtual = agenteAtual && agenteAtual.id;
       const ea = slugAtual && d.agentes ? d.agentes[slugAtual] : null;
-      if (ea && (ea.erro || ea.motivo)) console.warn('menu-lado: uso de ' + (nomes[slugAtual] || slugAtual) + ' sem medição: ' + (ea.erro || ea.motivo));
+      if (ea && ea.erro) console.warn('menu-lado: não consegui ler o uso da assinatura do agente selecionado (HTTP ' + r.status + ')');
       caixa.innerHTML = usoHtml(d.agentes || {}, nomes, Date.now(), agenteAtual && agenteAtual.id);
     } catch (e) {
-      console.warn('menu-lado: não consegui ler o uso da assinatura:', e.message);
+      console.warn('menu-lado: falha ao buscar o uso da assinatura' + (e && e.name ? ' (' + e.name + ')' : ''));
       caixa.innerHTML = usoErroHtml(e.curto || 'sem conexão com o servidor', e.message);
-    } finally { buscandoUso = false; }
+    } finally { clearTimeout(prazo); buscandoUso = false; }
   }
 
   /* Só busca com a aba visível e o menu na tela. */
@@ -976,5 +931,5 @@
       .catch(e => { console.warn('menu-lado: não consegui saber quem está logado (' + e.message + '); o menu segue sem o nome.'); });
   }
 
-  return { GRUPOS_MENU, GRUPO_CONEXOES, montaItens, organizaMenu, menuHtml, grupoHtml, grupoDaChave, abreGrupo, corUso, quandoZeraUso, tempoMedidoUso, horaUso, janelaUso, assinaturasDeUso, usoHtml, usoErroHtml, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SUPORTE, LINK_MANUAL, LINK_SEGURANCA, LINK_CONECTAR, LINK_FACEID, LINK_COLABORADOR, LINK_ANONIMIZAR, LINK_LOGS, mostraLogs, linkSessoes, linkTela, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas, totalPrecisam, seloDe };
+  return { GRUPOS_MENU, GRUPO_CONEXOES, montaItens, organizaMenu, menuHtml, grupoHtml, grupoDaChave, abreGrupo, corUso, quandoZeraUso, tempoMedidoUso, horaUso, janelaUso, usoHtml, usoErroHtml, ABAS_PAINEL, LINK_LEMBRETES, LINK_AVISOS, LINK_SUPORTE, LINK_MANUAL, LINK_SEGURANCA, LINK_CONECTAR, LINK_FACEID, LINK_COLABORADOR, LINK_ANONIMIZAR, LINK_LOGS, mostraLogs, linkSessoes, linkTela, itemAgente, linksPainel, linksExtras, comAgente, chaveDoHref, passosMenu, instrucaoInstalar, inicia, marca, extras, defineNaoLidas, totalNaoLidas, totalPrecisam, seloDe };
 });
