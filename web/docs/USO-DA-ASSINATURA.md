@@ -1,7 +1,7 @@
 # Uso da assinatura
 
 Mostra quanto da assinatura de cada agente já foi gasto: a janela de 5 horas e a janela semanal.
-O dono vê no Status do painel do agente e em ☰ > Uso das assinaturas. O Admin consulta pela API.
+O dono vê no Status do painel do agente e no menu lateral, logo abaixo do seletor de agentes, sempre à mostra, o bloco da assinatura do agente selecionado (o bloco mostra a medição do agente selecionado). O Admin consulta pela API.
 
 O número não é calculado pelo Web. Quem mede é o runner de cada agente, com o que o próprio
 Claude Code (linha de status) ou Codex (arquivo da conversa) informa a cada resposta. Sem rede e
@@ -23,6 +23,7 @@ sem consultar a conta.
 }}
 ```
 
+- Query opcional `agente=<slug>`: mede só aquele agente, sem esperar os outros runners (o menu usa isso). Aceita letras, números, hífen e sublinhado, até 64 caracteres; fora disso a resposta é 400. Slug que não existe devolve `agentes: {}`. Pedido feito pela caixa de um agente ignora a query e devolve sempre o próprio agente.
 - `agentes` tem uma chave por agente do registro (o `slug`), o Admin inclusive. Pedido feito por um agente (pela caixa, `dgclaw-api`) recebe só a chave dele: um agente não vê o uso dos outros.
 - `sessao_5h` e `semanal` são `{usado_pct, zera_em, vencida}` ou `null`. **`null` quer dizer "não
   medido"**, nunca zero por cento. `usado_pct` vai de 0 a 100; `zera_em` é um horário ISO em UTC.

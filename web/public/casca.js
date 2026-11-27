@@ -65,14 +65,14 @@
     '<div class="ml-moldura" id="mlMoldura" aria-hidden="true"></div>' +
     '<div class="ml-nome" id="mlNome">' + esc(NOME) + '</div>' +
     '<div class="ml-sub" id="mlSub"></div>' +
-    '<button type="button" class="gm-tut" id="gmTutorial" title="Visita guiada do menu: o que é cada parte e por que está aqui">Tutorial</button>' +
+    '<button type="button" class="gm-tut" id="gmTutorial" aria-label="Tutorial do menu" title="Tutorial: o que é cada parte e por que está aqui">?</button>' +
     troca +
     '</div>' +
+    '<section class="ml-uso-bloco" id="mlUso" data-tour="gm-uso" aria-label="Uso da assinatura" role="status" aria-live="polite"><div class="ml-uso-card"><div class="ml-uso-tit">Uso da assinatura</div><div class="ml-uso-rodape">conferindo...</div></div></section>' +
     '<nav class="ml-tabs" id="mlTabs" aria-label="Páginas do agente">' +
     '<div data-tour="gm-conversa"><button type="button" class="ml-tab ativo" id="gmIrConversa" aria-current="page"><span class="ml-ico" aria-hidden="true">' + ico('message') + '</span>Conversa</button></div>' +
     '<div data-tour="gm-mesa"><a class="ml-tab" href="/mesa"><span class="ml-ico" aria-hidden="true">' + ico('board') + '</span>Mesa de tarefas</a></div>' +
     '<div id="mlPainel" data-tour="gm-painel" hidden></div></nav>' +
-    '<section class="ml-config" id="mlUso" aria-label="Uso das assinaturas"><details id="mlUsoDet"><summary class="ml-tab"><span class="ml-ico" aria-hidden="true">' + ico('gauge') + '</span>Uso das assinaturas<span class="ml-uso-seta" aria-hidden="true">' + ico('chevron-down') + '</span></summary><div class="ml-uso" id="mlUsoLista" aria-live="polite"></div></details></section>' +
     '<section class="ml-config" id="mlConfig" data-tour="gm-config" aria-label="Configurações"><h3>Configurações</h3>' +
     '<button type="button" class="ml-tab" id="mlInstalar"><span class="ml-ico" aria-hidden="true">' + ico('download') + '</span><span class="ml-tx">Instalar o app<small id="mlInstalarSub"></small></span></button>' +
     '<p class="ml-ajuda" id="mlInstalarAjuda" role="status" hidden></p></section>' +

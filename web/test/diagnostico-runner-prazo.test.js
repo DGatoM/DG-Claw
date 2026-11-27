@@ -133,3 +133,21 @@ test('promptAdmin: só aceita comandos do host da lista fechada', () => {
     assert.throws(() => U.promptAdmin('x.', ruim, 'dgclaw status'), /lista fechada/, ruim);
   }
 });
+
+test('runner.uso: corpo acima de 64 KB e resposta que não termina viram ok:false dentro do prazo', async () => {
+  const grande = http.createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ uso: { lixo: 'x'.repeat(70 * 1024) } })); });
+  await new Promise((r) => grande.listen(0, '127.0.0.1', r));
+  const runner = criarRunner({ log: () => {}, timeoutMs: 5000 });
+  try {
+    const r = await runner.uso(ADMIN(`http://127.0.0.1:${grande.address().port}`), 5000);
+    assert.equal(r.ok, false);
+    assert.match(r.erro, /passou de 65536 bytes/);
+  } finally { grande.closeAllConnections(); grande.close(); }
+  const { srv, estado, url } = await servidorSemFim();
+  try {
+    const t = Date.now();
+    const r = await runner.uso(ADMIN(url), 300);
+    assert.equal(r.ok, false);
+    assert.ok(Date.now() - t < 1500, `levou ${Date.now() - t} ms`);
+  } finally { estado.timers.forEach(clearInterval); srv.closeAllConnections(); srv.close(); }
+});

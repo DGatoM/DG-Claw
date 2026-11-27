@@ -79,5 +79,5 @@ vale só para a assinatura do Claude ou do Codex está em [PARIDADE-CODEX.md](..
 | O DG Claw não... | Porque | O que fazer em vez disso |
 | --- | --- | --- |
 | Mostra as abas Instagram e Reuniões sem o poder instalado | A rota responde 423 e a aba aparece com cadeado | Peça ao Admin para instalar o poder (`instagram` ou `meetings`) |
-| Dá uso da assinatura de outro agente a um agente | Pela caixa, `GET /api/v1/uso` devolve só o uso do próprio agente | O dono vê todos no painel, em ☰ > Uso das assinaturas |
+| Dá uso da assinatura de outro agente a um agente | Pela caixa, `GET /api/v1/uso` devolve só o uso do próprio agente | O dono vê todos no painel, no bloco de uso do menu |
 | Dá aos colaboradores a Mesa, os Lembretes e o uso da assinatura | São globais, de todos os agentes | Peça ao dono |
