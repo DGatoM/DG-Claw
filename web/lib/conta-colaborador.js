@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Conta de IA do agente conectada pelo colaborador (web/docs/COLABORADORES.md, "Se o agente ainda não tem IA conectada").
 //
 // O escopo (escopo.js) deixa o colaborador do próprio slug chegar às rotas /api/v1/agents/<dele>/login*. O portão de
@@ -39,7 +40,7 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
   const reservas = new Map();   // slug -> { tipo, id, email, desde, codigoEnviado }
   const filas = new Map();      // slug -> promessa encadeada
 
-  const erro = (status, motivo, extra) => ({ status, corpo: Object.assign({ ok: false, erro: motivo }, extra || {}) });
+  const erro = (status, motivo, extra) => ({ status, corpo: dgIdiomaBackend.atribuir(dgIdiomaBackend.objeto({ ok: false, erro: motivo }), extra || {}) });
 
   // ── registro durável ───────────────────────────────────────────────────────
   function carrega() {
@@ -53,7 +54,7 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
     if (st.mtimeMs === mtimeVisto) return;
     try {
       const j = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
-      if (!j || typeof j !== 'object' || !j.agentes || typeof j.agentes !== 'object' || Array.isArray(j.agentes)) throw new Error('o conteúdo não tem o objeto "agentes"');
+      if (!j || typeof j !== 'object' || !j.agentes || typeof j.agentes !== 'object' || Array.isArray(j.agentes)) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o conteúdo não tem o objeto \"agentes\"")]);
       regs = j.agentes;
       ilegivel = null;
     } catch (e) {
@@ -74,7 +75,7 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
       mtimeVisto = fs.statSync(arquivo).mtimeMs;
     } catch (e) {
       try { fs.unlinkSync(tmp); } catch (_) { /* o temporário nem chegou a existir */ }
-      throw new Error(`não consegui gravar ${arquivo} (${e.code || e.message})`);
+      throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("não consegui gravar {p0} ({p1})", {p0: (arquivo), p1: (e.code || dgIdiomaBackend.campo(e, "message"))})]);
     }
   }
 
@@ -82,9 +83,9 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
   function grava(mudancas) {
     const p = filaGrava.then(() => {
       carrega();
-      if (ilegivel) throw new Error(`o arquivo está ilegível (${ilegivel})`);
+      if (ilegivel) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o arquivo está ilegível ({p0})", {p0: (ilegivel)})]);
       // Muda uma cópia e só adota depois de gravar: com disco cheio a memória não pode ficar "já apagada".
-      const copia = Object.assign({}, regs);
+      const copia = dgIdiomaBackend.atribuir({}, regs);
       for (const [k, v] of Object.entries(mudancas)) { if (v === undefined) delete copia[k]; else copia[k] = v; }
       gravaArquivo(copia);
       regs = copia;
@@ -140,8 +141,8 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
   // ── o que a consulta ao runner quer dizer ───────────────────────────────────
   /** 'sem_conta' | 'conectado' | 'expirado' | 'chave_api' | 'duvida'. Qualquer lacuna na informação é 'duvida'. */
   function situacao(c) {
-    if (!c.est.ok) return { tipo: 'duvida', motivo: 'não consegui ver o estado do agente' };
-    if (!c.prov.auth) return { tipo: 'duvida', motivo: 'o agente não respondeu sobre a forma de pagamento da IA' };
+    if (!c.est.ok) return dgIdiomaBackend.objeto({ tipo: 'duvida', motivo: dgIdiomaBackend.descricao("não consegui ver o estado do agente") });
+    if (!c.prov.auth) return dgIdiomaBackend.objeto({ tipo: 'duvida', motivo: dgIdiomaBackend.descricao("o agente não respondeu sobre a forma de pagamento da IA") });
     if (usaChaveDeApi(c.prov.auth)) return { tipo: 'chave_api' };
     const { status, statusReason } = c.est.estado;
     if (status === 'errored' && statusReason === 'runner:login-expirado') return { tipo: 'expirado' };
@@ -149,13 +150,13 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
     // "Sem conta" exige a prova da conferência (`ok:false` com `motivo:'sem_credencial'`). O estado operacional do agente
     // (`runner:sem-login`) sozinho nunca autoriza: com a conferência inconclusiva ou contraditória é dúvida.
     if (status === 'errored' && statusReason === 'runner:sem-login' && conf && conf.ok === true) {
-      return { tipo: 'duvida', motivo: 'o agente deu sinais contraditórios sobre a conta' };
+      return dgIdiomaBackend.objeto({ tipo: 'duvida', motivo: dgIdiomaBackend.descricao("o agente deu sinais contraditórios sobre a conta") });
     }
     // `ok:false` também sai quando o CLI demora, responde algo ilegível ou usa outro método: isso NÃO prova que falta conta.
     // Só o runner dizendo `motivo:'sem_credencial'` prova (runner antigo, sem o campo, cai na dúvida).
     if (conf && conf.ok === false && conf.motivo === 'sem_credencial') return { tipo: 'sem_conta' };
     if (conf && conf.ok === true) return { tipo: 'conectado' };
-    return { tipo: 'duvida', motivo: 'o agente não confirmou se a conta está conectada' };
+    return dgIdiomaBackend.objeto({ tipo: 'duvida', motivo: dgIdiomaBackend.descricao("o agente não confirmou se a conta está conectada") });
   }
 
   /**
@@ -166,7 +167,7 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
 
   /** Como situacaoPara, mas só vale com a conferência refeita sem cache (`c` vem de login.consultarFresco). */
   function situacaoFresca(c, agente, q) {
-    if (!c.fresco) return { tipo: 'duvida', atualizar: true, motivo: 'o programa deste agente é de uma versão antiga e não refaz a conferência na hora' };
+    if (!c.fresco) return dgIdiomaBackend.objeto({ tipo: 'duvida', atualizar: true, motivo: dgIdiomaBackend.descricao("o programa deste agente é de uma versão antiga e não refaz a conferência na hora") });
     return situacaoPara(c);
   }
 
@@ -185,7 +186,7 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
     const inst = instanciaDe(agente);
     if (!inst) { log('aviso', `Conta de IA do agente ${agente.slug} conectada, mas não consegui identificar a instância do agente para registrar quem conectou. Ela conta como do dono.`); return; }
     try {
-      await grava({ [agente.slug]: Object.assign({ instancia: inst, em: relogio() }, valor), [kPend(agente.slug)]: undefined });
+      await grava({ [agente.slug]: dgIdiomaBackend.atribuir({ instancia: inst, em: relogio() }, valor), [kPend(agente.slug)]: undefined });
       log('info', `Conta de IA do agente ${agente.slug} conectada por ${quemTexto}.`);
     } catch (e) {
       log('erro', `Conta de IA do agente ${agente.slug} conectada por ${quemTexto}, mas não consegui registrar quem foi (${e.message}). Ela conta como do dono.`);
@@ -296,11 +297,11 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
   const filtraLogin = (corpo, extra) => {
     const out = { ok: true };
     for (const k of CAMPOS_DO_LOGIN) if (corpo && corpo[k] !== undefined) out[k] = corpo[k];
-    return Object.assign(out, extra || {});
+    return dgIdiomaBackend.atribuir(out, extra || {});
   };
   const filtraResultado = (r, q) => {
     if (q.tipo === 'dono') return r;
-    if (r.status >= 300 || !r.corpo || r.corpo.ok === false) return { status: r.status, corpo: { ok: false, erro: (r.corpo && r.corpo.erro) || 'O agente recusou o pedido.' } };
+    if (r.status >= 300 || !r.corpo || r.corpo.ok === false) return { status: r.status, corpo: dgIdiomaBackend.objeto({ ok: false, erro: (r.corpo && dgIdiomaBackend.campo(r.corpo, "erro")) || 'O agente recusou o pedido.' }) };
     return { status: r.status, corpo: filtraLogin(r.corpo) };
   };
 
@@ -317,7 +318,7 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
       if (q.tipo === 'dono') {
         if (r && r.tipo === 'colaborador') {
           delete corpo.link; delete corpo.codigoDispositivo;
-          return { status: 200, corpo: Object.assign(corpo, { login_de: 'colaborador', login_de_email: r.email }) };
+          return { status: 200, corpo: dgIdiomaBackend.atribuir(corpo, { login_de: 'colaborador', login_de_email: r.email }) };
         }
         return { status: 200, corpo };
       }
@@ -325,14 +326,14 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
       const provedor = corpo.provedor;
       if (sc.tipo === 'duvida') return recusaPorSituacao(sc);
       if (sc.tipo === 'conectado') return { status: 200, corpo: { ok: true, conectado: true, precisa_login: false, provedor } };
-      if (sc.tipo === 'chave_api') return { status: 200, corpo: { ok: true, conectado: false, precisa_login: false, chave_api: true, provedor, mensagem: MSG_CHAVE_API } };
-      if (sc.tipo === 'expirado') return { status: 200, corpo: { ok: true, conectado: false, precisa_login: false, login_expirado: true, so_dono: true, provedor, mensagem: MSG_EXPIRADO } };
+      if (sc.tipo === 'chave_api') return { status: 200, corpo: dgIdiomaBackend.objeto({ ok: true, conectado: false, precisa_login: false, chave_api: true, provedor, mensagem: MSG_CHAVE_API }) };
+      if (sc.tipo === 'expirado') return { status: 200, corpo: dgIdiomaBackend.objeto({ ok: true, conectado: false, precisa_login: false, login_expirado: true, so_dono: true, provedor, mensagem: MSG_EXPIRADO }) };
       // sem conta
       const dele = mesma(r, q);
       const andamentoDeOutro = (!r && EM_ANDAMENTO.has(corpo.estado)) || (r && !dele);
-      if (andamentoDeOutro) return { status: 200, corpo: { ok: true, conectado: false, precisa_login: true, ocupado: true, estado: 'nenhum', provedor, mensagem: MSG_OCUPADO } };
+      if (andamentoDeOutro) return { status: 200, corpo: dgIdiomaBackend.objeto({ ok: true, conectado: false, precisa_login: true, ocupado: true, estado: 'nenhum', provedor, mensagem: MSG_OCUPADO }) };
       const base = dele ? filtraLogin(corpo) : { ok: true, estado: 'nenhum' };
-      return { status: 200, corpo: Object.assign(base, { conectado: false, precisa_login: true, provedor }) };
+      return { status: 200, corpo: dgIdiomaBackend.atribuir(base, { conectado: false, precisa_login: true, provedor }) };
     });
   }
 
@@ -476,10 +477,10 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
           } catch (e) { mot = e.message; cc = null; }
           let sit = null;
           if (cc) {
-            sit = cc.fresco ? situacao(cc) : { tipo: 'duvida', motivo: 'o runner é de versão antiga e não refaz a conferência na hora' };
+            sit = cc.fresco ? situacao(cc) : dgIdiomaBackend.objeto({ tipo: 'duvida', motivo: dgIdiomaBackend.descricao("o runner é de versão antiga e não refaz a conferência na hora") });
             if (sit.tipo === 'duvida') { mot = sit.motivo; sit = null; }
           }
-          return { c: cc, situ: sit, motivo: mot };
+          return dgIdiomaBackend.objeto({ c: cc, situ: sit, motivo: mot });
         };
         let { c, situ, motivo } = await confere();
         const estado = c && c.lg.corpo ? c.lg.corpo.estado : undefined;
@@ -511,7 +512,7 @@ function criarContaColaborador({ dataDir, login, log, agora, escreveArquivo }) {
             : `O agente ${slug} está com conta conectada e ${email} tinha uma tentativa de login em andamento: a conta pode ser a dele. ${confira}`);
           agentes.push(slug);
         } else if (!situ || cancelFalhou) {
-          if (pend) { try { await grava({ [kPend(slug)]: Object.assign({}, pend, { revogado: true }) }); } catch (e) { log('erro', `Não consegui marcar a tentativa revogada de ${email} no agente ${slug} (${e.message}).`); } }
+          if (pend) { try { await grava({ [kPend(slug)]: dgIdiomaBackend.atribuir({}, pend, { revogado: true }) }); } catch (e) { log('erro', `Não consegui marcar a tentativa revogada de ${email} no agente ${slug} (${e.message}).`); } }
           if (!cancelFalhou) avisos.push(`Não consegui confirmar o estado da conta do agente ${slug} (${motivo}) depois de revogar ${email}. ${confira}`);
           agentes.push(slug);
         } else {

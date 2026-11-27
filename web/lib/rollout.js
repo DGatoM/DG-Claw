@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // A conversa de um agente que roda com o motor Codex.
 //
 // O Codex não grava o transcript do Claude: grava um "rollout"
@@ -62,10 +63,10 @@ function dentroDe(raiz, alvo) {
  */
 function confinar(arquivo, raiz, que) {
   const rr = realOuNull(raiz);
-  if (!rr) return { erro: `Recusei ${que}: não consegui resolver a raiz ${raiz} (realpath). Caminho recebido: ${arquivo}. Nada foi lido.` };
+  if (!rr) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Recusei {p0}: não consegui resolver a raiz {p1} (realpath). Caminho recebido: {p2}. Nada foi lido.", {p0: (que), p1: (raiz), p2: (arquivo)}) });
   const real = realOuNull(arquivo);
-  if (!real) return { erro: `Recusei ${que}: não consegui resolver ${arquivo} (realpath). Nada foi lido.` };
-  if (!dentroDe(rr, real)) return { erro: `Recusei ${que}: o caminho recebido (${arquivo}) aponta, por atalho, para ${real}, que cai fora de ${rr}. Nada foi lido.` };
+  if (!real) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Recusei {p0}: não consegui resolver {p1} (realpath). Nada foi lido.", {p0: (que), p1: (arquivo)}) });
+  if (!dentroDe(rr, real)) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Recusei {p0}: o caminho recebido ({p1}) aponta, por atalho, para {p2}, que cai fora de {p3}. Nada foi lido.", {p0: (que), p1: (arquivo), p2: (real), p3: (rr)}) });
   return { real };
 }
 
@@ -119,15 +120,15 @@ function raizesDeRollout(agente) {
 /** Traduz o CODEX_HOME visto de dentro do container para o do host. Devolve { dir, raiz } ou { erro }. */
 function codexHomeNoHost(agente, codexHome) {
   const raizes = raizesDeRollout(agente);
-  if (!raizes.length) return { erro: `O runner informou o CODEX_HOME ${codexHome}, mas o registro de ${agente.nome} não tem home_host para eu traduzir esse caminho.` };
+  if (!raizes.length) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O runner informou o CODEX_HOME {p0}, mas o registro de {p1} não tem home_host para eu traduzir esse caminho.", {p0: (codexHome), p1: (agente.nome)}) });
   const dir = path.resolve(paraHost(codexHome, agente));
   const raiz = raizes.find((r) => { const b = path.resolve(r); return dir === b || dir.startsWith(b + path.sep); });
   if (!raiz) {
-    return { erro: `O CODEX_HOME que o runner informou (${codexHome}) cai fora da casa do agente (${path.resolve(raizes[0])}). Recusei por segurança e não li nada dali.` };
+    return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O CODEX_HOME que o runner informou ({p0}) cai fora da casa do agente ({p1}). Recusei por segurança e não li nada dali.", {p0: (codexHome), p1: (path.resolve(raizes[0]))}) });
   }
   if (!realOuNull(dir)) return { dir, raiz }; // não existe: não há o que ler, o aviso de "não achei" cobre
   const c = confinar(dir, raiz, 'o CODEX_HOME informado pelo runner');
-  if (c.erro) return { erro: c.erro };
+  if (c.erro) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.campo(c, "erro") });
   return { dir: c.real, raiz };
 }
 
@@ -140,14 +141,14 @@ function codexHomeNoHost(agente, codexHome) {
 function acharRollout(agente, sessionId, codexHome) {
   const procurados = [];
   const recusados = [];
-  if (!RX_SESSAO.test(sessionId)) return { arquivo: null, procurados, erro: `O id da sessão (${String(sessionId).slice(0, 40)}) não parece um id do Codex.` };
+  if (!RX_SESSAO.test(sessionId)) return dgIdiomaBackend.objeto({ arquivo: null, procurados, erro: dgIdiomaBackend.descricao("O id da sessão ({p0}) não parece um id do Codex.", {p0: (String(sessionId).slice(0, 40))}) });
   const homes = []; // { dir, raiz }
   if (typeof codexHome === 'string' && codexHome.trim()) {
     const t = codexHomeNoHost(agente, codexHome.trim());
-    if (t.erro) return { arquivo: null, procurados, erro: t.erro };
+    if (t.erro) return dgIdiomaBackend.objeto({ arquivo: null, procurados, erro: dgIdiomaBackend.campo(t, "erro") });
     homes.push({ dir: t.dir, raiz: t.raiz });
   } else {
-    if (!agente.home_host) return { arquivo: null, procurados, erro: `O registro de ${agente.nome} não tem home_host, então não sei onde ficam os rollouts do Codex.` };
+    if (!agente.home_host) return dgIdiomaBackend.objeto({ arquivo: null, procurados, erro: dgIdiomaBackend.descricao("O registro de {p0} não tem home_host, então não sei onde ficam os rollouts do Codex.", {p0: (agente.nome)}) });
     const base = path.resolve(agente.home_host);
     try {
       const api = path.join(base, '.plataforma', 'codex-api');
@@ -162,14 +163,14 @@ function acharRollout(agente, sessionId, codexHome) {
     if (!reais.has(h.raiz)) reais.set(h.raiz, realOuNull(h.raiz));
     const raizReal = reais.get(h.raiz);
     if (!raizReal) {
-      if (h.raiz === agente.home_host) return { arquivo: null, procurados, erro: `Não consegui resolver (realpath) a casa do agente ${agente.nome} (${agente.home_host}). Nada foi lido.` };
+      if (h.raiz === agente.home_host) return dgIdiomaBackend.objeto({ arquivo: null, procurados, erro: dgIdiomaBackend.descricao("Não consegui resolver (realpath) a casa do agente {p0} ({p1}). Nada foi lido.", {p0: (agente.nome), p1: (agente.home_host)}) });
       continue; // raiz extra que não existe (Codex ainda não rodou): nada a ler
     }
     procurados.push(path.join(h.dir, 'sessions'));
     const f = acharNoCodexHome(h.dir, sessionId, recusados, raizReal);
     if (f) return { arquivo: f, procurados };
   }
-  if (recusados.length) return { arquivo: null, procurados, erro: recusados.join(' ') };
+  if (recusados.length) return dgIdiomaBackend.objeto({ arquivo: null, procurados, erro: recusados.join(' ') });
   if (!procurados.length) procurados.push('(nenhuma pasta)');
   return { arquivo: null, procurados };
 }
@@ -324,7 +325,7 @@ function criarLeitorRollout({ log, tz, midia }) {
     if (!estado || !estado.trilhaPend.size) return null;
     let ultimo = null;
     for (const x of estado.trilhaPend.values()) if (!ultimo || x.ep >= ultimo.ep) ultimo = x;
-    return ultimo ? { ferramenta: ultimo.uso.ferramenta, titulo: ultimo.uso.titulo, comando: ultimo.uso.comando } : null;
+    return ultimo ? dgIdiomaBackend.objeto({ ferramenta: ultimo.uso.ferramenta, titulo: dgIdiomaBackend.campo(ultimo.uso, "titulo"), comando: ultimo.uso.comando }) : null;
   }
 
   return { ler, pendente, esquece(caminho, slug) { estados.delete(`${slug}|${caminho}`); } };

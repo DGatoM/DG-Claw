@@ -53,7 +53,8 @@ function extrair(nome) {
 const grid = { innerHTML: '' };
 const ctx = { APP_CONFIG: { creatorName: 'Dono' }, document: { getElementById: () => grid }, dsIcone: (n) => `<svg data-ico="${n}"></svg>` }; // dsIcone vem de /ds/icone.js no navegador
 vm.createContext(ctx);
-vm.runInContext([extrair('escapeHtml'), extrair('numeroSeguro'), extrair('renderFollowers')].join('\n'), ctx);
+const idioma = src.split('\n').filter(l => /^const dg/.test(l)).join('\n');
+vm.runInContext([idioma, extrair('escapeHtml'), extrair('numeroSeguro'), extrair('renderFollowers')].join('\n'), ctx);
 vm.runInContext(`renderFollowers({ agent_owner: { trust_level: ${JSON.stringify(MAL)}, dynamic: ${JSON.stringify(MAL)} }, top_followers: [] })`, ctx);
 ok(!grid.innerHTML.includes('<img') && grid.innerHTML.includes('Trust: 95%'), 'trust_level malicioso não vira tag e cai no padrão 95', grid.innerHTML);
 vm.runInContext('renderFollowers({ agent_owner: { trust_level: 70 }, top_followers: [] })', ctx);

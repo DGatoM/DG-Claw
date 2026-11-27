@@ -1,4 +1,5 @@
 'use strict';
+const dgIntegracoesIdioma = require('./idioma-contexto');
 // Vigia das integrações dos agentes: incidentes, silêncio, "lembrar em 1 hora", pedido ao Admin (manual e
 // automático) e as rotas /api/v1/integracoes. Plano: docs/PLANO-INTEGRACOES-E-VIGIA.md (seções 3.5 e 3.6).
 // Contrato das rotas: web/docs/INTEGRACOES.md.
@@ -296,7 +297,7 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
     for (const ag of agentes) {
       const lido = L.lerEstado(ag);
       if (!lido.medido) {
-        nao.push({ agente: ag.slug, motivo: lido.motivo });
+        nao.push(dgIntegracoesIdioma.objeto({ agente: ag.slug, motivo: dgIntegracoesIdioma.campo(lido, "motivo") }));
         // sem medir, não dá para dizer que se recuperou: os incidentes já abertos continuam na faixa
         for (const inc of incidentes) if (inc.agente === ag.slug) faixa.add(inc.id);
         continue;
@@ -365,7 +366,7 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
 
   /** Ligar só vale depois de gravar. Desligar vale na hora (para de enviar) mesmo se a gravação falhar. */
   function definirAutomatico(ligado, agoraMs) {
-    const copia = { ...automatico, ligado, alteradoEm: new Date(agoraMs).toISOString(), suspenso: false };
+    const copia = dgIntegracoesIdioma.objeto({ ...dgIntegracoesIdioma.espalhar(automatico), ligado, alteradoEm: new Date(agoraMs).toISOString(), suspenso: false });
     if (ligado) {
       if (!tentaGravar(() => grava(arqAutomatico, copia), 'automatico.json')) return { gravou: false };
       automatico = copia;
@@ -389,13 +390,13 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
     const faixa = lista.map((i) => ({
       id: i.id, agente: i.agente, agenteNome: nomeDoAgente(i.agente), integracao: i.integracao,
       integracaoNome: catalogo[i.integracao] ? catalogo[i.integracao].nome : i.integracao,
-      categoria: i.categoria, categoriaTexto: CATEGORIAS[categoriaDe(i.categoria)], abertoEm: i.abertoEm,
+      categoria: i.categoria, categoriaTexto: dgIntegracoesIdioma.texto(CATEGORIAS[categoriaDe(i.categoria)]), abertoEm: i.abertoEm,
     }));
     return {
       ok: true, faixa, pedido: textoDoPedido(lista, registro, catalogo),
       automatico: { ligado: automatico.ligado, suspenso: automatico.suspenso === true },
       silenciadas: silenciadas.map((s) => ({ agente: s.agente, integracao: s.integracao })),
-      naoMedidos: naoMedidos.map((n) => ({ agente: n.agente, agenteNome: nomeDoAgente(n.agente), motivo: n.motivo })),
+      naoMedidos: naoMedidos.map((n) => (dgIntegracoesIdioma.objeto({ agente: n.agente, agenteNome: nomeDoAgente(n.agente), motivo: leituraPadrao.localizarMotivo(n.motivo) }))),
     };
   }
 
@@ -406,7 +407,7 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
       res.end(t);
     } catch (e) {
       log('erro', `Integrações: não consegui ler docs/INTEGRACOES.md (${e.code || e.message}).`);
-      H.erroJson(res, 500, 'O documento das integrações não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      H.erroJson(res, 500, dgIntegracoesIdioma.descricao("O documento das integrações não foi encontrado no servidor. Reinstale o DG Claw Web."));
     }
   }
 
@@ -414,12 +415,12 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
   function parAgenteIntegracao(res, corpo) {
     const agente = corpo.agente; const integracao = corpo.integracao;
     if (typeof agente !== 'string' || !RX_SLUG.test(agente) || typeof integracao !== 'string' || !RX_ID.test(integracao)) {
-      H.erroJson(res, 400, 'Mande {"agente": "<slug do agente>", "integracao": "<id da integração>"}, com os dois no formato de letras minúsculas, números e hífen.');
+      H.erroJson(res, 400, dgIntegracoesIdioma.descricao("Mande {\"agente\": \"<slug do agente>\", \"integracao\": \"<id da integração>\"}, com os dois no formato de letras minúsculas, números e hífen."));
       return null;
     }
     const ag = (registro.estado().agentes || []).find((a) => a.slug === agente && a.tipo !== 'admin');
     if (!ag) {
-      H.erroJson(res, 404, `Não existe o agente "${agente}" no registro (o Admin não tem integrações medidas).`);
+      H.erroJson(res, 404, dgIntegracoesIdioma.descricao("Não existe o agente \"{p0}\" no registro (o Admin não tem integrações medidas).", {p0: agente}));
       return null;
     }
     return { agente, integracao };
@@ -430,16 +431,16 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
     if (p !== BASE && !p.startsWith(`${BASE}/`)) return false;
     // Agente não usa estas rotas; o servidor já não as libera na caixa, isto é a segunda trava.
     if (!sessao || sessao.via === 'caixa') {
-      H.erroJson(res, 403, 'As integrações são só do dono, pelo painel. Agente não usa esta rota.');
+      H.erroJson(res, 403, dgIntegracoesIdioma.descricao("As integrações são só do dono, pelo painel. Agente não usa esta rota."));
       return true;
     }
     if (sessao.papel === 'colaborador') {
-      H.erroJson(res, 403, 'Só o dono vê as integrações de todos os agentes.');
+      H.erroJson(res, 403, dgIntegracoesIdioma.descricao("Só o dono vê as integrações de todos os agentes."));
       return true;
     }
     const m = req.method;
     const sub = p.slice(BASE.length);
-    const metodoErrado = (usar) => { H.erroJson(res, 405, `Use ${usar} em ${p}.`); return true; };
+    const metodoErrado = (usar) => { H.erroJson(res, 405, dgIntegracoesIdioma.descricao("Use {p0} em {p1}.", {p0: usar, p1: p})); return true; };
     try {
       if (sub === '') {
         if (m !== 'GET') return metodoErrado('GET');
@@ -459,34 +460,34 @@ function criarIntegracoesVigia({ dataDir, registro, runner, log, agora, leitura,
         const par = parAgenteIntegracao(res, await H.lerJson(req, 1024));
         if (!par) return true;
         const gravou = sub === '/silenciar' ? silenciar(par.agente, par.integracao) : reativar(par.agente, par.integracao);
-        if (!gravou) { H.erroJson(res, 500, `Não consegui guardar a mudança no disco. Confira o espaço e as permissões de ${dir}; o que mudou vale só até reiniciar o Web.`); return true; }
+        if (!gravou) { H.erroJson(res, 500, dgIntegracoesIdioma.descricao("Não consegui guardar a mudança no disco. Confira o espaço e as permissões de {p0}; o que mudou vale só até reiniciar o Web.", {p0: dir})); return true; }
         H.enviaJson(res, 200, { ok: true, agente: par.agente, integracao: par.integracao, silenciada: sub === '/silenciar' });
         return true;
       }
       if (sub === '/automatico') {
         if (m !== 'POST') return metodoErrado('POST');
         const corpo = await H.lerJson(req, 1024);
-        if (typeof corpo.ligado !== 'boolean') { H.erroJson(res, 400, 'Mande {"ligado": true} ou {"ligado": false}.'); return true; }
+        if (typeof corpo.ligado !== 'boolean') { H.erroJson(res, 400, dgIntegracoesIdioma.descricao("Mande {\"ligado\": true} ou {\"ligado\": false}.")); return true; }
         if (corpo.ligado && corpo.entendoORisco !== true) {
-          H.erroJson(res, 400, 'Para ligar, mande também {"entendoORisco": true}. Ligado, o Web chama o Admin sozinho quando uma integração cai. O Admin tem acesso total ao servidor, e um agente consegue registrar uma falha que não aconteceu, o que faria o Admin olhar uma integração que está boa. O pedido tem texto fixo e há limites (um por defeito, um a cada 6 horas por integração, cinco por dia).');
+          H.erroJson(res, 400, dgIntegracoesIdioma.descricao("Para ligar, mande também {\"entendoORisco\": true}. Ligado, o Web chama o Admin sozinho quando uma integração cai. O Admin tem acesso total ao servidor, e um agente consegue registrar uma falha que não aconteceu, o que faria o Admin olhar uma integração que está boa. O pedido tem texto fixo e há limites (um por defeito, um a cada 6 horas por integração, cinco por dia)."));
           return true;
         }
         if (!definirAutomatico(corpo.ligado, relogio()).gravou) {
           H.erroJson(res, 500, corpo.ligado
-            ? `Não consegui guardar a escolha no disco, então o automático continua desligado. Confira o espaço e as permissões de ${dir} e tente de novo.`
-            : `O automático já está desligado agora e o Web não envia mais pedidos, mas não consegui guardar a escolha no disco: se o Web reiniciar, ele volta ligado. Confira o espaço e as permissões de ${dir} e desligue de novo.`);
+            ? dgIntegracoesIdioma.descricao("Não consegui guardar a escolha no disco, então o automático continua desligado. Confira o espaço e as permissões de {p0} e tente de novo.", {p0: dir})
+            : dgIntegracoesIdioma.descricao("O automático já está desligado agora e o Web não envia mais pedidos, mas não consegui guardar a escolha no disco: se o Web reiniciar, ele volta ligado. Confira o espaço e as permissões de {p0} e desligue de novo.", {p0: dir}));
           return true;
         }
         H.enviaJson(res, 200, { ok: true, automatico: { ligado: automatico.ligado } });
         return true;
       }
     } catch (e) {
-      if (e.status) { H.erroJson(res, e.status, e.message); return true; }
+      if (e.status) { H.erroJson(res, e.status, dgIntegracoesIdioma.campo(e, "message")); return true; }
       log('erro', `Integrações: falha inesperada em ${m} ${p}: ${e.stack || e.message}`);
-      H.erroJson(res, 500, 'Não consegui tratar o pedido das integrações. O detalhe está no log do Web (journalctl -u dgclaw-web).');
+      H.erroJson(res, 500, dgIntegracoesIdioma.descricao("Não consegui tratar o pedido das integrações. O detalhe está no log do Web (journalctl -u dgclaw-web)."));
       return true;
     }
-    H.erroJson(res, 404, `Não existe ${m} ${p}. As rotas estão em GET ${BASE}/docs.md.`);
+    H.erroJson(res, 404, dgIntegracoesIdioma.descricao("Não existe {p0} {p1}. As rotas estão em GET {p2}/docs.md.", {p0: m, p1: p, p2: BASE}));
     return true;
   }
 

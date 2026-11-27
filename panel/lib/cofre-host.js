@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 // cofre-host.js: o cofre no modo "host" (DG Claw v1), em que este painel so le os nomes.
 const fs = require('fs');
 const { NOME_FORMA_OK, PROVEDORES, recusa } = require('./cofre-regras');
@@ -66,11 +67,11 @@ function buildCofreHost(config, arquivoDeNomes) {
         emMemoria: false,
         emMemoriaExplicacao: 'Aqui este painel só mostra os nomes das chaves. Guardar e reiniciar são feitos pelo DG Claw Web.',
       },
-      aplicar: {
+      aplicar: dgIdiomaBackend.objeto({
         pode: false,
-        motivo: 'Neste agente quem guarda a chave e reinicia o agente é o DG Claw Web.',
-        howToFix: 'Abra o painel pelo endereço do DG Claw (o do site, com o login) para guardar a chave e aplicar.',
-      },
+        motivo: dgIdiomaBackend.descricao("Neste agente quem guarda a chave e reinicia o agente é o DG Claw Web."),
+        howToFix: dgIdiomaBackend.texto("Abra o painel pelo endereço do DG Claw (o do site, com o login) para guardar a chave e aplicar."),
+      }),
       arquivoDeAmbiente: '/run/dgclaw/cofre/cofre.env',
     };
   }

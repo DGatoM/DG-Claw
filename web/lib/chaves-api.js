@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Chaves de API do DG Claw Web (Bearer). Hoje existe um só uso: a chave de SUPORTE, que
 // lê o diagnóstico de saúde (GET /api/v1/diagnostico) e não faz mais nada.
 //
@@ -31,8 +32,8 @@ const TRAVA_ESPERA_MS = 3000;
 const FORMATO_BEARER = /^\s*Bearer\s+(dgc_[A-Za-z0-9_-]{20,})\s*$/i;
 
 function recusa(erro, status, comoResolver) {
-  const r = { ok: false, erro, status: status || 400 };
-  if (comoResolver) r.como_resolver = comoResolver;
+  const r = dgIdiomaBackend.objeto({ ok: false, erro, status: status || 400 });
+  if (comoResolver) dgIdiomaBackend.definir(r, "como_resolver", comoResolver);
   return r;
 }
 
@@ -99,18 +100,18 @@ function criarChavesApi({ config, log, agora }) {
     try {
       const r = spawnSync('flock', ['-x', '-w', String(TRAVA_ESPERA_MS / 1000), '3'], { stdio: ['ignore', 'ignore', 'pipe', fd], encoding: 'utf8', timeout: TRAVA_ESPERA_MS + 2000 });
       if (r.error && r.error.code === 'ENOENT') {
-        const err = new Error('o comando flock (pacote util-linux) não está instalado; instale com apt install util-linux');
+        const err = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o comando flock (pacote util-linux) não está instalado; instale com apt install util-linux")]);
         err.code = 'FLOCK_AUSENTE';
         throw err;
       }
       if (r.error) throw r.error;
       if (r.status === 1) {
-        const err = new Error(`outro processo está mexendo nas chaves há mais de ${TRAVA_ESPERA_MS / 1000} s; tente de novo (trava ${TRAVA})`);
+        const err = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("outro processo está mexendo nas chaves há mais de {p0} s; tente de novo (trava {p1})", {p0: (TRAVA_ESPERA_MS / 1000), p1: (TRAVA)})]);
         err.code = 'TRAVA_OCUPADA';
         throw err;
       }
       if (r.status !== 0) {
-        const err = new Error(`o flock falhou (${r.status === null ? `sinal ${r.signal}` : `código ${r.status}`}): ${String(r.stderr || '').trim().slice(0, 200)}`);
+        const err = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o flock falhou ({p0}): {p1}", {p0: (r.status === null ? `sinal ${r.signal}` : `código ${r.status}`), p1: (String(r.stderr || '').trim().slice(0, 200))})]);
         err.code = 'FLOCK_FALHOU';
         throw err;
       }
@@ -129,12 +130,12 @@ function criarChavesApi({ config, log, agora }) {
     }
     let dados;
     try { dados = JSON.parse(texto); } catch (e) {
-      const err = new Error(`o arquivo ${ARQUIVO} está ilegível (${e.message}); nada foi alterado para não perder as chaves`);
+      const err = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o arquivo {p0} está ilegível ({p1}); nada foi alterado para não perder as chaves", {p0: (ARQUIVO), p1: (dgIdiomaBackend.campo(e, "message"))})]);
       err.code = 'ARQUIVO_ILEGIVEL';
       throw err;
     }
     if (!dados || !Array.isArray(dados.chaves)) {
-      const err = new Error(`o arquivo ${ARQUIVO} não tem a lista "chaves"; nada foi alterado para não perder as chaves`);
+      const err = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o arquivo {p0} não tem a lista \"chaves\"; nada foi alterado para não perder as chaves", {p0: (ARQUIVO)})]);
       err.code = 'ARQUIVO_ILEGIVEL';
       throw err;
     }

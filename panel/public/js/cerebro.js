@@ -1,3 +1,9 @@
+const dgHtmlFull_cerebro = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, "");
+const dgTextFull_cerebro = fonte => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.t(trecho)) : fonte;
+const dgPhraseFull_cerebro = (fonte, valores) => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.frase(trecho, valores)) : fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m,k) => valores && Object.hasOwn(valores,k) ? String(valores[k]) : m);
+const dgFragFull_cerebro = (fonte, valores) => globalThis.DGI18n ? globalThis.DGI18n.fragmento(fonte, valores) : dgPhraseFull_cerebro(fonte,valores).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;", "'":"&#39;"}[c]));
+
+const dgTexto_cerebro = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 // cerebro.js — o raio-X do cérebro (aba Status) e a aba "Como funciona".
 //
 // O RAIO-X (01/10/2026): "eu conseguir ver todos os arquivos que ele está
@@ -35,31 +41,31 @@
 
   function cartaoHtml(c, i) {
     const autor = c.autoria || {};
-    const quem = autor.voceFoiOUltimo ? 'a última mudança foi sua' : (QUEM[autor.quem] || '');
+    const quem = autor.voceFoiOUltimo ? dgTextFull_cerebro("a última mudança foi sua") : (QUEM[autor.quem] || '');
     let corpo;
     if (Array.isArray(c.destaques) && c.destaques.length) {
       corpo = c.destaques.map((d) => `<div class="cb-secao">
           <div class="cb-secao-titulo">${esc(d.titulo)}</div>
-          ${d.vazia ? '<div class="cb-secao-vazia">nada anotado aqui ainda</div>'
-            : `<div class="md-leitura compacto">${md(d.markdown)}</div>${d.cortado ? '<div class="cb-mais">continua no arquivo</div>' : ''}`}
+          ${d.vazia ? dgHtmlFull_cerebro(`<div class="cb-secao-vazia"><!--dg-i18n:948b9d5c52c4-->nada anotado aqui ainda<!--/dg-i18n--></div>`)
+            : `<div class="md-leitura compacto">${md(d.markdown)}</div>${d.cortado ? dgHtmlFull_cerebro(`<div class="cb-mais"><!--dg-i18n:a35e9c30fbda-->continua no arquivo<!--/dg-i18n--></div>`) : ''}`}
         </div>`).join('');
       if ((c.faltamSecoesNovas || []).length) {
-        corpo += `<div class="cb-nota" title="Estas seções estão chegando com uma atualização do plugin. Quando ele começar a escrevê-las, elas aparecem aqui sozinhas.">
-          Ainda não existe nesta memória: ${esc(c.faltamSecoesNovas.join(', '))}.</div>`;
+        corpo += dgHtmlFull_cerebro(`<div class="cb-nota" data-dg-i18n-title="e06dbd6b53bf" title="Estas seções estão chegando com uma atualização do plugin. Quando ele começar a escrevê-las, elas aparecem aqui sozinhas.">
+          ${dgFragFull_cerebro("Ainda não existe nesta memória: {v0}.",{v0:(c.faltamSecoesNovas.join(', '))})}</div>`);
       }
     } else {
-      corpo = `<div class="md-leitura compacto">${md(c.previa || '')}</div>${c.cortado ? '<div class="cb-mais">continua no arquivo</div>' : ''}`;
+      corpo = `<div class="md-leitura compacto">${md(c.previa || '')}</div>${c.cortado ? dgHtmlFull_cerebro(`<div class="cb-mais"><!--dg-i18n:a35e9c30fbda-->continua no arquivo<!--/dg-i18n--></div>`) : ''}`;
     }
     const grande = Array.isArray(c.destaques) ? ' grande' : '';
     return `<article class="cb-cartao${grande}" data-i="${i}" tabindex="0" role="button"
-        aria-label="${esc(`Abrir ${c.titulo}`)}">
+        aria-label="${esc(dgPhraseFull_cerebro("Abrir {v0}",{v0:(c.titulo)}))}">
       <header class="cb-topo">
         <h3 class="cb-titulo" title="${esc(c.explica)}">${esc(c.titulo)}</h3>
-        <span class="cb-meta" title="${esc([autor.frase, c.atualizadoEm ? `Última mudança: ${new Date(c.atualizadoEm).toLocaleString('pt-BR')}` : ''].filter(Boolean).join('\n'))}">
+        <span class="cb-meta" title="${esc([autor.frase, c.atualizadoEm ? `Última mudança: ${new Date(c.atualizadoEm).toLocaleString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'))}` : ''].filter(Boolean).join('\n'))}">
           ${esc(haQuanto(c.atualizadoEm))}${quem ? ` · ${esc(quem)}` : ''}</span>
       </header>
       <div class="cb-corpo">${corpo}</div>
-      <footer class="cb-pe"><code>${esc(c.path)}</code><span>${c.editavel ? 'abrir e editar' : 'abrir'} ${dsIcone('arrow-right')}</span></footer>
+      <footer class="cb-pe"><code>${esc(c.path)}</code><span>${dgFragFull_cerebro(c.editavel ? "abrir e editar" : 'abrir')} ${dsIcone('arrow-right')}</span></footer>
     </article>`;
   }
 
@@ -68,14 +74,14 @@
     if (!el) return null;
     const r = await API.cerebro();
     if (!r.ok) {
-      el.innerHTML = `<div class="vazio-util">Não consegui ler a memória dele: ${rl((r.corpo && r.corpo.error) || 'sem resposta')}. `
+      el.innerHTML = `<div class="vazio-util">Não consegui ler a memória dele: ${rl((r.corpo && r.corpo.error) || dgTextFull_cerebro("sem resposta"))}. `
         + `${rl((r.corpo && r.corpo.howToFix) || '')}</div>`;
       return null;
     }
     const cartoes = r.corpo.cartoes || [];
     if (!cartoes.length) {
-      el.innerHTML = '<div class="vazio-util">Ele ainda não escreveu memória nenhuma. Os arquivos aparecem aqui '
-        + 'depois da primeira conversa e da primeira reflexão da noite.</div>';
+      el.innerHTML = dgHtmlFull_cerebro(`<div class="vazio-util"><!--dg-i18n:e6467df4ad38-->Ele ainda não escreveu memória nenhuma. Os arquivos aparecem aqui<!--/dg-i18n--> `)
+        + dgHtmlFull_cerebro(`<!--dg-i18n:c3a7b2dcdad4-->depois da primeira conversa e da primeira reflexão da noite.<!--/dg-i18n--></div>`);
       return r.corpo;
     }
     el.innerHTML = cartoes.map(cartaoHtml).join('');
@@ -105,7 +111,7 @@
   /** O mapa vivo: cinco caixinhas com os números de verdade deste agente. */
   async function carregarMapa(el) {
     if (!el) return;
-    el.innerHTML = '<div class="vazio-util">Juntando os números dele...</div>';
+    el.innerHTML = dgHtmlFull_cerebro(`<div class="vazio-util"><!--dg-i18n:1221935e6f6e-->Juntando os números dele...<!--/dg-i18n--></div>`);
     const [cer, ops, rot, sau] = await Promise.all([API.cerebro(), API.operacoes(false), API.rotinasUsuario(), API.saude()]);
 
     // A sessão: com o diagnóstico novo do /api/saude, se existir; senão, o viva/caiu de sempre.
@@ -119,38 +125,38 @@
 
     const camadas = cer.ok ? (cer.corpo.camadas || []) : [];
     const memoria = camadas.length
-      ? camadas.map((c) => `<li title="${esc(c.explica)}"><span>${esc(c.titulo)}</span><b>${c.arquivos ? `${esc(bytes(c.bytes))}${c.arquivos > 1 ? ` em ${c.arquivos} arquivos` : ''}` : 'vazia'}</b></li>`).join('')
-      : '<li><span>não consegui ler</span></li>';
+      ? camadas.map((c) => `<li title="${esc(c.explica)}"><span>${esc(c.titulo)}</span><b>${c.arquivos ? `${esc(bytes(c.bytes))}${c.arquivos > 1 ? dgPhraseFull_cerebro(" em {v0} arquivos",{v0:(c.arquivos)}) : ''}` : 'vazia'}</b></li>`).join('')
+      : dgHtmlFull_cerebro(`<li><span><!--dg-i18n:e482fdf7b093-->não consegui ler<!--/dg-i18n--></span></li>`);
 
     const resumo = ops.ok ? ops.corpo.resumo || {} : null;
     const opsTexto = resumo
-      ? (resumo.total ? `${resumo.verdes} de ${resumo.total} verdes` : 'nenhuma ainda')
-      : 'não consegui ler';
+      ? (resumo.total ? dgPhraseFull_cerebro("{v0} de {v1} verdes",{v0:(resumo.verdes),v1:(resumo.total)}) : dgTextFull_cerebro("nenhuma ainda"))
+      : dgTextFull_cerebro("não consegui ler");
     const opsCor = !resumo ? 'sem' : (resumo.estado === 'ok' ? 'ok' : (resumo.estado === 'atencao' ? 'atencao' : 'sem'));
 
     const rotinas = rot.ok ? (rot.corpo.rotinas || []) : null;
-    const rotTexto = rotinas == null ? 'não consegui ler' : (rotinas.length ? `${rotinas.length} ${rotinas.length === 1 ? 'rotina' : 'rotinas'}` : 'nenhuma ainda');
+    const rotTexto = rotinas == null ? dgTextFull_cerebro("não consegui ler") : (rotinas.length ? `${rotinas.length} ${rotinas.length === 1 ? 'rotina' : 'rotinas'}` : dgTextFull_cerebro("nenhuma ainda"));
 
-    el.innerHTML = `
-      <div class="mapa-caixa" title="A sessão é a conversa contínua em que ele pensa e lembra do que foi dito. É ela que responde você.">
-        <div class="mapa-rot">Sessão</div>
+    el.innerHTML = dgHtmlFull_cerebro(`
+      <div class="mapa-caixa" data-dg-i18n-title="e4cfb4b94fe9" title="A sessão é a conversa contínua em que ele pensa e lembra do que foi dito. É ela que responde você.">
+        <div class="mapa-rot"><!--dg-i18n:e6f5e060790e-->Sessão<!--/dg-i18n--></div>
         <div class="mapa-num ${esc(sessao.cor)}">${esc(sessao.texto)}</div>
         <div class="mapa-pe">${esc(sessao.pe)}</div>
       </div>
-      <div class="mapa-caixa larga" title="Cada camada é uma pasta ou arquivo de texto. O tamanho é o do arquivo no disco, medido agora.">
-        <div class="mapa-rot">Memória, por camada</div>
+      <div class="mapa-caixa larga" data-dg-i18n-title="af441a61037e" title="Cada camada é uma pasta ou arquivo de texto. O tamanho é o do arquivo no disco, medido agora.">
+        <div class="mapa-rot"><!--dg-i18n:e8e9bb41eb23-->Memória, por camada<!--/dg-i18n--></div>
         <ul class="mapa-camadas">${memoria}</ul>
       </div>
-      <div class="mapa-caixa" title="As rotinas automáticas que mantêm ele de pé, lembrando e de olho nos custos. Verde é a última execução que deu certo.">
-        <div class="mapa-rot">Operações do sistema</div>
+      <div class="mapa-caixa" data-dg-i18n-title="1e58c86a2376" title="As rotinas automáticas que mantêm ele de pé, lembrando e de olho nos custos. Verde é a última execução que deu certo.">
+        <div class="mapa-rot"><!--dg-i18n:bca18b5f3f5d-->Operações do sistema<!--/dg-i18n--></div>
         <div class="mapa-num ${esc(opsCor)}">${esc(opsTexto)}</div>
-        <div class="mapa-pe"><a href="#" class="link-aba" data-ir-para="operations">ver Operações</a></div>
+        <div class="mapa-pe"><a href="#" class="link-aba" data-ir-para="operations"><!--dg-i18n:e29be789bd8a-->ver Operações<!--/dg-i18n--></a></div>
       </div>
       <div class="mapa-caixa" title="As rotinas que você pediu a ele, como 'todo sábado às 9h me manda o resumo'.">
-        <div class="mapa-rot">Rotinas que você pediu</div>
+        <div class="mapa-rot"><!--dg-i18n:48ed414d2368-->Rotinas que você pediu<!--/dg-i18n--></div>
         <div class="mapa-num">${esc(rotTexto)}</div>
-        <div class="mapa-pe"><a href="#" class="link-aba" data-ir-para="status">ver no Status</a></div>
-      </div>`;
+        <div class="mapa-pe"><a href="#" class="link-aba" data-ir-para="status"><!--dg-i18n:55f624d23ca9-->ver no Status<!--/dg-i18n--></a></div>
+      </div>`);
   }
 
   /**
@@ -180,7 +186,7 @@
     const [, r] = await Promise.all([carregarMapa(mapa), API.radiografia()]);
     if (!doc) return;
     if (!r.ok) {
-      doc.innerHTML = `<div class="vazio-util">Não consegui abrir o texto: ${rl((r.corpo && r.corpo.error) || 'sem resposta')}.</div>`;
+      doc.innerHTML = `<div class="vazio-util">Não consegui abrir o texto: ${rl((r.corpo && r.corpo.error) || dgTextFull_cerebro("sem resposta"))}.</div>`;
       return;
     }
     if (r.corpo.ausente) {
@@ -188,7 +194,7 @@
       return;
     }
     doc.innerHTML = `<div class="md-leitura">${md(desdobrar(r.corpo.markdown))}</div>`
-      + `<p class="como-origem">Texto do ${esc(r.corpo.origem)}, atualizado ${esc(haQuanto(r.corpo.atualizadoEm))}.</p>`;
+      + dgHtmlFull_cerebro(`<p class="como-origem">${dgFragFull_cerebro("Texto do {v0}, atualizado {v1}.",{v0:(r.corpo.origem),v1:(haQuanto(r.corpo.atualizadoEm))})}</p>`);
   }
 
   window.DGCerebro = { carregarRaioX, carregarComoFunciona, carregarMapa };

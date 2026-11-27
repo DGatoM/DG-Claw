@@ -1,4 +1,8 @@
 'use strict';
+const dgUiLabel_login_js = (el, fonte, atributo, valores) => { if (globalThis.DGI18n) globalThis.DGI18n.rotulo(el, fonte, atributo, valores); else { const texto = fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m, k) => valores && Object.hasOwn(valores, k) ? String(valores[k]) : m); if (atributo) el.setAttribute(atributo, texto); else el.textContent = texto; } };
+
+const dgTexto_login = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgHtml_login = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* login.js: preenche o destino (?next=) e a mensagem de erro (?erro=).
    O destino só vale se for um caminho do próprio site (começa com uma barra
    e não com duas), para o login nunca mandar a pessoa para outro endereço. */
@@ -30,11 +34,13 @@
   if (q.has('erro')) {
     const cod = (q.get('erro') || '').toLowerCase();
     const caixa = document.getElementById('erro');
-    let texto = FRASES[cod] || 'Não foi possível entrar. Confira os dados e tente de novo.';
-    /* O servidor manda ?espera=<minutos> no bloqueio; só vale se for um número inteiro pequeno. */
+    const mensagem = FRASES[cod] || 'Não foi possível entrar. Confira os dados e tente de novo.';
     const espera = /^\d{1,4}$/.test(q.get('espera') || '') ? Number(q.get('espera')) : 0;
-    if (cod === 'limite' && espera > 0) texto = 'Muitas tentativas seguidas. Tente de novo em ' + espera + ' min.';
-    caixa.textContent = texto;
+    if (cod === 'limite' && espera > 0) {
+      if (window.DGI18n) window.DGI18n.rotulo(caixa, 'Muitas tentativas seguidas. Tente de novo em {min} min.', undefined, { min: espera });
+      else caixa.textContent = 'Muitas tentativas seguidas. Tente de novo em ' + espera + ' min.';
+    } else if (window.DGI18n) window.DGI18n.rotulo(caixa, mensagem);
+    else caixa.textContent = mensagem;
     caixa.hidden = false;
   }
   /* O link do convite traz ?usuario=<e-mail>: o campo já vem preenchido, e a pessoa só digita a senha temporária. */
@@ -51,8 +57,9 @@
     const mostrar = campo.type === 'password';
     campo.type = mostrar ? 'text' : 'password';
     ver.setAttribute('aria-pressed', mostrar ? 'true' : 'false');
-    const rot = mostrar ? 'Ocultar senha' : 'Mostrar senha';
-    ver.setAttribute('aria-label', rot); ver.title = rot;
+    const rot = mostrar ? dgTexto_login('Ocultar senha') : dgTexto_login('Mostrar senha');
+    if (window.DGI18n) { window.DGI18n.rotulo(ver, rot, 'aria-label'); window.DGI18n.rotulo(ver, rot, 'title'); }
+    else { ver.setAttribute('aria-label', rot); ver.title = rot; }
     ver.querySelector('use').setAttribute('href', '/ds/icones.svg#' + (mostrar ? 'i-eye-off' : 'i-eye'));
     campo.focus();
   });
@@ -63,19 +70,19 @@
   form.addEventListener('submit', () => {
     setTimeout(() => {
       entrar.disabled = true;
-      entrar.innerHTML = window.dsCarregando({ rotulo: 'Entrando', tamanho: 'p' }) + '<span>Entrando…</span>';
+      entrar.innerHTML = window.dsCarregando({ rotulo: dgTexto_login('Entrando'), tamanho: 'p' }) + dgHtml_login("<span><!--dg-i18n:93aad5ac9bad-->Entrando…<!--/dg-i18n--></span>");
     }, 0);
   });
   window.addEventListener('pageshow', (ev) => {
     if (!ev.persisted) return;
-    entrar.disabled = false; entrar.textContent = 'Entrar';
+    entrar.disabled = false; dgUiLabel_login_js(entrar, "Entrar", null, {});
   });
 
   /* Instalação sem senha ainda: avisa (em tom neutro, não de erro) para usar o link de primeiro acesso. */
   fetch('/api/login-estado', { cache: 'no-store' }).then((r) => r.json()).then((j) => {
     if (!j || !j.sem_senha) return;
     const caixa = document.getElementById('erro');
-    caixa.textContent = j.mensagem || 'Use o link de primeiro acesso que apareceu no fim da instalação.';
+    caixa.textContent = j.mensagem || dgTexto_login('Use o link de primeiro acesso que apareceu no fim da instalação.');
     caixa.classList.add('info');
     caixa.hidden = false;
   }).catch(() => { /* sem aviso, o login segue normal */ });

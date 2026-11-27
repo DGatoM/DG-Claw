@@ -1,0 +1,13 @@
+{
+  "Copiar o meu texto": "Copy my text",
+  "Carregar a versão dele": "Load the agent's version",
+  "Copiei o seu texto.": "Your text has been copied.",
+  "Agora carregue a versão dele e cole a sua mudança no lugar certo.": "Now load the agent's version and paste your change in the right place.",
+  "O navegador não deixou copiar sozinho.": "The browser could not copy automatically.",
+  "O texto está selecionado: use Ctrl+C (ou \"copiar\" no celular).": "The text is selected: use Ctrl+C (or \"copy\" on mobile).",
+  "Não alcancei o painel: {v0}": "Could not reach the dashboard: {v0}",
+  "não alcancei o painel ({v0})": "could not reach the dashboard ({v0})",
+  "Confira a internet e tente de novo.": "Check your internet connection and try again.",
+  "Confira a internet e recarregue a página.": "Check your connection and reload the page.",
+  "Não alcancei o painel para ver o uso da assinatura: {v0}": "Could not reach the dashboard to check subscription usage: {v0}"
+}

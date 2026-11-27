@@ -1,3 +1,10 @@
+// Explicit UI sources for DOM-built session controls; API text remains plain data.
+const dgUiSource_sessoes = (fonte, valores) => ({ _dgUiFonte: fonte, valores });
+const dgTextFull_sessoes = fonte => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.t(trecho)) : fonte;
+const dgPhraseFull_sessoes = (fonte, valores) => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.frase(trecho, valores)) : fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m,k) => valores && Object.hasOwn(valores,k) ? String(valores[k]) : m);
+const dgBindFull_sessoes = (el, fonte, atributo, valores) => { if (globalThis.DGI18n) return globalThis.DGI18n.rotulo(el,fonte,atributo,valores); const valor=dgPhraseFull_sessoes(fonte,valores); if(atributo) el.setAttribute(atributo,valor); else el.textContent=valor; };
+
+const dgTexto_sessoes = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 // sessoes.js — a aba Sessões: os cards de trabalho do agente, dentro do painel (12/10/2026).
 //
 // O QUE ELA É: o desenho da aba "Sessões" do DG Telegram (o mini-Bunker), trazido para cá.
@@ -76,7 +83,8 @@
     if (props) {
       for (const [k, v] of Object.entries(props)) {
         if (v == null || v === false) continue;
-        if (k === 'class') e.className = v;
+        if (v && typeof v === 'object' && Object.hasOwn(v, '_dgUiFonte')) { dgBindFull_sessoes(e, v._dgUiFonte, k === 'text' ? undefined : k, v.valores); }
+        else if (k === 'class') e.className = v;
         else if (k === 'text') e.textContent = v;
         else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
         else if (v === true) e.setAttribute(k, '');
@@ -85,7 +93,11 @@
     }
     for (const f of filhos.flat()) {
       if (f == null || f === false) continue;
-      e.append(f.nodeType ? f : document.createTextNode(String(f)));
+      if (f && typeof f === 'object' && Object.hasOwn(f, '_dgUiFonte')) {
+        const texto = tag === 'option' ? e : document.createElement('span');
+        dgBindFull_sessoes(texto, f._dgUiFonte, undefined, f.valores);
+        if (texto !== e) e.append(texto);
+      } else e.append(f.nodeType ? f : document.createTextNode(String(f)));
     }
     return e;
   }
@@ -113,15 +125,15 @@
     const t = Date.parse(iso || '');
     if (!isFinite(t)) return '';
     const s = (Date.now() - t) / 1000;
-    if (s < 60) return 'agora';
+    if (s < 60) return dgTextFull_sessoes("agora");
     const min = Math.floor(s / 60);
     const d = new Date(t);
     const hoje = new Date();
     const hora = `${d.getHours()}h${String(d.getMinutes()).padStart(2, '0')}`;
-    if (d.toDateString() === hoje.toDateString()) return min < 60 ? `há ${min} min` : `há ${Math.floor(min / 60)} h`;
+    if (d.toDateString() === hoje.toDateString()) return min < 60 ? dgPhraseFull_sessoes("há {v0} min",{v0:(min)}) : dgPhraseFull_sessoes("há {v0} h",{v0:(Math.floor(min / 60))});
     const ontem = new Date(hoje);
     ontem.setDate(hoje.getDate() - 1);
-    if (d.toDateString() === ontem.toDateString()) return `ontem ${hora}`;
+    if (d.toDateString() === ontem.toDateString()) return dgPhraseFull_sessoes("ontem {v0}",{v0:(hora)});
     return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${hora}`;
   }
 
@@ -163,8 +175,8 @@
       return { ok: r.ok && !!corpo && corpo.ok !== false, status: r.status, corpo: corpo || {} };
     } catch (e) {
       throw new Error(e && e.name === 'AbortError'
-        ? 'O painel não respondeu a tempo.'
-        : `Não alcancei o painel: ${(e && e.message) || 'falha de rede'}.`);
+        ? dgTextFull_sessoes("O painel não respondeu a tempo.")
+        : dgPhraseFull_sessoes("Não alcancei o painel: {v0}.",{v0:((e && e.message) || dgTextFull_sessoes("falha de rede"))}));
     } finally {
       clearTimeout(t);
     }
@@ -173,7 +185,7 @@
   /** A frase da API, com o que fazer. Nunca vazia e nunca "erro desconhecido". */
   function textoErro(res) {
     const c = (res && res.corpo) || {};
-    let t = c.erro || c.error || `O painel respondeu com o erro ${res ? res.status : '?'} e sem explicação. Recarregue a aba; se repetir, o DG Telegram pode estar fora do ar.`;
+    let t = c.erro || c.error || dgPhraseFull_sessoes("O painel respondeu com o erro {v0} e sem explicação. Recarregue a aba; se repetir, o DG Telegram pode estar fora do ar.",{v0:(res ? res.status : '?')});
     if (c.como_resolver || c.howToFix) t += ` ${c.como_resolver || c.howToFix}`;
     return t;
   }
@@ -402,33 +414,33 @@
 
   function cabecalho() {
     const texto = modoLocal()
-      ? 'As sessões de trabalho deste agente: conversas que andam em paralelo com a principal. Veja o que cada uma faz, aprove ou negue pedidos, mande recado e crie sessões novas.'
-      : 'Os cards do Bunker, as conversas de Claude que trabalham em pastas. Veja o que cada um faz, mande recado e crie sessões novas.';
+      ? dgTextFull_sessoes("As sessões de trabalho deste agente: conversas que andam em paralelo com a principal. Veja o que cada uma faz, aprove ou negue pedidos, mande recado e crie sessões novas.")
+      : dgTextFull_sessoes("Os cards do Bunker, as conversas de Claude que trabalham em pastas. Veja o que cada um faz, mande recado e crie sessões novas.");
     return el('div', { class: 'app-cabeca' },
       el('div', { class: 'app-cabeca-linha' },
-        el('h2', { title: texto }, 'Sessões'),
-        soLeitura() ? el('span', { class: 'sx-selo', id: 'sx-selo', title: textoSoLeitura(), tabindex: '0' }, 'só leitura') : null,
-        soLeitura() ? ajuda('so-leitura', 'Por que esta aba é só para ler') : null,
-        el('button', { type: 'button', class: 'app-tutorial-abrir', id: 'sessoes-tutorial-abrir', title: 'Uma visita guiada por esta tela, passo a passo.', onclick: () => abrirTutorial(0) }, 'Tutorial'),
-        ajuda('tela', 'O que é a aba Sessões')),
-      el('p', null, texto));
+        el('h2', { title: dgUiSource_sessoes(texto) }, dgUiSource_sessoes(dgTexto_sessoes('Sessões'))),
+        soLeitura() ? el('span', { class: 'sx-selo', id: 'sx-selo', title: dgUiSource_sessoes(textoSoLeitura()), tabindex: '0' }, dgUiSource_sessoes(dgTextFull_sessoes("só leitura"))) : null,
+        soLeitura() ? ajuda('so-leitura', dgTextFull_sessoes("Por que esta aba é só para ler")) : null,
+        el('button', { type: 'button', class: 'app-tutorial-abrir', id: 'sessoes-tutorial-abrir', title: dgUiSource_sessoes(dgTexto_sessoes('Uma visita guiada por esta tela, passo a passo.')), onclick: () => abrirTutorial(0) }, dgUiSource_sessoes('Tutorial')),
+        ajuda('tela', dgTextFull_sessoes("O que é a aba Sessões"))),
+      el('p', null, dgUiSource_sessoes(texto)));
   }
 
   function montarBase() {
     const r = raiz();
-    r.textContent = '';
+    dgBindFull_sessoes(r,'',undefined);
     r.append(cabecalho());
     if (!cfg || !cfg.ligado) {
       r.append(el('div', { class: 'app-erro' },
-        el('strong', null, 'A aba Sessões não está ligada'),
-        el('p', null, (cfg && cfg.motivo) || 'Não consegui saber se a aba Sessões está ligada nesta instalação. Recarregue a página.')));
+        el('strong', null, dgUiSource_sessoes(dgTextFull_sessoes("A aba Sessões não está ligada"))),
+        el('p', null, (cfg && cfg.motivo) || dgTextFull_sessoes("Não consegui saber se a aba Sessões está ligada nesta instalação. Recarregue a página."))));
       return false;
     }
     const aviso = el('div', { class: 'sx-aviso', id: 'sx-aviso', role: 'status', hidden: true });
-    const chips = el('div', { class: 'sx-chips', id: 'sx-chips', role: 'tablist', 'aria-label': 'Grupos de sessões' });
+    const chips = el('div', { class: 'sx-chips', id: 'sx-chips', role: 'tablist', 'aria-label': dgUiSource_sessoes('Grupos de sessões') });
     const campo = el('input', {
-      type: 'search', id: 'sx-busca-campo', placeholder: 'Buscar por nome, pasta ou código', autocomplete: 'off',
-      'aria-label': 'Buscar sessões', title: 'Ignora acento e maiúscula. Vale dentro do grupo escolhido.',
+      type: 'search', id: 'sx-busca-campo', placeholder: dgUiSource_sessoes('Buscar por nome, pasta ou código'), autocomplete: 'off',
+      'aria-label': dgUiSource_sessoes('Buscar sessões'), title: dgUiSource_sessoes('Ignora acento e maiúscula. Vale dentro do grupo escolhido.'),
     });
     let espera = null;
     campo.addEventListener('input', () => {
@@ -437,12 +449,12 @@
     });
     const nova = el('button', {
       type: 'button', class: 'sx-btn prim', id: 'sx-nova', hidden: true, onclick: abreNova,
-      title: modoLocal() ? 'Abre uma sessão de trabalho nova neste agente, com o pedido que você escrever.' : 'Cria um card novo no Bunker, com o pedido que você escrever.',
-    }, '+ Nova sessão');
+      title: dgUiSource_sessoes(modoLocal() ? 'Abre uma sessão de trabalho nova neste agente, com o pedido que você escrever.' : 'Cria um card novo no Bunker, com o pedido que você escrever.'),
+    }, dgUiSource_sessoes(dgTextFull_sessoes("+ Nova sessão")));
     const lista = el('div', { class: 'sx-lista', id: 'sx-lista' });
     const vistaLista = el('div', { id: 'sx-vista-lista' },
       el('div', { class: 'cartao' },
-        el('div', { class: 'section-title' }, modoLocal() ? 'Sessões do agente' : 'Cards do Bunker', ajuda('lista', 'O que é a lista de cards')),
+        el('div', { class: 'section-title' }, dgUiSource_sessoes(modoLocal() ? dgTextFull_sessoes("Sessões do agente") : dgTextFull_sessoes("Cards do Bunker")), ajuda('lista', dgTextFull_sessoes("O que é a lista de cards"))),
         chips,
         el('div', { class: 'sx-busca', id: 'sx-busca' }, campo, nova),
         lista));
@@ -453,11 +465,11 @@
   function mostraAviso(texto, comRetry) {
     const a = $('sx-aviso');
     if (!a) return;
-    a.textContent = '';
+    dgBindFull_sessoes(a,'',undefined);
     a.hidden = !texto;
     if (!texto) return;
     a.append(texto);
-    if (comRetry) a.append(el('button', { type: 'button', onclick: () => carregaLista(true) }, 'Tentar de novo'));
+    if (comRetry) a.append(el('button', { type: 'button', onclick: () => carregaLista(true) }, dgUiSource_sessoes(dgTexto_sessoes('Tentar de novo'))));
   }
 
   // ─── Lista ────────────────────────────────────────────────────
@@ -470,7 +482,7 @@
     const sig = JSON.stringify([filtro, contagem]);
     if (sig === sigChips) return;
     sigChips = sig;
-    box.textContent = '';
+    dgBindFull_sessoes(box,'',undefined);
     for (const [g, rot, comN, balao] of CHIPS) {
       if (g === 'erro' && !(c.erro > 0) && filtro !== 'erro') continue;
       let n = '';
@@ -478,10 +490,10 @@
       else if (comN && contagem) n = ` (${c[g] || 0})`;
       const alerta = g === 'esperando_voce' && (c.esperando_voce || 0) > 0;
       box.append(el('button', {
-        type: 'button', role: 'tab', 'aria-selected': String(filtro === g), title: (modoLocal() && CHIPS_LOCAL[g]) || balao,
+        type: 'button', role: 'tab', 'aria-selected': String(filtro === g), title: dgUiSource_sessoes((modoLocal() && CHIPS_LOCAL[g]) || balao),
         class: `sx-chip${alerta ? ' alerta' : ''}${g === 'erro' ? ' erro' : ''}`,
         onclick: () => { filtro = g; sigChips = ''; sigLista = ''; renderChips(); carregaLista(true); },
-      }, rot + n));
+      }, dgUiSource_sessoes(rot), n));
     }
   }
 
@@ -490,12 +502,12 @@
     for (const b of botoes) b.disabled = true;
     try {
       const res = await chama(`/api/sessoes/${encodeURIComponent(id)}/decidir`, { method: 'POST', body: { acao } });
-      if (!res.ok) { mostraAviso(`Não consegui ${acao === 'aprovar' ? 'aprovar' : 'negar'} o pedido: ${textoErro(res)}`); return; }
+      if (!res.ok) { mostraAviso(dgPhraseFull_sessoes("Não consegui {v0} o pedido: {v1}",{v0:(acao === 'aprovar' ? 'aprovar' : 'negar'),v1:(textoErro(res))})); return; }
       mostraAviso('');
       if (det && det.id === id) { det.msgAcao = null; pollDetalhe(); }
       carregaLista(true);
     } catch (e) {
-      mostraAviso(`${e.message} A decisão pode ter chegado: confira o card antes de repetir.`);
+      mostraAviso(dgPhraseFull_sessoes("{v0} A decisão pode ter chegado: confira o card antes de repetir.",{v0:(e.message)}));
     } finally {
       for (const b of botoes) if (b.isConnected) b.disabled = false;
     }
@@ -504,13 +516,13 @@
   function caixaPedido(it) {
     const g = grupoDe(it);
     if (g !== 'esperando_voce' && !it.pedido) return null;
-    const texto = el('p', { class: 'sx-ped-txt' }, it.pedido || 'A sessão parou esperando uma permissão ou uma resposta.');
-    const cab = el('div', { class: 'sx-ped-cab' }, el('b', null, 'Esperando você'),
-      ajuda('pedido', modoLocal() ? 'Como decidir o pedido' : 'Por que a decisão não é tomada aqui'));
+    const texto = el('p', { class: 'sx-ped-txt' }, it.pedido || dgTextFull_sessoes("A sessão parou esperando uma permissão ou uma resposta."));
+    const cab = el('div', { class: 'sx-ped-cab' }, el('b', null, dgUiSource_sessoes(dgTextFull_sessoes("Esperando você"))),
+      ajuda('pedido', modoLocal() ? dgTextFull_sessoes("Como decidir o pedido") : dgTextFull_sessoes("Por que a decisão não é tomada aqui")));
     if (recOn('decidir')) {
-      if (soLeitura()) return el('div', { class: 'sx-pedido' }, cab, texto, el('p', { class: 'sx-ped-nota' }, textoSoLeitura()));
-      const aprovar = el('button', { type: 'button', class: 'sx-btn prim', title: 'Deixa a sessão fazer o que ela pediu e seguir trabalhando.' }, 'Aprovar');
-      const negar = el('button', { type: 'button', class: 'sx-btn perigo', title: 'Recusa o pedido: a sessão não faz o que pediu e segue com a recusa.' }, 'Negar');
+      if (soLeitura()) return el('div', { class: 'sx-pedido' }, cab, texto, el('p', { class: 'sx-ped-nota' }, dgUiSource_sessoes(textoSoLeitura())));
+      const aprovar = el('button', { type: 'button', class: 'sx-btn prim', title: dgUiSource_sessoes('Deixa a sessão fazer o que ela pediu e seguir trabalhando.') }, dgUiSource_sessoes("Aprovar"));
+      const negar = el('button', { type: 'button', class: 'sx-btn perigo', title: dgUiSource_sessoes('Recusa o pedido: a sessão não faz o que pediu e segue com a recusa.') }, dgUiSource_sessoes("Negar"));
       aprovar.addEventListener('click', () => decidePedido(it.id, 'aprovar', [aprovar, negar]));
       negar.addEventListener('click', () => decidePedido(it.id, 'negar', [aprovar, negar]));
       return el('div', { class: 'sx-pedido' }, cab, texto, el('div', { class: 'sx-btns' }, aprovar, negar));
@@ -519,8 +531,8 @@
     return el('div', { class: 'sx-pedido' }, cab, texto,
       link ? el('a', {
         class: 'sx-btn prim', href: link, target: '_blank', rel: 'noopener',
-        title: 'A decisão não é tomada aqui: um card não pode aprovar o próprio pedido. Abre o DG Telegram, onde só o login do dono decide.',
-      }, 'Decidir no DG Telegram') : el('p', { class: 'sx-ped-nota' }, 'Decida no DG Telegram, com o login do dono.'));
+        title: dgUiSource_sessoes('A decisão não é tomada aqui: um card não pode aprovar o próprio pedido. Abre o DG Telegram, onde só o login do dono decide.'),
+      }, dgUiSource_sessoes("Decidir no DG Telegram")) : el('p', { class: 'sx-ped-nota' }, dgUiSource_sessoes("Decida no DG Telegram, com o login do dono.")));
   }
 
   function itemDaLista(it) {
@@ -530,9 +542,9 @@
       el('span', { class: `sx-bol${info.pulsa ? ' pulsa' : ''}`, 'aria-hidden': 'true' }),
       el('span', { class: 'sx-meio' },
         el('span', { class: 'sx-nome' },
-          it.favorito ? el('span', { class: 'sx-estrela', title: 'Favorito: fica antes dos outros na lista', 'aria-label': 'Favorito' }, ico('star'), ' ') : null,
-          it.nome_limpo || it.nome || 'Card sem nome'),
-        el('span', { class: 'sx-meta' }, el('span', { class: 'est' }, info.rotulo), meta ? ` · ${meta}` : ''),
+          it.favorito ? el('span', { class: 'sx-estrela', title: dgUiSource_sessoes('Favorito: fica antes dos outros na lista'), 'aria-label': 'Favorito' }, ico('star'), ' ') : null,
+          it.nome_limpo || it.nome || dgTextFull_sessoes("Card sem nome")),
+        el('span', { class: 'sx-meta' }, el('span', { class: 'est' }, dgUiSource_sessoes(info.rotulo)), meta ? ` · ${meta}` : ''),
         it.motivo ? el('span', { class: 'sx-motivo' }, it.motivo) : null,
         it.ultima_fala && it.ultima_fala.texto ? el('span', { class: 'sx-fala' }, it.ultima_fala.texto) : null));
     return el('div', { class: 'sx-item', 'data-id': it.id }, topo, caixaPedido(it));
@@ -541,15 +553,15 @@
   function cartaoCofre() {
     const link = linkDoTelegram(cfg, 'cofre');
     return el('div', { class: 'sx-cofre' },
-      el('div', { class: 'sx-ped-cab' }, el('b', null, `Cofre do ${FN()} trancado`), ajuda('cofre', 'Por que o cofre está trancado')),
-      el('p', { class: 'sx-ped-txt' }, `O servidor do ${FN()} reiniciou e só volta a abrir os cards depois da senha mestra. Destrave pelo DG Telegram e volte aqui.`),
-      link ? el('a', { class: 'sx-btn prim', href: link, target: '_blank', rel: 'noopener', title: 'A senha mestra é digitada só no DG Telegram, nunca neste painel.' }, 'Destravar no DG Telegram') : null);
+      el('div', { class: 'sx-ped-cab' }, el('b', null, dgUiSource_sessoes("Cofre do {v0} trancado",{v0:FN()})), ajuda('cofre', dgTextFull_sessoes("Por que o cofre está trancado"))),
+      el('p', { class: 'sx-ped-txt' }, dgUiSource_sessoes("O servidor do {v0} reiniciou e só volta a abrir os cards depois da senha mestra. Destrave pelo DG Telegram e volte aqui.",{v0:FN()})),
+      link ? el('a', { class: 'sx-btn prim', href: link, target: '_blank', rel: 'noopener', title: dgUiSource_sessoes('A senha mestra é digitada só no DG Telegram, nunca neste painel.') }, dgUiSource_sessoes("Destravar no DG Telegram")) : null);
   }
 
   function textoVazio() {
-    if (busca) return 'Nenhuma sessão encontrada para essa busca.';
+    if (busca) return dgTextFull_sessoes("Nenhuma sessão encontrada para essa busca.");
     const nomes = { ativos: 'ativa', esperando_voce: 'esperando você', trabalhando: 'trabalhando', concluido: 'concluída', parado: 'parada', erro: 'com erro', fechado: 'fechada', arquivado: 'arquivada' };
-    return `Nenhuma sessão ${nomes[filtro]} agora.`;
+    return dgPhraseFull_sessoes("Nenhuma sessão {v0} agora.",{v0:(nomes[filtro])});
   }
 
   function renderLista() {
@@ -560,16 +572,16 @@
     if (sig === sigLista) return;
     sigLista = sig;
     const topo = box.scrollTop;
-    box.textContent = '';
+    dgBindFull_sessoes(box,'',undefined);
     if (cofreTrancado) {
       box.append(cartaoCofre());
     } else if (erroLista && !dados) {
       box.append(el('div', { class: 'app-erro' },
-        el('strong', null, 'Não consegui carregar as sessões'),
+        el('strong', null, dgUiSource_sessoes(dgTextFull_sessoes("Não consegui carregar as sessões"))),
         el('p', null, erroLista),
-        el('button', { type: 'button', class: 'sx-btn sec', onclick: () => carregaLista(true) }, 'Tentar de novo')));
+        el('button', { type: 'button', class: 'sx-btn sec', onclick: () => carregaLista(true) }, dgUiSource_sessoes(dgTexto_sessoes('Tentar de novo')))));
     } else if (!dados) {
-      box.append(el('div', { class: 'sx-vazio' }, 'Carregando as sessões...'));
+      box.append(el('div', { class: 'sx-vazio' }, dgUiSource_sessoes(dgTextFull_sessoes("Carregando as sessões..."))));
     } else if (!itens.length) {
       box.append(el('div', { class: 'sx-vazio' }, textoVazio()));
     } else {
@@ -608,7 +620,7 @@
     } finally {
       if (meu === seq) carregando = false;
     }
-    if (!det) mostraAviso(erroLista && dados ? `Não consegui atualizar: ${erroLista}` : (dados && dados.aviso_ponte) || '', !!erroLista);
+    if (!det) mostraAviso(erroLista && dados ? dgPhraseFull_sessoes("Não consegui atualizar: {v0}",{v0:(erroLista)}) : (dados && dados.aviso_ponte) || '', !!erroLista);
     renderChips();
     renderLista();
   }
@@ -617,7 +629,7 @@
 
   function escolhe(o) {
     return new Promise((resolve) => {
-      const botoes = o.opcoes.map((op, i) => el('button', { type: 'button', class: `sx-btn ${op.prim ? 'prim' : 'sec'}`, 'data-i': i }, op.rotulo));
+      const botoes = o.opcoes.map((op, i) => el('button', { type: 'button', class: `sx-btn ${op.prim ? 'prim' : 'sec'}`, 'data-i': i }, dgUiSource_sessoes(op.rotulo)));
       const caixa = el('div', { class: 'sx-fcx' },
         el('h3', null, o.titulo),
         o.texto ? el('p', null, o.texto) : null,
@@ -641,32 +653,32 @@
 
   function abreNova() {
     const n = novaRascunho;
-    const nome = el('input', { id: 'sx-n-nome', maxlength: NOME_MAX, autocomplete: 'off', value: n.nome, placeholder: 'Ex.: Ajustar a tela de lembretes' });
-    const prompt = el('textarea', { id: 'sx-n-prompt', maxlength: 20000, placeholder: 'O que ele precisa fazer. Quem ler não viu a sua conversa: diga o que é e onde fica.' });
+    const nome = el('input', { id: 'sx-n-nome', maxlength: NOME_MAX, autocomplete: 'off', value: n.nome, placeholder: dgUiSource_sessoes('Ex.: Ajustar a tela de lembretes') });
+    const prompt = el('textarea', { id: 'sx-n-prompt', maxlength: 20000, placeholder: dgUiSource_sessoes('O que ele precisa fazer. Quem ler não viu a sua conversa: diga o que é e onde fica.') });
     prompt.value = n.prompt;
     const local = modoLocal();
-    const pasta = el('input', { id: 'sx-n-pasta', autocomplete: 'off', value: n.pasta, placeholder: local ? 'Deixe vazio para trabalhar na pasta do agente' : 'Deixe vazio para usar a pasta padrão da agente' });
-    const perm = el('select', { id: 'sx-n-perm', title: 'Automática: o Bunker só barra o que é arriscado. Pedir sempre: cada ação passa por você, no DG Telegram.' },
-      el('option', { value: 'auto' }, 'Automática (só barra o arriscado)'),
-      el('option', { value: 'default' }, 'Pedir sempre (cada ação passa por você)'));
+    const pasta = el('input', { id: 'sx-n-pasta', autocomplete: 'off', value: n.pasta, placeholder: dgUiSource_sessoes(local ? 'Deixe vazio para trabalhar na pasta do agente' : 'Deixe vazio para usar a pasta padrão da agente') });
+    const perm = el('select', { id: 'sx-n-perm', title: dgUiSource_sessoes('Automática: o Bunker só barra o que é arriscado. Pedir sempre: cada ação passa por você, no DG Telegram.') },
+      el('option', { value: 'auto' }, dgUiSource_sessoes(dgTextFull_sessoes("Automática (só barra o arriscado)"))),
+      el('option', { value: 'default' }, dgUiSource_sessoes(dgTextFull_sessoes("Pedir sempre (cada ação passa por você)"))));
     perm.value = n.permissao;
     const erro = el('p', { class: 'sx-erro', role: 'alert', hidden: true });
-    const cria = el('button', { type: 'button', class: 'sx-btn prim' }, 'Criar sessão');
-    const cancela = el('button', { type: 'button', class: 'sx-btn sec' }, 'Cancelar');
+    const cria = el('button', { type: 'button', class: 'sx-btn prim' }, dgUiSource_sessoes(dgTextFull_sessoes("Criar sessão")));
+    const cancela = el('button', { type: 'button', class: 'sx-btn sec' }, dgUiSource_sessoes(dgTexto_sessoes('Cancelar')));
     // Claude ou Codex: só aparece quando o agente tem os dois disponíveis (GET /api/sessoes/provedores). Com um só, o
     // card usa o da conversa principal e nada é mostrado. O motor da principal vem pré-selecionado.
-    const prov = el('select', { id: 'sx-n-prov', title: 'O programa que vai trabalhar neste card. O da conversa principal vem marcado.' });
-    const provLinha = el('label', { id: 'sx-n-prov-linha', hidden: true }, 'Motor do card', prov);
+    const prov = el('select', { id: 'sx-n-prov', title: dgUiSource_sessoes('O programa que vai trabalhar neste card. O da conversa principal vem marcado.') });
+    const provLinha = el('label', { id: 'sx-n-prov-linha', hidden: true }, dgUiSource_sessoes("Motor do card"), prov);
     const guarda = () => { novaRascunho = { nome: nome.value, prompt: prompt.value, pasta: pasta.value, permissao: perm.value, provedor: provLinha.hidden ? '' : prov.value }; };
     for (const e of [nome, prompt, pasta, perm, prov]) e.addEventListener('input', guarda);
-    const folha = el('div', { class: 'sx-folha', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Nova sessão' },
+    const folha = el('div', { class: 'sx-folha', role: 'dialog', 'aria-modal': 'true', 'aria-label': dgUiSource_sessoes('Nova sessão') },
       el('div', { class: 'sx-fcx', id: 'sx-form-nova' },
-        el('h3', null, el('span', null, 'Nova sessão'), ajuda('nova', 'Como funciona a nova sessão')),
-        el('label', null, 'Nome', nome),
-        el('label', null, 'Pedido para o card', prompt),
+        el('h3', null, el('span', null, dgUiSource_sessoes(dgTextFull_sessoes("Nova sessão"))), ajuda('nova', dgTextFull_sessoes("Como funciona a nova sessão"))),
+        el('label', null, dgUiSource_sessoes(dgTextFull_sessoes("Nome")), nome),
+        el('label', null, dgUiSource_sessoes(dgTextFull_sessoes("Pedido para o card")), prompt),
         provLinha,
-        el('label', null, 'Pasta de trabalho (opcional)', pasta),
-        local ? null : el('label', null, 'Permissão', perm),
+        el('label', null, dgUiSource_sessoes(dgTextFull_sessoes("Pasta de trabalho (opcional)")), pasta),
+        local ? null : el('label', null, dgUiSource_sessoes(dgTextFull_sessoes("Permissão")), perm),
         erro,
         el('div', { class: 'sx-btns' }, cria, cancela)));
     const fecha = () => { folha.remove(); document.removeEventListener('keydown', esc); };
@@ -678,11 +690,11 @@
       const falha = (t) => { erro.hidden = false; erro.textContent = t; };
       const vNome = nome.value.trim();
       const vPrompt = prompt.value.trim();
-      if (!vNome) return falha('Dê um nome para a sessão.');
-      if (!vPrompt) return falha('Escreva o pedido que o card vai receber.');
+      if (!vNome) return falha(dgTextFull_sessoes("Dê um nome para a sessão."));
+      if (!vPrompt) return falha(dgTextFull_sessoes("Escreva o pedido que o card vai receber."));
       erro.hidden = true;
       cria.disabled = true;
-      cria.textContent = 'Criando...';
+      dgBindFull_sessoes(cria,'Criando...',undefined);
       try {
         // Sem `agente`: a chave da agente decide o dono do card.
         const corpo = { nome: vNome, prompt: vPrompt, pasta: pasta.value.trim() || null };
@@ -696,9 +708,9 @@
         const it = res.corpo.item || res.corpo;
         if (it && it.id) abreDetalhe(it.id, it);
       } catch (e) {
-        falha(`${e.message} A sessão pode ter sido criada: confira a lista antes de tentar de novo.`);
+        falha(dgPhraseFull_sessoes("{v0} A sessão pode ter sido criada: confira a lista antes de tentar de novo.",{v0:(e.message)}));
       } finally {
-        if (cria.isConnected) { cria.disabled = false; cria.textContent = 'Criar sessão'; }
+        if (cria.isConnected) { cria.disabled = false; dgBindFull_sessoes(cria,"Criar sessão",undefined,undefined); }
       }
     });
     document.body.append(folha);
@@ -711,10 +723,10 @@
   async function carregaProvedores(select, linha, rascunho) {
     try {
       const res = await chama('/api/sessoes/provedores');
-      if (!res.ok) throw new Error(`o painel respondeu ${res.status}: ${textoErro(res)}`);
+      if (!res.ok) throw new Error(dgPhraseFull_sessoes("o painel respondeu {v0}: {v1}",{v0:(res.status),v1:(textoErro(res))}));
       const lista = Array.isArray(res.corpo.disponiveis) ? res.corpo.disponiveis : [];
       if (lista.length < 2 || !select.isConnected) return;
-      for (const p of lista) select.append(el('option', { value: p.id }, p.id === res.corpo.principal ? `${p.nome} (o da conversa principal)` : p.nome));
+      for (const p of lista) select.append(el('option', { value: p.id }, p.id === res.corpo.principal ? dgPhraseFull_sessoes("{v0} (o da conversa principal)",{v0:(p.nome)}) : p.nome));
       select.value = lista.some((p) => p.id === rascunho) ? rascunho : res.corpo.principal;
       linha.hidden = false;
     } catch (e) {
@@ -735,7 +747,7 @@
     $('sx-vista-lista').hidden = true;
     const vista = $('sx-vista-det');
     vista.hidden = false;
-    vista.textContent = '';
+    dgBindFull_sessoes(vista,'',undefined);
 
     const r = det.ref = {};
     r.info = el('div', { class: 'sx-info' });
@@ -744,18 +756,18 @@
     r.msg = el('div');
     r.docsCorpo = el('div');
     r.docs = el('details', { class: 'sx-docs cartao', hidden: true },
-      el('summary', null, el('span', null, 'Documentos citados'), ajuda('docs', 'Como funcionam os documentos citados')),
+      el('summary', null, el('span', null, dgUiSource_sessoes("Documentos citados")), ajuda('docs', 'Como funcionam os documentos citados')),
       r.docsCorpo);
     r.docs.addEventListener('toggle', () => { if (r.docs.open && !det.docs && !det.docsCarregando) carregaDocs(det); });
-    r.mais = el('button', { type: 'button', class: 'sx-mais', hidden: true, title: 'Traz as mensagens mais antigas desta conversa.', onclick: () => carregaConversa('antigos') }, 'Carregar anteriores');
-    r.convEstado = el('div', { class: 'sx-vazio' }, 'Carregando a conversa...');
+    r.mais = el('button', { type: 'button', class: 'sx-mais', hidden: true, title: dgUiSource_sessoes('Traz as mensagens mais antigas desta conversa.'), onclick: () => carregaConversa('antigos') }, dgUiSource_sessoes(dgTextFull_sessoes("Carregar anteriores")));
+    r.convEstado = el('div', { class: 'sx-vazio' }, dgUiSource_sessoes(dgTextFull_sessoes("Carregando a conversa...")));
     r.conv = el('div', { class: 'sx-conv' });
-    r.texto = el('textarea', { rows: 3, placeholder: 'Escreva o recado para o card', 'aria-label': 'Recado para o card' });
+    r.texto = el('textarea', { rows: 3, placeholder: dgUiSource_sessoes('Escreva o recado para o card'), 'aria-label': dgUiSource_sessoes('Recado para o card') });
     r.texto.value = rasc.texto;
     r.livre = el('input', { type: 'checkbox', id: 'sx-livre' });
     r.livre.checked = rasc.livre;
-    r.enviar = el('button', { type: 'button', class: 'sx-btn prim', onclick: () => envia(false) }, 'Enviar');
-    r.anexar = el('button', { type: 'button', class: 'sx-btn sec sx-mini', hidden: true, title: 'Anexa uma foto ou arquivo: o caminho dele entra no recado para o card ler.', 'aria-label': 'Anexar uma foto ou arquivo' }, ico('paperclip'));
+    r.enviar = el('button', { type: 'button', class: 'sx-btn prim', onclick: () => envia(false) }, dgUiSource_sessoes(dgTexto_sessoes('Enviar')));
+    r.anexar = el('button', { type: 'button', class: 'sx-btn sec sx-mini', hidden: true, title: dgUiSource_sessoes('Anexa uma foto ou arquivo: o caminho dele entra no recado para o card ler.'), 'aria-label': dgUiSource_sessoes('Anexar uma foto ou arquivo') }, ico('paperclip'));
     r.arquivo = el('input', { type: 'file', hidden: true });
     r.anexar.addEventListener('click', () => { if (!r.anexar.disabled) r.arquivo.click(); });
     r.arquivo.addEventListener('change', anexa);
@@ -767,24 +779,24 @@
 
     vista.append(
       el('div', { class: 'sx-det-topo' },
-        el('button', { type: 'button', class: 'sx-btn sec sx-voltar', onclick: voltaLista, title: 'Volta para a lista de sessões.' }, ico('arrow-left'), ' Voltar à lista')),
+        el('button', { type: 'button', class: 'sx-btn sec sx-voltar', onclick: voltaLista, title: dgUiSource_sessoes('Volta para a lista de sessões.') }, ico('arrow-left'), dgUiSource_sessoes(dgTextFull_sessoes(" Voltar à lista")))),
       el('div', { class: 'cartao' },
-        el('div', { class: 'section-title' }, 'O card', ajuda('detalhe', 'O que aparece no alto do card')),
+        el('div', { class: 'section-title' }, dgUiSource_sessoes("O card"), ajuda('detalhe', 'O que aparece no alto do card')),
         r.info, r.pedido),
       el('div', { class: 'cartao' },
-        el('div', { class: 'section-title' }, 'Ações', ajuda('acoes', 'Como funcionam as ações do card')),
+        el('div', { class: 'section-title' }, dgUiSource_sessoes(dgTextFull_sessoes("Ações")), ajuda('acoes', dgTextFull_sessoes("Como funcionam as ações do card"))),
         r.acoes, r.msg),
       r.docs,
       el('div', { class: 'cartao sx-conv-sec' },
-        el('div', { class: 'section-title' }, 'Conversa', ajuda('conversa', 'Como ler a conversa do card')),
+        el('div', { class: 'section-title' }, dgUiSource_sessoes(dgTexto_sessoes('Conversa')), ajuda('conversa', 'Como ler a conversa do card')),
         r.mais, r.convEstado, r.conv),
       el('div', { class: 'cartao sx-recado', hidden: soLeitura() },
-        el('div', { class: 'section-title' }, 'Recado para o card', ajuda('recado', 'Como funciona o recado')),
+        el('div', { class: 'section-title' }, dgUiSource_sessoes(dgTextFull_sessoes("Recado para o card")), ajuda('recado', 'Como funciona o recado')),
         r.texto,
         el('div', { class: 'sx-rec-ferr' }, r.anexar, r.arquivo, r.notaAnexo),
         el('div', { class: 'sx-rec-linha' },
-          el('label', { title: 'Marcado: o recado fica na fila e chega quando o card ficar livre. Desmarcado: é digitado no terminal agora, o que pode interromper o que ele está fazendo.' },
-            r.livre, ' Esperar ele terminar'),
+          el('label', { title: dgUiSource_sessoes('Marcado: o recado fica na fila e chega quando o card ficar livre. Desmarcado: é digitado no terminal agora, o que pode interromper o que ele está fazendo.') },
+            r.livre, dgUiSource_sessoes(" Esperar ele terminar")),
           r.enviar),
         r.nota));
     renderDetalhe();
@@ -802,7 +814,7 @@
     if (!det) return;
     det = null;
     $('sx-vista-det').hidden = true;
-    $('sx-vista-det').textContent = '';
+    dgBindFull_sessoes($('sx-vista-det'),'',undefined);
     $('sx-vista-lista').hidden = false;
     sigLista = '';
     renderChips();
@@ -813,7 +825,7 @@
   function msgHtml(m) {
     if (!m) return null;
     return el('p', { class: `sx-msg ${m.tom || ''}`, role: 'status' }, m.texto,
-      m.link ? [' ', el('a', { href: m.link, target: '_blank', rel: 'noopener' }, 'Abrir no DG Telegram')] : null);
+      m.link ? [' ', el('a', { href: m.link, target: '_blank', rel: 'noopener' }, dgUiSource_sessoes('Abrir no DG Telegram'))] : null);
   }
 
   function blocoInfo(it, info) {
@@ -821,25 +833,25 @@
     const nomeAtual = it.nome_limpo || it.nome || '';
     let linha;
     if (d.editandoNome) {
-      const campo = el('input', { id: 'sx-nome-edit', maxlength: Math.max(10, NOME_MAX - prefixoNome(it).length), autocomplete: 'off', 'aria-label': 'Novo nome da sessão' });
+      const campo = el('input', { id: 'sx-nome-edit', maxlength: Math.max(10, NOME_MAX - prefixoNome(it).length), autocomplete: 'off', 'aria-label': dgUiSource_sessoes('Novo nome da sessão') });
       campo.value = nomeAtual;
       campo.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') salvaNome(d); if (ev.key === 'Escape') cancelaNome(d); });
       linha = el('span', { class: 'sx-nome-edit' }, campo,
-        el('button', { type: 'button', class: 'sx-btn prim sx-mini', disabled: d.salvandoNome, onclick: () => salvaNome(d) }, d.salvandoNome ? 'Salvando...' : 'Salvar'),
-        el('button', { type: 'button', class: 'sx-btn sec sx-mini', onclick: () => cancelaNome(d) }, 'Cancelar'));
+        el('button', { type: 'button', class: 'sx-btn prim sx-mini', disabled: d.salvandoNome, onclick: () => salvaNome(d) }, d.salvandoNome ? 'Salvando...' : dgTexto_sessoes('Salvar')),
+        el('button', { type: 'button', class: 'sx-btn sec sx-mini', onclick: () => cancelaNome(d) }, dgUiSource_sessoes(dgTexto_sessoes('Cancelar'))));
       setTimeout(() => { if (campo.isConnected) { campo.focus(); campo.select(); } }, 0);
     } else {
       const botoes = [];
       if (recOn('favorito') && !soLeitura()) {
         botoes.push(el('button', {
           type: 'button', class: 'sx-ico-mini', 'aria-pressed': String(!!it.favorito),
-          title: it.favorito ? 'Tirar dos favoritos' : 'Marcar como favorito: fica antes dos outros na lista',
-          'aria-label': it.favorito ? 'Tirar dos favoritos' : 'Marcar como favorito', onclick: () => acaoFavorito(d),
+          title: dgUiSource_sessoes(it.favorito ? 'Tirar dos favoritos' : 'Marcar como favorito: fica antes dos outros na lista'),
+          'aria-label': dgUiSource_sessoes(it.favorito ? 'Tirar dos favoritos' : 'Marcar como favorito'), onclick: () => acaoFavorito(d),
         }, ico('star')));
       }
       if (recOn('renomear') && !soLeitura()) {
         botoes.push(el('button', {
-          type: 'button', class: 'sx-ico-mini', title: 'Renomear a sessão (o prefixo de status, como ATIVA ou ENCERRADA, é mantido)', 'aria-label': 'Renomear a sessão',
+          type: 'button', class: 'sx-ico-mini', title: dgUiSource_sessoes('Renomear a sessão (o prefixo de status, como ATIVA ou ENCERRADA, é mantido)'), 'aria-label': dgUiSource_sessoes('Renomear a sessão'),
           onclick: () => { d.editandoNome = true; d.sigInfo = ''; renderDetalhe(); },
         }, ico('pencil')));
       }
@@ -848,7 +860,7 @@
     return [
       linha,
       el('span', { class: 'sx-estado', style: `--cor:${info.cor}` },
-        el('span', { class: `sx-bol${info.pulsa ? ' pulsa' : ''}`, 'aria-hidden': 'true' }), info.rotulo),
+        el('span', { class: `sx-bol${info.pulsa ? ' pulsa' : ''}`, 'aria-hidden': 'true' }), dgUiSource_sessoes(info.rotulo)),
       it.motivo ? el('span', { class: 'sx-motivo' }, it.motivo) : null,
       el('span', { class: 'sx-meta', title: it.cwd || '' }, `${it.pasta || it.cwd || ''} · ${quando(it.desde)}`),
     ];
@@ -859,13 +871,13 @@
     if (!d) return;
     const it = d.item;
     const r = d.ref;
-    if (!it) { r.info.textContent = 'Carregando o card...'; return; }
+    if (!it) { dgBindFull_sessoes(r.info,"Carregando o card...",undefined,undefined); return; }
     const info = infoDe(it);
 
     const sigInfo = JSON.stringify([it.nome_limpo, it.nome, grupoDe(it), it.estado, it.motivo, it.pasta, it.cwd, it.desde, it.favorito, d.editandoNome, d.salvandoNome, recOn('favorito'), recOn('renomear')]);
     if (sigInfo !== d.sigInfo) {
       d.sigInfo = sigInfo;
-      r.info.textContent = '';
+      dgBindFull_sessoes(r.info,'',undefined);
       r.info.append(...blocoInfo(it, info));
     }
 
@@ -873,7 +885,7 @@
     const sigPedido = caixa ? JSON.stringify([it.pedido, it.id, cfg && cfg.appUrl]) : '';
     if (sigPedido !== d.sigPedido) {
       d.sigPedido = sigPedido;
-      r.pedido.textContent = '';
+      dgBindFull_sessoes(r.pedido,'',undefined);
       if (caixa) r.pedido.append(caixa);
     }
 
@@ -884,46 +896,46 @@
     if (soLeitura()) {
       const href = linkDoTelegram(cfg, 'pedidos', it.id);
       if (href) {
-        botoes.push(el('a', { class: 'sx-btn prim', href, target: '_blank', rel: 'noopener', title: textoSoLeitura() }, 'Abrir no DG Telegram'));
+        botoes.push(el('a', { class: 'sx-btn prim', href, target: '_blank', rel: 'noopener', title: dgUiSource_sessoes(textoSoLeitura()) }, dgUiSource_sessoes(dgTextFull_sessoes("Abrir no DG Telegram"))));
       } else {
-        botoes.push(el('p', { class: 'sx-ped-nota' }, textoSoLeitura()));
+        botoes.push(el('p', { class: 'sx-ped-nota' }, dgUiSource_sessoes(textoSoLeitura())));
       }
     } else if (it.tem_terminal && rec('handoff') && !fixa) {
       botoes.push(el('button', { type: 'button', class: 'sx-btn sec', disabled: off, onclick: () => acaoHandoff(d),
-        title: 'Pede ao card um resumo para continuar o trabalho numa sessão nova. Primeiro consulta se ele já escreveu um; depois pede a sua confirmação.' }, 'Handoff'));
+        title: dgUiSource_sessoes('Pede ao card um resumo para continuar o trabalho numa sessão nova. Primeiro consulta se ele já escreveu um; depois pede a sua confirmação.') }, 'Handoff'));
     }
     if (!soLeitura() && precisaRetomar(it) && !it.arquivado && rec('retomar')) {
       botoes.push(el('button', { type: 'button', class: 'sx-btn prim', disabled: off, onclick: () => acaoSimples(d, 'retomar'),
-        title: modoLocal() ? 'Reabre o terminal e continua a MESMA conversa de onde ela parou.' : 'Reabre o terminal de um card fechado, para ele poder trabalhar e receber recados.' },
-      modoLocal() ? 'Retomar (mesma conversa)' : 'Retomar'));
+        title: dgUiSource_sessoes(modoLocal() ? 'Reabre o terminal e continua a MESMA conversa de onde ela parou.' : 'Reabre o terminal de um card fechado, para ele poder trabalhar e receber recados.') },
+      dgUiSource_sessoes(modoLocal() ? dgTextFull_sessoes("Retomar (mesma conversa)") : 'Retomar')));
       if (modoLocal()) {
         botoes.push(el('button', { type: 'button', class: 'sx-btn sec', disabled: off, onclick: () => acaoSimples(d, 'retomar-nova'),
-          title: 'Abre uma conversa NOVA nesta sessão (a antiga fica guardada no disco). Use quando a conversa travou ou não volta.' }, 'Conversa nova'));
+          title: dgUiSource_sessoes('Abre uma conversa NOVA nesta sessão (a antiga fica guardada no disco). Use quando a conversa travou ou não volta.') }, dgUiSource_sessoes("Conversa nova")));
       }
     }
     if (soLeitura()) {
       // só o link acima
     } else if (it.arquivado) {
       botoes.push(el('button', { type: 'button', class: 'sx-btn sec', disabled: off, onclick: () => acaoSimples(d, 'desarquivar'),
-        title: 'Traz o card de volta para a lista de ativas.' }, 'Desarquivar'));
+        title: dgUiSource_sessoes('Traz o card de volta para a lista de ativas.') }, dgUiSource_sessoes("Desarquivar")));
       if (recOn('apagar') && !fixa) {
         botoes.push(el('button', { type: 'button', class: 'sx-btn perigo', disabled: off, onclick: () => acaoSimples(d, 'apagar'),
-          title: 'Tira a sessão da lista de vez e libera a vaga. A conversa continua guardada no disco.' }, 'Apagar'));
+          title: dgUiSource_sessoes('Tira a sessão da lista de vez e libera a vaga. A conversa continua guardada no disco.') }, dgUiSource_sessoes(dgTexto_sessoes('Apagar'))));
       }
-    } else if (rec('parar') && !fixa) {
+    } else if (rec(dgTextFull_sessoes("parar")) && !fixa) {
       botoes.push(el('button', { type: 'button', class: 'sx-btn perigo', disabled: off, onclick: () => acaoSimples(d, 'arquivar'),
-        title: 'Para o terminal do card e esconde ele da lista. Nada é apagado: dá para retomar e desarquivar depois.' }, 'Arquivar'));
+        title: dgUiSource_sessoes('Para o terminal do card e esconde ele da lista. Nada é apagado: dá para retomar e desarquivar depois.') }, dgUiSource_sessoes("Arquivar")));
     }
     const sigAcoes = JSON.stringify([it.id, soLeitura(), botoes.length, off, it.tem_terminal, it.arquivado, grupoDe(it), rec('handoff'), rec('retomar'), rec('parar'), recOn('apagar'), fixa]);
     if (sigAcoes !== d.sigAcoes) {
       d.sigAcoes = sigAcoes;
-      r.acoes.textContent = '';
+      dgBindFull_sessoes(r.acoes,'',undefined);
       r.acoes.append(...botoes);
     }
     const sigMsg = JSON.stringify(d.msgAcao);
     if (sigMsg !== d.sigMsg) {
       d.sigMsg = sigMsg;
-      r.msg.textContent = '';
+      dgBindFull_sessoes(r.msg,'',undefined);
       const m = msgHtml(d.msgAcao);
       if (m) r.msg.append(m);
     }
@@ -933,19 +945,19 @@
     const bloqueio = it.estado === 'pedindo_permissao' || (recOn('decidir') && it.grupo === 'esperando_voce');
     const nota = bloqueio
       ? (recOn('decidir')
-        ? 'A sessão está esperando você autorizar um pedido. Use Aprovar ou Negar acima: um recado agora cairia dentro do menu de permissão.'
-        : 'O card está esperando você autorizar um pedido. Decida no DG Telegram: um recado agora cairia dentro do menu de permissão.')
+        ? dgTextFull_sessoes("A sessão está esperando você autorizar um pedido. Use Aprovar ou Negar acima: um recado agora cairia dentro do menu de permissão.")
+        : dgTextFull_sessoes("O card está esperando você autorizar um pedido. Decida no DG Telegram: um recado agora cairia dentro do menu de permissão."))
       : (d.notaEnvio ? d.notaEnvio.texto : '');
     r.texto.disabled = bloqueio;
     r.livre.disabled = bloqueio;
     r.enviar.disabled = bloqueio || d.enviando;
-    r.enviar.textContent = d.enviando ? 'Enviando...' : 'Enviar';
+    dgBindFull_sessoes(r.enviar,d.enviando ? 'Enviando...' : dgTexto_sessoes('Enviar'),undefined);
     r.nota.textContent = nota;
     r.nota.classList.toggle('erro', !bloqueio && !!d.notaEnvio && d.notaEnvio.tom === 'erro');
     r.anexar.hidden = !recOn('anexo');
     r.anexar.disabled = bloqueio || d.anexando;
     r.anexar.replaceChildren(ico(d.anexando ? 'hourglass' : 'paperclip'));
-    r.notaAnexo.textContent = d.anexando ? 'Enviando o anexo...' : (d.notaAnexo ? d.notaAnexo.texto : '');
+    r.notaAnexo.textContent = d.anexando ? dgTextFull_sessoes("Enviando o anexo...") : (d.notaAnexo ? d.notaAnexo.texto : '');
     r.notaAnexo.classList.toggle('erro', !d.anexando && !!d.notaAnexo && d.notaAnexo.tom === 'erro');
   }
 
@@ -966,7 +978,7 @@
         voltaLista();
         return;
       } else if (res.status === 404) {
-        mostraAviso(`Esse card não existe mais no ${FN()}. Volte para a lista.`);
+        mostraAviso(dgPhraseFull_sessoes("Esse card não existe mais no {v0}. Volte para a lista.",{v0:(FN())}));
         return;
       } else {
         mostraAviso(textoErro(res));
@@ -1043,8 +1055,8 @@
     const r = d.ref;
     r.convEstado.hidden = false;
     if (d.erroConv) { r.convEstado.textContent = d.erroConv; r.convEstado.className = 'sx-msg erro'; }
-    else if (!d.carregouConv) { r.convEstado.textContent = 'Carregando a conversa...'; r.convEstado.className = 'sx-vazio'; }
-    else if (!d.msgs.length) { r.convEstado.textContent = d.motivoVazio || 'Esta sessão ainda não tem mensagens.'; r.convEstado.className = 'sx-vazio'; }
+    else if (!d.carregouConv) { dgBindFull_sessoes(r.convEstado,"Carregando a conversa...",undefined,undefined); r.convEstado.className = 'sx-vazio'; }
+    else if (!d.msgs.length) { if (d.motivoVazio) { dgBindFull_sessoes(r.convEstado, ""); r.convEstado.textContent = d.motivoVazio; } else dgBindFull_sessoes(r.convEstado,"Esta sessão ainda não tem mensagens.",undefined,undefined); r.convEstado.className = 'sx-vazio'; }
     else r.convEstado.hidden = true;
     r.mais.hidden = !(d.truncado && d.antes != null && !d.erroConv);
     const sig = JSON.stringify(d.msgs);
@@ -1052,10 +1064,10 @@
     d.sigConv = sig;
     const alturaAntes = document.documentElement.scrollHeight;
     const topoAntes = window.scrollY;
-    r.conv.textContent = '';
+    dgBindFull_sessoes(r.conv,'',undefined);
     for (const m of d.msgs) {
       r.conv.append(el('div', { class: `sx-bal ${m.role === 'user' ? 'eu' : 'card'}` }, m.texto,
-        m.cortado ? el('small', null, 'Texto cortado: era maior que o limite da tela.') : null));
+        m.cortado ? el('small', null, dgUiSource_sessoes("Texto cortado: era maior que o limite da tela.")) : null));
     }
     if (manterTopo) window.scrollTo({ top: topoAntes + (document.documentElement.scrollHeight - alturaAntes) });
   }
@@ -1079,7 +1091,7 @@
     if (!retomar && precisaRetomar(d.item)) {
       const sim = await escolhe({
         titulo: 'Retomar o card?', texto: 'Esse card está fechado, sem terminal. Para entregar o recado eu preciso retomar a sessão dele. Retomo e envio?',
-        opcoes: [{ rotulo: 'Retomar e enviar', valor: true, prim: true }, { rotulo: 'Cancelar', valor: null }],
+        opcoes: [{ rotulo: 'Retomar e enviar', valor: true, prim: true }, { rotulo: dgTexto_sessoes('Cancelar'), valor: null }],
       });
       if (!sim || det !== d) return;
       retomar = true;
@@ -1136,12 +1148,12 @@
         const t = r.texto;
         t.value = t.value.replace(/\s+$/, '') + (t.value.trim() ? '\n' : '') + `[anexo: ${res.corpo.caminho}]`;
         guardaRascunho();
-        d.notaAnexo = { texto: `Anexado: ${res.corpo.nome || arq.name}. Revise o recado e envie.`, tom: 'ok' };
+        d.notaAnexo = { texto: dgPhraseFull_sessoes('Anexado: {v0}. Revise o recado e envie.', { v0: res.corpo.nome || arq.name }), tom: 'ok' };
       } else {
-        d.notaAnexo = { texto: `Não consegui anexar ${arq.name || 'o arquivo'}: ${textoErro(res)}`, tom: 'erro' };
+        d.notaAnexo = { texto: dgPhraseFull_sessoes('Não consegui anexar {v0}: {v1}', { v0: arq.name || dgTextFull_sessoes('o arquivo'), v1: textoErro(res) }), tom: 'erro' };
       }
     } catch (e) {
-      if (det === d) d.notaAnexo = { texto: `${e.message} O arquivo pode ter subido: confira o recado antes de anexar de novo.`, tom: 'erro' };
+      if (det === d) d.notaAnexo = { texto: dgPhraseFull_sessoes('{v0} O arquivo pode ter subido: confira o recado antes de anexar de novo.', { v0: e.message }), tom: 'erro' };
     } finally {
       d.anexando = false;
     }
@@ -1178,31 +1190,31 @@
       const v = await escolhe({
         titulo: 'Arquivar essa sessão?',
         texto: 'Arquivar para o terminal da sessão (ela continua podendo ser retomada depois) e esconde a sessão da lista de ativas. Dá para desarquivar quando quiser.',
-        opcoes: [{ rotulo: 'Arquivar', valor: 'sim', prim: true }, { rotulo: 'Cancelar', valor: null }],
+        opcoes: [{ rotulo: 'Arquivar', valor: 'sim', prim: true }, { rotulo: dgTexto_sessoes('Cancelar'), valor: null }],
       });
       if (v !== 'sim' || det !== d) return;
-      const res = await postAcao(d, '/arquivar', {}, 'Sessão arquivada.');
+      const res = await postAcao(d, '/arquivar', {}, dgTextFull_sessoes("Sessão arquivada."));
       if (res && det === d) { rascunhos.delete(d.id); voltaLista(); }
       return;
     }
     if (acao === 'desarquivar') {
-      if (await postAcao(d, '/desarquivar', {}, 'Sessão desarquivada.')) pollDetalhe();
+      if (await postAcao(d, '/desarquivar', {}, dgTextFull_sessoes("Sessão desarquivada."))) pollDetalhe();
       return;
     }
     if (acao === 'apagar') {
       const v = await escolhe({
         titulo: 'Apagar essa sessão?',
         texto: 'A sessão sai da lista de vez e a vaga dela é liberada. A conversa continua guardada no disco, mas a sessão não volta pela tela.',
-        opcoes: [{ rotulo: 'Apagar', valor: 'sim', prim: true }, { rotulo: 'Cancelar', valor: null }],
+        opcoes: [{ rotulo: dgTexto_sessoes('Apagar'), valor: 'sim', prim: true }, { rotulo: dgTexto_sessoes('Cancelar'), valor: null }],
       });
       if (v !== 'sim' || det !== d) return;
-      const res = await postAcao(d, '/apagar', {}, 'Sessão apagada.');
+      const res = await postAcao(d, '/apagar', {}, dgTextFull_sessoes("Sessão apagada."));
       if (res && det === d) { rascunhos.delete(d.id); voltaLista(); }
       return;
     }
     if (acao === 'retomar' || acao === 'retomar-nova') {
       const nova = acao === 'retomar-nova';
-      const ok = nova ? 'Abri uma conversa nova nessa sessão.' : (modoLocal() ? 'Pedi ao agente para retomar a conversa dessa sessão.' : `Pedi ao ${FN()} para reabrir o terminal desse card.`);
+      const ok = nova ? dgTextFull_sessoes("Abri uma conversa nova nessa sessão.") : (modoLocal() ? dgTextFull_sessoes("Pedi ao agente para retomar a conversa dessa sessão.") : dgPhraseFull_sessoes("Pedi ao {v0} para reabrir o terminal desse card.",{v0:(FN())}));
       if (await postAcao(d, '/retomar', nova ? { nova: true } : {}, ok)) {
         if (nova && det === d) {
           // A conversa antiga ficou guardada no disco: some da tela já, e a carga traz a da conversa nova.
@@ -1222,7 +1234,7 @@
   async function acaoHandoff(d) {
     if (d.ocupado) return;
     d.ocupado = true;
-    mensagemAcao('Consultando se o card já escreveu o handoff...', '');
+    mensagemAcao(dgTextFull_sessoes("Consultando se o card já escreveu o handoff..."), '');
     let h;
     try {
       const res = await chama(`/api/sessoes/${encodeURIComponent(d.id)}/handoff`);
@@ -1236,7 +1248,7 @@
       return;
     }
     mensagemAcao('');
-    const cancelar = { rotulo: 'Cancelar', valor: null };
+    const cancelar = { rotulo: dgTexto_sessoes('Cancelar'), valor: null };
     let usar;
     if (h.modo === 'compact-no-lugar') {
       usar = await escolhe({
@@ -1260,7 +1272,7 @@
     }
     if (det !== d) return;
     const res = await postAcao(d, '/handoff', { usar_existente: usar, apagar_antigo: false },
-      h.modo === 'compact-no-lugar' ? 'Pedi para compactar o card no lugar.' : 'Handoff pedido ao card.');
+      h.modo === 'compact-no-lugar' ? dgTextFull_sessoes("Pedi para compactar o card no lugar.") : dgTextFull_sessoes("Handoff pedido ao card."));
     if (res && res.corpo && res.corpo.abrir_em && res.corpo.abrir_em !== d.id) {
       // Handoff concluído: a continuação é um card novo, e é nele que a pessoa quer cair.
       rascunhos.delete(d.id);
@@ -1308,7 +1320,7 @@
     const campo = $('sx-nome-edit');
     if (!it || !campo || d.salvandoNome) return;
     const novo = campo.value.trim();
-    if (!novo) { mensagemAcao('O nome não pode ficar vazio.', 'erro'); return; }
+    if (!novo) { mensagemAcao(dgTextFull_sessoes("O nome não pode ficar vazio."), 'erro'); return; }
     if (novo === (it.nome_limpo || it.nome)) { cancelaNome(d); return; }
     d.salvandoNome = true;
     d.sigInfo = '';
@@ -1319,7 +1331,7 @@
       if (det !== d) return;
       d.editandoNome = false;
       if (res.ok) atualizaItem(d, res.corpo.item || res.corpo);
-      else mensagemAcao(`Não consegui renomear: ${textoErro(res)}`, 'erro');
+      else mensagemAcao(dgPhraseFull_sessoes("Não consegui renomear: {v0}",{v0:(textoErro(res))}), 'erro');
     } catch (e) {
       if (det === d) { d.editandoNome = false; mensagemAcao(e.message, 'erro'); }
     } finally {
@@ -1335,19 +1347,19 @@
     const d = det;
     if (!d) return;
     const corpo = d.ref.docsCorpo;
-    corpo.textContent = '';
+    dgBindFull_sessoes(corpo,'',undefined);
     if (d.docsCarregando) {
-      corpo.append(el('p', { class: 'sx-vazio' }, 'Procurando os documentos citados...'));
+      corpo.append(el('p', { class: 'sx-vazio' }, dgUiSource_sessoes("Procurando os documentos citados...")));
     } else if (d.docsErro) {
       corpo.append(el('p', { class: 'sx-msg erro', role: 'alert' }, d.docsErro),
-        el('button', { type: 'button', class: 'sx-mais', onclick: () => carregaDocs(d) }, 'Tentar de novo'));
+        el('button', { type: 'button', class: 'sx-mais', onclick: () => carregaDocs(d) }, dgUiSource_sessoes(dgTexto_sessoes('Tentar de novo'))));
     } else if (!d.docs) {
-      corpo.append(el('p', { class: 'sx-vazio' }, 'Abra esta seção para ver os arquivos que o card citou.'));
+      corpo.append(el('p', { class: 'sx-vazio' }, dgUiSource_sessoes(dgTextFull_sessoes("Abra esta seção para ver os arquivos que o card citou."))));
     } else if (!d.docs.length) {
-      corpo.append(el('p', { class: 'sx-vazio' }, 'O card ainda não citou nenhum documento que exista no disco.'));
+      corpo.append(el('p', { class: 'sx-vazio' }, dgUiSource_sessoes(dgTextFull_sessoes("O card ainda não citou nenhum documento que exista no disco."))));
     } else {
       corpo.append(el('div', { class: 'sx-docs-lista' }, d.docs.map((x, i) =>
-        el('button', { type: 'button', class: 'sx-doc', onclick: () => abreDocumento(i), title: 'PDF e imagem abrem numa aba nova; texto abre numa janela de leitura aqui.' },
+        el('button', { type: 'button', class: 'sx-doc', onclick: () => abreDocumento(i), title: dgUiSource_sessoes('PDF e imagem abrem numa aba nova; texto abre numa janela de leitura aqui.') },
           el('span', { class: 'sx-doc-nome' }, x.nome),
           el('span', { class: 'sx-meta' }, [x.pasta, tamanho(x.tamanho), quando(x.quando)].filter(Boolean).join(' · '))))));
     }
@@ -1388,13 +1400,13 @@
       res = { ok: false, status: 0, corpo: { erro: e.message } };
     }
     if (det !== d) return;
-    if (!res.ok) { d.docsErro = `Não consegui abrir ${doc.nome}: ${textoErro(res)}`; renderDocs(); return; }
+    if (!res.ok) { d.docsErro = dgPhraseFull_sessoes("Não consegui abrir {v0}: {v1}",{v0:(doc.nome),v1:(textoErro(res))}); renderDocs(); return; }
     d.docsErro = '';
     renderDocs();
     await escolhe({
       titulo: res.corpo.nome || doc.nome, grande: true, pre: res.corpo.texto,
       texto: res.corpo.cortado ? 'O arquivo é maior que o limite de leitura: aparece só o começo.' : '',
-      opcoes: [{ rotulo: 'Fechar', valor: null, prim: true }],
+      opcoes: [{ rotulo: dgTexto_sessoes('Fechar'), valor: null, prim: true }],
     });
   }
 

@@ -1,3 +1,11 @@
+const dgBindFull_tela = (el, fonte, atributo, valores) => { if(globalThis.DGI18n) return globalThis.DGI18n.rotulo(el,fonte,atributo,valores); const valor=String(fonte).replace(/\{([a-z_][a-z_0-9]*)\}/g,(m,k)=>valores&&Object.hasOwn(valores,k)?String(valores[k]):m); if(atributo)el.setAttribute(atributo,valor);else el.textContent=valor; };
+const dgHtmlFull_tela = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, "");
+const dgTextFull_tela = fonte => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.t(trecho)) : fonte;
+const dgPhraseFull_tela = (fonte, valores) => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.frase(trecho, valores)) : fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m,k) => valores && Object.hasOwn(valores,k) ? String(valores[k]) : m);
+const dgFragFull_tela = (fonte, valores) => globalThis.DGI18n ? globalThis.DGI18n.fragmento(fonte, valores) : dgPhraseFull_tela(fonte,valores).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;", "'":"&#39;"}[c]));
+
+const dgTexto_tela = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgHtml_tela = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 // tela.js: a aba Tela.
 //
 // O QUE ELA É: o navegador do agente (um Chrome que roda dentro do container dele), aberto
@@ -109,29 +117,29 @@
   function motivoDoErro(r) {
     const c = r.corpo || {};
     if (c.error && c.howToFix) return `${c.error} ${c.howToFix}`;
-    return c.error || `O painel respondeu ${r.status}.`;
+    return c.error || dgPhraseFull_tela("O painel respondeu {v0}.",{v0:(r.status)});
   }
 
   // ─── Desenho ──────────────────────────────────────────────────
 
   function cabecalho() {
-    const ajuda = 'O navegador do seu agente, para você fazer login nos sistemas que ele vai usar.';
-    return `<div class="app-cabeca">
+    const ajuda = dgTextFull_tela("O navegador do seu agente, para você fazer login nos sistemas que ele vai usar.");
+    return dgHtmlFull_tela(`<div class="app-cabeca">
         <div class="app-cabeca-linha">
-          <h2 title="${esc(ajuda)}">Tela</h2>
+          <h2 title="${esc(ajuda)}"><!--dg-i18n:2d31efc9c2ed-->Tela<!--/dg-i18n--></h2>
           <button type="button" class="app-tutorial-abrir" id="tela-tutorial-abrir"
-                  title="Uma visita guiada por esta tela, passo a passo.">Tutorial</button>
+                  data-dg-i18n-title="0fb8e9479f21" title="Uma visita guiada por esta tela, passo a passo.">Tutorial</button>
           <button type="button" class="app-ajuda-secao" data-tutorial="tela"
                   aria-label="Para que serve a tela" title="Para que serve a tela">?</button>
         </div>
-        <p>${esc(ajuda)} Ele usa esse mesmo navegador, já logado, e a sua senha nunca passa pela conversa.</p>
+        <p>${dgFragFull_tela("{v1} Ele usa esse mesmo navegador, já logado, e a sua senha nunca passa pela conversa.",{v1:(ajuda)})}</p>
       </div>
-      <div id="tela-corpo"></div>`;
+      <div id="tela-corpo"></div>`);
   }
 
   function linhaStatus(rotulo, valor, bom, detalhe) {
     const selo = valor === null ? 'nd' : (bom ? 'sim' : 'nao');
-    const texto = valor === null ? 'não consegui ver' : (bom ? 'sim' : 'não');
+    const texto = valor === null ? dgTextFull_tela("não consegui ver") : (bom ? 'sim' : dgTextFull_tela("não"));
     return `<li class="tela-linha"><span class="tela-selo ${selo}">${texto}</span>
         <span class="tela-rotulo"><b>${esc(rotulo)}</b>${detalhe ? `<span class="tela-detalhe">${esc(detalhe)}</span>` : ''}</span></li>`;
   }
@@ -154,20 +162,20 @@
     const s = estado;
     let corpo;
     if (!s || s.erro) {
-      corpo = `<div class="app-erro"><strong>Não consegui ver o estado da tela.</strong><p>${esc(s ? s.erro : 'sem resposta')}</p></div>`;
+      corpo = dgHtmlFull_tela(`<div class="app-erro"><strong><!--dg-i18n:32dbd86f9037-->Não consegui ver o estado da tela.<!--/dg-i18n--></strong><p>${esc(s ? s.erro : dgTextFull_tela("sem resposta"))}</p></div>`);
     } else {
       corpo = `<ul class="tela-lista">
-        ${linhaStatus('Tela instalada', s.instalada, s.instalada, s.instalada ? '' : 'o serviço da tela não respondeu neste agente')}
-        ${linhaStatus('Senha da tela definida', s.senha_definida, s.senha_definida, s.senha_definida ? '' : 'defina uma abaixo para poder abrir a tela')}
-        ${linhaStatus('Navegador do agente respondendo', s.cdp, s.cdp, s.cdp ? '' : 'o agente ainda não consegue usar o navegador')}
+        ${linhaStatus('Tela instalada', s.instalada, s.instalada, s.instalada ? '' : dgTextFull_tela("o serviço da tela não respondeu neste agente"))}
+        ${linhaStatus(dgTextFull_tela("Senha da tela definida"), s.senha_definida, s.senha_definida, s.senha_definida ? '' : dgTextFull_tela("defina uma abaixo para poder abrir a tela"))}
+        ${linhaStatus('Navegador do agente respondendo', s.cdp, s.cdp, s.cdp ? '' : dgTextFull_tela("o agente ainda não consegue usar o navegador"))}
       </ul>
       ${blocoProblemas(s)}`;
     }
-    return `<div class="cartao" id="tela-status">
-        <div class="section-title">Situação
+    return dgHtmlFull_tela(`<div class="cartao" id="tela-status">
+        <div class="section-title"><!--dg-i18n:cf7d46ded085-->Situação<!--/dg-i18n-->
           <button type="button" class="app-ajuda-secao" data-tutorial="status"
-                  aria-label="O que a situação mostra" title="O que a situação mostra">?</button>
-        </div>${corpo}</div>`;
+                  data-dg-i18n-aria-label="9d279e9ebb49" aria-label="O que a situação mostra" data-dg-i18n-title="9d279e9ebb49" title="O que a situação mostra">?</button>
+        </div>${corpo}</div>`);
   }
 
   function blocoAbrir() {
@@ -175,51 +183,51 @@
     if (precisaDefinirSenha(s)) return '';
     const pronto = s.instalada && s.senha_definida;
     let motivo = '';
-    if (!s.instalada) motivo = 'A tela não está instalada neste agente.';
-    else if (!s.senha_definida) motivo = 'Defina a senha da tela primeiro (formulário abaixo).';
-    return `<div class="cartao" id="tela-abrir">
-        <div class="section-title">Abrir a tela
+    if (!s.instalada) motivo = dgTextFull_tela("A tela não está instalada neste agente.");
+    else if (!s.senha_definida) motivo = dgTextFull_tela("Defina a senha da tela primeiro (formulário abaixo).");
+    return dgHtmlFull_tela(`<div class="cartao" id="tela-abrir">
+        <div class="section-title"><!--dg-i18n:b7eb5772320f-->Abrir a tela<!--/dg-i18n-->
           <button type="button" class="app-ajuda-secao" data-tutorial="abrir"
                   aria-label="Como a tela abre" title="Como a tela abre">?</button>
         </div>
         <div class="tela-botoes">
           <button type="button" class="btn-principal" id="tela-abrir-btn" ${pronto && !abrindo ? '' : 'disabled'}
-                  title="${esc(motivo || 'Testa a ligação e abre o navegador do agente aqui embaixo.')}">Abrir a tela</button>
+                  title="${esc(motivo || dgTextFull_tela("Testa a ligação e abre o navegador do agente aqui embaixo."))}"><!--dg-i18n:b7eb5772320f-->Abrir a tela<!--/dg-i18n--></button>
           <button type="button" class="btn-leve" id="tela-fechar-btn" hidden
-                  title="Fecha a tela aqui. O navegador do agente continua ligado, com os seus logins.">Fechar a tela</button>
+                  data-dg-i18n-title="dcdbe7e90ed3" title="Fecha a tela aqui. O navegador do agente continua ligado, com os seus logins."><!--dg-i18n:650113c7b61e-->Fechar a tela<!--/dg-i18n--></button>
         </div>
         ${motivo ? `<p class="tela-nota">${esc(motivo)}</p>` : ''}
         <div id="tela-resultado" role="status"></div>
         <div id="tela-janela"></div>
-      </div>`;
+      </div>`);
   }
 
   function blocoSenha() {
     const definida = !!(estado && estado.senha_definida);
-    const titulo = definida ? 'Trocar a senha da tela' : 'Defina a senha da tela';
-    const porque = definida ? '' : `<div class="tela-primeira" id="tela-primeira-senha"><p><b>Falta só isto para abrir a tela.</b>
-          A tela do navegador do agente é protegida por uma senha própria, além do login do painel, porque ali você fica logado nos seus sistemas.
-          Escolha uma agora (de 6 a 8 caracteres): depois de gravar, a tela abre sozinha.</p></div>`;
+    const titulo = definida ? dgTextFull_tela("Trocar a senha da tela") : dgTextFull_tela("Defina a senha da tela");
+    const porque = definida ? '' : dgHtmlFull_tela(`<div class="tela-primeira" id="tela-primeira-senha"><p><b><!--dg-i18n:0808752423cb-->Falta só isto para abrir a tela.<!--/dg-i18n--></b>
+          <!--dg-i18n:4d1144365e41-->A tela do navegador do agente é protegida por uma senha própria, além do login do painel, porque ali você fica logado nos seus sistemas.
+          Escolha uma agora (de 6 a 8 caracteres): depois de gravar, a tela abre sozinha.<!--/dg-i18n--></p></div>`);
     const aviso_ = aviso
       ? `<div class="${aviso.tipo === 'ok' ? 'cofre-ok' : 'app-erro'} tela-aviso"><p>${esc(aviso.texto)}</p></div>` : '';
-    return `<div class="cartao" id="tela-senha">
+    return dgHtmlFull_tela(`<div class="cartao" id="tela-senha">
         <div class="section-title">${titulo}
           <button type="button" class="app-ajuda-secao" data-tutorial="senha"
-                  aria-label="Sobre a senha da tela" title="Sobre a senha da tela">?</button>
+                  data-dg-i18n-aria-label="4634a4bb91a2" aria-label="Sobre a senha da tela" data-dg-i18n-title="4634a4bb91a2" title="Sobre a senha da tela">?</button>
         </div>
         ${porque}
-        <p class="tela-nota">Use de 6 a 8 caracteres, com letras sem acento, números e símbolos do teclado.
-          O VNC, o programa que mostra a tela, só usa 8 caracteres, então o painel não aceita mais que isso.
-          ${definida ? '<b>Trocar a senha desconecta quem estiver vendo a tela agora.</b>' : ''}</p>
+        <p class="tela-nota"><!--dg-i18n:927434161c21-->Use de 6 a 8 caracteres, com letras sem acento, números e símbolos do teclado.
+          O VNC, o programa que mostra a tela, só usa 8 caracteres, então o painel não aceita mais que isso.<!--/dg-i18n-->
+          ${definida ? dgHtmlFull_tela(`<b><!--dg-i18n:7535b98a3ad6-->Trocar a senha desconecta quem estiver vendo a tela agora.<!--/dg-i18n--></b>`) : ''}</p>
         ${aviso_}
         <form id="tela-form-senha" autocomplete="off">
-          <div class="tela-campo"><label for="tela-senha-nova">${definida ? 'Senha nova' : 'Senha da tela'}</label>
+          <div class="tela-campo"><label for="tela-senha-nova">${dgFragFull_tela(definida ? 'Senha nova' : "Senha da tela")}</label>
             <input type="password" id="tela-senha-nova" autocomplete="new-password" minlength="6" required spellcheck="false"></div>
-          <div class="tela-campo"><label for="tela-senha-repetir">Repita a senha</label>
+          <div class="tela-campo"><label for="tela-senha-repetir"><!--dg-i18n:d6df2bac4deb-->Repita a senha<!--/dg-i18n--></label>
             <input type="password" id="tela-senha-repetir" autocomplete="new-password" minlength="6" required spellcheck="false"></div>
-          <button type="submit" class="btn-principal" id="tela-senha-enviar">${definida ? 'Trocar a senha' : 'Definir a senha'}</button>
+          <button type="submit" class="btn-principal" id="tela-senha-enviar">${dgFragFull_tela(definida ? "Trocar a senha" : "Definir a senha")}</button>
         </form>
-      </div>`;
+      </div>`);
   }
 
   // Três vagas fixas. A de "Abrir" só é redesenhada quando não há tela aberta: mover um iframe
@@ -277,15 +285,15 @@
     abrindo = false;
     const ext = estado && estado.url_externa;
     if (ext && /^https?:\/\//i.test(ext)) {
-      mostrarResultado(`<div class="app-erro"><strong>Este endereço não deixa a tela passar.</strong>
-        <p>Abra a tela em outra aba:</p>
-        <p><a href="${esc(ext)}" target="_blank" rel="noopener">${esc(ext)}</a></p></div>`);
+      mostrarResultado(dgHtmlFull_tela(`<div class="app-erro"><strong><!--dg-i18n:5e389cada555-->Este endereço não deixa a tela passar.<!--/dg-i18n--></strong>
+        <p><!--dg-i18n:d2f5687c5b22-->Abra a tela em outra aba:<!--/dg-i18n--></p>
+        <p><a href="${esc(ext)}" target="_blank" rel="noopener">${esc(ext)}</a></p></div>`));
     } else {
-      mostrarResultado(`<div class="app-erro"><strong>A conexão da tela não abriu em 8 segundos.</strong>
-        <p>Pode ser que o endereço que você está usando não deixe passar a conexão contínua que a tela precisa,
+      mostrarResultado(dgHtmlFull_tela(`<div class="app-erro"><strong><!--dg-i18n:c95691072213-->A conexão da tela não abriu em 8 segundos.<!--/dg-i18n--></strong>
+        <p><!--dg-i18n:74288f0d1b67-->Pode ser que o endereço que você está usando não deixe passar a conexão contínua que a tela precisa,
         que a sua sessão no painel tenha vencido (recarregue a página e entre de novo), ou que o serviço da tela
         tenha caído. Este painel não tem um endereço alternativo configurado: peça a quem instalou para configurar
-        um, ou para conferir o serviço da tela.</p></div>`);
+        um, ou para conferir o serviço da tela.<!--/dg-i18n--></p></div>`));
     }
     const botao = document.getElementById('tela-abrir-btn');
     if (botao) botao.disabled = false;
@@ -299,7 +307,7 @@
     limparSonda();
     const c = contaDosCaminhos(window.location.pathname);
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    mostrarResultado('<p class="tela-nota">Testando a ligação com a tela...</p>');
+    mostrarResultado(dgHtmlFull_tela(`<p class="tela-nota"><!--dg-i18n:48b2ee40b1b4-->Testando a ligação com a tela...<!--/dg-i18n--></p>`));
     const botao = document.getElementById('tela-abrir-btn');
     if (botao) botao.disabled = true;
     try {
@@ -383,7 +391,7 @@
     if (esperandoVnc) return;
     esperandoVnc = true;
     try {
-      const ligando = () => mostrarResultado('<p class="tela-nota">Ligando a tela, só um instante...</p>');
+      const ligando = () => mostrarResultado(dgHtmlFull_tela(`<p class="tela-nota"><!--dg-i18n:4b2e1f1df1fa-->Ligando a tela, só um instante...<!--/dg-i18n--></p>`));
       ligando();
       for (let i = 0; i < 14; i++) {
         if (estado && estado.vnc !== false) break;
@@ -392,9 +400,9 @@
         if (r.ok) { estado = r.corpo; desenhar(); ligando(); }
       }
       if (estado && estado.vnc === false) {
-        mostrarResultado(`<div class="app-erro"><strong>A tela ainda não ligou.</strong>
-          <p>A senha foi gravada, mas o programa que mostra a tela não respondeu em 20 segundos. Atualize a página e clique em
-          "Abrir a tela". Se continuar assim, peça ao Admin para rodar "dgclaw agente tela" com o nome deste agente.</p></div>`);
+        mostrarResultado(dgHtmlFull_tela(`<div class="app-erro"><strong><!--dg-i18n:ec8ba822f49d-->A tela ainda não ligou.<!--/dg-i18n--></strong>
+          <p><!--dg-i18n:6d526f216992-->A senha foi gravada, mas o programa que mostra a tela não respondeu em 20 segundos. Atualize a página e clique em
+          "Abrir a tela". Se continuar assim, peça ao Admin para rodar "dgclaw agente tela" com o nome deste agente.<!--/dg-i18n--></p></div>`));
         return;
       }
       abrirTela();
@@ -421,7 +429,7 @@
     document.querySelectorAll('#tela-root .app-cabeca .app-ajuda-secao[data-tutorial]')
       .forEach((b) => b.addEventListener('click', () => abrirTutorial(b.dataset.tutorial)));
     const corpo = document.getElementById('tela-corpo');
-    if (corpo) corpo.innerHTML = '<div class="app-carregando">Carregando...</div>';
+    if (corpo) corpo.innerHTML = dgHtml_tela("<div class=\"app-carregando\"><!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>");
     await atualizar();
   }
 
@@ -434,13 +442,13 @@
     const aba = document.querySelector('.tab[data-tab="tela"]');
     if (!aba || aba._tela) return;
     aba._tela = true;
-    aba.title = EXPLICACAO;
+    dgBindFull_tela(aba,EXPLICACAO,"title");
     // Quem carrega a aba na primeira vez é o loadPanel do app.js (clique ou link #aba=tela);
     // o clique seguinte só atualiza o estado.
     aba.addEventListener('click', () => {
       setTimeout(() => {
         const sub = document.getElementById('subtitulo-aba');
-        if (sub) sub.textContent = SUBTITULO;
+        if (sub) dgBindFull_tela(sub,SUBTITULO,undefined);
       }, 0);
       if (carregou) atualizar();
     });

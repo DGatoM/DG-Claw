@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 // cofre-regras.js: as regras do cofre (o que pode virar variavel de ambiente de um processo
 // que roda como root). Sem disco e sem efeito colateral: so validacao e formatacao.
 // O desenho e o porque de cada recusa estao no cabecalho de cofre.js.
@@ -158,8 +159,8 @@ const PROVEDORES = [
 
 /** Erro com motivo em português e o status que a rota vai devolver. */
 function recusa(erro, status, howToFix) {
-  const r = { erro, status: status || 400 };
-  if (howToFix) r.howToFix = howToFix;
+  const r = dgIdiomaBackend.objeto({ erro, status: status || 400 });
+  if (howToFix) dgIdiomaBackend.definir(r, "howToFix", howToFix);
   return r;
 }
 
@@ -181,7 +182,7 @@ function recusa(erro, status, howToFix) {
 function linhaDeAmbiente(nome, valor) {
   const v = String(valor);
   if (v.includes("'") || /[\n\r\0]/.test(v)) {
-    throw new Error('valor com aspa simples ou quebra de linha não pode virar linha de ambiente');
+    throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("valor com aspa simples ou quebra de linha não pode virar linha de ambiente")]);
   }
   return `${nome}='${v}'`;
 }

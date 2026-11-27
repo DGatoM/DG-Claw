@@ -1,4 +1,8 @@
 'use strict';
+const dgUiFragment_campo_cofre_js = (fonte, valores, original) => globalThis.DGI18n ? globalThis.DGI18n.fragmento(fonte, valores) : original();
+const dgUiText_campo_cofre_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiHtml_campo_cofre_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
+const dgUiLabel_campo_cofre_js = (el, fonte, atributo, valores) => { if (globalThis.DGI18n) globalThis.DGI18n.rotulo(el, fonte, atributo, valores); else { const texto = fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m, k) => valores && Object.hasOwn(valores, k) ? String(valores[k]) : m); if (atributo) el.setAttribute(atributo, texto); else el.textContent = texto; } };
 /* campo-cofre.js: "campo de senha na conversa".
    Duas portas para a mesma caixa:
    1. o bloco ```dgcofre\nNOME_DA_VARIAVEL\nrótulo opcional``` na resposta do agente (porta principal);
@@ -35,7 +39,7 @@
   function validaPedido(d) {
     const nome = d && typeof d.nome === 'string' ? d.nome.trim() : '';
     if (!NOME_OK.test(nome)) {
-      return { erro: { motivo: 'nome', msg: 'Nome de chave inválido: "' + nome.slice(0, 40) + '". Use letras maiúsculas, números e _ (por exemplo HOSTINGER_API_TOKEN).' } };
+      return { erro: { motivo: 'nome', msg: dgUiText_campo_cofre_js("Nome de chave inválido: \"") + nome.slice(0, 40) + dgUiText_campo_cofre_js("\". Use letras maiúsculas, números e _ (por exemplo HOSTINGER_API_TOKEN).") } };
     }
     return { ok: { nome, rotulo: limpaTexto(d.rotulo, 80), ajuda: limpaTexto(d.ajuda, 200) } };
   }
@@ -56,7 +60,7 @@
   }
 
   function htmlSalvo(envName, final) {
-    return `<span class="dgc-ok" role="status">${dsIcone('check')} <code>${esc(envName)}</code> salva no cofre` +
+    return (dgUiHtml_campo_cofre_js("<span class=\"dgc-ok\" role=\"status\">") + (dsIcone('check')) + dgUiHtml_campo_cofre_js(" <code>") + (esc(envName)) + dgUiHtml_campo_cofre_js("</code> <!--dg-i18n:64a40f10bd60-->salva no cofre<!--/dg-i18n-->")) +
       (final ? ` (final ${esc(final)})` : '') + `</span>`;
   }
 
@@ -71,20 +75,23 @@
       `<div class="dgc-linha"><input type="password" class="dgc-valor" autocomplete="off" autocapitalize="off" ` +
       `autocorrect="off" spellcheck="false" data-1p-ignore data-lpignore="true" ` +
       `aria-label="Valor de ${esc(d.envName)}" placeholder="Cole a chave aqui">` +
-      `<button type="button" class="dgc-olho" aria-label="Mostrar a chave" aria-pressed="false">${dsIcone('eye')}</button>` +
-      `<button type="button" class="dgc-salvar">Salvar no cofre</button>` +
-      (cancelavel ? `<button type="button" class="dgc-cancelar">Cancelar</button>` : '') + `</div>` +
+      (dgUiHtml_campo_cofre_js("<button type=\"button\" class=\"dgc-olho\" aria-label=\"Mostrar a chave\" data-dg-i18n-aria-label=\"f1197f353411\" aria-pressed=\"false\">") + (dsIcone('eye')) + dgUiHtml_campo_cofre_js("</button>")) +
+      (dgUiHtml_campo_cofre_js("<button type=\"button\" class=\"dgc-salvar\"><!--dg-i18n:0ac16088c828-->Salvar no cofre<!--/dg-i18n--></button>")) +
+      (cancelavel ? (dgUiHtml_campo_cofre_js("<button type=\"button\" class=\"dgc-cancelar\"><!--dg-i18n:bb9dbb406dcb-->Cancelar<!--/dg-i18n--></button>")) : '') + `</div>` +
       `<div class="dgc-msg" role="alert" hidden></div>` +
-      `<div class="dgc-garantia">O valor vai direto para o cofre. Não entra na conversa nem chega à ${ag}. ` +
-      `Salvar reinicia a ${ag} para a chave valer; a conversa continua de onde parou.</div>`;
+      (dgUiHtml_campo_cofre_js("<div class=\"dgc-garantia\">") + dgUiFragment_campo_cofre_js("O valor vai direto para o cofre. Não entra na conversa nem chega à {v0}.", {v0: agenteTxt()}, () => `O valor vai direto para o cofre. Não entra na conversa nem chega à ${ag}.`) + dgUiHtml_campo_cofre_js(" ")) +
+      (dgUiHtml_campo_cofre_js("") + dgUiFragment_campo_cofre_js("Salvar reinicia a {v0} para a chave valer; a conversa continua de onde parou.", {v0: agenteTxt()}, () => `Salvar reinicia a ${ag} para a chave valer; a conversa continua de onde parou.`) + dgUiHtml_campo_cofre_js("</div>"));
   }
 
   /* HTML do cartão. `id` identifica o cartão (hash da mensagem) para o marcador. */
-  const SO_DONO = 'O cofre é só do dono do ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + '.';
+  const SO_DONO = 'O cofre é só do dono do {marca}.';
   const ehColaborador = () => !!(raiz.DGPapel && raiz.DGPapel.colaborador);
 
   function html(envName, rotulo, id, extra) {
-    if (ehColaborador()) return `<div class="dgcofre dgcofre-bloqueado"><div class="dgc-aviso">${SO_DONO}</div></div>`;
+    if (ehColaborador()) {
+      const marca = (typeof dsMarca !== 'undefined' && dsMarca.nome) || 'DG Claw';
+      return `<div class="dgcofre dgcofre-bloqueado"><div class="dgc-aviso">${dgUiFragment_campo_cofre_js(SO_DONO, { marca }, () => esc('O cofre é só do dono do ' + marca + '.'))}</div></div>`;
+    }
     const x = extra || {};
     const d = { envName, rotulo: rotulo || '', ajuda: x.ajuda || '' };
     const salvo = !!(id && jaSalvo(cfg.agente, id));
@@ -155,7 +162,7 @@
     const ja = card.querySelector('.dgc-ja');
     if (!ja) return;
     if (est) {
-      ja.textContent = 'Já tem uma guardada' + (est.final ? ' (final ' + est.final + ')' : '') + '. Salvar de novo substitui.';
+      dgUiLabel_campo_cofre_js(ja, "Já tem uma guardada{p0}. Salvar de novo substitui.", null, {p0: est.final ? ' (final ' + est.final + ')' : ''});
       ja.hidden = false;
     } else ja.hidden = true;
   }
@@ -169,10 +176,15 @@
     if (!btn) return;
     const liberado = card.dataset.pronto === '1' && card.dataset.gesto === '1' && card.dataset.enviando !== '1';
     btn.disabled = !liberado;
-    if (card.dataset.gesto === '1') btn.removeAttribute('title'); else btn.setAttribute('title', DICA_GESTO);
+    if (card.dataset.gesto === '1') btn.removeAttribute('title'); else btn.setAttribute('title', dgUiText_campo_cofre_js(DICA_GESTO));
   }
   function armaSalvar(card) {
     if (!card.querySelector('.dgc-salvar')) return;
+    const campo = card.querySelector('.dgc-valor');
+    if (raiz.DGI18n && campo) {
+      raiz.DGI18n.rotulo(campo, 'Valor de {nome}', 'aria-label', { nome: card.dataset.env });
+      raiz.DGI18n.rotulo(campo, 'Cole a chave aqui', 'placeholder');
+    }
     card.dataset.pronto = '';
     atualizaBotao(card);
     setTimeout(() => { card.dataset.pronto = '1'; atualizaBotao(card); }, 400);
@@ -213,11 +225,11 @@
     const inp = card.querySelector('.dgc-valor');
     const btn = card.querySelector('.dgc-salvar');
     if (!inp || !btn || btn.disabled) return;
-    if (card.dataset.toque !== '1') { mostraErro(card, DICA_GESTO + ' antes de salvar.'); return; }
+    if (card.dataset.toque !== '1') { mostraErro(card, dgUiText_campo_cofre_js(DICA_GESTO) + dgUiText_campo_cofre_js(" antes de salvar.")); return; }
     const envName = card.dataset.env;
     const cb = card._cb || {};
     const valor = inp.value.trim();
-    if (!valor) { mostraErro(card, 'Cole o valor da chave antes de salvar.'); inp.focus(); return; }
+    if (!valor) { mostraErro(card, dgUiText_campo_cofre_js("Cole o valor da chave antes de salvar.")); inp.focus(); return; }
     card.dataset.enviando = '1'; btn.disabled = true; btn.textContent = 'Salvando…';
     const msg = card.querySelector('.dgc-msg'); if (msg) msg.hidden = true;
     let corpo = null, status = 0, falhaRede = '';
@@ -229,13 +241,13 @@
       status = r.status;
       // Resposta que não é JSON: segue com corpo nulo e a mensagem abaixo mostra o código do status.
       corpo = await r.json().catch(() => null);
-    } catch (e) { falhaRede = (e && e.message) || 'sem conexão'; }
-    finally { card.dataset.enviando = ''; atualizaBotao(card); btn.textContent = 'Salvar no cofre'; }
+    } catch (e) { falhaRede = (e && e.message) || dgUiText_campo_cofre_js("sem conexão"); }
+    finally { card.dataset.enviando = ''; atualizaBotao(card); dgUiLabel_campo_cofre_js(btn, "Salvar no cofre", null); }
 
     const guardou = !falhaRede && ((status >= 200 && status < 300) || (corpo && corpo.guardado));
     if (!guardou) {
-      const txt = falhaRede ? 'Não consegui falar com o servidor (' + falhaRede + '). Tente de novo.'
-        : ((corpo && corpo.error) || 'Não consegui salvar (erro ' + status + ').') +
+      const txt = falhaRede ? dgUiText_campo_cofre_js("Não consegui falar com o servidor (") + falhaRede + dgUiText_campo_cofre_js("). Tente de novo.")
+        : ((corpo && corpo.error) || dgUiText_campo_cofre_js("Não consegui salvar (erro ") + status + ').') +
           (corpo && corpo.howToFix ? ' ' + corpo.howToFix : '');
       mostraErro(card, txt);
       if (cb.aoErro) cb.aoErro({ motivo: 'envio', msg: txt });
@@ -289,7 +301,7 @@
         const ver = inp.type === 'password';
         inp.type = ver ? 'text' : 'password';
         o.setAttribute('aria-pressed', ver ? 'true' : 'false');
-        o.setAttribute('aria-label', ver ? 'Esconder a chave' : 'Mostrar a chave');
+        o.setAttribute('aria-label', ver ? 'Esconder a chave' : dgUiText_campo_cofre_js("Mostrar a chave"));
         o.innerHTML = dsIcone(ver ? 'eye-off' : 'eye');
         return;
       }

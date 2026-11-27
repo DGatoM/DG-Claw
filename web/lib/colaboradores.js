@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Colaboradores: pessoas convidadas pelo dono para UM agente de trabalho (docs em web/docs/COLABORADORES.md).
 // Guardados em <dataDir>/colaboradores.json (modo 600, gravação atômica). O Web é o único escritor: as
 // gravações passam por uma fila em memória. Revogar é datar (revogado_em), nunca apagar o registro.
@@ -17,7 +18,7 @@ const RX_EMAIL = /^[^\s@<>"',;:()[\]\\]+@[^\s@<>"',;:()[\]\\]+\.[^\s@<>"',;:()[\
 function erroStatus(status, mensagem, extra) {
   const e = new Error(mensagem);
   e.status = status;
-  if (extra) Object.assign(e, extra);
+  if (extra) dgIdiomaBackend.atribuir(e, extra);
   return e;
 }
 
@@ -71,7 +72,7 @@ function criarColaboradores({ config, log, agora, gerarHash }) {
     if (marca === mtimeVisto) return;
     try {
       const j = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
-      if (!j || typeof j !== 'object' || !Array.isArray(j.colaboradores)) throw new Error('o conteúdo não tem a lista "colaboradores"');
+      if (!j || typeof j !== 'object' || !Array.isArray(j.colaboradores)) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o conteúdo não tem a lista \"colaboradores\"")]);
       lista = j.colaboradores.filter((c) => c && typeof c === 'object' && typeof c.id === 'string' && typeof c.email === 'string' && typeof c.agente === 'string');
       if (lista.length !== j.colaboradores.length) log('aviso', `Em ${arquivo}, ${j.colaboradores.length - lista.length} registro(s) sem id, e-mail ou agente foram ignorados (o arquivo não foi alterado).`);
       ilegivel = null;
@@ -175,9 +176,9 @@ function criarColaboradores({ config, log, agora, gerarHash }) {
         if (c.revogado_em) throw erroStatus(409, `O acesso de ${c.email} já foi revogado. Convide a pessoa de novo para ela voltar a entrar.`);
         const senha = geraSenhaTemporaria();
         const hash = await gerarHash(senha);
-        const antes = Object.assign({}, c);
-        Object.assign(c, { hash, trocar_senha: true, temporaria_expira: relogio() + VALIDADE_TEMPORARIA_MS, senha_versao: (c.senha_versao || 1) + 1 });
-        try { grava(); } catch (e) { Object.assign(c, antes); throw e; }
+        const antes = dgIdiomaBackend.atribuir({}, c);
+        dgIdiomaBackend.atribuir(c, { hash, trocar_senha: true, temporaria_expira: relogio() + VALIDADE_TEMPORARIA_MS, senha_versao: (c.senha_versao || 1) + 1 });
+        try { grava(); } catch (e) { dgIdiomaBackend.atribuir(c, antes); throw e; }
         return { registro: publico(c), senha };
       });
     },
@@ -222,9 +223,9 @@ function criarColaboradores({ config, log, agora, gerarHash }) {
           throw erroStatus(409, 'Sua senha ou seu convite mudou enquanto você trocava a senha (o dono pode ter mandado um convite novo). Entre de novo com a senha mais recente.');
         }
         if (c.trocar_senha && Number(c.temporaria_expira) < relogio()) throw erroStatus(401, 'A senha temporária venceu. Peça ao dono do DG Claw um convite novo.');
-        const antes = Object.assign({}, c);
-        Object.assign(c, { hash, trocar_senha: false, temporaria_expira: null, senha_versao: (c.senha_versao || 1) + 1 });
-        try { grava(); } catch (e) { Object.assign(c, antes); throw e; }
+        const antes = dgIdiomaBackend.atribuir({}, c);
+        dgIdiomaBackend.atribuir(c, { hash, trocar_senha: false, temporaria_expira: null, senha_versao: (c.senha_versao || 1) + 1 });
+        try { grava(); } catch (e) { dgIdiomaBackend.atribuir(c, antes); throw e; }
         return { registro: publico(c), senha_versao: c.senha_versao };
       });
     },

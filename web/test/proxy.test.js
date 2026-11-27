@@ -98,7 +98,18 @@ test('proxy: o cookie próprio do painel segue, o da sessão do Web é tirado', 
   const s = await cenario();
   try {
     await s.t.c.get('/p/ana/x', { headers: { Cookie: 'dash_token=abc' } });
-    assert.equal(s.painel.visto[0].headers.cookie, 'dash_token=abc');
+    assert.equal(s.painel.visto[0].headers.cookie, 'dash_token=abc; dgclaw_idioma=pt-BR');
+  } finally { await s.fechar(); }
+});
+
+test('proxy: idioma efetivo chega ao painel sem copiar o cookie de autenticação', async () => {
+  const s = await cenario({ env: { DGCLAW_WEB_IDIOMA: 'en' } });
+  try {
+    await s.t.c.get('/p/ana/');
+    assert.equal(s.painel.visto[0].headers.cookie, 'dgclaw_idioma=en');
+    await s.t.c.get('/p/ana/', { headers: { Cookie: 'dgclaw_idioma=pt-BR; outro=1' } });
+    assert.equal(s.painel.visto[1].headers.cookie, 'outro=1; dgclaw_idioma=pt-BR');
+    assert.ok(!s.painel.visto.some(v => v.headers.cookie.includes('dgclaw_sessao=')));
   } finally { await s.fechar(); }
 });
 

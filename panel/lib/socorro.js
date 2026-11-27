@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 // socorro.js — A sessão de SOCORRO: um Claude neutro, fora do agente, que o dono chama
 // quando "aconteceu alguma coisa com o meu agente, vê aí".
 //
@@ -115,7 +116,7 @@ function buildSocorro(CONFIG, serverDir) {
       fs.mkdirSync(DIR, { recursive: true });
       const dia = new Date().toISOString().slice(0, 10);
       fs.appendFileSync(path.join(DIR, `${dia}.jsonl`),
-        `${JSON.stringify({ ...ev, sessao: sessao.id, agente: CONFIG.agentSlug })}\n`);
+        `${JSON.stringify(dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(ev), sessao: sessao.id, agente: CONFIG.agentSlug }))}\n`);
     } catch (e) {
       // O histórico é para depois. Falhar nele não pode derrubar a conversa de agora,
       // mas também não fica calado.
@@ -125,7 +126,7 @@ function buildSocorro(CONFIG, serverDir) {
 
   function evento(tipo, texto, extra) {
     sessao.seq += 1;
-    const ev = { seq: sessao.seq, em: new Date().toISOString(), tipo, texto, ...(extra || {}) };
+    const ev = dgIdiomaBackend.objeto({ seq: sessao.seq, em: new Date().toISOString(), tipo, texto, ...dgIdiomaBackend.espalhar(extra || {}) });
     sessao.eventos.push(ev);
     if (sessao.eventos.length > TETO_EVENTOS) sessao.eventos.splice(0, sessao.eventos.length - TETO_EVENTOS);
     registrarNoHistorico(ev);
@@ -230,31 +231,31 @@ function buildSocorro(CONFIG, serverDir) {
 
   function mensagem(texto) {
     if (!LIGADO) {
-      return { status: 403, corpo: { error: 'A sessão de socorro está desligada neste painel.',
-        howToFix: 'Quem cuida do sistema liga de volta tirando "socorro": false do config.json do painel.' } };
+      return { status: 403, corpo: dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("A sessão de socorro está desligada neste painel."),
+        howToFix: dgIdiomaBackend.texto("Quem cuida do sistema liga de volta tirando \"socorro\": false do config.json do painel.") }) };
     }
     const limpo = String(texto || '').trim();
-    if (!limpo) return { status: 400, corpo: { error: 'A mensagem veio vazia.', howToFix: 'Escreva o que está acontecendo e envie.' } };
+    if (!limpo) return { status: 400, corpo: dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("A mensagem veio vazia."), howToFix: dgIdiomaBackend.texto("Escreva o que está acontecendo e envie.") }) };
     if (limpo.length > TETO_TEXTO) {
-      return { status: 413, corpo: { error: `A mensagem passou de ${TETO_TEXTO} caracteres.`,
-        howToFix: 'Resuma o que está acontecendo. Se precisar mostrar um registro grande, diga onde ele está e o socorro lê sozinho.' } };
+      return { status: 413, corpo: dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("A mensagem passou de {p0} caracteres.", {p0:(TETO_TEXTO)}),
+        howToFix: dgIdiomaBackend.texto("Resuma o que está acontecendo. Se precisar mostrar um registro grande, diga onde ele está e o socorro lê sozinho.") }) };
     }
     if (sessao.proc) {
-      return { status: 409, corpo: { error: 'O socorro ainda está respondendo a mensagem anterior.',
-        howToFix: 'Espere a resposta terminar e mande de novo.' } };
+      return { status: 409, corpo: dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("O socorro ainda está respondendo a mensagem anterior."),
+        howToFix: dgIdiomaBackend.texto("Espere a resposta terminar e mande de novo.") }) };
     }
     const bin = acharClaude(CONFIG);
     if (!bin) {
       console.error('[socorro] nao achei o binario do claude (claudeBin no config.json, DGCLAW_CLAUDE_BIN, PATH, ~/.local/bin)');
-      return { status: 503, corpo: { error: 'Esta máquina não tem o Claude instalado onde o painel procura, então o socorro não tem como responder.',
-        howToFix: 'Quem cuida do sistema aponta "claudeBin" no config.json do painel para o caminho do claude.' } };
+      return { status: 503, corpo: dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Esta máquina não tem o Claude instalado onde o painel procura, então o socorro não tem como responder."),
+        howToFix: dgIdiomaBackend.texto("Quem cuida do sistema aponta \"claudeBin\" no config.json do painel para o caminho do claude.") }) };
     }
     try {
       fs.mkdirSync(SALA, { recursive: true });
     } catch (e) {
       console.error(`[socorro] nao consegui criar a sala ${SALA}: ${e.message}`);
-      return { status: 500, corpo: { error: 'Não consegui preparar a pasta do socorro.',
-        howToFix: 'Avise quem cuida do sistema: a pasta .dgclaw do agente não está gravável por este painel.' } };
+      return { status: 500, corpo: dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui preparar a pasta do socorro."),
+        howToFix: dgIdiomaBackend.texto("Avise quem cuida do sistema: a pasta .dgclaw do agente não está gravável por este painel.") }) };
     }
 
     const args = ['-p', limpo, '--output-format', 'stream-json', '--verbose', '--model', MODELO,
@@ -279,7 +280,7 @@ function buildSocorro(CONFIG, serverDir) {
       proc = spawn(bin, args, { cwd: SALA, env: ambiente(), stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (e) {
       evento('erro', `Não consegui abrir o Claude de socorro: ${e.message}`);
-      return { status: 500, corpo: { error: `Não consegui abrir o socorro: ${e.message}` } };
+      return { status: 500, corpo: dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui abrir o socorro: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }) };
     }
     minha.proc = proc;
     let resto = '';
@@ -351,7 +352,7 @@ function buildSocorro(CONFIG, serverDir) {
     return { encerrada: true };
   }
 
-  return { estado, mensagem, encerrar, LIGADO, _prompt: promptDoSistema };
+  return dgIdiomaBackend.objeto({ estado, mensagem, encerrar, LIGADO, _prompt: promptDoSistema });
 }
 
 module.exports = { buildSocorro, resumoDaFerramenta, confiarNasPastas, arquivoClaudeJson };

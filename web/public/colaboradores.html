@@ -2,8 +2,11 @@
 <html lang="pt-BR" data-tema="{{MARCA_TEMA}}">
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/ds/idioma.css">
+<script src="/ds/idiomas.js"></script>
+<script src="/ds/idioma.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Colaboradores - {{MARCA_NOME}}</title>
+<title data-dg-i18n="c28fe416715f">Colaboradores - {{MARCA_NOME}}</title>
 <meta name="marca-nome" content="{{MARCA_NOME}}">
 <meta name="marca-logo-tem-nome" content="{{MARCA_LOGO_TEM_NOME}}">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -29,29 +32,29 @@
 <main class="co-main">
   <p class="co-msg erro" id="coMsg" role="alert" hidden></p>
 
-  <section class="co-sec" id="coAgente" aria-label="Colaborador do agente">
-    <h2><span>Colaborador de <span id="coNomeAgente">um agente</span></span><button type="button" class="co-ajuda" data-co="ajuda" data-secao="agente" aria-label="Tutorial desta seção">?</button></h2>
-    <label class="co-campo" for="coSeletor">Agente
+  <section class="co-sec" id="coAgente" aria-label="Colaborador do agente" data-dg-i18n-aria-label="4fc92a33a54c">
+    <h2><span><!--dg-i18n:449d99588539-->Colaborador de<!--/dg-i18n--> <span id="coNomeAgente"><!--dg-i18n:ab4433f0cfa7-->um agente<!--/dg-i18n--></span></span><button type="button" class="co-ajuda" data-co="ajuda" data-secao="agente" aria-label="Tutorial desta seção" data-dg-i18n-aria-label="b1fba0f0e769">?</button></h2>
+    <label class="co-campo" for="coSeletor"><!--dg-i18n:1e068f0819ee-->Agente<!--/dg-i18n-->
       <select id="coSeletor" data-tour="co-seletor"></select>
     </label>
-    <div id="coCorpoAgente"><p class="co-fraco"><span data-carregando="Carregando" data-tam="p"></span> Carregando…</p></div>
+    <div id="coCorpoAgente"><p class="co-fraco"><span data-carregando="Carregando" data-tam="p"></span> <!--dg-i18n:6cc1bbba0f84-->Carregando…<!--/dg-i18n--></p></div>
   </section>
 
-  <section class="co-sec co-convite" id="coConvite" aria-label="Convite gerado" hidden>
-    <h2><span>Convite pronto</span><button type="button" class="co-ajuda" data-co="ajuda" data-secao="convite" aria-label="Tutorial do convite">?</button></h2>
+  <section class="co-sec co-convite" id="coConvite" aria-label="Convite gerado" hidden data-dg-i18n-aria-label="d81dd3e23392">
+    <h2><span><!--dg-i18n:5fb8647a65c9-->Convite pronto<!--/dg-i18n--></span><button type="button" class="co-ajuda" data-co="ajuda" data-secao="convite" aria-label="Tutorial do convite" data-dg-i18n-aria-label="29ec19ed578e">?</button></h2>
     <p class="co-status" id="coEmailStatus" role="status"></p>
-    <p class="co-aviso">A senha temporária aparece só aqui, agora. Se você sair desta tela sem copiar, use "Mandar convite de novo" para gerar outra.</p>
-    <textarea id="coTexto" readonly rows="9" aria-label="Texto do convite para copiar"></textarea>
+    <p class="co-aviso"><!--dg-i18n:33f6f0d8e79d-->A senha temporária aparece só aqui, agora. Se você sair desta tela sem copiar, use "Mandar convite de novo" para gerar outra.<!--/dg-i18n--></p>
+    <textarea id="coTexto" readonly rows="9" aria-label="Texto do convite para copiar" data-dg-i18n-aria-label="7da07b67370e"></textarea>
     <div class="co-acoes">
-      <button type="button" class="co-btn co-pri" id="coCopiar">Copiar o texto</button>
-      <button type="button" class="co-btn" id="coFechaConvite">Já copiei, fechar</button>
+      <button type="button" class="co-btn co-pri" id="coCopiar"><!--dg-i18n:863232e6af64-->Copiar o texto<!--/dg-i18n--></button>
+      <button type="button" class="co-btn" id="coFechaConvite"><!--dg-i18n:71f13870b814-->Já copiei, fechar<!--/dg-i18n--></button>
     </div>
     <p class="co-msg" id="coCopiaMsg" role="status" hidden></p>
   </section>
 
-  <section class="co-sec" id="coLista" aria-label="Todos os colaboradores">
-    <h2><span>Todos os colaboradores</span><button type="button" class="co-ajuda" data-co="ajuda" data-secao="lista" aria-label="Tutorial da lista">?</button></h2>
-    <div id="coCartoes"><p class="co-fraco"><span data-carregando="Carregando" data-tam="p"></span> Carregando…</p></div>
+  <section class="co-sec" id="coLista" aria-label="Todos os colaboradores" data-dg-i18n-aria-label="3688fb3b17ee">
+    <h2><span><!--dg-i18n:3688fb3b17ee-->Todos os colaboradores<!--/dg-i18n--></span><button type="button" class="co-ajuda" data-co="ajuda" data-secao="lista" aria-label="Tutorial da lista" data-dg-i18n-aria-label="d69c9eb44809">?</button></h2>
+    <div id="coCartoes"><p class="co-fraco"><span data-carregando="Carregando" data-tam="p"></span> <!--dg-i18n:6cc1bbba0f84-->Carregando…<!--/dg-i18n--></p></div>
   </section>
 </main>
 

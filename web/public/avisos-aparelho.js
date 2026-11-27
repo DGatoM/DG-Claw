@@ -1,4 +1,5 @@
 'use strict';
+const dgUiText_avisos_aparelho_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* avisos-aparelho.js: liga e desliga os avisos (web push) neste aparelho. Sem dependências.
    Expõe window.DGClawAvisos = { suportado, estado, ativar, desativar, testar, preferencias, salvarPreferencia }.
    Quem desenha o botão chama estas funções; nada aqui mexe na tela.
@@ -40,7 +41,7 @@
         body: corpo === undefined ? undefined : JSON.stringify(corpo),
       });
     } catch (e) {
-      return { ok: false, erro: 'Não consegui falar com o servidor (' + e.message + '). Confira a conexão e tente de novo.' };
+      return { ok: false, erro: dgUiText_avisos_aparelho_js("Não consegui falar com o servidor (") + e.message + dgUiText_avisos_aparelho_js("). Confira a conexão e tente de novo.") };
     }
     let json = null;
     try { json = await resp.json(); } catch (e) { console.warn('avisos: a resposta de ' + caminho + ' não veio em JSON:', e.message); }
@@ -89,17 +90,17 @@
   }
 
   async function ativar(nomeAparelho) {
-    if (iphoneSemInstalar()) return { ok: false, erro: TEXTO_IPHONE };
-    if (!suportado()) return { ok: false, erro: 'Este navegador não aceita avisos. Use o Chrome, o Edge ou o Firefox no computador ou no Android, ou instale o DG Claw na tela de início do iPhone.' };
+    if (iphoneSemInstalar()) return { ok: false, erro: dgUiText_avisos_aparelho_js(TEXTO_IPHONE) };
+    if (!suportado()) return { ok: false, erro: dgUiText_avisos_aparelho_js("Este navegador não aceita avisos. Use o Chrome, o Edge ou o Firefox no computador ou no Android, ou instale o DG Claw na tela de início do iPhone.") };
     if (Notification.permission === 'denied') {
-      return { ok: false, erro: 'Os avisos estão bloqueados para este site. Libere nas configurações do navegador (ícone de cadeado ao lado do endereço, Notificações, Permitir) e ative de novo.' };
+      return { ok: false, erro: dgUiText_avisos_aparelho_js("Os avisos estão bloqueados para este site. Libere nas configurações do navegador (ícone de cadeado ao lado do endereço, Notificações, Permitir) e ative de novo.") };
     }
     let permissao;
     try { permissao = await Notification.requestPermission(); } catch (e) {
-      return { ok: false, erro: 'O navegador não conseguiu pedir a permissão de avisos (' + e.message + '). Tente de novo.' };
+      return { ok: false, erro: dgUiText_avisos_aparelho_js("O navegador não conseguiu pedir a permissão de avisos (") + e.message + dgUiText_avisos_aparelho_js("). Tente de novo.") };
     }
     if (permissao !== 'granted') {
-      return { ok: false, erro: 'A permissão de avisos não foi concedida. Toque em Ativar de novo e escolha Permitir quando o navegador perguntar.' };
+      return { ok: false, erro: dgUiText_avisos_aparelho_js("A permissão de avisos não foi concedida. Toque em Ativar de novo e escolha Permitir quando o navegador perguntar.") };
     }
     const k = await chamar('GET', '/api/v1/push/chave');
     if (!k.ok) return { ok: false, erro: k.erro };
@@ -115,7 +116,7 @@
       }
       if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: chave });
     } catch (e) {
-      return { ok: false, erro: 'Não consegui registrar este aparelho no serviço de avisos do navegador (' + e.message + '). Atualize a página e tente de novo; se continuar, confira se o navegador está atualizado.' };
+      return { ok: false, erro: dgUiText_avisos_aparelho_js("Não consegui registrar este aparelho no serviço de avisos do navegador (") + e.message + dgUiText_avisos_aparelho_js("). Atualize a página e tente de novo; se continuar, confira se o navegador está atualizado.") };
     }
     const corpo = Object.assign({}, sub.toJSON(), { aparelho: (nomeAparelho || nomeDoAparelho()).slice(0, 60) });
     const r = await chamar('POST', '/api/v1/push/inscricoes', corpo);
@@ -127,14 +128,14 @@
     if (!suportado()) return { ok: true };
     let sub;
     try { sub = await assinaturaAtual(); } catch (e) {
-      return { ok: false, erro: 'Não consegui ler a inscrição deste aparelho (' + e.message + '). Recarregue a página e tente de novo.' };
+      return { ok: false, erro: dgUiText_avisos_aparelho_js("Não consegui ler a inscrição deste aparelho (") + e.message + dgUiText_avisos_aparelho_js("). Recarregue a página e tente de novo.") };
     }
     if (!sub) return { ok: true };
     const endpoint = sub.endpoint;
     const r = await chamar('POST', '/api/v1/push/inscricoes/remover', { endpoint });
     if (!r.ok && r.status !== 404) return { ok: false, erro: r.erro };
     try { await sub.unsubscribe(); } catch (e) {
-      return { ok: false, erro: 'O servidor já esqueceu este aparelho, mas o navegador não conseguiu cancelar a inscrição (' + e.message + '). Limpe a permissão de notificações do site nas configurações do navegador.' };
+      return { ok: false, erro: dgUiText_avisos_aparelho_js("O servidor já esqueceu este aparelho, mas o navegador não conseguiu cancelar a inscrição (") + e.message + dgUiText_avisos_aparelho_js("). Limpe a permissão de notificações do site nas configurações do navegador.") };
     }
     return { ok: true };
   }

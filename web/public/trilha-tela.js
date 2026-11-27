@@ -1,4 +1,5 @@
 'use strict';
+const dgUiText_trilha_tela_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* trilha-tela.js: a parte pura da trilha de comandos, do cartão de permissão e do aviso de fila.
 
    Sem DOM e sem rede: agrupa os itens da trilha, monta os rótulos e os textos. O desenho e as
@@ -27,7 +28,7 @@
   function rotuloGrupo(itens) {
     if (itens.length === 1) return 'rodou: ' + itens[0].trilha.titulo;
     const erros = itens.filter(i => i.trilha.erro).length;
-    return 'rodou ' + itens.length + ' comandos' + (erros ? ' (' + erros + ' com erro)' : '');
+    return 'rodou ' + itens.length + ' comandos' + (erros ? ' (' + erros + dgUiText_trilha_tela_js(" com erro)") : '');
   }
 
   /** Há quanto tempo a mensagem espera, em palavras ("há 3 min"). Vazio quando é pouco ou não se sabe. */
@@ -36,7 +37,7 @@
     const seg = Math.floor((agoraMs - desdeMs) / 1000);
     if (seg < 60) return '';
     const min = Math.floor(seg / 60);
-    return min < 60 ? 'há ' + min + ' min' : 'há ' + Math.floor(min / 60) + ' h';
+    return min < 60 ? dgUiText_trilha_tela_js("há ") + min + ' min' : dgUiText_trilha_tela_js("há ") + Math.floor(min / 60) + ' h';
   }
 
   /** Por que a mensagem está na fila, na frase que o balão mostra. Com `desdeMs` e `agoraMs`, diz há quanto tempo. */
@@ -44,15 +45,15 @@
     if (motivo !== 'permissao' && motivo !== 'resposta' && motivo !== 'pergunta') return '';
     const espera = esperaFila(desdeMs, agoraMs);
     const quando = espera ? ' ' + espera : '';
-    if (motivo === 'pergunta') return 'na fila' + quando + ': o agente fez uma pergunta e espera a resposta dela';
+    if (motivo === 'pergunta') return 'na fila' + quando + dgUiText_trilha_tela_js(": o agente fez uma pergunta e espera a resposta dela");
     // se o agente passou a esperar permissão depois do envio, essa é a razão de verdade
-    if (estaEsperandoPermissao || motivo === 'permissao') return 'na fila' + quando + ': o agente está esperando a sua permissão';
-    return 'na fila' + quando + ': o agente ainda está respondendo a anterior';
+    if (estaEsperandoPermissao || motivo === 'permissao') return 'na fila' + quando + dgUiText_trilha_tela_js(": o agente está esperando a sua permissão");
+    return 'na fila' + quando + dgUiText_trilha_tela_js(": o agente ainda está respondendo a anterior");
   }
 
   /** O que o cartão de permissão descreve: "Bash: <comando>" ou um aviso de que o detalhe não veio. */
   function descricaoPedido(p) {
-    if (!p || !p.titulo) return 'O agente não informou o que quer fazer. Abra o terminal dele para ver.';
+    if (!p || !p.titulo) return dgUiText_trilha_tela_js("O agente não informou o que quer fazer. Abra o terminal dele para ver.");
     return p.ferramenta + ': ' + (p.comando || p.titulo);
   }
 

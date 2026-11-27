@@ -1,4 +1,7 @@
 'use strict';
+const dgUiText_suporte_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiLabel_suporte_js = (el, fonte, atributo, valores) => { if (globalThis.DGI18n) globalThis.DGI18n.rotulo(el, fonte, atributo, valores); else { const texto = fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m, k) => valores && Object.hasOwn(valores, k) ? String(valores[k]) : m); if (atributo) el.setAttribute(atributo, texto); else el.textContent = texto; } };
+const dgTexto_suporte = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* suporte.js: a tela /suporte (Suporte remoto).
 
    Fala com /api/v1/chaves-api (lista, cria, revoga) e com /api/v1/diagnostico (o mesmo que a chave de suporte lê).
@@ -31,9 +34,9 @@
 
   /* Título do grupo de verificações: máquina, admin ou um agente. */
   function tituloGrupo(chave) {
-    if (chave === 'maquina') return 'Máquina';
+    if (chave === 'maquina') return dgUiText_suporte_js("Máquina");
     if (chave === 'admin') return 'Admin';
-    if (chave.indexOf('agente:') === 0) return 'Agente ' + chave.slice(7);
+    if (chave.indexOf('agente:') === 0) return dgUiText_suporte_js("Agente ") + chave.slice(7);
     return chave.charAt(0).toUpperCase() + chave.slice(1);
   }
 
@@ -62,7 +65,7 @@
   /* Junta o erro da API com o "como resolver", se vier. */
   function textoDoErro(json, status) {
     if (json && json.erro) return json.erro + (json.como_resolver ? ' ' + json.como_resolver : '');
-    return 'O servidor respondeu ' + status + ' sem explicar o motivo.';
+    return 'O servidor respondeu ' + status + dgUiText_suporte_js(" sem explicar o motivo.");
   }
 
   /* Linhas de evidência de uma verificação: o sinal fixo e as categorias de erro (nunca texto de log). */
@@ -70,11 +73,11 @@
     const linhas = [];
     if (!ev || typeof ev !== 'object') return linhas;
     if (ev.sinal) linhas.push('Sinal: ' + ev.sinal);
-    if (ev.codigo_saida != null) linhas.push('Código de saída: ' + ev.codigo_saida);
+    if (ev.codigo_saida != null) linhas.push(dgUiText_suporte_js("Código de saída: ") + ev.codigo_saida);
     if (Array.isArray(ev.ocorrencias)) {
       for (const o of ev.ocorrencias) {
         if (!o || !o.frase) continue;
-        const quando = o.ultima_em ? ', última em ' + (dataHora(o.ultima_em) || o.ultima_em) : '';
+        const quando = o.ultima_em ? dgUiText_suporte_js(", última em ") + (dataHora(o.ultima_em) || o.ultima_em) : '';
         linhas.push('Erro: ' + o.frase + ' (' + o.quantidade + (o.quantidade === 1 ? ' vez' : ' vezes') + quando + ')');
       }
     }
@@ -108,12 +111,12 @@
     if (corpo !== undefined) { opcoes.body = JSON.stringify(corpo); opcoes.headers['Content-Type'] = 'application/json'; }
     let r;
     try { r = await fetch(url, opcoes); } catch (e) {
-      return { ok: false, status: 0, json: null, erro: 'Não consegui falar com o servidor (' + e.message + '). Confira a conexão e tente de novo.' };
+      return { ok: false, status: 0, json: null, erro: dgUiText_suporte_js("Não consegui falar com o servidor (") + e.message + dgUiText_suporte_js("). Confira a conexão e tente de novo.") };
     }
     let json = null;
     try { json = await r.json(); } catch (_) { /* resposta sem JSON: o texto de erro cobre */ }
     if (r.status === 401) {
-      return { ok: false, status: 401, json, erro: 'Sua sessão acabou. Entre de novo em /login e volte a esta tela.' };
+      return { ok: false, status: 401, json, erro: dgUiText_suporte_js("Sua sessão acabou. Entre de novo em /login e volte a esta tela.") };
     }
     if (!r.ok || (json && json.ok === false)) return { ok: false, status: r.status, json, erro: textoDoErro(json, r.status) };
     return { ok: true, status: r.status, json };
@@ -127,9 +130,9 @@
         msg(idMsg, 'Copiado.', 'ok');
         return;
       }
-      throw new Error('o navegador não deixa copiar por aqui');
+      throw new Error(dgUiText_suporte_js("o navegador não deixa copiar por aqui"));
     } catch (e) {
-      msg(idMsg, 'Não consegui copiar sozinho (' + e.message + '). Selecione o texto e copie à mão.', 'erro');
+      msg(idMsg, dgUiText_suporte_js("Não consegui copiar sozinho (") + e.message + dgUiText_suporte_js("). Selecione o texto e copie à mão."), 'erro');
     }
   }
 
@@ -166,7 +169,7 @@
         const sim = el('button', 'sp-btn perigo', 'Sim, revogar');
         sim.type = 'button';
         sim.onclick = () => revogar(c, sim);
-        const nao = el('button', 'sp-btn', 'Cancelar');
+        const nao = el('button', 'sp-btn', dgTexto_suporte('Cancelar'));
         nao.type = 'button';
         nao.onclick = () => { confirmando = null; pintaChaves(); };
         acoes.appendChild(sim);
@@ -186,11 +189,11 @@
     const lista = $('chavesLista');
     lista.textContent = '';
     if (!chaves.length) {
-      $('chavesEstado').textContent = 'Nenhuma chave de suporte criada ainda. Ninguém de fora consegue ler o diagnóstico desta máquina.';
+      dgUiLabel_suporte_js($('chavesEstado'), "Nenhuma chave de suporte criada ainda. Ninguém de fora consegue ler o diagnóstico desta máquina.", null);
       return;
     }
     const ativas = chaves.filter(c => situacaoChave(c) === 'ativa').length;
-    $('chavesEstado').textContent = ativas + (ativas === 1 ? ' chave ativa' : ' chaves ativas') + ' de ' + chaves.length + '.';
+    dgUiLabel_suporte_js($('chavesEstado'), "{p0}{p1} de {p2}.", null, {p0: ativas, p1: ativas === 1 ? ' chave ativa' : ' chaves ativas', p2: chaves.length});
     // ativas primeiro, depois as revogadas; dentro de cada grupo a mais nova no alto
     const ordenadas = chaves.slice().sort((a, b) => (situacaoChave(a) === situacaoChave(b) ? String(b.criadaEm).localeCompare(String(a.criadaEm)) : (situacaoChave(a) === 'ativa' ? -1 : 1)));
     for (const c of ordenadas) lista.appendChild(cartaoChave(c));
@@ -199,7 +202,7 @@
   async function carregaChaves() {
     const r = await chamar('GET', '/api/v1/chaves-api');
     if (!r.ok) {
-      $('chavesEstado').textContent = 'Não consegui carregar as chaves. ' + r.erro;
+      dgUiLabel_suporte_js($('chavesEstado'), "Não consegui carregar as chaves. {p0}", null, {p0: r.erro});
       $('chavesLista').textContent = '';
       return;
     }
@@ -211,11 +214,11 @@
     ev.preventDefault();
     const nome = $('fNome').value.trim();
     msg('criarMsg', '');
-    if (!nome) { msg('criarMsg', 'Dê um nome à chave, por exemplo "Suporte DG".', 'erro'); return; }
+    if (!nome) { msg('criarMsg', dgUiText_suporte_js("Dê um nome à chave, por exemplo \"Suporte DG\"."), 'erro'); return; }
     $('btnCriar').disabled = true;
     const r = await chamar('POST', '/api/v1/chaves-api', { nome, escopos: ['diagnostico'] });
     $('btnCriar').disabled = false;
-    if (!r.ok) { msg('criarMsg', 'Não criei a chave. ' + r.erro, 'erro'); return; }
+    if (!r.ok) { msg('criarMsg', dgUiText_suporte_js("Não criei a chave. ") + r.erro, 'erro'); return; }
     $('tokenTexto').textContent = r.json.token;
     $('tokenCaixa').hidden = false;
     msg('criarMsg', 'Chave "' + r.json.chave.nome + '" criada.', 'ok');
@@ -227,10 +230,10 @@
     const r = await chamar('DELETE', '/api/v1/chaves-api?id=' + encodeURIComponent(c.id));
     confirmando = null;
     if (!r.ok) {
-      msg('msgGeral', 'Não revoguei a chave "' + c.nome + '". ' + r.erro, 'erro');
+      msg('msgGeral', dgUiText_suporte_js("Não revoguei a chave \"") + c.nome + '". ' + r.erro, 'erro');
     } else {
       msg('msgGeral', '');
-      msg('criarMsg', 'A chave "' + c.nome + '" foi revogada. O acesso acabou agora.', 'ok');
+      msg('criarMsg', 'A chave "' + c.nome + dgUiText_suporte_js("\" foi revogada. O acesso acabou agora."), 'ok');
     }
     await carregaChaves();
   }
@@ -240,8 +243,8 @@
     const estado = estadoValido(v.estado);
     const card = el('div', 'sp-check ' + estado);
     const topo = el('div', 'sp-check-topo');
-    topo.appendChild(el('b', null, v.nome || v.id || 'Verificação sem nome'));
-    topo.appendChild(el('span', 'sp-chip ' + estado, ROTULO_ESTADO[estado]));
+    topo.appendChild(el('b', null, v.nome || v.id || dgUiText_suporte_js("Verificação sem nome")));
+    topo.appendChild(el('span', 'sp-chip ' + estado, dgUiText_suporte_js(ROTULO_ESTADO[estado])));
     card.appendChild(topo);
     if (v.motivo) card.appendChild(el('p', null, v.motivo));
     if (v.o_que_fazer) {
@@ -260,7 +263,7 @@
     if (v.prompt_sugerido) {
       const caixa = el('div', 'sp-prompt');
       caixa.appendChild(el('pre', null, v.prompt_sugerido));
-      const b = el('button', 'sp-btn', 'Copiar');
+      const b = el('button', 'sp-btn', dgTexto_suporte('Copiar'));
       b.type = 'button';
       const idMsg = 'diagMsg';
       b.onclick = () => copiar(v.prompt_sugerido, idMsg);
@@ -278,14 +281,14 @@
     const r = d.resumo || {};
     const estado = estadoValido(r.estado);
     const caixa = el('div', 'sp-resumo ' + estado);
-    caixa.appendChild(el('p', null, r.frase || 'O diagnóstico não trouxe um resumo.'));
+    caixa.appendChild(el('p', null, r.frase || dgUiText_suporte_js("O diagnóstico não trouxe um resumo.")));
     const c = r.contagem || {};
-    const partes = ['ok', 'atencao', 'quebrado', 'nao_medido'].filter(k => typeof c[k] === 'number').map(k => c[k] + ' ' + ROTULO_ESTADO[k]);
+    const partes = ['ok', 'atencao', 'quebrado', 'nao_medido'].filter(k => typeof c[k] === 'number').map(k => c[k] + ' ' + dgUiText_suporte_js(ROTULO_ESTADO[k]));
     if (partes.length) caixa.appendChild(el('p', 'sp-fraco', partes.join(' · ')));
     const v = d.versao;
     if (v && v.instalada) {
-      caixa.appendChild(el('p', 'sp-fraco', 'Versão instalada: ' + v.instalada +
-        (v.atualizacao_disponivel ? ' (há versão nova' + (v.publicada ? ': ' + v.publicada : '') + ')' : '')));
+      caixa.appendChild(el('p', 'sp-fraco', dgUiText_suporte_js("Versão instalada: ") + v.instalada +
+        (v.atualizacao_disponivel ? dgUiText_suporte_js(" (há versão nova") + (v.publicada ? ': ' + v.publicada : '') + ')' : '')));
     }
     resumo.appendChild(caixa);
     $('diagQuando').textContent = d.gerado_em ? 'Gerado em ' + (dataHora(d.gerado_em) || d.gerado_em) : '';
@@ -300,11 +303,11 @@
   async function carregaDiagnostico() {
     const b = $('btnAtualizaDiag');
     b.disabled = true;
-    msg('diagMsg', 'Conferindo a máquina…');
+    msg('diagMsg', dgUiText_suporte_js("Conferindo a máquina…"));
     const r = await chamar('GET', '/api/v1/diagnostico');
     b.disabled = false;
     if (!r.ok) {
-      msg('diagMsg', 'Não consegui ler o diagnóstico. ' + r.erro, 'erro');
+      msg('diagMsg', dgUiText_suporte_js("Não consegui ler o diagnóstico. ") + r.erro, 'erro');
       return;
     }
     msg('diagMsg', '');
@@ -340,12 +343,12 @@
   };
 
   function ajuda(chave) {
-    if (!window.DGTour) { msg('msgGeral', 'A visita guiada não carregou. Recarregue a página.', 'erro'); return; }
+    if (!window.DGTour) { msg('msgGeral', dgUiText_suporte_js("A visita guiada não carregou. Recarregue a página."), 'erro'); return; }
     window.DGTour.inicia({ passos: [PASSOS[chave]] });
   }
 
   function tutorialPagina() {
-    if (!window.DGTour) { msg('msgGeral', 'A visita guiada não carregou. Recarregue a página.', 'erro'); return; }
+    if (!window.DGTour) { msg('msgGeral', dgUiText_suporte_js("A visita guiada não carregou. Recarregue a página."), 'erro'); return; }
     window.DGTour.inicia({ passos: [PASSOS.explica, PASSOS.chaves, PASSOS.criar, PASSOS.ve] });
   }
 

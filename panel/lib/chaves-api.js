@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 // chaves-api.js — as chaves de API do painel (Bearer): como OUTRO assistente opera
 // este agente sem abrir a tela.
 //
@@ -24,8 +25,8 @@ const PREFIXO = 'dgc_';
 const USO_MIN_INTERVALO_MS = 60 * 1000;
 
 function recusa(erro, status, howToFix) {
-  const r = { erro, status: status || 400 };
-  if (howToFix) r.howToFix = howToFix;
+  const r = dgIdiomaBackend.objeto({ erro, status: status || 400 });
+  if (howToFix) dgIdiomaBackend.definir(r, "howToFix", howToFix);
   return r;
 }
 
@@ -120,10 +121,10 @@ function buildChavesApi(config) {
       return recusa(`Não consegui gravar a chave de API: ${err.message}`, 500,
         'Quem administra a máquina confere se a pasta .dgclaw/panel do agente aceita escrita.');
     }
-    return {
+    return dgIdiomaBackend.objeto({
       ok: true, id: registro.id, nome: registro.nome, token, ultimos4: registro.ultimos4,
-      aviso: 'Guarde este token agora: ele não aparece de novo. O painel guarda só uma marca dele, e ninguém consegue recuperá-lo depois.',
-    };
+      aviso: dgIdiomaBackend.descricao("Guarde este token agora: ele não aparece de novo. O painel guarda só uma marca dele, e ninguém consegue recuperá-lo depois."),
+    });
   }
 
   function revogar(id, quem) {
@@ -141,7 +142,7 @@ function buildChavesApi(config) {
       console.error(`[painel] chaves de API: não consegui anotar a revogação em ${ARQUIVO}: ${err.message}`);
       return recusa(`Não consegui anotar a revogação: ${err.message}`, 500);
     }
-    return { ok: true, id: alvo.id, nome: alvo.nome, aviso: `A chave "${alvo.nome}" deixou de valer agora.` };
+    return dgIdiomaBackend.objeto({ ok: true, id: alvo.id, nome: alvo.nome, aviso: dgIdiomaBackend.descricao("A chave \"{p0}\" deixou de valer agora.", {p0:(alvo.nome)}) });
   }
 
   /**

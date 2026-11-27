@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Rotas do colaborador: a API do dono (/api/v1/colaboradores...) e a troca de senha do próprio
 // colaborador (/api/v1/eu/senha). Referência completa em web/docs/COLABORADORES.md.
 
@@ -62,20 +63,20 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
     const dado = corpo && typeof corpo.base === 'string' ? corpo.base.trim().replace(/\/+$/, '') : '';
     if (dado) {
       if (!/^https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?$/.test(dado)) {
-        const e = new Error(`O campo "base" precisa ser só o endereço (https://painel.exemplo.com), sem caminho. Recebi: ${dado.slice(0, 80)}.`);
+        const e = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("O campo \"base\" precisa ser só o endereço (https://painel.exemplo.com), sem caminho. Recebi: {p0}.", {p0: (dado.slice(0, 80))})]);
         e.status = 400;
         throw e;
       }
-      return { base: dado, aviso: null };
+      return dgIdiomaBackend.objeto({ base: dado, aviso: null });
     }
     const dominio = String((config.env && config.env.DGCLAW_DOMINIO) || '').trim();
-    if (/^[A-Za-z0-9.-]+$/.test(dominio) && dominio) return { base: `https://${dominio}`, aviso: null };
+    if (/^[A-Za-z0-9.-]+$/.test(dominio) && dominio) return dgIdiomaBackend.objeto({ base: `https://${dominio}`, aviso: null });
     const extra = [...(config.origensExtras || [])].find((o) => o.startsWith('https://'));
-    if (extra) return { base: extra, aviso: null };
-    return {
+    if (extra) return dgIdiomaBackend.objeto({ base: extra, aviso: null });
+    return dgIdiomaBackend.objeto({
       base: `http://127.0.0.1:${config.porta}`,
       aviso: 'Este DG Claw não tem domínio configurado, então o link do convite é o endereço local e só abre no próprio servidor. Configure um domínio (sudo dgclaw dominio trocar <nome>) ou passe o endereço de acesso à pessoa.',
-    };
+    });
   }
 
   /** Monta o convite, tenta o e-mail e devolve o objeto "convite" da resposta. A senha só existe aqui. */
@@ -90,18 +91,18 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
       quem: sessao.usuario, nomeAgente, nomePessoa: registroColab.nome, link, usuario: registroColab.email, senha, expira: registroColab.temporaria_expira,
     });
     const envio = await email.enviar({ para: registroColab.email, assunto: `Convite para conversar com o agente ${nomeAgente} no DG Claw`, texto });
-    return {
+    return dgIdiomaBackend.objeto({
       link, usuario: registroColab.email, senha_temporaria: senha, expira: registroColab.temporaria_expira,
       email_enviado: envio.enviado === true, email_motivo: envio.enviado ? null : envio.motivo, texto,
-      ...(aviso ? { aviso } : {}),
-    };
+      ...dgIdiomaBackend.espalhar(aviso ? dgIdiomaBackend.objeto({ aviso }) : {}),
+    });
   }
 
   function falha(res, e, contexto) {
-    if (e && e.ocupado) return H.erroJson(res, 429, e.message, { retryAfter: 2 }, { 'Retry-After': '2' });
-    if (e && e.status) return H.erroJson(res, e.status, e.message);
+    if (e && e.ocupado) return H.erroJson(res, 429, dgIdiomaBackend.campo(e, "message"), { retryAfter: 2 }, { 'Retry-After': '2' });
+    if (e && e.status) return H.erroJson(res, e.status, dgIdiomaBackend.campo(e, "message"));
     log('erro', `${contexto}: ${e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e}`);
-    return H.erroJson(res, 500, `${contexto}. O detalhe foi registrado no log do Web.`);
+    return H.erroJson(res, 500, dgIdiomaBackend.descricao("{p0}. O detalhe foi registrado no log do Web.", {p0: (contexto)}));
   }
 
   const ehDono = (sessao) => sessao && sessao.via !== 'caixa' && sessao.papel !== 'colaborador';
@@ -114,7 +115,7 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
     if (!ehDono(sessao)) { H.erroJson(res, 403, SO_DONO); return true; }
 
     if (p === '/api/v1/colaboradores/docs.md') {
-      if (m !== 'GET') { H.erroJson(res, 405, 'Use GET para ler a documentação.'); return true; }
+      if (m !== 'GET') { H.erroJson(res, 405, dgIdiomaBackend.descricao("Use GET para ler a documentação.")); return true; }
       res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' });
       res.end(fs.readFileSync(path.join(__dirname, '..', 'docs', 'COLABORADORES.md'), 'utf8'));
       return true;
@@ -128,24 +129,24 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
       }
       if (m === 'POST') {
         let corpo;
-        try { corpo = await H.lerJson(req, 8 * 1024); } catch (e) { H.erroJson(res, e.status || 400, e.message); return true; }
+        try { corpo = await H.lerJson(req, 8 * 1024); } catch (e) { H.erroJson(res, e.status || 400, dgIdiomaBackend.campo(e, "message")); return true; }
         try {
           const est = registro.estado();
-          if (!est.ok) { H.erroJson(res, 503, est.erro); return true; }
+          if (!est.ok) { H.erroJson(res, 503, dgIdiomaBackend.campo(est, "erro")); return true; }
           const slug = typeof corpo.agente === 'string' ? corpo.agente : '';
-          if (!slug) { H.erroJson(res, 400, 'Diga para qual agente é o convite, no campo "agente" (o slug; veja GET /api/v1/agents).'); return true; }
+          if (!slug) { H.erroJson(res, 400, dgIdiomaBackend.descricao("Diga para qual agente é o convite, no campo \"agente\" (o slug; veja GET /api/v1/agents).")); return true; }
           const ag = registro.obter(slug);
-          if (!ag) { H.erroJson(res, 404, `Não existe agente com o id "${slug.slice(0, 40)}". Veja GET /api/v1/agents.`); return true; }
-          if (ag.tipo === 'admin') { H.erroJson(res, 400, 'O Admin nunca pode ser compartilhado: ele mexe no servidor inteiro. Convide para um agente de trabalho.'); return true; }
+          if (!ag) { H.erroJson(res, 404, dgIdiomaBackend.descricao("Não existe agente com o id \"{p0}\". Veja GET /api/v1/agents.", {p0: (slug.slice(0, 40))})); return true; }
+          if (ag.tipo === 'admin') { H.erroJson(res, 400, dgIdiomaBackend.descricao("O Admin nunca pode ser compartilhado: ele mexe no servidor inteiro. Convide para um agente de trabalho.")); return true; }
           const mail = colaboradores.normalizaEmail(corpo.email);
           if (mail === String(auth.usuario || '').trim().toLowerCase()) {
-            H.erroJson(res, 400, 'Esse e-mail é o do próprio dono do DG Claw (o usuário do login). Informe o e-mail do colaborador.');
+            H.erroJson(res, 400, dgIdiomaBackend.descricao("Esse e-mail é o do próprio dono do DG Claw (o usuário do login). Informe o e-mail do colaborador."));
             return true;
           }
           const instancia = instanciaDe(ag);
           if (!instancia) {
             log('erro', `Convite para ${slug} recusado: não consegui identificar a instância do agente (sem "instancia" no registro e a casa ${ag.home_host || '(sem home_host)'} não pôde ser lida).`);
-            H.erroJson(res, 500, `Não consegui identificar esta instância do agente ${slug} (casa ausente ou ilegível), e o convite precisa dela para não valer num agente recriado com o mesmo nome. Rode "dgclaw agente reparar ${slug}" e convide de novo.`);
+            H.erroJson(res, 500, dgIdiomaBackend.descricao("Não consegui identificar esta instância do agente {p0} (casa ausente ou ilegível), e o convite precisa dela para não valer num agente recriado com o mesmo nome. Rode \"dgclaw agente reparar {p1}\" e convide de novo.", {p0: (slug), p1: (slug)}));
             return true;
           }
           // Convite de um agente que foi removido e recriado com o mesmo nome não vale e não pode barrar o novo.
@@ -158,17 +159,17 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
         } catch (e) { falha(res, e, 'Não consegui criar o convite'); }
         return true;
       }
-      H.erroJson(res, 405, 'Use GET para listar e POST para convidar.');
+      H.erroJson(res, 405, dgIdiomaBackend.descricao("Use GET para listar e POST para convidar."));
       return true;
     }
 
     const mr = /^\/api\/v1\/colaboradores\/([^/]+)(?:\/(reenviar))?$/.exec(p);
     if (mr) {
       const id = decodeURIComponent(mr[1]);
-      if (!RX_ID.test(id)) { H.erroJson(res, 404, `Não existe colaborador com o id "${id.slice(0, 40)}". Veja GET /api/v1/colaboradores.`); return true; }
+      if (!RX_ID.test(id)) { H.erroJson(res, 404, dgIdiomaBackend.descricao("Não existe colaborador com o id \"{p0}\". Veja GET /api/v1/colaboradores.", {p0: (id.slice(0, 40))})); return true; }
       try {
         if (mr[2] === 'reenviar') {
-          if (m !== 'POST') { H.erroJson(res, 405, 'Use POST para mandar o convite de novo.'); return true; }
+          if (m !== 'POST') { H.erroJson(res, 405, dgIdiomaBackend.descricao("Use POST para mandar o convite de novo.")); return true; }
           let corpoReenvio = {};
           if (sessao.via === 'host') corpoReenvio = await H.lerJson(req, 8 * 1024);
           const r = await colaboradores.reenviar(id);
@@ -189,15 +190,15 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
           for (const a of enc.agentes) if (!contas.includes(a)) contas.push(a);
           if (contas.length) log('aviso', `${r.email} conectou, ou deixou em andamento, a conta de IA do agente ${contas.join(', ')} e ela pode continuar conectada depois da revogação. Se quiser, entre com a sua conta em Conectar conta para trocar.`);
           const resposta = { ok: true, colaborador: r, contas_de_ia: contas, avisos: enc.avisos };
-          if (!gravou) resposta.aviso = 'O acesso foi revogado e nenhuma sessão antiga vale, mas o disco não aceitou regravar o registro de sessões. Libere espaço no servidor e avise o Admin.';
+          if (!gravou) dgIdiomaBackend.definir(resposta, "aviso", 'O acesso foi revogado e nenhuma sessão antiga vale, mas o disco não aceitou regravar o registro de sessões. Libere espaço no servidor e avise o Admin.');
           H.enviaJson(res, 200, resposta);
           return true;
         }
-        H.erroJson(res, 405, 'Use DELETE para revogar o acesso, ou POST em /reenviar.');
+        H.erroJson(res, 405, dgIdiomaBackend.descricao("Use DELETE para revogar o acesso, ou POST em /reenviar."));
       } catch (e) { falha(res, e, 'Não consegui atualizar o colaborador'); }
       return true;
     }
-    H.erroJson(res, 404, `Não existe ${m} ${p}. As rotas estão em /api/v1/colaboradores/docs.md.`);
+    H.erroJson(res, 404, dgIdiomaBackend.descricao("Não existe {p0} {p1}. As rotas estão em /api/v1/colaboradores/docs.md.", {p0: (m), p1: (p)}));
     return true;
   }
 
@@ -213,48 +214,48 @@ function criarColaboradoresRotas({ colaboradores, auth, registro, email, config,
   /** POST /api/v1/eu/senha: o colaborador escolhe a senha dele. */
   async function trocarSenha(req, res, sessao) {
     if (sessao.papel !== 'colaborador') {
-      H.erroJson(res, 403, 'A senha do dono não se troca por aqui. No servidor, rode: sudo dgclaw senha');
+      H.erroJson(res, 403, dgIdiomaBackend.descricao("A senha do dono não se troca por aqui. No servidor, rode: sudo dgclaw senha"));
       return;
     }
     let corpo;
-    try { corpo = await H.lerJson(req, 8 * 1024); } catch (e) { H.erroJson(res, e.status || 400, e.message); return; }
+    try { corpo = await H.lerJson(req, 8 * 1024); } catch (e) { H.erroJson(res, e.status || 400, dgIdiomaBackend.campo(e, "message")); return; }
     const nova = typeof corpo.nova === 'string' ? corpo.nova : '';
     if (nova.length < SENHA_MIN || nova.length > SENHA_MAX) {
-      H.erroJson(res, 400, `A senha nova precisa ter de ${SENHA_MIN} a ${SENHA_MAX} caracteres (a sua tem ${nova.length}).`);
+      H.erroJson(res, 400, dgIdiomaBackend.descricao("A senha nova precisa ter de {p0} a {p1} caracteres (a sua tem {p2}).", {p0: (SENHA_MIN), p1: (SENHA_MAX), p2: (nova.length)}));
       return;
     }
-    if (nova !== corpo.confirmacao) { H.erroJson(res, 400, 'A confirmação não é igual à senha nova. Digite as duas de novo.'); return; }
+    if (nova !== corpo.confirmacao) { H.erroJson(res, 400, dgIdiomaBackend.descricao("A confirmação não é igual à senha nova. Digite as duas de novo.")); return; }
     // O corpo pode ter demorado: a sessão que autorizou este pedido tem de continuar valendo, e o registro tem de
     // estar na MESMA versão de senha em que ela nasceu (senão o convite foi reenviado, ou a senha trocada, no meio).
     const agoraSessao = auth.sessaoDoPedido(req);
     if (!agoraSessao || agoraSessao.papel !== 'colaborador' || agoraSessao.colaborador_id !== sessao.colaborador_id || agoraSessao.senha_versao !== sessao.senha_versao) {
-      H.erroJson(res, 401, 'A sua sessão deixou de valer enquanto você trocava a senha (o dono pode ter mandado um convite novo). Entre de novo.');
+      H.erroJson(res, 401, dgIdiomaBackend.descricao("A sua sessão deixou de valer enquanto você trocava a senha (o dono pode ter mandado um convite novo). Entre de novo."));
       return;
     }
     const c = colaboradores.obter(sessao.colaborador_id);
-    if (!c || c.revogado_em) { H.erroJson(res, 401, 'Seu acesso não vale mais. Peça ao dono do DG Claw um convite novo.'); return; }
+    if (!c || c.revogado_em) { H.erroJson(res, 401, dgIdiomaBackend.descricao("Seu acesso não vale mais. Peça ao dono do DG Claw um convite novo.")); return; }
     if ((c.senha_versao || 1) !== sessao.senha_versao) {
-      H.erroJson(res, 409, 'Sua senha ou seu convite mudou enquanto você trocava a senha (o dono pode ter mandado um convite novo). Entre de novo com a senha mais recente.');
+      H.erroJson(res, 409, dgIdiomaBackend.descricao("Sua senha ou seu convite mudou enquanto você trocava a senha (o dono pode ter mandado um convite novo). Entre de novo com a senha mais recente."));
       return;
     }
-    if (c.trocar_senha && Number(c.temporaria_expira) < relogio()) { H.erroJson(res, 401, 'A senha temporária venceu. Peça ao dono do DG Claw um convite novo.'); return; }
+    if (c.trocar_senha && Number(c.temporaria_expira) < relogio()) { H.erroJson(res, 401, dgIdiomaBackend.descricao("A senha temporária venceu. Peça ao dono do DG Claw um convite novo.")); return; }
     // O que este pedido viu: a gravação só passa se isso ainda for verdade no momento de gravar (ver definirSenha).
     const esperado = { versao: sessao.senha_versao, hash: c.hash, trocar_senha: !!c.trocar_senha };
     const chaves = [`colab:${c.id}`, `ip:${H.ipDoPedido(req, config.proxiesConfiaveis)}`];
     try {
       if (!c.trocar_senha) {
-        if (typeof corpo.atual !== 'string' || !corpo.atual) { H.erroJson(res, 400, 'Informe a senha atual no campo "atual".'); return; }
+        if (typeof corpo.atual !== 'string' || !corpo.atual) { H.erroJson(res, 400, dgIdiomaBackend.descricao("Informe a senha atual no campo \"atual\".")); return; }
         const espera = bloqueioDe(chaves);
         if (espera) {
           log('aviso', `Troca de senha de ${c.email} bloqueada: ${MAX_FALHAS_SENHA} erros da senha atual em 15 min.`);
-          H.erroJson(res, 429, `Muitos erros na senha atual. Tente de novo em ${Math.ceil(espera / 60)} min.`, { retryAfter: espera }, { 'Retry-After': String(espera) });
+          H.erroJson(res, 429, dgIdiomaBackend.descricao("Muitos erros na senha atual. Tente de novo em {p0} min.", {p0: (Math.ceil(espera / 60))}), { retryAfter: espera }, { 'Retry-After': String(espera) });
           return;
         }
-        if (!(await auth.senhaConfereHash(corpo.atual, c.hash))) { registraFalha(chaves); H.erroJson(res, 403, 'A senha atual não confere.'); return; }
+        if (!(await auth.senhaConfereHash(corpo.atual, c.hash))) { registraFalha(chaves); H.erroJson(res, 403, dgIdiomaBackend.descricao("A senha atual não confere.")); return; }
         for (const k of chaves) falhasDeSenha.delete(k);
       }
       if (await auth.senhaConfereHash(nova, c.hash)) {
-        H.erroJson(res, 400, c.trocar_senha ? 'A senha nova precisa ser diferente da senha temporária.' : 'A senha nova precisa ser diferente da atual.');
+        H.erroJson(res, 400, c.trocar_senha ? dgIdiomaBackend.descricao("A senha nova precisa ser diferente da senha temporária.") : dgIdiomaBackend.descricao("A senha nova precisa ser diferente da atual."));
         return;
       }
       const hash = await auth.gerarHash(nova);

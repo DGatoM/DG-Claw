@@ -1,3 +1,12 @@
+// Local UI attributes carry catalogue keys so switching language preserves their elements.
+const dgAttrFull_apps = (nome,fonte) => { const api=globalThis.DGI18n; if(api && api.atributo) return api.atributo(nome,fonte); const escape=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); const token=api ? api.fragmento(fonte).match(/^<!--dg-i18n:([a-f0-9]{12})-->/) : null; return (token ? "data-dg-i18n-"+nome+"=\""+token[1]+"\" " : "")+nome+"=\""+escape(api ? api.t(fonte) : fonte)+"\""; };
+const dgHtmlFull_apps = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, "");
+const dgTextFull_apps = fonte => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.t(trecho)) : fonte;
+const dgPhraseFull_apps = (fonte, valores) => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.frase(trecho, valores)) : fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m,k) => valores && Object.hasOwn(valores,k) ? String(valores[k]) : m);
+const dgFragFull_apps = (fonte, valores) => globalThis.DGI18n ? globalThis.DGI18n.fragmento(fonte, valores) : dgPhraseFull_apps(fonte,valores).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;", "'":"&#39;"}[c]));
+const dgBindFull_apps = (el, fonte, atributo, valores) => { if (globalThis.DGI18n) return globalThis.DGI18n.rotulo(el,fonte,atributo,valores); const valor=dgPhraseFull_apps(fonte,valores); if(atributo) el.setAttribute(atributo,valor); else el.textContent=valor; };
+
+const dgHtml_apps = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 // apps.js — a tela da aba Apps.
 //
 // O QUE ELA MOSTRA: os aplicativos que o agente opera e, dentro do primeiro deles
@@ -211,7 +220,7 @@
   }
 
   function erro(motivo) {
-    return `<div class="app-erro"><strong>Não consegui mostrar isto.</strong><p>${esc(motivo)}</p></div>`;
+    return dgHtmlFull_apps(`<div class="app-erro"><strong><!--dg-i18n:511d32ebc95f-->Não consegui mostrar isto.<!--/dg-i18n--></strong><p>${esc(motivo)}</p></div>`);
   }
 
   // ─── Estado da tela ──────────────────────────────────────────
@@ -225,14 +234,14 @@
   async function carregar() {
     const el = raiz();
     if (!el) return;
-    el.innerHTML = '<div class="app-carregando">Carregando...</div>';
+    el.innerHTML = dgHtml_apps("<div class=\"app-carregando\"><!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>");
 
     const r = await pegar('/api/apps');
-    if (!r.ok) { el.innerHTML = erro(r.corpo.error || `O painel respondeu ${r.status}.`); return; }
+    if (!r.ok) { el.innerHTML = erro(r.corpo.error || dgPhraseFull_apps("O painel respondeu {v0}.",{v0:(r.status)})); return; }
 
     const { apps, motivo } = r.corpo;
     if (!apps || !apps.length) {
-      el.innerHTML = vazio('Nenhum aplicativo instalado', motivo);
+      el.innerHTML = vazio(dgTextFull_apps("Nenhum aplicativo instalado"), motivo);
       return;
     }
     if (!appAtual || !apps.some((a) => a.key === appAtual)) appAtual = apps[0].key;
@@ -248,24 +257,24 @@
     const atual = apps.find((a) => a.key === appAtual);
     if (!atual.suportado) {
       el.innerHTML = seletor + vazio(
-        `O app "${atual.nome}" ainda não tem tela`,
-        `Ele é do tipo "${atual.tipo}", que este painel ainda não sabe mostrar. O agente continua operando o app normalmente; o que falta é a visualização aqui.`,
+        dgPhraseFull_apps("O app \"{v0}\" ainda não tem tela",{v0:(atual.nome)}),
+        dgPhraseFull_apps("Ele é do tipo \"{v0}\", que este painel ainda não sabe mostrar. O agente continua operando o app normalmente; o que falta é a visualização aqui.",{v0:(atual.tipo)}),
       );
       ligarSeletor();
       return;
     }
 
-    el.innerHTML = seletor + `<div class="app-cabeca">
+    el.innerHTML = seletor + dgHtmlFull_apps(`<div class="app-cabeca">
         <div class="app-cabeca-linha">
           <h2 title="${esc(atual.descricao)}">${esc(atual.nome)}</h2>
           <button type="button" class="app-tutorial-abrir" id="app-tutorial-abrir"
-                  title="Uma visita guiada por esta tela, passo a passo.">Tutorial</button>
+                  data-dg-i18n-title="0fb8e9479f21" title="Uma visita guiada por esta tela, passo a passo.">Tutorial</button>
           <button type="button" class="app-ajuda-secao" data-tutorial="cabeca"
-                  aria-label="O que é este app" title="O que é este app">?</button>
+                  data-dg-i18n-aria-label="220297521202" aria-label="O que é este app" data-dg-i18n-title="220297521202" title="O que é este app">?</button>
         </div>
         <p>${esc(atual.descricao)}</p>
       </div>
-      <div id="app-corpo"><div class="app-carregando">Carregando...</div></div>`;
+      <div id="app-corpo"><div class="app-carregando"><!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div></div>`);
     ligarSeletor();
     const btnTutorial = document.getElementById('app-tutorial-abrir');
     if (btnTutorial) btnTutorial.addEventListener('click', () => abrirTutorial());
@@ -294,11 +303,11 @@
     if (!corpo) return;
 
     const r = await pegar(`/api/apps/${encodeURIComponent(appAtual)}/conteudos`);
-    if (!r.ok) { corpo.innerHTML = erro(r.corpo.error || `O painel respondeu ${r.status}.`); return; }
+    if (!r.ok) { corpo.innerHTML = erro(r.corpo.error || dgPhraseFull_apps("O painel respondeu {v0}.",{v0:(r.status)})); return; }
 
     const { projetos, motivo } = r.corpo;
     if (!projetos || !projetos.length) {
-      corpo.innerHTML = vazio('Nenhum conteúdo ainda', motivo);
+      corpo.innerHTML = vazio(dgTextFull_apps("Nenhum conteúdo ainda"), motivo);
       return;
     }
 
@@ -308,32 +317,32 @@
 
   /** O selo de "isto eu deduzi", com o mesmo nome e a mesma frase em toda a aba. */
   function seloDeduzido() {
-    return `<span class="app-selo-deduzido" title="${esc(SELO_DEDUZIDO_AJUDA)}">${esc(SELO_DEDUZIDO_TEXTO)}</span>`;
+    return `<span class="app-selo-deduzido" ${dgAttrFull_apps("title",SELO_DEDUZIDO_AJUDA)}>${dgFragFull_apps(SELO_DEDUZIDO_TEXTO)}</span>`;
   }
 
   function cartao(p) {
     const { concluidas, total } = p.progresso || { concluidas: 0, total: 0 };
     const selo = p.temEstado ? '' : seloDeduzido();
-    const ajudaProgresso = `Etapas prontas sobre o total deste conteúdo: ${concluidas} de ${total}. `
-      + 'Etapa marcada como "não se aplica" sai da conta, dos dois lados.';
-    return `
+    const ajudaProgresso = dgPhraseFull_apps("Etapas prontas sobre o total deste conteúdo: {v0} de {v1}. ",{v0:(concluidas),v1:(total)})
+      + dgTextFull_apps("Etapa marcada como \"não se aplica\" sai da conta, dos dois lados.");
+    return dgHtmlFull_apps(`
       <article class="app-card" data-slug="${esc(p.slug)}">
         <header class="app-card-topo">
           <div>
             <h3>${esc(p.titulo)}</h3>
-            <span class="app-card-meta" title="A data em que o agente abriu este conteúdo e o nome da pasta dele no disco.">${esc(dataCurta(p.data))} · ${esc(p.slug)} ${selo}</span>
+            <span class="app-card-meta" data-dg-i18n-title="42a3d0d0b75b" title="A data em que o agente abriu este conteúdo e o nome da pasta dele no disco.">${esc(dataCurta(p.data))} · ${esc(p.slug)} ${selo}</span>
           </div>
           <span class="app-card-cantos">
             <span class="app-progresso" title="${esc(ajudaProgresso)}">${concluidas}/${total}</span>
             <button type="button" class="app-ajuda-secao" data-tutorial="cartao"
-                    aria-label="O que este cartão mostra" title="O que este cartão mostra">?</button>
+                    data-dg-i18n-aria-label="48729487f1a2" aria-label="O que este cartão mostra" data-dg-i18n-title="48729487f1a2" title="O que este cartão mostra">?</button>
           </span>
         </header>
         <div class="app-regua">
           ${(p.etapas || []).map((e) => etapaBotao(p.slug, e)).join('')}
         </div>
         <div class="app-etapa-aberta" id="etapa-${esc(p.slug)}"></div>
-      </article>`;
+      </article>`);
   }
 
   /**
@@ -361,7 +370,7 @@
    */
   function ajudaDoStatus(e) {
     if (e.porQue) return e.porQue;
-    return STATUS_AJUDA[e.status] || `Status "${e.status}", que esta tela ainda não sabe explicar.`;
+    return STATUS_AJUDA[e.status] || dgPhraseFull_apps("Status \"{v0}\", que esta tela ainda não sabe explicar.",{v0:(e.status)});
   }
 
   function etapaBotao(slug, e) {
@@ -369,18 +378,18 @@
     const ajudaStatus = ajudaDoStatus(e);
     const resumo = e.resumo
       ? `<span class="app-etapa-resumo">${esc(e.resumo)}</span>`
-      : '<span class="app-etapa-resumo vazio" title="O agente não deixou uma linha de resumo desta etapa. Abra para ver o arquivo inteiro.">sem resumo</span>';
-    return `
+      : dgHtmlFull_apps(`<span class="app-etapa-resumo vazio" data-dg-i18n-title="79378b7008d6" title="O agente não deixou uma linha de resumo desta etapa. Abra para ver o arquivo inteiro."><!--dg-i18n:df80eb8a326c-->sem resumo<!--/dg-i18n--></span>`);
+    return dgHtmlFull_apps(`
       <button type="button" class="app-etapa st-${esc(e.status)}" data-slug="${esc(slug)}" data-etapa="${esc(e.key)}"
-              title="Clique para ver o que esta etapa produziu.">
+              data-dg-i18n-title="b74fda22d319" title="Clique para ver o que esta etapa produziu.">
         <span class="app-etapa-topo">
           <span class="app-bolinha" title="${esc(ajudaStatus)}"></span>
           <span class="app-etapa-nome">${esc(e.nome)}</span>
-          <span class="app-etapa-status" title="${esc(ajudaStatus)}">${esc(rotulo)}</span>
+          <span class="app-etapa-status" title="${esc(ajudaStatus)}">${dgFragFull_apps(rotulo)}</span>
         </span>
         ${resumo}
         ${avisoDaEtapa(e)}
-      </button>`;
+      </button>`);
   }
 
   function ligarEtapas() {
@@ -449,44 +458,44 @@
   async function desenharEtapa(slug, etapaKey) {
     const alvo = document.getElementById(`etapa-${slug}`);
     if (!alvo) return;
-    alvo.innerHTML = '<div class="app-carregando">Carregando...</div>';
+    alvo.innerHTML = dgHtml_apps("<div class=\"app-carregando\"><!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>");
 
     const r = await pegar(`/api/apps/${encodeURIComponent(appAtual)}/conteudos/${encodeURIComponent(slug)}`);
-    if (!r.ok) { alvo.innerHTML = erro(r.corpo.error || `O painel respondeu ${r.status}.`); return; }
+    if (!r.ok) { alvo.innerHTML = erro(r.corpo.error || dgPhraseFull_apps("O painel respondeu {v0}.",{v0:(r.status)})); return; }
 
     const etapa = (r.corpo.projeto.etapas || []).find((e) => e.key === etapaKey);
-    if (!etapa) { alvo.innerHTML = erro(`A etapa "${etapaKey}" não existe neste conteúdo.`); return; }
+    if (!etapa) { alvo.innerHTML = erro(dgPhraseFull_apps("A etapa \"{v0}\" não existe neste conteúdo.",{v0:(etapaKey)})); return; }
 
     const cabeca = `
       <div class="app-etapa-cabeca">
         <strong>${esc(etapa.nome)}</strong>
-        <span class="app-etapa-status" title="${esc(ajudaDoStatus(etapa))}">${esc(STATUS_ROTULO[etapa.status] || etapa.status)}</span>
+        <span class="app-etapa-status" ${dgAttrFull_apps("title",ajudaDoStatus(etapa))}>${dgFragFull_apps(STATUS_ROTULO[etapa.status] || etapa.status)}</span>
         ${etapa.origem === 'pasta' ? seloDeduzido() : ''}
-        ${etapa.atualizadoEm ? `<span class="app-etapa-meta" title="Quando o arquivo desta etapa foi escrito pela última vez.">${esc(dataCurta(etapa.atualizadoEm))}</span>` : ''}
+        ${etapa.atualizadoEm ? dgHtmlFull_apps(`<span class="app-etapa-meta" data-dg-i18n-title="9548345c9649" title="Quando o arquivo desta etapa foi escrito pela última vez.">${esc(dataCurta(etapa.atualizadoEm))}</span>`) : ''}
         ${botaoCompartilhar(slug, etapa)}
       </div>
       <div class="app-compartilhar-saida" id="compartilhar-${esc(slug)}"></div>
-      ${etapa.feedback ? `<div class="app-feedback"><strong>O que você pediu para refazer:</strong> ${esc(etapa.feedback)}</div>` : ''}`;
+      ${etapa.feedback ? dgHtmlFull_apps(`<div class="app-feedback"><strong><!--dg-i18n:833131c2ea63-->O que você pediu para refazer:<!--/dg-i18n--></strong> ${esc(etapa.feedback)}</div>`) : ''}`;
 
     if (etapa.pasta) {
-      alvo.innerHTML = cabeca + '<div class="app-carregando">Carregando o material...</div>';
+      alvo.innerHTML = cabeca + dgHtmlFull_apps(`<div class="app-carregando"><!--dg-i18n:ec8866c27377-->Carregando o material...<!--/dg-i18n--></div>`);
       await desenharAssets(alvo, cabeca, slug, etapa);
       return;
     }
 
     if (!etapa.arquivo) {
       alvo.innerHTML = cabeca + vazio(
-        'Esta etapa ainda não produziu nada',
-        'Quando o agente concluir esta etapa, o arquivo dela aparece aqui.',
+        dgTextFull_apps("Esta etapa ainda não produziu nada"),
+        dgTextFull_apps("Quando o agente concluir esta etapa, o arquivo dela aparece aqui."),
       );
       return;
     }
 
     const a = await pegar(`/api/apps/${encodeURIComponent(appAtual)}/conteudos/${encodeURIComponent(slug)}/arquivo/${encodeURIComponent(etapa.arquivo)}`);
-    if (!a.ok) { alvo.innerHTML = cabeca + erro(a.corpo.error || `O painel respondeu ${a.status}.`); return; }
+    if (!a.ok) { alvo.innerHTML = cabeca + erro(a.corpo.error || dgPhraseFull_apps("O painel respondeu {v0}.",{v0:(a.status)})); return; }
 
     const extras = (etapa.extras || []).length
-      ? `<div class="app-extras">Junto desta etapa: ${etapa.extras.map((x) => `<button type="button" class="app-extra" data-slug="${esc(slug)}" data-arquivo="${esc(x.arquivo)}">${esc(x.arquivo)}</button>`).join(' ')}</div>`
+      ? dgHtmlFull_apps(`<div class="app-extras"><!--dg-i18n:bc714c1431a1-->Junto desta etapa:<!--/dg-i18n--> ${etapa.extras.map((x) => `<button type="button" class="app-extra" data-slug="${esc(slug)}" data-arquivo="${esc(x.arquivo)}">${esc(x.arquivo)}</button>`).join(' ')}</div>`)
       : '';
 
     alvo.innerHTML = cabeca + extras +
@@ -501,12 +510,12 @@
   async function abrirExtra(alvo, slug, arquivo) {
     const caixa = document.createElement('div');
     caixa.className = 'app-markdown app-extra-corpo';
-    caixa.innerHTML = '<div class="app-carregando">Carregando...</div>';
+    caixa.innerHTML = dgHtml_apps("<div class=\"app-carregando\"><!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>");
     alvo.appendChild(caixa);
     const a = await pegar(`/api/apps/${encodeURIComponent(appAtual)}/conteudos/${encodeURIComponent(slug)}/arquivo/${encodeURIComponent(arquivo)}`);
     caixa.innerHTML = a.ok
       ? `<div class="app-arquivo-nome">${esc(arquivo)} · ${esc(bytes(a.corpo.bytes))}</div>` + md(a.corpo.texto)
-      : erro(a.corpo.error || `O painel respondeu ${a.status}.`);
+      : erro(a.corpo.error || dgPhraseFull_apps("O painel respondeu {v0}.",{v0:(a.status)}));
   }
 
   /**
@@ -522,10 +531,10 @@
    */
   function botaoCompartilhar(slug, etapa) {
     if (etapa.key !== 'roteiro' || !etapa.arquivo) return '';
-    return `<button type="button" class="app-compartilhar" data-compartilhar="${esc(slug)}"
-              title="Monta uma página com este roteiro e as imagens dentro, publica, e te devolve um link para mandar ao cliente. Quem abrir não precisa de senha.">
-        Gerar link para o cliente
-      </button>`;
+    return dgHtmlFull_apps(`<button type="button" class="app-compartilhar" data-compartilhar="${esc(slug)}"
+              data-dg-i18n-title="897d28fa9805" title="Monta uma página com este roteiro e as imagens dentro, publica, e te devolve um link para mandar ao cliente. Quem abrir não precisa de senha.">
+        <!--dg-i18n:2cd7fbb2fd77-->Gerar link para o cliente<!--/dg-i18n-->
+      </button>`);
   }
 
   /**
@@ -537,19 +546,18 @@
    */
   async function gerarLink(slug, botao) {
     const saida = document.getElementById(`compartilhar-${slug}`);
-    const rotulo = botao.textContent;
     botao.disabled = true;
-    botao.textContent = 'gerando...';
-    if (saida) saida.innerHTML = '<div class="app-carregando">Montando a página com as imagens dentro. Isso leva alguns segundos.</div>';
+    dgBindFull_apps(botao,'gerando...',undefined);
+    if (saida) saida.innerHTML = dgHtmlFull_apps(`<div class="app-carregando"><!--dg-i18n:8f144f3f20e7-->Montando a página com as imagens dentro. Isso leva alguns segundos.<!--/dg-i18n--></div>`);
 
     const r = await enviar(`/api/apps/${encodeURIComponent(appAtual)}/conteudos/${encodeURIComponent(slug)}/compartilhar`);
     botao.disabled = false;
-    botao.textContent = rotulo;
+    dgBindFull_apps(botao, 'Gerar link para o cliente');
     if (!saida) return;
 
     if (!r.ok) {
       const c = r.corpo || {};
-      saida.innerHTML = erro(c.error || `O painel respondeu ${r.status}.`)
+      saida.innerHTML = erro(c.error || dgPhraseFull_apps("O painel respondeu {v0}.",{v0:(r.status)}))
         + (c.howToFix ? `<div class="app-compartilhar-como">${esc(c.howToFix)}</div>` : '')
         + (c.detalhe ? `<div class="app-compartilhar-como">${esc(c.detalhe)}</div>` : '');
       return;
@@ -557,20 +565,24 @@
 
     const d = r.corpo;
     const fora = d.deFora
-      ? ` ${d.deFora} ${d.deFora === 1 ? 'arquivo não entrou' : 'arquivos não entraram'} (a própria página lista quais).`
+      ? dgFragFull_apps(d.deFora === 1
+        ? ' {quantidade} arquivo não entrou (a própria página lista quais).'
+        : ' {quantidade} arquivos não entraram (a própria página lista quais).', { quantidade: d.deFora })
       : '';
-    saida.innerHTML = `<div class="app-compartilhar-ok">
+    saida.innerHTML = dgHtmlFull_apps(`<div class="app-compartilhar-ok">
         <div class="app-compartilhar-linha">
           <input type="text" readonly value="${esc(d.url)}" id="url-${esc(slug)}"
-                 title="O endereço da página. Mande este link para o cliente.">
-          <button type="button" class="app-btn-copiar" data-copiar="url-${esc(slug)}">copiar</button>
-          <a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer" class="app-btn-abrir">abrir</a>
+                 data-dg-i18n-title="f5d88af3fe5d" title="O endereço da página. Mande este link para o cliente.">
+          <button type="button" class="app-btn-copiar" data-copiar="url-${esc(slug)}"><!--dg-i18n:9d14fb1e68df-->copiar<!--/dg-i18n--></button>
+          <a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer" class="app-btn-abrir"><!--dg-i18n:5d47f96d4360-->abrir<!--/dg-i18n--></a>
         </div>
         <p class="app-compartilhar-nota">
-          Pronto: ${d.embutidos} ${d.embutidos === 1 ? 'imagem entrou' : 'imagens entraram'} dentro do arquivo, ${esc(bytes(d.tamanho))} no total.${esc(fora)}
-          Quem abrir este link não precisa de senha, então mande só para quem deve ver.
+          ${dgFragFull_apps(d.embutidos === 1
+            ? 'Pronto: {quantidade} imagem entrou dentro do arquivo, {tamanho} no total.'
+            : 'Pronto: {quantidade} imagens entraram dentro do arquivo, {tamanho} no total.', { quantidade: d.embutidos, tamanho: bytes(d.tamanho) })}${fora}
+          ${dgFragFull_apps('Quem abrir este link não precisa de senha, então mande só para quem deve ver.')}
         </p>
-      </div>`;
+      </div>`);
     const b = saida.querySelector('[data-copiar]');
     if (b) b.addEventListener('click', () => {
       const campo = document.getElementById(b.dataset.copiar);
@@ -579,7 +591,7 @@
       // O clipboard moderno falha fora de HTTPS em alguns navegadores, e aí o
       // execCommand ainda funciona. Tentar os dois é a diferença entre copiar e
       // a pessoa achar que o botão não faz nada.
-      const feito = () => { b.textContent = 'copiado'; setTimeout(() => { b.textContent = 'copiar'; }, 1600); };
+      const feito = () => { dgBindFull_apps(b,'copiado',undefined); setTimeout(() => { dgBindFull_apps(b,"copiar",undefined,undefined); }, 1600); };
       if (navigator.clipboard) navigator.clipboard.writeText(campo.value).then(feito, () => { document.execCommand('copy'); feito(); });
       else { document.execCommand('copy'); feito(); }
     });
@@ -636,19 +648,19 @@
    * fica na própria linha para quem já sabe o que quer e não precisa do aviso.
    */
   function listaDeAssets(slug, itens) {
-    return `<ul class="app-assets-lista">${itens.map((x) => `
+    return `<ul class="app-assets-lista">${itens.map((x) => dgHtmlFull_apps(`
       <li>
         <button type="button" class="app-asset-linha" ${atributosDoAsset(slug, x)}
                 title="${esc(x.tipo === 'arquivo'
-                  ? `${x.nome} não é um formato que o navegador abre. Clique para ver o porquê e baixar.`
-                  : `Clique para abrir ${x.nome} aqui mesmo.`)}">
+                  ? dgPhraseFull_apps("{v0} não é um formato que o navegador abre. Clique para ver o porquê e baixar.",{v0:(x.nome)})
+                  : dgPhraseFull_apps("Clique para abrir {v0} aqui mesmo.",{v0:(x.nome)}))}">
           <span class="app-asset-tipo">${esc(x.tipo)}</span>
           <span class="app-asset-nome">${esc(x.nome)}</span>
           <span class="app-asset-bytes">${esc(bytes(x.bytes))}</span>
         </button>
         <a class="app-asset-baixar" href="${esc(urlDoAsset(slug, x.nome))}" download="${esc(x.nome)}"
-           title="Salva ${esc(x.nome)} no seu computador.">baixar</a>
-      </li>`).join('')}</ul>`;
+           title="Salva ${esc(x.nome)} no seu computador."><!--dg-i18n:8b0ded274a36-->baixar<!--/dg-i18n--></a>
+      </li>`)).join('')}</ul>`;
   }
 
   async function desenharAssets(alvo, cabeca, slug, etapa) {
@@ -668,28 +680,28 @@
       const lista = ass.corpo.assets || [];
       const imagens = lista.filter((x) => x.tipo === 'imagem');
       const outros = lista.filter((x) => x.tipo !== 'imagem');
-      const ajudaContagem = `Arquivos dentro da pasta ${ass.corpo.pasta || 'assets'} deste conteúdo, `
-        + 'contados no disco na hora em que você abriu esta etapa. Não é o que o catálogo pediu: é o que está lá.';
+      const ajudaContagem = dgPhraseFull_apps("Arquivos dentro da pasta {v0} deste conteúdo, ",{v0:(ass.corpo.pasta || 'assets')})
+        + dgTextFull_apps("contados no disco na hora em que você abriu esta etapa. Não é o que o catálogo pediu: é o que está lá.");
       html += lista.length
-        ? `<div class="app-assets">
+        ? dgHtmlFull_apps(`<div class="app-assets">
              <div class="app-assets-topo">
-               <span class="app-assets-titulo" title="${esc(ajudaContagem)}">${lista.length} arquivo(s) em ${esc(ass.corpo.pasta)}</span>
+               <span class="app-assets-titulo" title="${esc(ajudaContagem)}">${dgFragFull_apps("{v1} arquivo(s) em {v2}",{v1:(lista.length),v2:(ass.corpo.pasta)})}</span>
                <button type="button" class="app-ajuda-secao" data-tutorial="assets"
-                       aria-label="O que é este material" title="O que é este material">?</button>
+                       data-dg-i18n-aria-label="1553596ff6f6" aria-label="O que é este material" data-dg-i18n-title="1553596ff6f6" title="O que é este material">?</button>
              </div>
              ${imagens.length ? gradeDeImagens(slug, imagens) : ''}
              ${outros.length ? listaDeAssets(slug, outros) : ''}
-           </div>`
+           </div>`)
         : vazio('Nada baixado ainda', ass.corpo.motivo);
     } else {
-      html += erro(ass.corpo.error || `O painel respondeu ${ass.status}.`);
+      html += erro(ass.corpo.error || dgPhraseFull_apps("O painel respondeu {v0}.",{v0:(ass.status)}));
     }
 
     if (cat && cat.ok) {
       html += `<div class="app-arquivo-nome">${esc(cat.corpo.nome)} · ${esc(bytes(cat.corpo.bytes))}</div>` +
         `<div class="app-markdown">${md(cat.corpo.texto)}</div>`;
     } else if (cat && !cat.ok) {
-      html += erro(cat.corpo.error || `O painel respondeu ${cat.status}.`);
+      html += erro(cat.corpo.error || dgPhraseFull_apps("O painel respondeu {v0}.",{v0:(cat.status)}));
     }
 
     alvo.innerHTML = html;

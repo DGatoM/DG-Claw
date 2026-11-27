@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Cliente SMTP mínimo (Node puro, net e tls) só para mandar o convite do colaborador.
 // Configuração, toda opcional, no web.env: DGCLAW_SMTP_HOST, DGCLAW_SMTP_PORTA (465 = TLS direto,
 // 587 = STARTTLS obrigatório; outra porta exige STARTTLS), DGCLAW_SMTP_USUARIO, DGCLAW_SMTP_SENHA,
@@ -73,11 +74,11 @@ function criarEmail({ config, log }) {
   async function sessao({ para, assunto, texto }) {
     const dominio = (enderecoDe(remetente).split('@')[1] || 'dgclaw.local');
     const mensagem = montaMensagem({ remetente, para, assunto, texto, dominio });
-    const st = { sock: null, buf: '', linhas: [], prontas: [], esperas: [], erro: null };
+    const st = dgIdiomaBackend.objeto({ sock: null, buf: '', linhas: [], prontas: [], esperas: [], erro: null });
     let acabou = false;
 
     const rejeitaTudo = (err) => {
-      if (!st.erro) st.erro = err;
+      if (!st.erro) dgIdiomaBackend.definir(st, "erro", err);
       for (const w of st.esperas.splice(0)) w.reject(err);
     };
     const processa = () => {
@@ -99,15 +100,15 @@ function criarEmail({ config, log }) {
       st.sock = sock;
       // sem setEncoding: o mesmo socket pode virar TLS no STARTTLS e precisa entregar bytes crus
       sock.on('data', (d) => { st.buf += d.toString('utf8'); processa(); });
-      sock.on('error', (e) => rejeitaTudo(new Error(`falha na conexão (${e.code || e.message})`)));
-      sock.on('close', () => { if (!acabou) rejeitaTudo(new Error('o servidor SMTP fechou a conexão antes de terminar')); });
+      sock.on('error', (e) => rejeitaTudo(dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("falha na conexão ({p0})", {p0: (e.code || dgIdiomaBackend.campo(e, "message"))})])));
+      sock.on('close', () => { if (!acabou) rejeitaTudo(dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o servidor SMTP fechou a conexão antes de terminar")])); });
     };
     const resposta = () => {
       if (st.prontas.length) return Promise.resolve(st.prontas.shift());
       if (st.erro) return Promise.reject(st.erro);
       return new Promise((resolve, reject) => st.esperas.push({ resolve, reject }));
     };
-    const falhou = (etapa, r) => new Error(`o servidor SMTP respondeu "${r.linhas[r.linhas.length - 1]}" ${etapa}`);
+    const falhou = (etapa, r) => dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o servidor SMTP respondeu \"{p0}\" {p1}", {p0: (r.linhas[r.linhas.length - 1]), p1: (etapa)})]);
     // comando -> resposta; `esperados` são os códigos aceitos
     const cmd = async (linha, esperados, etapa) => {
       st.sock.write(linha + '\r\n');
@@ -117,19 +118,19 @@ function criarEmail({ config, log }) {
     };
 
     const direto = porta === 465;
-    const t = setTimeout(() => { rejeitaTudo(new Error(`o servidor SMTP não respondeu em ${TEMPO_TOTAL_MS / 1000} s`)); if (st.sock) st.sock.destroy(); }, TEMPO_TOTAL_MS);
+    const t = setTimeout(() => { rejeitaTudo(dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o servidor SMTP não respondeu em {p0} s", {p0: (TEMPO_TOTAL_MS / 1000)})])); if (st.sock) st.sock.destroy(); }, TEMPO_TOTAL_MS);
     try {
       await new Promise((resolve, reject) => {
         const opcoes = { host, port: porta };
         const s = direto
-          ? tls.connect(Object.assign({ servername: net.isIP(host) ? undefined : host, rejectUnauthorized: true }, opcoes), resolve)
+          ? tls.connect(dgIdiomaBackend.atribuir({ servername: net.isIP(host) ? undefined : host, rejectUnauthorized: true }, opcoes), resolve)
           : net.connect(opcoes, resolve);
-        s.once('error', (e) => reject(new Error(`não consegui conectar (${e.code || e.message})`)));
-        s.once('close', () => reject(new Error(st.erro ? st.erro.message : 'a conexão foi encerrada antes de abrir')));
+        s.once('error', (e) => reject(dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("não consegui conectar ({p0})", {p0: (e.code || dgIdiomaBackend.campo(e, "message"))})])));
+        s.once('close', () => reject(dgIdiomaBackend.criarErro(Error, [st.erro ? dgIdiomaBackend.campo(st.erro, "message") : dgIdiomaBackend.descricao("a conexão foi encerrada antes de abrir")])));
         liga(s);
       });
       st.sock.removeAllListeners('error');
-      st.sock.on('error', (e) => rejeitaTudo(new Error(`falha na conexão (${e.code || e.message})`)));
+      st.sock.on('error', (e) => rejeitaTudo(dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("falha na conexão ({p0})", {p0: (e.code || dgIdiomaBackend.campo(e, "message"))})])));
 
       const saudacao = await resposta();
       if (saudacao.codigo !== 220) throw falhou('ao conectar', saudacao);
@@ -140,9 +141,9 @@ function criarEmail({ config, log }) {
       let criptografado = direto;
       if (!direto && !semTlsDeTeste) {
         if (!oferece('STARTTLS')) {
-          throw new Error(porta === 587
-            ? 'o servidor SMTP não oferece STARTTLS, que é obrigatório na porta 587'
-            : 'o servidor SMTP não oferece STARTTLS, e não envio e-mail nem senha sem criptografia');
+          throw dgIdiomaBackend.criarErro(Error, [porta === 587
+            ? dgIdiomaBackend.descricao("o servidor SMTP não oferece STARTTLS, que é obrigatório na porta 587")
+            : dgIdiomaBackend.descricao("o servidor SMTP não oferece STARTTLS, e não envio e-mail nem senha sem criptografia")]);
         }
         await cmd('STARTTLS', [220], 'ao pedir STARTTLS');
         const antigo = st.sock;
@@ -150,7 +151,7 @@ function criarEmail({ config, log }) {
         antigo.on('error', () => undefined);
         await new Promise((resolve, reject) => {
           const seguro = tls.connect({ socket: antigo, servername: net.isIP(host) ? undefined : host, rejectUnauthorized: true }, resolve);
-          seguro.once('error', (e) => reject(new Error(`o certificado ou a criptografia do servidor SMTP falhou (${e.code || e.message})`)));
+          seguro.once('error', (e) => reject(dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o certificado ou a criptografia do servidor SMTP falhou ({p0})", {p0: (e.code || dgIdiomaBackend.campo(e, "message"))})])));
           liga(seguro);
         });
         criptografado = true;
@@ -158,7 +159,7 @@ function criarEmail({ config, log }) {
       }
 
       if (usuario) {
-        if (!criptografado && !semTlsDeTeste) throw new Error('não envio a senha do SMTP sem criptografia');
+        if (!criptografado && !semTlsDeTeste) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("não envio a senha do SMTP sem criptografia")]);
         const mecanismos = ehlo.linhas.filter((l) => /^250[- ]AUTH[ =]/i.test(l)).join(' ').toUpperCase();
         if (/\bPLAIN\b/.test(mecanismos)) {
           await cmd('AUTH PLAIN ' + Buffer.from(`\0${usuario}\0${senha}`, 'utf8').toString('base64'), [235], 'à autenticação');
@@ -167,7 +168,7 @@ function criarEmail({ config, log }) {
           await cmd(Buffer.from(usuario, 'utf8').toString('base64'), [334], 'ao usuário');
           await cmd(Buffer.from(senha, 'utf8').toString('base64'), [235], 'à autenticação');
         } else {
-          throw new Error('o servidor SMTP não oferece AUTH PLAIN nem AUTH LOGIN');
+          throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o servidor SMTP não oferece AUTH PLAIN nem AUTH LOGIN")]);
         }
       }
 
@@ -193,13 +194,13 @@ function criarEmail({ config, log }) {
 
     /** Manda um e-mail de texto. Nunca lança: devolve { enviado, motivo? }. */
     async enviar({ para, assunto, texto }) {
-      if (!host) return { enviado: false, motivo: MOTIVO_SEM_CONFIG };
+      if (!host) return dgIdiomaBackend.objeto({ enviado: false, motivo: MOTIVO_SEM_CONFIG });
       if (!remetente || !enderecoDe(remetente)) {
-        return { enviado: false, motivo: 'Falta o remetente do e-mail. Defina DGCLAW_SMTP_REMETENTE no web.env (por exemplo: DG Claw <voce@exemplo.com>). Mande o convite pelo texto abaixo.' };
+        return dgIdiomaBackend.objeto({ enviado: false, motivo: 'Falta o remetente do e-mail. Defina DGCLAW_SMTP_REMETENTE no web.env (por exemplo: DG Claw <voce@exemplo.com>). Mande o convite pelo texto abaixo.' });
       }
       for (const [nome, v] of [['destinatário', para], ['assunto', assunto], ['remetente', remetente]]) {
         if (typeof v !== 'string' || !v || temQuebra(v)) {
-          return { enviado: false, motivo: `O ${nome} do e-mail está vazio ou tem quebra de linha, então não enviei. Mande o convite pelo texto abaixo.` };
+          return dgIdiomaBackend.objeto({ enviado: false, motivo: dgIdiomaBackend.descricao("O {p0} do e-mail está vazio ou tem quebra de linha, então não enviei. Mande o convite pelo texto abaixo.", {p0: (nome)}) });
         }
       }
       try {
@@ -209,7 +210,7 @@ function criarEmail({ config, log }) {
       } catch (e) {
         const motivo = limpa(e.message);
         log('aviso', `Não consegui mandar o e-mail para ${para} por ${host}:${porta}: ${motivo}. Confira as variáveis DGCLAW_SMTP_* no web.env (host, porta, usuário e senha) e mande o convite pelo texto da tela.`);
-        return { enviado: false, motivo: `Não consegui mandar o e-mail: ${motivo}. Mande o convite pelo texto abaixo.` };
+        return dgIdiomaBackend.objeto({ enviado: false, motivo: dgIdiomaBackend.descricao("Não consegui mandar o e-mail: {p0}. Mande o convite pelo texto abaixo.", {p0: (motivo)}) });
       }
     },
   };

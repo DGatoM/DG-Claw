@@ -1,8 +1,10 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Utilidades de HTTP usadas por todo o servidor: resposta JSON, corpo, cookies,
 // IP do cliente e esquema/host do pedido (com confiança só em proxy local).
 
 const net = require('node:net');
+const idiomaUI = require('./idioma-contexto');
 
 const LOOPBACK = new Set(['127.0.0.1', '::1']);
 
@@ -50,11 +52,12 @@ function origemPropria(req, confiaveis) {
 }
 
 function enviaJson(res, status, corpo, cabecalhos) {
-  const texto = JSON.stringify(corpo);
+  const texto = JSON.stringify(corpo, idiomaUI.replacer);
   res.writeHead(status, Object.assign({
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(texto),
     'Cache-Control': 'no-store',
+    'Content-Language': idiomaUI.idioma(),
   }, cabecalhos || {}));
   res.end(texto);
 }
@@ -62,7 +65,7 @@ function enviaJson(res, status, corpo, cabecalhos) {
 /** Erro padrão da API: { ok:false, erro:"motivo em português" } com o status certo. */
 function erroJson(res, status, motivo, extra, cabecalhos) {
   // 423 é sempre "tela travada pelo cadeado": a tela reconhece pelo campo travado.
-  enviaJson(res, status, Object.assign({ ok: false, erro: motivo }, status === 423 ? { travado: true } : {}, extra || {}), cabecalhos);
+  enviaJson(res, status, idiomaUI.atribuir(idiomaUI.objeto({ ok: false, erro: motivo }), status === 423 ? { travado: true } : {}, extra || {}), cabecalhos);
 }
 
 function escapaHtml(s) {
@@ -71,16 +74,19 @@ function escapaHtml(s) {
 
 /** Página de erro mínima, em português, para quem abriu o endereço no navegador. */
 function paginaErro(res, status, titulo, motivo, cabecalhos) {
-  const html = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">' +
+  titulo = idiomaUI.localizar(titulo);
+  motivo = idiomaUI.localizar(motivo);
+  const html = '<!doctype html><html lang="' + idiomaUI.idioma() + '"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">' +
     `<title>${escapaHtml(titulo)}</title>` +
     '<style>body{font-family:system-ui,sans-serif;max-width:34rem;margin:12vh auto;padding:0 1rem;color:#222}' +
     'h1{font-size:1.3rem}a{color:#1a56db}</style></head><body>' +
-    `<h1>${escapaHtml(titulo)}</h1><p>${escapaHtml(motivo)}</p><p><a href="/">Voltar ao início</a></p></body></html>`;
+    `<h1>${escapaHtml(titulo)}</h1><p>${escapaHtml(motivo)}</p><p><a href="/">${escapaHtml(idiomaUI.texto('Voltar ao início'))}</a></p></body></html>`;
   res.writeHead(status, Object.assign({
     'Content-Type': 'text/html; charset=utf-8',
     'Content-Length': Buffer.byteLength(html),
     'Cache-Control': 'no-store',
+    'Content-Language': idiomaUI.idioma(),
   }, cabecalhos || {}));
   res.end(html);
 }
@@ -96,7 +102,7 @@ function lerCorpo(req, max) {
       total += c.length;
       if (total > max) {
         acabou = true;
-        const e = new Error(`O corpo do pedido passou de ${max} bytes.`);
+        const e = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("O corpo do pedido passou de {p0} bytes.", {p0: (max)})]);
         e.status = 413;
         // esvazia o resto sem guardar, para a resposta de erro conseguir sair
         req.resume();
@@ -113,7 +119,7 @@ function lerCorpo(req, max) {
       if (typeof req.dgRevalidar === 'function') {
         const v = req.dgRevalidar();
         if (v === false) {
-          const e = new Error('Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente.');
+          const e = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente.")]);
           e.status = 401;
           reject(e);
           return;
@@ -138,7 +144,7 @@ async function lerJson(req, max) {
     const v = JSON.parse(buf.toString('utf8'));
     return v && typeof v === 'object' ? v : {};
   } catch (e) {
-    const err = new Error('O corpo não é um JSON válido. Mande o objeto com Content-Type: application/json.');
+    const err = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("O corpo não é um JSON válido. Mande o objeto com Content-Type: application/json.")]);
     err.status = 400;
     throw err;
   }

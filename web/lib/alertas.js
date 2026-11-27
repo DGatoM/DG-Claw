@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("./idioma-contexto");
 // Estado dos lembretes de mensagem, isolado pelo workspace e pela conversa.
 const fs = require('fs');
 const path = require('path');
@@ -6,18 +7,18 @@ const crypto = require('crypto');
 function marcar(m) {
   if (m.origin === 'dono') return m;
   const tag = /^\[(ENTREGA|PEDIDO)\](?:\s+|$)/.exec(m.text || '');
-  return tag ? { ...m, text: m.text.slice(tag[0].length), alerta: tag[1].toLowerCase() } : m;
+  return tag ? dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(m), text: m.text.slice(tag[0].length), alerta: tag[1].toLowerCase() }) : m;
 }
 
 function criarAlertas(arquivo, conversa) {
   function ler() {
     try {
       const d = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
-      if (d.versao !== 1 || !Array.isArray(d.itens)) throw new Error('formato inválido');
+      if (d.versao !== 1 || !Array.isArray(d.itens)) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("formato inválido")]);
       return d;
     } catch (e) {
       if (e.code === 'ENOENT') return { versao: 1, itens: [] };
-      throw new Error(`Não consegui ler os alertas em ${arquivo}: ${e.message}. Preserve o arquivo e confira o backup.`);
+      throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("Não consegui ler os alertas em {p0}: {p1}. Preserve o arquivo e confira o backup.", {p0: (arquivo), p1: (dgIdiomaBackend.campo(e, "message"))})]);
     }
   }
   function salvar(d) {
@@ -27,7 +28,7 @@ function criarAlertas(arquivo, conversa) {
       fs.writeFileSync(tmp, JSON.stringify(d), { mode: 0o600 });
       fs.renameSync(tmp, arquivo);
     } catch (e) {
-      throw new Error(`Não consegui guardar os alertas em ${arquivo}: ${e.message}. Confira espaço e permissões e tente novamente.`);
+      throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("Não consegui guardar os alertas em {p0}: {p1}. Confira espaço e permissões e tente novamente.", {p0: (arquivo), p1: (dgIdiomaBackend.campo(e, "message"))})]);
     }
   }
   function observar(mensagens) {
@@ -40,10 +41,10 @@ function criarAlertas(arquivo, conversa) {
       const id = crypto.createHash('sha256').update(JSON.stringify([conversa, m.ep, m.origin, m.via])).digest('hex').slice(0, 24);
       const antigo = porId.get(id);
       if (!antigo) {
-        const item = { id, conversa, tipo: m.alerta, mensagem: m, vistoEm: null };
+        const item = dgIdiomaBackend.objeto({ id, conversa, tipo: m.alerta, mensagem: m, vistoEm: null });
         d.itens.push(item); porId.set(id, item); mudou = true;
       } else if (JSON.stringify(antigo.mensagem) !== JSON.stringify(m)) {
-        antigo.mensagem = m; antigo.tipo = m.alerta; mudou = true;
+        dgIdiomaBackend.definir(antigo, "mensagem", m); antigo.tipo = m.alerta; mudou = true;
       }
     }
     if (mudou) salvar(d);
@@ -61,7 +62,7 @@ function criarAlertas(arquivo, conversa) {
     if (!a.vistoEm) { a.vistoEm = new Date().toISOString(); salvar(d); }
     return true;
   }
-  return { observar, listar, mensagem, reconhecer };
+  return dgIdiomaBackend.objeto({ observar, listar, mensagem, reconhecer });
 }
 
 module.exports = { marcar, criarAlertas };

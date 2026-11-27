@@ -1,4 +1,7 @@
 'use strict';
+const dgUiLabel_pedidos_js = (el, fonte, atributo, valores) => { if (globalThis.DGI18n) globalThis.DGI18n.rotulo(el, fonte, atributo, valores); else { const texto = fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m, k) => valores && Object.hasOwn(valores, k) ? String(valores[k]) : m); if (atributo) el.setAttribute(atributo, texto); else el.textContent = texto; } };
+const dgUiText_pedidos_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgTexto_pedidos = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* pedidos.js: a aba "Pedidos" da Mesa (/mesa). Contrato da API em web/docs/PEDIDOS.md.
 
    Parte pura (sem DOM, com teste em web/test/pedidos-tela.test.js): rótulos, "há X min", link da
@@ -28,7 +31,8 @@
   };
 
   function rotuloEstado(estado) {
-    return ROTULOS[estado] || { texto: String(estado || 'sem estado'), classe: 'outro' };
+    const rotulo = ROTULOS[estado];
+    return rotulo ? { texto: dgUiText_pedidos_js(rotulo.texto), classe: rotulo.classe } : { texto: String(estado || dgUiText_pedidos_js("sem estado")), classe: 'outro' };
   }
 
   const estaAberto = p => !!p && ['fazendo', 'esperando_dono', 'entregue'].includes(p.estado);
@@ -36,12 +40,12 @@
   /* "agora mesmo", "há 5 min", "há 3 h", "há 2 d". Data que não dá para ler vira "sem registro". */
   function haTempo(iso, agoraMs) {
     const t = Date.parse(iso);
-    if (!isFinite(t)) return 'sem registro de horário';
+    if (!isFinite(t)) return dgUiText_pedidos_js("sem registro de horário");
     const min = Math.max(0, Math.floor(((agoraMs == null ? Date.now() : agoraMs) - t) / 60000));
-    if (min < 1) return 'agora mesmo';
-    if (min < 60) return 'há ' + min + ' min';
-    if (min < 1440) return 'há ' + Math.floor(min / 60) + ' h';
-    return 'há ' + Math.floor(min / 1440) + ' d';
+    if (min < 1) return dgUiText_pedidos_js("agora mesmo");
+    if (min < 60) return dgUiText_pedidos_js("há ") + min + ' min';
+    if (min < 1440) return dgUiText_pedidos_js("há ") + Math.floor(min / 60) + ' h';
+    return dgUiText_pedidos_js("há ") + Math.floor(min / 1440) + ' d';
   }
 
   /* O link vem do servidor, mas a tela só segue o que tem a forma /a/<agente> ou /a/<agente>?msg=<id>. */
@@ -53,7 +57,7 @@
   function fraseErro(dados, status) {
     const campos = dados && dados.erros && typeof dados.erros === 'object' ? dados.erros : {};
     let texto = dados && dados.erro ? String(dados.erro) : '';
-    if (!texto) texto = Object.keys(campos).length ? 'Alguns campos precisam de ajuste.' : 'O servidor recusou o pedido (código ' + status + ').';
+    if (!texto) texto = Object.keys(campos).length ? dgUiText_pedidos_js("Alguns campos precisam de ajuste.") : dgUiText_pedidos_js("O servidor recusou o pedido (código ") + status + ').';
     return { texto, campos };
   }
 
@@ -65,7 +69,7 @@
   function oQueFazOToque(p) {
     return p.estado === 'entregue'
       ? 'Abre a conversa na mensagem da entrega e marca o pedido como feito.'
-      : 'Abre a conversa com o agente.';
+      : dgUiText_pedidos_js("Abre a conversa com o agente.");
   }
 
   const PASSOS = {
@@ -129,7 +133,7 @@
       r = await fetch(url, { method: metodo, headers: h, credentials: 'same-origin', cache: 'no-store', body: corpo == null ? undefined : JSON.stringify(corpo) });
     } catch (e) {
       console.warn('pedidos: ' + metodo + ' ' + url + ' falhou:', e);
-      return { ok: false, status: 0, erro: { texto: 'Não consegui falar com o servidor (' + e.message + '). Nada foi gravado; tente de novo.', campos: {} } };
+      return { ok: false, status: 0, erro: { texto: dgUiText_pedidos_js("Não consegui falar com o servidor (") + e.message + dgUiText_pedidos_js("). Nada foi gravado; tente de novo."), campos: {} } };
     }
     if (r.status === 401) vaiParaLogin();
     const d = await lerJson(r);
@@ -145,7 +149,7 @@
     if (!texto) return;
     const caixa = no('div', 'mz-erro mz-erro-carga', null, { role: 'alert' });
     caixa.append(no('p', null, texto));
-    const b = no('button', 'mz-btn pri', 'Tentar de novo', { type: 'button', 'data-pd-acao': 'recarregar' });
+    const b = no('button', 'mz-btn pri', dgTexto_pedidos('Tentar de novo'), { type: 'button', 'data-pd-acao': 'recarregar' });
     caixa.append(b);
     el.append(caixa);
   }
@@ -162,7 +166,7 @@
     try { r = await fetch(urlDaLista(), { credentials: 'same-origin', headers: h, cache: 'no-store' }); }
     catch (e) {
       console.warn('pedidos: falha de rede ao carregar:', e);
-      setErroCarga('Não consegui falar com o servidor (' + e.message + '). Verifique a conexão.');
+      setErroCarga(dgUiText_pedidos_js("Não consegui falar com o servidor (") + e.message + dgUiText_pedidos_js("). Verifique a conexão."));
       return false;
     }
     if (r.status === 304) { setErroCarga(''); return false; }
@@ -171,7 +175,7 @@
     if (!r.ok || !d || !Array.isArray(d.pedidos)) {
       const f = fraseErro(d, r.status);
       console.warn('pedidos: falha ao carregar:', r.status, f.texto);
-      setErroCarga((r.status === 503 ? 'A fila de pedidos está indisponível: ' : 'Não consegui carregar os pedidos: ') + f.texto);
+      setErroCarga((r.status === 503 ? dgUiText_pedidos_js("A fila de pedidos está indisponível: ") : dgUiText_pedidos_js("Não consegui carregar os pedidos: ")) + f.texto);
       return false;
     }
     E.pedidos = d.pedidos; E.contagem = d.contagem || null; E.etag = r.headers.get('ETag'); E.jaCarregou = true;
@@ -203,8 +207,8 @@
     const el = raizEl.querySelector('[data-pd="contagem"]');
     el.replaceChildren();
     const c = E.contagem;
-    if (!c) { el.append(no('span', 'mz-vazio', 'Carregando os pedidos...')); return; }
-    el.append(contador(c.esperando_dono, 'esperando você', 'esperando'), contador(c.entregues, 'entregues', 'entregue'),
+    if (!c) { el.append(no('span', 'mz-vazio', dgUiText_pedidos_js("Carregando os pedidos..."))); return; }
+    el.append(contador(c.esperando_dono, dgUiText_pedidos_js("esperando você"), 'esperando'), contador(c.entregues, 'entregues', 'entregue'),
       contador(c.fazendo, 'fazendo', 'fazendo'));
   }
 
@@ -220,7 +224,7 @@
 
     if (p.estado === 'esperando_dono' && p.motivo) {
       const mo = no('p', 'mz-motivo');
-      mo.append(no('b', null, 'Precisa de você:'), document.createTextNode(' ' + p.motivo));
+      mo.append(no('b', null, dgUiText_pedidos_js("Precisa de você:")), document.createTextNode(' ' + p.motivo));
       art.append(mo);
     } else if (p.estado === 'cancelado' && p.motivo) {
       const mo = no('p', 'mz-nota');
@@ -239,19 +243,19 @@
     if (E.cancelando === p.id) {
       const f = no('form', 'mz-form', null, { 'data-pd-form': 'cancelar', 'data-id': String(p.id) });
       f.append(no('h4', null, 'Cancelar este pedido?'));
-      const rot = no('label', null, 'Motivo (opcional)');
+      const rot = no('label', null, dgUiText_pedidos_js("Motivo (opcional)"));
       rot.append(no('input', null, null, { name: 'motivo', type: 'text', maxlength: '300', autocomplete: 'off' }));
       f.append(rot);
       const lin = no('div', 'mz-linha');
       lin.append(no('button', 'mz-btn pri', 'Cancelar o pedido', { type: 'submit' }),
-        no('button', 'mz-btn', 'Voltar', { type: 'button', 'data-pd-acao': 'fechar-form' }));
+        no('button', 'mz-btn', dgTexto_pedidos('Voltar'), { type: 'button', 'data-pd-acao': 'fechar-form' }));
       f.append(lin);
       art.append(f);
     } else if (!fechado) {
-      const ac = no('div', 'mz-acoes', null, { role: 'group', 'aria-label': 'Ações do dono' });
+      const ac = no('div', 'mz-acoes', null, { role: 'group', 'aria-label': dgUiText_pedidos_js("Ações do dono") });
       const ocupado = E.ocupados.has(p.id);
       const feito = no('button', 'mz-btn' + (p.estado === 'entregue' ? ' pri' : ''), 'Marcar como feito', { type: 'button', 'data-pd-acao': 'feito', 'data-id': String(p.id) });
-      const canc = no('button', 'mz-btn', 'Cancelar', { type: 'button', 'data-pd-acao': 'cancelar', 'data-id': String(p.id) });
+      const canc = no('button', 'mz-btn', dgTexto_pedidos('Cancelar'), { type: 'button', 'data-pd-acao': 'cancelar', 'data-id': String(p.id) });
       feito.disabled = ocupado; canc.disabled = ocupado;
       ac.append(feito, canc);
       art.append(ac);
@@ -265,11 +269,11 @@
     const y = window.scrollY;
     lista.replaceChildren();
     if (!E.pedidos.length && E.jaCarregou) {
-      lista.append(no('p', 'mz-vazio grande', 'Nenhum pedido por aqui. Quando você pedir algo a um agente, o item aparece nesta lista.'));
+      lista.append(no('p', 'mz-vazio grande', dgUiText_pedidos_js("Nenhum pedido por aqui. Quando você pedir algo a um agente, o item aparece nesta lista.")));
     }
     for (const p of E.pedidos) lista.append(cartao(p));
     const b = raizEl.querySelector('[data-pd-acao="arquivados"]');
-    b.textContent = E.arquivados ? 'Só os recentes' : 'Ver arquivados';
+    (E.arquivados ? dgUiLabel_pedidos_js(b, "Só os recentes", null, {}) : dgUiLabel_pedidos_js(b, "Ver arquivados", null, {}));
     b.setAttribute('aria-pressed', String(E.arquivados));
     window.scrollTo(0, y);
     acendeSeFora();
@@ -297,12 +301,12 @@
     if (!p) return;
     let link = linkSeguro(p.link_conversa);
     if (p.estado === 'entregue') {
-      const r = await aplica(id, 'POST', '/api/v1/pedidos/' + encodeURIComponent(id) + '/abrir', {}, 'abrir o item');
+      const r = await aplica(id, 'POST', '/api/v1/pedidos/' + encodeURIComponent(id) + '/abrir', {}, dgUiText_pedidos_js("abrir o item"));
       if (!r) return;
       link = linkSeguro(r.dados && r.dados.pedido && r.dados.pedido.link_conversa) || link;
     }
     if (!link) {
-      E.msg[id] = { texto: 'O servidor mandou um endereço de conversa que a tela não reconhece. Abra a conversa do agente pelo menu.', campos: {} };
+      E.msg[id] = { texto: dgUiText_pedidos_js("O servidor mandou um endereço de conversa que a tela não reconhece. Abra a conversa do agente pelo menu."), campos: {} };
       render();
       return;
     }
@@ -339,7 +343,7 @@
 
   /* ── tutorial ── */
   function tour(chave) {
-    if (!raiz.DGTour) { setErroCarga('A visita guiada não carregou (tour.js). Recarregue a página.'); return; }
+    if (!raiz.DGTour) { setErroCarga(dgUiText_pedidos_js("A visita guiada não carregou (tour.js). Recarregue a página.")); return; }
     const passos = chave === 'pagina' ? [].concat(PASSOS.pagina, PASSOS.contagem, PASSOS.lista) : PASSOS[chave];
     // sem nenhum pedido não há cartão para apontar: a visita pula esses passos (o tour.js ignora alvo ausente)
     raiz.DGTour.inicia({ passos });
@@ -352,12 +356,12 @@
     const topo = no('div', 'mz-topo2', null, { 'data-pd-tour': 'titulo' });
     const linCont = no('div', 'mz-contagem-lin');
     linCont.append(no('div', 'mz-contagem', null, { 'data-pd': 'contagem', 'data-pd-tour': 'contagem' }),
-      no('button', 'mz-ajuda', '?', { type: 'button', 'data-pd-acao': 'ajuda-contagem', title: 'O que é a contagem', 'aria-label': 'O que é a contagem' }));
+      no('button', 'mz-ajuda', '?', { type: 'button', 'data-pd-acao': 'ajuda-contagem', title: dgUiText_pedidos_js("O que é a contagem"), 'aria-label': dgUiText_pedidos_js("O que é a contagem") }));
     const linBotoes = no('div', 'mz-contagem-lin');
-    linBotoes.append(no('button', 'mz-btn', 'Tutorial', { type: 'button', 'data-pd-acao': 'tutorial' }));
+    linBotoes.append(no('button', 'mz-btn', dgUiText_pedidos_js("Tutorial"), { type: 'button', 'data-pd-acao': 'tutorial' }));
     topo.append(linCont, linBotoes);
     const barra = no('div', 'pd-barra');
-    barra.append(no('button', 'mz-btn', 'Ver arquivados', { type: 'button', 'data-pd-acao': 'arquivados', 'aria-pressed': 'false', 'data-pd-tour': 'arquivados' }),
+    barra.append(no('button', 'mz-btn', dgUiText_pedidos_js("Ver arquivados"), { type: 'button', 'data-pd-acao': 'arquivados', 'aria-pressed': 'false', 'data-pd-tour': 'arquivados' }),
       no('button', 'mz-ajuda', '?', { type: 'button', 'data-pd-acao': 'ajuda-lista', title: 'Como ler a lista', 'aria-label': 'Como ler a lista' }));
     elemento.append(topo, barra, no('div', null, null, { 'data-pd': 'erro' }), no('div', 'pd-lista', null, { 'data-pd': 'lista' }));
     elemento.addEventListener('click', aoClicar);

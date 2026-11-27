@@ -1,4 +1,7 @@
 'use strict';
+const dgUiText_conectar_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiLabel_conectar_js = (el, fonte, atributo, valores) => { if (globalThis.DGI18n) globalThis.DGI18n.rotulo(el, fonte, atributo, valores); else { const texto = fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m, k) => valores && Object.hasOwn(valores, k) ? String(valores[k]) : m); if (atributo) el.setAttribute(atributo, texto); else el.textContent = texto; } };
+const dgTexto_conectar = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* conectar.js: a página /conectar. Um cartão por agente (o Admin primeiro) para o dono conectar sozinho a
    conta do Claude ou do Codex de cada um.
 
@@ -46,8 +49,8 @@
 
   /* ── Mini tutorial "Tudo pronto" ────────────────────────────────────────── */
   async function copiaEndereco(aviso, endereco) {
-    try { await navigator.clipboard.writeText(endereco); aviso.textContent = 'Endereço copiado.'; }
-    catch (err) { aviso.textContent = 'Não consegui copiar sozinho (' + ((err && err.message) || 'o navegador recusou') + '). Toque no endereço, segure e escolha copiar.'; }
+    try { await navigator.clipboard.writeText(endereco); dgUiLabel_conectar_js(aviso, "Endereço copiado.", null); }
+    catch (err) { dgUiLabel_conectar_js(aviso, "Não consegui copiar sozinho ({p0}). Toque no endereço, segure e escolha copiar.", null, {p0: (err && err.message) || 'o navegador recusou'}); }
   }
 
   /* Montado uma vez só: refazer o vídeo a cada desenho reiniciaria a reprodução. */
@@ -59,10 +62,10 @@
     corpo.push(el('div', 'cn-endereco', t.endereco));
     const aviso = el('p', 'cn-nota', '');
     aviso.setAttribute('role', 'status');
-    const abrir = el('a', 'cn-btn cn-principal', 'Abrir o painel');
+    const abrir = el('a', 'cn-btn cn-principal', dgUiText_conectar_js("Abrir o painel"));
     abrir.href = endereco; abrir.target = '_blank'; abrir.rel = 'noopener noreferrer';
     const linha = el('div', 'cn-pe');
-    linha.append(abrir, botao('Copiar endereço', 'cn-leve', () => copiaEndereco(aviso, endereco)));
+    linha.append(abrir, botao(dgUiText_conectar_js("Copiar endereço"), 'cn-leve', () => copiaEndereco(aviso, endereco)));
     corpo.push(linha, aviso);
     corpo.push(el('p', 'cn-texto', t.passo2));
     corpo.push(el('p', 'cn-texto', t.passo3));
@@ -86,18 +89,18 @@
   /* Colaborador: a página é a mesma, mas fala do agente dele e não manda "repetir no próximo cartão". */
   function adaptaParaColaborador() {
     const titulo = document.querySelector('#cnAgentes h2 span');
-    if (titulo) titulo.textContent = 'O seu agente';
+    if (titulo) dgUiLabel_conectar_js(titulo, "O seu agente", null);
     const ultimo = document.querySelector('#cnPassos .cn-passos li:last-child');
     if (ultimo) ultimo.remove();
     const aviso = document.querySelector('#cnPassos .cn-fraco');
-    if (aviso) aviso.textContent = 'Só dá para conectar quando o agente ainda não tem uma conta. O link vale por poucos minutos: gere só quando for fazer o login na hora.';
+    if (aviso) dgUiLabel_conectar_js(aviso, "Só dá para conectar quando o agente ainda não tem uma conta. O link vale por poucos minutos: gere só quando for fazer o login na hora.", null);
   }
 
   async function carrega() {
     if (COLAB) adaptaParaColaborador();
-    const r = await CC.chama('GET', '/api/v1/agents', undefined, 'conferir', 'os agentes', 15000, AQUI);
+    const r = await CC.chama('GET', '/api/v1/agents', undefined, 'conferir', dgUiText_conectar_js("os agentes"), 15000, AQUI);
     if (!r.ok) {
-      $('cnLista').replaceChildren(el('p', 'cn-erro', 'Não consegui carregar a lista de agentes. ' + r.erro.texto));
+      $('cnLista').replaceChildren(el('p', 'cn-erro', dgUiText_conectar_js("Não consegui carregar a lista de agentes. ") + r.erro.texto));
       msgGeral('');
       return;
     }
@@ -105,7 +108,7 @@
     est.principal = P.principal(agentes);
     est.usuario = typeof r.dados.usuario === 'string' ? r.dados.usuario : '';
     if (!agentes.length) {
-      $('cnLista').replaceChildren(el('p', 'cn-fraco', 'Ainda não há agentes. Peça ao Admin para criar o primeiro e volte aqui.'));
+      $('cnLista').replaceChildren(el('p', 'cn-fraco', dgUiText_conectar_js("Ainda não há agentes. Peça ao Admin para criar o primeiro e volte aqui.")));
       return;
     }
     $('cnLista').replaceChildren();
@@ -143,20 +146,20 @@
 
   /* Os mesmos passos, com o texto de quem tem um agente só e não vê o Admin. */
   const TEXTO_COLAB = {
-    '#cnPassos': { oque: 'Os passos para conectar a sua conta do Claude ao seu agente, sem terminal.', como: 'Você gera o link, entra na sua conta do Claude, copia o código que a página mostra e cola no cartão. Só dá para conectar quando o agente ainda não tem conta.' },
+    '#cnPassos': { get oque() { return dgUiText_conectar_js("Os passos para conectar a sua conta do Claude ao seu agente, sem terminal."); }, get como() { return dgUiText_conectar_js("Você gera o link, entra na sua conta do Claude, copia o código que a página mostra e cola no cartão. Só dá para conectar quando o agente ainda não tem conta."); } },
     '#cnAgentes': { titulo: 'O seu agente', oque: 'O cartão do seu agente, que mostra se ele já tem uma conta conectada.', como: 'O cartão pergunta ao programa do agente como está a conta dele. Se já estiver conectado, só aparece o aviso, sem botões.', porque: 'O agente precisa de uma conta conectada para responder. Se a conta já é do dono, quem mexe nela é o dono.' },
-    '[data-tour="cn-selo"]': { como: 'O selo vem do próprio agente, que confere na hora se a conta está conectada. Se outra pessoa estiver conectando no mesmo momento, o cartão avisa e espera ela terminar (no máximo 15 minutos).' },
+    '[data-tour="cn-selo"]': { get como() { return dgUiText_conectar_js("O selo vem do próprio agente, que confere na hora se a conta está conectada. Se outra pessoa estiver conectando no mesmo momento, o cartão avisa e espera ela terminar (no máximo 15 minutos)."); } },
   };
   function comTour(passos) {
     if (COLAB) passos = passos.map(p => Object.assign({}, p, TEXTO_COLAB[p.alvo] || {}));
-    if (!window.DGTour) { msgGeral('A visita guiada não carregou. Recarregue a página e tente de novo.'); return; }
+    if (!window.DGTour) { msgGeral(dgUiText_conectar_js("A visita guiada não carregou. Recarregue a página e tente de novo.")); return; }
     window.DGTour.inicia({ passos: passos.filter(p => document.querySelector(p.alvo)) });
   }
   PASSOS.pronto = [
     { alvo: '#cnPronto', titulo: 'Tudo pronto',
       oque: 'Aparece quando todos os agentes que usam assinatura estão conectados. Diz onde acessar o painel e o que você vai ver.',
       como: 'O endereço é o deste mesmo painel. O usuário vem da sua sessão e a senha é a mesma que você usou para entrar aqui; ela nunca aparece na tela.',
-      porque: 'Para você sair daqui sabendo o próximo passo e ver, em menos de 1 minuto, como o ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' funciona.' },
+      get porque() { return dgUiText_conectar_js("Para você sair daqui sabendo o próximo passo e ver, em menos de 1 minuto, como o ") + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' funciona.'; } },
   ];
   function tutorial() { comTour([PASSOS.passos[0]].concat(PASSOS.agentes, PASSOS.pronto)); }
 
@@ -166,6 +169,6 @@
   });
 
   window.DGConectarTela = { tutorial };
-  if (!P || !LC || !CC) msgGeral('Parte da página não carregou. Recarregue; se continuar, peça ao Admin para conferir a instalação do painel.');
+  if (!P || !LC || !CC) msgGeral(dgUiText_conectar_js('Parte da página não carregou. Recarregue; se continuar, peça ao Admin para conferir a instalação do painel.'));
   else carrega();
 })();

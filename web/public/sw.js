@@ -1,4 +1,5 @@
 'use strict';
+const dgUiText_sw_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* sw.js: service worker simples do DG Claw.
 
    Guarda só os arquivos estáticos da tela (CSS, JS, ícones, manifesto), para ela
@@ -79,7 +80,7 @@ self.addEventListener('push', ev => {
     try { cru = ev.data.text(); } catch (e) { console.warn('sw: não consegui ler o texto do aviso:', e.message); }
     try { d = JSON.parse(cru); } catch (e) { console.warn('sw: o aviso não veio em JSON, mostro o texto cru:', e.message); }
   }
-  if (!d || typeof d !== 'object') d = { titulo: 'DG Claw', corpo: cru || 'Você tem um aviso novo.' };
+  if (!d || typeof d !== 'object') d = { titulo: 'DG Claw', corpo: cru || dgUiText_sw_js("Você tem um aviso novo.") };
   const acoes = Array.isArray(d.acoes) ? d.acoes.filter(a => a && a.acao && a.titulo).slice(0, 2) : [];
   const opcoes = {
     body: d.corpo || '',

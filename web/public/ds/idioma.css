@@ -1,0 +1,5 @@
+.dg-idioma{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;font:inherit;margin:.5rem;max-width:100%;color:var(--cor-texto,inherit)}
+.dg-idioma>span:first-child{font-size:.75rem}.dg-idioma select{font:inherit;font-size:.85rem;max-width:12rem;padding:.35rem;border:1px solid var(--cor-borda,#999);border-radius:.4rem;background:var(--cor-superficie,#fff);color:var(--cor-texto,#222)}
+.dg-idioma select:focus-visible{outline:2px solid var(--cor-acento,#2868cc);outline-offset:2px}.dg-idioma-aviso{font-size:.75rem;flex-basis:100%}
+#cabecalho .dg-idioma{margin:0}#cabecalho .dg-idioma>span:first-child{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+@media(max-width:600px){#cabecalho .dg-idioma select{max-width:6.5rem;font-size:.75rem;padding:.25rem}.dg-idioma-aviso:empty{display:none}}

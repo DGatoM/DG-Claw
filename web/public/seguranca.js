@@ -1,4 +1,12 @@
 'use strict';
+const dgUiText_seguranca_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiHtml_seguranca_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
+const dgSegFrase = (fonte, valores) => globalThis.DGI18n ? globalThis.DGI18n.frase(fonte, valores) : fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m, k) => valores && Object.hasOwn(valores, k) ? String(valores[k]) : m);
+const dgSegFragmento = (fonte, valores) => globalThis.DGI18n ? globalThis.DGI18n.fragmento(fonte, valores) : RSegEsc(dgSegFrase(fonte, valores));
+const RSegEsc = texto => String(texto).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+const dgSegRotulo = (el, fonte, valores) => { if (globalThis.DGI18n) globalThis.DGI18n.rotulo(el, fonte, undefined, valores); else if (el) el.textContent = dgSegFrase(fonte, valores); };
+const dgTexto_seguranca = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgHtml_seguranca = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* seguranca.js: a tela "Segurança" (/seguranca): os avisos de segurança do DG Claw (boletins), a ronda de fábrica, o que
    foi aplicado sozinho, o que pede decisão, o que dá para corrigir sem pressa e o botão de emergência. É aqui que fica o
    detalhe de tudo o que o aviso único (seguranca-resumo.js) resume.
@@ -51,10 +59,10 @@
   /* ── avisos de segurança do DG Claw (boletins) ──────────────────────────── */
   function botoesBoletimHtml(b) {
     if (R.temCorrecaoParaAplicar(b)) {
-      return '<button type="button" class="rp-btn rp-pri" data-rp="b-atualizar">Atualizar</button>' +
-        '<button type="button" class="rp-btn" data-rp="b-lembrar">Lembrar depois</button>';
+      return dgHtml_seguranca("<button type=\"button\" class=\"rp-btn rp-pri\" data-rp=\"b-atualizar\"><!--dg-i18n:dafb59613e12-->Atualizar<!--/dg-i18n--></button>") +
+        dgUiHtml_seguranca_js("<button type=\"button\" class=\"rp-btn\" data-rp=\"b-lembrar\"><!--dg-i18n:17d13d732364-->Lembrar depois<!--/dg-i18n--></button>");
     }
-    return '<button type="button" class="rp-btn rp-pri" data-rp="b-entendi">Entendi</button>';
+    return dgHtml_seguranca("<button type=\"button\" class=\"rp-btn rp-pri\" data-rp=\"b-entendi\"><!--dg-i18n:9f93738a0362-->Entendi<!--/dg-i18n--></button>");
   }
 
   /* Boletim sem correção ainda: o detalhe fica à vista. Com correção: recolhido, para a decisão ficar no botão. */
@@ -62,13 +70,13 @@
     const comCorrecao = R.temCorrecaoParaAplicar(b);
     const detalhe = b.detalhe ? esc(b.detalhe) : '';
     const adiado = b.adiado_ate && Date.parse(b.adiado_ate) > agora
-      ? '<p class="rp-fraco">Você pediu para lembrar depois (até ' + esc(R.quando(b.adiado_ate, agora)) + '). O aviso continua valendo até o sistema ser atualizado.</p>' : '';
+      ? dgUiHtml_seguranca_js("<p class=\"rp-fraco\"><!--dg-i18n:857a0b776f4c-->Você pediu para lembrar depois (até<!--/dg-i18n--> ") + esc(R.quando(b.adiado_ate, agora)) + dgUiHtml_seguranca_js("<!--dg-i18n:ddeb6123af58-->). O aviso continua valendo até o sistema ser atualizado.<!--/dg-i18n--></p>") : '';
     return '<article class="rp-card rp-n2" data-id="' + esc(b.id) + '" data-boletim="1"><h3>' + esc(b.titulo || b.componente || b.id) +
       ' <span class="rp-tag rp-grav-' + esc(String(b.severidade).toLowerCase()) + '">' + esc(R.gravidadeRotulo(b.severidade)) + '</span></h3>' +
       '<p class="rp-texto">' + esc(R.textoBoletim(b, agora)) + '</p>' +
       (!comCorrecao && detalhe ? '<p class="rp-texto rp-boletim-detalhe">' + detalhe + '</p>' : '') +
       R.fatosBoletimHtml(b) +
-      (comCorrecao && detalhe ? '<details class="rp-detalhe"><summary>Ver detalhes</summary><p class="rp-texto rp-boletim-detalhe">' + detalhe + '</p></details>' : '') +
+      (comCorrecao && detalhe ? dgUiHtml_seguranca_js("<details class=\"rp-detalhe\"><summary><!--dg-i18n:4a4ed02d3dca-->Ver detalhes<!--/dg-i18n--></summary><p class=\"rp-texto rp-boletim-detalhe\">") + detalhe + '</p></details>' : '') +
       adiado + '<div class="rp-acoes">' + botoesBoletimHtml(b) + '</div>' +
       '<p class="rp-msg" role="status" hidden></p></article>';
   }
@@ -79,9 +87,9 @@
     const todos = Array.isArray(boletins) ? boletins.filter(b => b && typeof b.id === 'string') : [];
     const pendentes = R.ordenaPorGravidade(todos.filter(b => !b.dispensado));
     const dispensados = R.ordenaPorGravidade(todos.filter(b => b.dispensado));
-    let h = pendentes.length ? pendentes.map(b => cardBoletimHtml(b, agora)).join('') : '<p class="rp-vazio">' + esc(VAZIO_BOLETINS) + '</p>';
+    let h = pendentes.length ? pendentes.map(b => cardBoletimHtml(b, agora)).join('') : '<p class="rp-vazio">' + esc(dgUiText_seguranca_js(VAZIO_BOLETINS)) + '</p>';
     if (dispensados.length) {
-      h += '<details class="rp-detalhe rp-dispensados"><summary>Já dispensados (' + dispensados.length + ')</summary><ul class="rp-tratadas">' +
+      h += dgUiHtml_seguranca_js("<details class=\"rp-detalhe rp-dispensados\"><summary><!--dg-i18n:40e5008e3ab9-->Já dispensados (<!--/dg-i18n-->") + dispensados.length + ')</summary><ul class="rp-tratadas">' +
         dispensados.map(b => '<li><b>' + esc(b.titulo || b.componente || b.id) + '</b> <small>' + esc(R.gravidadeRotulo(b.severidade)) +
           ', publicado em ' + esc(R.dataBr(b.publicado_em)) + '</small></li>').join('') + '</ul></details>';
     }
@@ -89,7 +97,7 @@
   }
 
   /* ── níveis ─────────────────────────────────────────────────────────────── */
-  function rotuloAgendado(a) { return a.estado === 'agendado' ? '<span class="rp-tag rp-tag-ok">Agendado</span>' : ''; }
+  function rotuloAgendado(a) { return a.estado === 'agendado' ? dgUiHtml_seguranca_js("<span class=\"rp-tag rp-tag-ok\"><!--dg-i18n:413243064dd9-->Agendado<!--/dg-i18n--></span>") : ''; }
 
   function cabecaCard(a) {
     return '<h3>' + esc(a.nome_simples) + ' <span class="rp-tag rp-grav-' + esc(String(a.severidade).toLowerCase()) + '">' +
@@ -98,10 +106,10 @@
 
   function cardAplicadoHtml(a, agora) {
     const desfaz = a.estado === 'aplicado-sozinho' && a.aplicado && a.aplicado.desfazer
-      ? '<button type="button" class="rp-btn" data-rp="desfazer">Desfazer</button>' : '';
+      ? dgUiHtml_seguranca_js("<button type=\"button\" class=\"rp-btn\" data-rp=\"desfazer\"><!--dg-i18n:786b48222848-->Desfazer<!--/dg-i18n--></button>") : '';
     return '<article class="rp-card rp-n1" data-id="' + esc(a.id) + '">' + cabecaCard(a) +
       '<p class="rp-texto">' + esc(R.textoAplicado(a, agora)) + '</p>' +
-      '<details class="rp-detalhe"><summary>Ver detalhes da falha</summary>' + R.fatosHtml(a) + '</details>' +
+      dgUiHtml_seguranca_js("<details class=\"rp-detalhe\"><summary><!--dg-i18n:3147c027813b-->Ver detalhes da falha<!--/dg-i18n--></summary>") + R.fatosHtml(a) + '</details>' +
       (desfaz ? '<div class="rp-acoes">' + desfaz + '</div>' : '') +
       '<p class="rp-msg" role="status" hidden></p></article>';
   }
@@ -113,21 +121,21 @@
     if (!aberto && a.estado !== 'agendado') {
       corpo = '<p class="rp-texto">' + esc(R.textoAplicado(a, agora)) + '</p>';
     } else if (R.podePedirAoAdmin(a)) {
-      corpo = '<p class="rp-aviso">' + esc(TEXTO_PEDIR_ADMIN) + '</p>' +
+      corpo = '<p class="rp-aviso">' + esc(dgUiText_seguranca_js(TEXTO_PEDIR_ADMIN)) + '</p>' +
         '<div class="rp-acoes">' +
-        '<button type="button" class="rp-btn rp-pri" data-rp="pedir-admin">Pedir ao Admin</button>' +
-        '<button type="button" class="rp-btn rp-perigo" data-rp="tirar-do-ar">Tirar do ar</button></div>';
+        dgUiHtml_seguranca_js("<button type=\"button\" class=\"rp-btn rp-pri\" data-rp=\"pedir-admin\"><!--dg-i18n:dacc9a5bdd47-->Pedir ao Admin<!--/dg-i18n--></button>") +
+        dgUiHtml_seguranca_js("<button type=\"button\" class=\"rp-btn rp-perigo\" data-rp=\"tirar-do-ar\"><!--dg-i18n:938ec9aaa1ba-->Tirar do ar<!--/dg-i18n--></button></div>");
     } else {
       const paliativo = !!(a.correcao && a.correcao.paliativo);
-      const aviso = paliativo ? 'Esta é uma proteção provisória, enquanto a correção oficial não sai.' + (a.paliativo && a.paliativo.efeito ? ' ' + a.paliativo.efeito : '') + ' Não pede reinício e dá para desfazer depois.'
-        : pode ? R.avisoReinicio(a) : 'A correção ainda não está pronta. Enquanto isso, o botão "Tirar do ar" é a proteção disponível.';
+      const aviso = paliativo ? dgUiText_seguranca_js("Esta é uma proteção provisória, enquanto a correção oficial não sai.") + (a.paliativo && a.paliativo.efeito ? ' ' + a.paliativo.efeito : '') + dgUiText_seguranca_js(" Não pede reinício e dá para desfazer depois.")
+        : pode ? R.avisoReinicio(a) : dgUiText_seguranca_js("A correção ainda não está pronta. Enquanto isso, o botão \"Tirar do ar\" é a proteção disponível.");
       corpo = '<p class="rp-aviso">' + esc(aviso) + '</p>' +
         '<div class="rp-acoes">' +
-        '<button type="button" class="rp-btn rp-pri" data-rp="aplicar"' + (pode ? '' : ' disabled') + '>' + (paliativo ? 'Aplicar proteção provisória' : 'Aplicar correção') + '</button>' +
-        '<button type="button" class="rp-btn" data-rp="agendar-abre"' + (pode && aberto ? '' : ' disabled') + '>Agendar</button>' +
-        '<button type="button" class="rp-btn rp-perigo" data-rp="tirar-do-ar">Tirar do ar</button></div>' +
-        '<div class="rp-agenda" hidden><label>Aplicar em<input type="datetime-local" class="rp-quando"></label>' +
-        '<button type="button" class="rp-btn rp-pri" data-rp="agendar">Confirmar agendamento</button></div>';
+        '<button type="button" class="rp-btn rp-pri" data-rp="aplicar"' + (pode ? '' : ' disabled') + '>' + (paliativo ? dgUiText_seguranca_js("Aplicar proteção provisória") : dgUiText_seguranca_js("Aplicar correção")) + '</button>' +
+        '<button type="button" class="rp-btn" data-rp="agendar-abre"' + (pode && aberto ? '' : ' disabled') + dgUiHtml_seguranca_js("><!--dg-i18n:8bb241e9ee6b-->Agendar<!--/dg-i18n--></button>") +
+        dgUiHtml_seguranca_js("<button type=\"button\" class=\"rp-btn rp-perigo\" data-rp=\"tirar-do-ar\"><!--dg-i18n:938ec9aaa1ba-->Tirar do ar<!--/dg-i18n--></button></div>") +
+        dgUiHtml_seguranca_js("<div class=\"rp-agenda\" hidden><label><!--dg-i18n:a3aee5d86e88-->Aplicar em<!--/dg-i18n--><input type=\"datetime-local\" class=\"rp-quando\"></label>") +
+        dgUiHtml_seguranca_js("<button type=\"button\" class=\"rp-btn rp-pri\" data-rp=\"agendar\"><!--dg-i18n:f1a6a27b446b-->Confirmar agendamento<!--/dg-i18n--></button></div>");
     }
     return '<article class="rp-card rp-n2" data-id="' + esc(a.id) + '">' + cabecaCard(a) + R.fatosHtml(a) + corpo +
       '<p class="rp-msg" role="status" hidden></p></article>';
@@ -140,8 +148,8 @@
     } else {
       corpo = '<p class="rp-texto">' + esc(R.TEXTO_NIVEL3) + '</p>' +
         '<div class="rp-acoes">' + (R.podePedirAoAdmin(a)
-          ? '<button type="button" class="rp-btn rp-pri" data-rp="pedir-admin">Pedir ao Admin</button>'
-          : '<button type="button" class="rp-btn rp-pri" data-rp="corrigir"' + (R.podeAplicar(a) ? '' : ' disabled') + '>Corrigir agora</button>') + '</div>';
+          ? dgUiHtml_seguranca_js("<button type=\"button\" class=\"rp-btn rp-pri\" data-rp=\"pedir-admin\"><!--dg-i18n:dacc9a5bdd47-->Pedir ao Admin<!--/dg-i18n--></button>")
+          : '<button type="button" class="rp-btn rp-pri" data-rp="corrigir"' + (R.podeAplicar(a) ? '' : ' disabled') + dgUiHtml_seguranca_js("><!--dg-i18n:c48b9ae2734b-->Corrigir agora<!--/dg-i18n--></button>")) + '</div>';
     }
     return '<article class="rp-card rp-n3" data-id="' + esc(a.id) + '">' + cabecaCard(a) + corpo + R.fatosHtml(a) +
       '<p class="rp-msg" role="status" hidden></p></article>';
@@ -151,38 +159,38 @@
   function cardAguardandoHtml(a, agora) {
     const pal = a.paliativo && a.paliativo.verificado ? a.paliativo : null;
     const desfaz = a.estado === 'protegido-aguardando' && a.aplicado && a.aplicado.desfazer
-      ? '<button type="button" class="rp-btn" data-rp="desfazer">Desfazer</button>' : '';
+      ? dgUiHtml_seguranca_js("<button type=\"button\" class=\"rp-btn\" data-rp=\"desfazer\"><!--dg-i18n:786b48222848-->Desfazer<!--/dg-i18n--></button>") : '';
     return '<article class="rp-card rp-aguarda" data-id="' + esc(a.id) + '"><h3>' + esc(a.nome_simples) + ' <span class="rp-tag rp-grav-' +
       esc(String(a.severidade).toLowerCase()) + '">' + esc(R.gravidadeRotulo(a.severidade)) + '</span> <span class="rp-tag' +
       (pal ? ' rp-tag-ok' : '') + '">' + esc(R.estadoRotulo(a.estado)) + '</span></h3>' +
-      (pal ? '<p class="rp-texto"><b>Proteção provisória ativa:</b> ' + esc(pal.descricao) + (pal.efeito ? '. ' + esc(pal.efeito) : '') +
-        (pal.verificado_em ? ' <small>(conferida ' + esc(R.quando(pal.verificado_em, agora)) + ')</small>' : '') + '</p>' : '') +
-      '<p class="rp-texto">' + esc(a.como_corrigir || 'Aguardando a correção do fornecedor.') + '</p>' +
-      '<details class="rp-detalhe"><summary>Ver detalhes da falha</summary>' + R.fatosHtml(a) + '</details>' +
+      (pal ? dgUiHtml_seguranca_js("<p class=\"rp-texto\"><b><!--dg-i18n:eb7e30de7480-->Proteção provisória ativa:<!--/dg-i18n--></b> ") + esc(pal.descricao) + (pal.efeito ? '. ' + esc(pal.efeito) : '') +
+        (pal.verificado_em ? dgUiHtml_seguranca_js(" <small><!--dg-i18n:cff210bec2c8-->(conferida<!--/dg-i18n--> ") + esc(R.quando(pal.verificado_em, agora)) + ')</small>' : '') + '</p>' : '') +
+      '<p class="rp-texto">' + esc(a.como_corrigir || dgUiText_seguranca_js("Aguardando a correção do fornecedor.")) + '</p>' +
+      dgUiHtml_seguranca_js("<details class=\"rp-detalhe\"><summary><!--dg-i18n:3147c027813b-->Ver detalhes da falha<!--/dg-i18n--></summary>") + R.fatosHtml(a) + '</details>' +
       (desfaz ? '<div class="rp-acoes">' + desfaz + '</div>' : '') +
       '<p class="rp-msg" role="status" hidden></p></article>';
   }
 
   function listaAguardandoHtml(achados, agora) {
-    if (!achados || !achados.length) return '<p class="rp-vazio">' + esc(VAZIO_AGUARDANDO) + '</p>';
-    return '<p class="rp-texto" id="rpAguardandoFrase">' + esc(FRASE_AGUARDANDO) + '</p>' + achados.map(a => cardAguardandoHtml(a, agora)).join('');
+    if (!achados || !achados.length) return '<p class="rp-vazio">' + esc(dgUiText_seguranca_js(VAZIO_AGUARDANDO)) + '</p>';
+    return '<p class="rp-texto" id="rpAguardandoFrase">' + esc(dgUiText_seguranca_js(FRASE_AGUARDANDO)) + '</p>' + achados.map(a => cardAguardandoHtml(a, agora)).join('');
   }
 
-  function tituloAguardando(n) { return 'Aguardando correção oficial (' + n + ')'; }
+  function tituloAguardando(n) { return dgUiText_seguranca_js("Aguardando correção oficial (") + n + ')'; }
 
   /* Pacote do sistema com correção no apt: card neutro, sem etiqueta de gravidade. O kernel sozinho junta dezenas de falhas,
      então cada componente vira UMA linha recolhida; abrir mostra cada falha. */
   function cardAtualizacaoHtml(a) {
     const pede = R.podePedirAtualizacao(a)
-      ? '<div class="rp-acoes"><button type="button" class="rp-btn rp-pri" data-rp="pedir-admin">Pedir ao Admin</button></div>' : '';
+      ? '<div class="rp-acoes"><button type="button" class="rp-btn rp-pri" data-rp="pedir-admin">' + dgSegFragmento('Pedir ao Admin') + '</button></div>' : '';
     return '<article class="rp-card rp-aguarda" data-id="' + esc(a.id) + '"><h3>' + esc(a.nome_simples) + ' <span class="rp-tag">' +
       esc(R.estadoRotulo(a.estado)) + '</span></h3>' +
-      '<p class="rp-texto">' + esc(a.como_corrigir || FRASE_ATUALIZACOES) + '</p>' + pede +
-      '<details class="rp-detalhe"><summary>Ver detalhes da falha</summary>' + R.fatosHtml(a) + '</details>' +
+      '<p class="rp-texto">' + (a.como_corrigir ? esc(a.como_corrigir) : dgSegFragmento(FRASE_ATUALIZACOES)) + '</p>' + pede +
+      '<details class="rp-detalhe"><summary>' + dgSegFragmento('Ver detalhes da falha') + '</summary>' + R.fatosHtml(a) + '</details>' +
       '<p class="rp-msg" role="status" hidden></p></article>';
   }
 
-  function plural(n, um, varios) { return n + ' ' + (n === 1 ? um : varios); }
+
 
   function agrupaPorComponente(achados) {
     const grupos = new Map();
@@ -194,51 +202,54 @@
     return Array.from(grupos, ([nome, itens]) => ({ nome, itens })).sort((x, y) => y.itens.length - x.itens.length || x.nome.localeCompare(y.nome, 'pt-BR'));
   }
 
-  function resumoGrupoAtualizacoes(g) {
+  function resumoGrupoAtualizacoes(g, html) {
     const n = g.itens.length;
-    return g.nome.charAt(0).toUpperCase() + g.nome.slice(1) + ': ' + plural(n, 'correção', 'correções') + ' na fila da atualização do sistema';
+    const semNome = g.itens.every(a => !a.componente || !String(a.componente).trim());
+    const fonte = semNome ? (n === 1 ? 'Outros componentes: {n} correção na fila da atualização do sistema' : 'Outros componentes: {n} correções na fila da atualização do sistema') : (n === 1 ? '{nome}: {n} correção na fila da atualização do sistema' : '{nome}: {n} correções na fila da atualização do sistema');
+    const valores = { nome: g.nome.charAt(0).toUpperCase() + g.nome.slice(1), n };
+    return html ? dgSegFragmento(fonte, valores) : dgSegFrase(fonte, valores);
   }
 
   function listaAtualizacoesHtml(achados) {
-    if (!achados || !achados.length) return '<p class="rp-vazio">' + esc(VAZIO_ATUALIZACOES) + '</p>';
-    return '<p class="rp-texto" id="rpAtualizacoesFrase">' + esc(FRASE_ATUALIZACOES) + '</p>' +
+    if (!achados || !achados.length) return '<p class="rp-vazio">' + dgSegFragmento(VAZIO_ATUALIZACOES) + '</p>';
+    return '<p class="rp-texto" id="rpAtualizacoesFrase">' + dgSegFragmento(FRASE_ATUALIZACOES) + '</p>' +
       agrupaPorComponente(achados).map(g => '<details class="rp-detalhe rp-grupo-aguarda" data-componente="' + esc(g.nome) + '"><summary>' +
-        esc(resumoGrupoAtualizacoes(g)) + '</summary>' + g.itens.map(cardAtualizacaoHtml).join('') + '</details>').join('');
+        resumoGrupoAtualizacoes(g, true) + '</summary>' + g.itens.map(cardAtualizacaoHtml).join('') + '</details>').join('');
   }
 
-  function tituloAtualizacoes(n) { return 'Atualizações do sistema (' + n + ')'; }
+  function tituloAtualizacoes(n) { return dgSegFrase('Atualizações do sistema ({n})', { n }); }
 
   /* Os níveis 2 e 3 só mostram o que pede alguma coisa de alguém; o resto vai para a seção informativa. */
   function listaNivelHtml(achados, nivel, agora) {
     const lista = (achados || []).filter(a => !R.segundoPlano(a));
-    if (!lista.length) return '<p class="rp-vazio">' + esc(VAZIO[nivel]) + '</p>';
+    if (!lista.length) return '<p class="rp-vazio">' + esc(dgUiText_seguranca_js(VAZIO[nivel])) + '</p>';
     const f = nivel === 1 ? cardAplicadoHtml : nivel === 2 ? cardAcaoHtml : cardSemPressaHtml;
     return lista.map(a => f(a, agora)).join('');
   }
 
   function tratadasHtml(lista) {
-    if (!lista || !lista.length) return '<p class="rp-vazio">Nenhuma falha foi marcada como tratada até agora.</p>';
+    if (!lista || !lista.length) return dgUiHtml_seguranca_js("<p class=\"rp-vazio\"><!--dg-i18n:b1c48f5fb934-->Nenhuma falha foi marcada como tratada até agora.<!--/dg-i18n--></p>");
     return '<ul class="rp-tratadas">' + lista.map(t => '<li><b>' + esc(t.componente || t.id) + '</b>' +
       (t.id && t.componente ? ' <small>' + esc(t.id) + '</small>' : '') + (t.como ? ': ' + esc(t.como) : '') + '</li>').join('') + '</ul>';
   }
 
   function inventarioHtml(inv) {
-    if (!inv) return '<p class="rp-vazio">A ronda ainda não registrou o que olha neste servidor.</p>';
+    if (!inv) return dgUiHtml_seguranca_js("<p class=\"rp-vazio\"><!--dg-i18n:85919fc908b2-->A ronda ainda não registrou o que olha neste servidor.<!--/dg-i18n--></p>");
     const linhas = [];
-    if (inv.kernel) linhas.push('<li><b>Kernel</b>: ' + esc(inv.kernel) + '</li>');
-    if (inv.componentes != null) linhas.push('<li><b>Componentes conferidos</b>: ' + esc(inv.componentes) + '</li>');
+    if (inv.kernel) linhas.push(dgUiHtml_seguranca_js("<li><b><!--dg-i18n:8a716159a685-->Kernel<!--/dg-i18n--></b>: ") + esc(inv.kernel) + '</li>');
+    if (inv.componentes != null) linhas.push(dgUiHtml_seguranca_js("<li><b><!--dg-i18n:ff4e40e65b60-->Componentes conferidos<!--/dg-i18n--></b>: ") + esc(inv.componentes) + '</li>');
     const portas = (inv.portas_publicas || []).map(p => esc(p.porta) + (p.processo ? ' (' + esc(p.processo) + ')' : ''));
-    linhas.push('<li><b>Portas abertas para a internet</b>: ' + (portas.length ? portas.join(', ') : 'nenhuma informada') + '</li>');
-    const ext = (inv.servicos_externos || []).map(s => esc(s.nome) + (s.via ? ' <small>via ' + esc(s.via) + (s.versao ? ', versão ' + esc(s.versao) : '') + '</small>' : ''));
-    linhas.push('<li><b>Serviços externos conectados</b>: ' + (ext.length ? ext.join('; ') : 'nenhum informado') + '</li>');
-    if (inv.reinventariado_em) linhas.push('<li><b>Lista refeita em</b>: ' + esc(R.quando(inv.reinventariado_em, Date.now())) + '</li>');
+    linhas.push(dgUiHtml_seguranca_js("<li><b><!--dg-i18n:631288dc91a2-->Portas abertas para a internet<!--/dg-i18n--></b>: ") + (portas.length ? portas.join(', ') : 'nenhuma informada') + '</li>');
+    const ext = (inv.servicos_externos || []).map(s => esc(s.nome) + (s.via ? dgUiHtml_seguranca_js(" <small><!--dg-i18n:4d327af41f96-->via<!--/dg-i18n--> ") + esc(s.via) + (s.versao ? dgUiText_seguranca_js(", versão ") + esc(s.versao) : '') + '</small>' : ''));
+    linhas.push(dgUiHtml_seguranca_js("<li><b><!--dg-i18n:e56031c66da1-->Serviços externos conectados<!--/dg-i18n--></b>: ") + (ext.length ? ext.join('; ') : 'nenhum informado') + '</li>');
+    if (inv.reinventariado_em) linhas.push(dgUiHtml_seguranca_js("<li><b><!--dg-i18n:e388bc87340f-->Lista refeita em<!--/dg-i18n--></b>: ") + esc(R.quando(inv.reinventariado_em, Date.now())) + '</li>');
     return '<ul class="rp-inv">' + linhas.join('') + '</ul>';
   }
 
   /* ── emergência ─────────────────────────────────────────────────────────── */
   function planoHtml(plano) {
-    if (!plano || !plano.comandos || !plano.comandos.length) return '<p class="rp-vazio">O servidor não trouxe o plano. Rode "sudo dgclaw emergencia simular".</p>';
-    return '<div class="rp-plano"><p class="rp-texto"><b>O que vai acontecer, passo a passo:</b></p><ol>' +
+    if (!plano || !plano.comandos || !plano.comandos.length) return dgUiHtml_seguranca_js("<p class=\"rp-vazio\"><!--dg-i18n:a32bdddf3af3-->O servidor não trouxe o plano. Rode \"sudo dgclaw emergencia simular\".<!--/dg-i18n--></p>");
+    return dgUiHtml_seguranca_js("<div class=\"rp-plano\"><p class=\"rp-texto\"><b><!--dg-i18n:f0f69190217d-->O que vai acontecer, passo a passo:<!--/dg-i18n--></b></p><ol>") +
       plano.comandos.map(c => '<li><code>' + esc(c) + '</code></li>').join('') + '</ol>' +
       (plano.avisos && plano.avisos.length ? '<ul class="rp-aviso-lista">' + plano.avisos.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul>' : '') + '</div>';
   }
@@ -247,40 +258,40 @@
   function emergenciaHtml(e, ui) {
     const u = ui || { fase: 'ocioso' };
     const est = (e && e.estado) || { cortado: false };
-    let h = '<p class="rp-texto" id="rpEmTexto">' + esc(TEXTO_EMERGENCIA) + '</p>';
+    let h = '<p class="rp-texto" id="rpEmTexto">' + esc(dgUiText_seguranca_js(TEXTO_EMERGENCIA)) + '</p>';
     const inconsistente = !!(est.cortado && est.inconsistente);
     if (inconsistente) {
-      h += '<div class="rp-alerta rp-alerta-vermelha" id="rpEmInconsistente" role="alert"><b>Falha de proteção.</b> O corte de emergência está marcado, mas o firewall não está carregado: o servidor pode estar exposto.' +
+      h += dgUiHtml_seguranca_js("<div class=\"rp-alerta rp-alerta-vermelha\" id=\"rpEmInconsistente\" role=\"alert\"><b><!--dg-i18n:34afc138c1ad-->Falha de proteção.<!--/dg-i18n--></b> <!--dg-i18n:60539c7f7176-->O corte de emergência está marcado, mas o firewall não está carregado: o servidor pode estar exposto.<!--/dg-i18n-->") +
         (est.motivo_inconsistente ? ' <small>' + esc(est.motivo_inconsistente) + '</small>' : '') + '</div>';
     } else if (est.cortado) {
-      h += '<div class="rp-alerta" id="rpEmCortado" role="alert"><b>O sistema está fora do ar</b> desde ' + esc(R.quando(est.desde, Date.now())) + '.' +
-        (est.confirmado ? ' O corte foi confirmado e fica até você religar.'
-          : est.religar_automatico_em ? ' Se ninguém confirmar, ele religa sozinho em ' + esc(R.quando(est.religar_automatico_em, Date.now())) + '.' : '') + '</div>';
+      h += dgUiHtml_seguranca_js("<div class=\"rp-alerta\" id=\"rpEmCortado\" role=\"alert\"><b><!--dg-i18n:0c11fb57fe74-->O sistema está fora do ar<!--/dg-i18n--></b> <!--dg-i18n:1e06e6dac28b-->desde<!--/dg-i18n--> ") + esc(R.quando(est.desde, Date.now())) + '.' +
+        (est.confirmado ? dgUiText_seguranca_js(" O corte foi confirmado e fica até você religar.")
+          : est.religar_automatico_em ? dgUiText_seguranca_js(" Se ninguém confirmar, ele religa sozinho em ") + esc(R.quando(est.religar_automatico_em, Date.now())) + '.' : '') + '</div>';
     }
     const indisponivel = !est.cortado && (!e || !e.disponivel);
     if (indisponivel) {
-      h += '<div class="rp-bloqueio" id="rpEmMotivo" role="status"><b>O botão está desligado por enquanto.</b> ' + esc((e && e.motivo) || 'Não foi possível saber se o corte é seguro.') + '</div>';
+      h += dgUiHtml_seguranca_js("<div class=\"rp-bloqueio\" id=\"rpEmMotivo\" role=\"status\"><b><!--dg-i18n:3ecfa6e1d4f7-->O botão está desligado por enquanto.<!--/dg-i18n--></b> ") + esc((e && e.motivo) || dgUiText_seguranca_js("Não foi possível saber se o corte é seguro.")) + '</div>';
     } else if (e && e.desatualizado) {
-      h += '<p class="rp-fraco">A medição do servidor tem mais de 2 horas. Rode "sudo dgclaw emergencia estado" para atualizar.</p>';
+      h += dgUiHtml_seguranca_js("<p class=\"rp-fraco\"><!--dg-i18n:3927815afc2f-->A medição do servidor tem mais de 2 horas. Rode \"sudo dgclaw emergencia estado\" para atualizar.<!--/dg-i18n--></p>");
     }
     const ocupado = u.fase === 'preparando';
-    h += '<div class="rp-acoes"><button type="button" class="rp-btn" data-rp="simular" id="btnSimular"' + (e && e.plano && e.plano.comandos && e.plano.comandos.length ? '' : ' disabled') + '>Simular</button>';
+    h += '<div class="rp-acoes"><button type="button" class="rp-btn" data-rp="simular" id="btnSimular"' + (e && e.plano && e.plano.comandos && e.plano.comandos.length ? '' : ' disabled') + dgUiHtml_seguranca_js("><!--dg-i18n:6b58dcab6a07-->Simular<!--/dg-i18n--></button>");
     if (inconsistente) {
-      h += '<button type="button" class="rp-btn rp-perigo" data-rp="preparar" data-acao="cortar" id="btnReaplicar"' + (ocupado ? ' disabled' : '') + '>Reaplicar o corte</button>' +
-        '<button type="button" class="rp-btn rp-pri" data-rp="preparar" data-acao="religar" id="btnReligar"' + (ocupado ? ' disabled' : '') + '>Religar</button>';
-    } else if (est.cortado) h += '<button type="button" class="rp-btn rp-pri" data-rp="preparar" data-acao="religar" id="btnReligar"' + (ocupado ? ' disabled' : '') + '>Religar</button>';
-    else h += '<button type="button" class="rp-btn rp-perigo" data-rp="preparar" id="btnTirarDoAr"' + (indisponivel || ocupado ? ' disabled' : '') + '>Tirar do ar</button>';
+      h += '<button type="button" class="rp-btn rp-perigo" data-rp="preparar" data-acao="cortar" id="btnReaplicar"' + (ocupado ? ' disabled' : '') + dgUiHtml_seguranca_js("><!--dg-i18n:5bd1a3df8a52-->Reaplicar o corte<!--/dg-i18n--></button>") +
+        '<button type="button" class="rp-btn rp-pri" data-rp="preparar" data-acao="religar" id="btnReligar"' + (ocupado ? ' disabled' : '') + dgUiHtml_seguranca_js("><!--dg-i18n:30083a4772b0-->Religar<!--/dg-i18n--></button>");
+    } else if (est.cortado) h += '<button type="button" class="rp-btn rp-pri" data-rp="preparar" data-acao="religar" id="btnReligar"' + (ocupado ? ' disabled' : '') + dgUiHtml_seguranca_js("><!--dg-i18n:30083a4772b0-->Religar<!--/dg-i18n--></button>");
+    else h += '<button type="button" class="rp-btn rp-perigo" data-rp="preparar" id="btnTirarDoAr"' + (indisponivel || ocupado ? ' disabled' : '') + dgUiHtml_seguranca_js("><!--dg-i18n:938ec9aaa1ba-->Tirar do ar<!--/dg-i18n--></button>");
     h += '</div>';
     if (u.verPlano && e) h += planoHtml(e.plano);
     if (u.fase === 'codigo') {
       const frase = u.acao === 'religar' ? FRASE_RELIGAR : FRASE_CORTAR;
       h += '<div class="rp-confirma" id="rpConfirma">' + planoHtml(u.plano) +
-        '<p class="rp-texto">Código de confirmação: <span class="rp-codigo" id="rpCodigo">' + esc(u.codigo) + '</span>' +
-        (u.expira_em ? ' <small>(vale até ' + esc(R.horaBr(u.expira_em)) + ')</small>' : '') + '</p>' +
-        '<label class="rp-frase">Para continuar, digite <b>' + esc(frase) + '</b><input type="text" id="rpFrase" autocomplete="off" autocapitalize="characters" spellcheck="false" data-frase="' + esc(frase) + '"></label>' +
+        dgUiHtml_seguranca_js("<p class=\"rp-texto\"><!--dg-i18n:77b74b97f7c0-->Código de confirmação:<!--/dg-i18n--> <span class=\"rp-codigo\" id=\"rpCodigo\">") + esc(u.codigo) + '</span>' +
+        (u.expira_em ? dgUiHtml_seguranca_js(" <small><!--dg-i18n:db06286cdd6c-->(vale até<!--/dg-i18n--> ") + esc(R.horaBr(u.expira_em)) + ')</small>' : '') + '</p>' +
+        dgUiHtml_seguranca_js("<label class=\"rp-frase\"><!--dg-i18n:415a3551d906-->Para continuar, digite<!--/dg-i18n--> <b>") + esc(frase) + '</b><input type="text" id="rpFrase" autocomplete="off" autocapitalize="characters" spellcheck="false" data-frase="' + esc(frase) + '"></label>' +
         '<div class="rp-acoes"><button type="button" class="rp-btn ' + (u.acao === 'religar' ? 'rp-pri' : 'rp-perigo') + '" data-rp="confirmar-emergencia" id="btnConfirmaEm" disabled>' +
-        (u.acao === 'religar' ? 'Religar agora' : 'Tirar do ar agora') + '</button>' +
-        '<button type="button" class="rp-btn" data-rp="cancelar-emergencia">Cancelar</button></div></div>';
+        (u.acao === 'religar' ? dgUiText_seguranca_js("Religar agora") : dgUiText_seguranca_js("Tirar do ar agora")) + '</button>' +
+        dgHtml_seguranca("<button type=\"button\" class=\"rp-btn\" data-rp=\"cancelar-emergencia\"><!--dg-i18n:bb9dbb406dcb-->Cancelar<!--/dg-i18n--></button></div></div>");
     }
     return h;
   }
@@ -396,14 +407,14 @@
 
   function pintaTopo() {
     const r = est.ronda;
-    $('rpResumo').textContent = r ? R.resumoTopo(r, Date.now()) : (est.erro ? 'Não consegui ler a ronda de segurança.' : 'Conferindo…');
+    $('rpResumo').textContent = r ? R.resumoTopo(r, Date.now()) : (est.erro ? dgUiText_seguranca_js("Não consegui ler a ronda de segurança.") : dgTexto_seguranca('Conferindo…'));
     const parcial = R.textoParcial(r);
     const pa = $('rpParcial'); pa.textContent = parcial; pa.hidden = !parcial;
     const vigia = R.textoVigia(r);
     const vi = $('rpVigia'); vi.textContent = vigia; vi.hidden = !vigia;
     const er = $('rpErro'); er.textContent = est.erro || ''; er.hidden = !est.erro;
     const sem = $('rpSemNovidade');
-    sem.textContent = R.FRASE_SEM_NOVIDADE;
+    sem.textContent = dgUiText_seguranca_js(R.FRASE_SEM_NOVIDADE);
     sem.hidden = !(r && !r.nunca_rodou && r.sem_novidades);
   }
 
@@ -411,7 +422,7 @@
     const el = $('listaBoletins');
     if (est.ocupados.size && el.querySelector('.rp-card.ocupado')) return;   // não apaga um pedido em andamento
     el.innerHTML = est.boletins ? listaBoletinsHtml(est.boletins, Date.now())
-      : '<p class="rp-vazio">' + esc(est.erroBoletins || 'Conferindo…') + '</p>';
+      : '<p class="rp-vazio">' + esc(est.erroBoletins || dgTexto_seguranca('Conferindo…')) + '</p>';
   }
 
   function pintaNiveis() {
@@ -419,16 +430,16 @@
     const agora = Date.now();
     for (const [n, id] of [[1, 'listaAplicado'], [2, 'listaAcao'], [3, 'listaSemPressa']]) {
       if (est.ocupados.size && $(id).querySelector('.rp-card.ocupado')) continue;   // não apaga um pedido em andamento
-      $(id).innerHTML = r ? listaNivelHtml(r.niveis[n], n, agora) : '<p class="rp-vazio">' + esc(est.erro ? 'Sem dados da ronda.' : 'Ainda sem ronda.') + '</p>';
+      $(id).innerHTML = r ? listaNivelHtml(r.niveis[n], n, agora) : '<p class="rp-vazio">' + esc(est.erro ? dgUiText_seguranca_js("Sem dados da ronda.") : dgUiText_seguranca_js("Ainda sem ronda.")) + '</p>';
     }
     if (!(est.ocupados.size && $('listaAguardando').querySelector('.rp-card.ocupado'))) {
       const espera = r ? [].concat(r.niveis['1'], r.niveis['2'], r.niveis['3']).filter(R.aguardaCorrecao) : [];
       $('tituloAguardando').textContent = tituloAguardando(espera.length);
-      $('listaAguardando').innerHTML = r ? listaAguardandoHtml(espera, agora) : '<p class="rp-vazio">' + esc(est.erro ? 'Sem dados da ronda.' : 'Ainda sem ronda.') + '</p>';
+      $('listaAguardando').innerHTML = r ? listaAguardandoHtml(espera, agora) : '<p class="rp-vazio">' + esc(est.erro ? dgUiText_seguranca_js("Sem dados da ronda.") : dgUiText_seguranca_js("Ainda sem ronda.")) + '</p>';
     }
     const fila = r ? [].concat(r.niveis['1'], r.niveis['2'], r.niveis['3']).filter(R.ehAtualizacaoSistema) : [];
-    $('tituloAtualizacoes').textContent = tituloAtualizacoes(fila.length);
-    $('listaAtualizacoes').innerHTML = r ? listaAtualizacoesHtml(fila) : '<p class="rp-vazio">' + esc(est.erro ? 'Sem dados da ronda.' : 'Ainda sem ronda.') + '</p>';
+    dgSegRotulo($('tituloAtualizacoes'), 'Atualizações do sistema ({n})', { n: fila.length });
+    $('listaAtualizacoes').innerHTML = r ? listaAtualizacoesHtml(fila) : '<p class="rp-vazio">' + dgSegFragmento(est.erro ? 'Sem dados da ronda.' : 'Ainda sem ronda.') + '</p>';
     $('listaTratadas').innerHTML = tratadasHtml(r && r.ja_tratadas);
     $('listaInventario').innerHTML = inventarioHtml(r && r.inventario);
   }
@@ -436,14 +447,14 @@
   function pintaEmergencia() {
     if (est.ui.fase === 'codigo' && document.activeElement && document.activeElement.id === 'rpFrase') return;   // não tira o teclado da pessoa
     const e = est.emergencia;
-    $('corpoEmergencia').innerHTML = e ? emergenciaHtml(e, est.ui) : '<p class="rp-vazio">' + esc(est.erro || 'Conferindo…') + '</p>';
+    $('corpoEmergencia').innerHTML = e ? emergenciaHtml(e, est.ui) : '<p class="rp-vazio">' + esc(est.erro || dgTexto_seguranca('Conferindo…')) + '</p>';
   }
 
   async function carrega() {
     const [r, e, bo] = await Promise.all([R.chama(buscar, 'GET', R.API + '/ronda'), R.chama(buscar, 'GET', R.API + '/emergencia'), R.chama(buscar, 'GET', R.API + '/boletins')]);
     est.erro = null;
     if (bo.ok) { est.boletins = Array.isArray(bo.json.boletins) ? bo.json.boletins : []; est.erroBoletins = null; }
-    else { est.boletins = null; est.erroBoletins = 'Não consegui ler os avisos de segurança do DG Claw. ' + bo.erro; }
+    else { est.boletins = null; est.erroBoletins = dgUiText_seguranca_js("Não consegui ler os avisos de segurança do DG Claw. ") + bo.erro; }
     if (r.ok) est.ronda = r.json; else { est.ronda = null; est.erro = r.erro; }
     if (e.ok) est.emergencia = e.json;
     else { est.emergencia = null; est.erro = est.erro || e.erro; }
@@ -459,18 +470,18 @@
     if (!estado) return;
     acoes.textContent = '';
     const susp = $('autoAdminSuspenso');
-    if (susp) { susp.textContent = auto.suspenso ? TEXTO_SUSPENSO : ''; susp.hidden = !auto.suspenso; }
+    if (susp) { dgSegRotulo(susp, auto.suspenso ? TEXTO_SUSPENSO : ''); susp.hidden = !auto.suspenso; }
     if (auto.ligado === null) {
-      estado.textContent = auto.erro || 'Conferindo…';
+      if (auto.erro !== null) dgSegRotulo(estado, 'Não consegui ler o estado do Admin automático. {erro}', { erro: auto.erro }); else dgSegRotulo(estado, 'Conferindo…');
       aviso.hidden = true;
       return;
     }
-    estado.textContent = autoAdminEstadoTexto(auto.ligado);
-    aviso.textContent = AVISO_AUTO_ADMIN;
+    dgSegRotulo(estado, autoAdminEstadoTexto(auto.ligado));
+    dgSegRotulo(aviso, AVISO_AUTO_ADMIN);
     aviso.hidden = !auto.confirmando;
     for (const b of autoAdminBotoes(auto.ligado, auto.confirmando)) {
       const e = document.createElement('button');
-      e.type = 'button'; e.className = b.classe; e.dataset.rp = b.acao; e.textContent = b.rotulo;
+      e.type = 'button'; e.className = b.classe; e.dataset.rp = b.acao; dgSegRotulo(e, b.rotulo);
       acoes.appendChild(e);
     }
   }
@@ -478,6 +489,7 @@
   function msgAuto(texto, tipo) {
     const p = $('autoAdminMsg');
     if (!p) return;
+    dgSegRotulo(p, '');
     p.textContent = texto || '';
     p.className = 'rp-msg' + (tipo ? ' ' + tipo : '');
     p.hidden = !texto;
@@ -486,7 +498,7 @@
   async function carregaAutoAdmin() {
     const r = await R.chama(buscar, 'GET', '/api/v1/integracoes');
     if (r.ok && r.json && r.json.automatico && typeof r.json.automatico.ligado === 'boolean') { auto.ligado = r.json.automatico.ligado; auto.suspenso = r.json.automatico.suspenso === true; auto.erro = null; }
-    else { auto.ligado = null; auto.erro = 'Não consegui ler o estado do Admin automático. ' + (r.erro || ''); }
+    else { auto.ligado = null; auto.erro = r.erro || '';  }
     pintaAutoAdmin();
   }
 
@@ -494,12 +506,12 @@
     msgAuto('', '');
     const corpo = ligado ? { ligado: true, entendoORisco: true } : { ligado: false };
     const r = await R.chama(buscar, 'POST', '/api/v1/integracoes/automatico', corpo);
-    if (!r.ok) { msgAuto('Não consegui mudar: ' + r.erro, 'erro'); return; }
+    if (!r.ok) { msgAuto('', 'erro'); dgSegRotulo($('autoAdminMsg'), 'Não consegui mudar: {erro}', { erro: r.erro || '' }); $('autoAdminMsg').hidden = false; return; }
     auto.ligado = !!(r.json && r.json.automatico && r.json.automatico.ligado);
     auto.suspenso = false;   // mexer no interruptor retoma o pedido automático
     auto.confirmando = false;
     pintaAutoAdmin();
-    msgAuto(auto.ligado ? 'Ligado.' : 'Desligado.', 'ok');
+    msgAuto('', 'ok'); dgSegRotulo($('autoAdminMsg'), auto.ligado ? 'Ligado.' : 'Desligado.'); $('autoAdminMsg').hidden = false;
   }
 
   function achadoDe(card) {
@@ -516,7 +528,7 @@
 
   async function pedirDoCard(card, acao, corpo, mensagemFinal) {
     const a = achadoDe(card);
-    if (!a) { msgDoCard(card, 'Não achei este item na ronda. Atualize a página.', 'erro'); return; }
+    if (!a) { msgDoCard(card, dgUiText_seguranca_js("Não achei este item na ronda. Atualize a página."), 'erro'); return; }
     travaCard(card, true);
     msgDoCard(card, 'Enviando o pedido…', '');
     const res = await R.pedirEEsperar(buscar, R.urlAchado(a.id, acao), corpo, { aoProgresso: t => msgDoCard(card, t, '') });
@@ -527,7 +539,7 @@
       const novo = document.querySelector('.rp-card[data-id="' + (raiz.CSS && raiz.CSS.escape ? raiz.CSS.escape(a.id) : a.id) + '"]');
       if (novo) msgDoCard(novo, res.mensagem || mensagemFinal, 'ok');
     } else {
-      msgDoCard(card, res.mensagem || 'O servidor não conseguiu executar o pedido e não explicou o motivo. Veja: journalctl -u dgclaw-seguranca-pedidos -n 30', 'erro');
+      msgDoCard(card, res.mensagem || dgUiText_seguranca_js("O servidor não conseguiu executar o pedido e não explicou o motivo. Veja: journalctl -u dgclaw-seguranca-pedidos -n 30"), 'erro');
     }
   }
 
@@ -541,11 +553,11 @@
   /* Atualizar leva ao Admin com o pedido escrito; Lembrar depois e Entendi avisam o servidor (adiar 24 h ou dispensar). */
   async function acaoBoletim(card, botao) {
     const b = (est.boletins || []).find(x => x.id === card.dataset.id);
-    if (!b) { msgDoCard(card, 'Não achei este aviso na lista. Atualize a página.', 'erro'); return; }
+    if (!b) { msgDoCard(card, dgUiText_seguranca_js("Não achei este aviso na lista. Atualize a página."), 'erro'); return; }
     const k = botao.dataset.rp;
     if (k === 'b-atualizar') {
       const faixa = raiz.DGAtualizacaoFaixa;
-      if (!faixa || typeof faixa.instalar !== 'function') { msgDoCard(card, 'O atalho para o Admin ainda não carregou. Recarregue a página e toque de novo.', 'erro'); return; }
+      if (!faixa || typeof faixa.instalar !== 'function') { msgDoCard(card, dgUiText_seguranca_js("O atalho para o Admin ainda não carregou. Recarregue a página e toque de novo."), 'erro'); return; }
       faixa.instalar(R.textoDoPedidoBoletim(b));
       return;
     }
@@ -563,29 +575,29 @@
     const a = card && achadoDe(card);
     const k = botao.dataset.rp;
     if (!card || !a) return;
-    if (k === 'aplicar') return pedirDoCard(card, 'aplicar', {}, 'Correção aplicada.');
+    if (k === 'aplicar') return pedirDoCard(card, 'aplicar', {}, dgUiText_seguranca_js("Correção aplicada."));
     if (k === 'agendar-abre') { const box = card.querySelector('.rp-agenda'); box.hidden = !box.hidden; return undefined; }
     if (k === 'agendar') {
       const iso = R.agendaParaIso(card.querySelector('.rp-quando').value, Date.now());
-      if (!iso) { msgDoCard(card, 'Escolha uma data e hora pelo menos 1 minuto à frente.', 'erro'); return undefined; }
+      if (!iso) { msgDoCard(card, dgUiText_seguranca_js("Escolha uma data e hora pelo menos 1 minuto à frente."), 'erro'); return undefined; }
       return pedirDoCard(card, 'agendar', { quando: iso }, 'Agendado.');
     }
     if (k === 'tirar-do-ar') return irParaEmergencia();
     if (k === 'desfazer') {
       if (botao.dataset.confirma !== '1') {
         botao.dataset.confirma = '1'; botao.textContent = 'Confirmar: desfazer';
-        msgDoCard(card, 'Isto devolve o valor de antes (' + (a.aplicado && a.aplicado.antes ? a.aplicado.antes : 'registrado pela ronda') + '). Toque de novo para confirmar.', '');
+        msgDoCard(card, dgUiText_seguranca_js("Isto devolve o valor de antes (") + (a.aplicado && a.aplicado.antes ? a.aplicado.antes : 'registrado pela ronda') + dgUiText_seguranca_js("). Toque de novo para confirmar."), '');
         return undefined;
       }
       return pedirDoCard(card, 'desfazer', {}, 'Desfeito.');
     }
     if (k === 'pedir-admin') {
       const faixa = raiz.DGAtualizacaoFaixa;
-      if (!faixa || typeof faixa.instalar !== 'function') { msgDoCard(card, 'O atalho para o Admin ainda não carregou. Recarregue a página e toque de novo.', 'erro'); return undefined; }
+      if (!faixa || typeof faixa.instalar !== 'function') { msgDoCard(card, dgUiText_seguranca_js("O atalho para o Admin ainda não carregou. Recarregue a página e toque de novo."), 'erro'); return undefined; }
       faixa.instalar(R.textoDoPedidoAoAdmin(a));
       return undefined;
     }
-    if (k === 'corrigir') return pedirDoCard(card, 'aplicar', {}, 'Correção aplicada.');
+    if (k === 'corrigir') return pedirDoCard(card, 'aplicar', {}, dgUiText_seguranca_js("Correção aplicada."));
     return undefined;
   }
 
@@ -599,12 +611,12 @@
   async function prepararEmergencia(acaoEscolhida) {
     est.ui = { fase: 'preparando' };
     pintaEmergencia();
-    msgEmergencia('Pedindo o plano e o código ao servidor…', '');
+    msgEmergencia(dgUiText_seguranca_js("Pedindo o plano e o código ao servidor…"), '');
     const res = await R.pedirEEsperar(buscar, R.API + '/emergencia/preparar', {}, { aoProgresso: t => msgEmergencia(t, '') });
     if (!res.ok || !res.dados || !res.dados.codigo) {
       est.ui = { fase: 'ocioso' };
       pintaEmergencia();
-      msgEmergencia(res.mensagem || 'O servidor não trouxe o código. Rode "sudo dgclaw emergencia preparar" para ver o motivo.', 'erro');
+      msgEmergencia(res.mensagem || dgUiText_seguranca_js("O servidor não trouxe o código. Rode \"sudo dgclaw emergencia preparar\" para ver o motivo."), 'erro');
       return;
     }
     est.ui = { fase: 'codigo', acao: acaoEscolhida || res.dados.acao || 'cortar', codigo: res.dados.codigo, expira_em: res.dados.expira_em, plano: res.dados.plano };
@@ -622,10 +634,10 @@
     const res = await R.pedirEEsperar(buscar, R.API + '/emergencia/' + u.acao, { codigo: u.codigo, frase: campo.value }, { aoProgresso: t => msgEmergencia(t, '') });
     est.ui = { fase: 'ocioso' };
     if (res.ok) {
-      msgEmergencia((res.mensagem || (u.acao === 'cortar' ? 'Sistema fora do ar.' : 'Sistema religado.')) +
-        (u.acao === 'cortar' ? ' Esta tela e o painel deixam de responder até você confirmar ou religar pelo servidor (sudo dgclaw emergencia confirmar). Sem confirmação, ele religa sozinho em 5 minutos.' : ''), 'ok');
+      msgEmergencia((res.mensagem || (u.acao === 'cortar' ? dgUiText_seguranca_js("Sistema fora do ar.") : 'Sistema religado.')) +
+        (u.acao === 'cortar' ? dgUiText_seguranca_js(" Esta tela e o painel deixam de responder até você confirmar ou religar pelo servidor (sudo dgclaw emergencia confirmar). Sem confirmação, ele religa sozinho em 5 minutos.") : ''), 'ok');
     } else {
-      msgEmergencia(res.mensagem || 'O servidor não executou o pedido e não explicou o motivo. Veja: journalctl -u dgclaw-seguranca-pedidos -n 30', 'erro');
+      msgEmergencia(res.mensagem || dgUiText_seguranca_js("O servidor não executou o pedido e não explicou o motivo. Veja: journalctl -u dgclaw-seguranca-pedidos -n 30"), 'erro');
     }
     await carrega();
   }
@@ -653,7 +665,7 @@
 
   function comTour(fn) {
     if (raiz.DGTour) { fn(); return; }
-    msgGeral('A visita guiada não carregou. Recarregue a página e tente de novo.', 'erro');
+    msgGeral(dgUiText_seguranca_js("A visita guiada não carregou. Recarregue a página e tente de novo."), 'erro');
   }
 
   function ajudaSecao(chave) {

@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Aviso de nova versão do DG Claw: o painel só LÊ o estado que scripts/checar-atualizacao.mjs grava
 // (o Web não consulta o GitHub nem instala nada) e guarda quando o dono dispensou a faixa.
 // Contrato das rotas: web/docs/ATUALIZACAO.md. Visão geral: docs/AVISO-DE-ATUALIZACAO.md.
@@ -36,9 +37,9 @@ function normaliza(e) {
     ? e.novidades.filter((n) => typeof n === 'string').slice(0, 15).map((n) => texto(n, 400)).filter(Boolean)
     : [];
   const erro = e.erro && typeof e.erro === 'object'
-    ? { quando: data(e.erro.quando), motivo: texto(e.erro.motivo, 600) }
+    ? dgIdiomaBackend.objeto({ quando: data(e.erro.quando), motivo: texto(e.erro.motivo, 600) })
     : null;
-  return {
+  return dgIdiomaBackend.objeto({
     desligado: e.desligado === true,
     disponivel: e.disponivel === true,
     motivo: texto(e.motivo, 80),
@@ -49,7 +50,7 @@ function normaliza(e) {
     novidades,
     verificado_em: data(e.verificado_em),
     erro,
-  };
+  });
 }
 
 function criarAtualizacao(opcoes) {
@@ -63,14 +64,14 @@ function criarAtualizacao(opcoes) {
     let bruto;
     try { bruto = fs.readFileSync(arqEstado, 'utf8'); } catch (e) {
       if (e.code === 'ENOENT') return { ausente: true };
-      return { erro: `Não consegui ler ${arqEstado} (${e.code || e.message}). Rode "sudo dgclaw atualizar --checar" no servidor para refazê-lo.` };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui ler {p0} ({p1}). Rode \"sudo dgclaw atualizar --checar\" no servidor para refazê-lo.", {p0: (arqEstado), p1: (e.code || dgIdiomaBackend.campo(e, "message"))}) });
     }
     let j;
     try { j = JSON.parse(bruto); } catch (e) {
-      return { erro: `O arquivo ${arqEstado} está corrompido (${e.message}). Rode "sudo dgclaw atualizar --checar" no servidor para refazê-lo.` };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O arquivo {p0} está corrompido ({p1}). Rode \"sudo dgclaw atualizar --checar\" no servidor para refazê-lo.", {p0: (arqEstado), p1: (dgIdiomaBackend.campo(e, "message"))}) });
     }
     if (!j || typeof j !== 'object' || Array.isArray(j)) {
-      return { erro: `O arquivo ${arqEstado} não tem o formato esperado. Rode "sudo dgclaw atualizar --checar" no servidor para refazê-lo.` };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O arquivo {p0} não tem o formato esperado. Rode \"sudo dgclaw atualizar --checar\" no servidor para refazê-lo.", {p0: (arqEstado)}) });
     }
     return { estado: normaliza(j) };
   }
@@ -105,16 +106,16 @@ function criarAtualizacao(opcoes) {
     }
     if (l.erro) {
       log('erro', `Atualização: ${l.erro}`);
-      return H.erroJson(res, 500, l.erro);
+      return H.erroJson(res, 500, dgIdiomaBackend.campo(l, "erro"));
     }
     const e = l.estado;
     const dispensado = lerDescanso();
     const mostrar = e.disponivel && !!e.publicado && dispensado !== e.publicado.commit;
-    return H.enviaJson(res, 200, {
-      ok: true, desligado: e.desligado, disponivel: e.disponivel, mostrar_faixa: mostrar, motivo: e.motivo,
+    return H.enviaJson(res, 200, dgIdiomaBackend.objeto({
+      ok: true, desligado: e.desligado, disponivel: e.disponivel, mostrar_faixa: mostrar, motivo: dgIdiomaBackend.campo(e, "motivo"),
       instalado: e.instalado, publicado: e.publicado, commits_a_frente: e.commits_a_frente,
-      novidades: e.novidades, fonte_resumo: e.fonte_resumo, verificado_em: e.verificado_em, erro: e.erro,
-    });
+      novidades: e.novidades, fonte_resumo: e.fonte_resumo, verificado_em: e.verificado_em, erro: dgIdiomaBackend.campo(e, "erro"),
+    }));
   }
 
   async function descansar(req, res) {
@@ -124,16 +125,16 @@ function criarAtualizacao(opcoes) {
       return H.erroJson(res, 400, 'Mande {"commit": "<40 caracteres hexadecimais>"} com o commit publicado que aparece em GET ' + BASE + '.');
     }
     const l = lerEstado();
-    if (l.erro) { log('erro', `Atualização: ${l.erro}`); return H.erroJson(res, 500, l.erro); }
+    if (l.erro) { log('erro', `Atualização: ${l.erro}`); return H.erroJson(res, 500, dgIdiomaBackend.campo(l, "erro")); }
     const atual = l.estado && l.estado.disponivel && l.estado.publicado ? l.estado.publicado.commit : null;
     if (commit !== atual) {
       return H.erroJson(res, 409, atual
-        ? 'Esse não é mais o commit publicado: saiu uma versão mais nova. Atualize a tela e dispense a faixa de novo.'
-        : 'Não há aviso de versão nova para dispensar agora. Atualize a tela.');
+        ? dgIdiomaBackend.descricao("Esse não é mais o commit publicado: saiu uma versão mais nova. Atualize a tela e dispense a faixa de novo.")
+        : dgIdiomaBackend.descricao("Não há aviso de versão nova para dispensar agora. Atualize a tela."));
     }
     try { gravaDescanso(commit); } catch (e) {
       log('erro', `Atualização: não consegui gravar ${arqDescanso} (${e.code || e.message}).`);
-      return H.erroJson(res, 500, 'Não consegui guardar que você dispensou o aviso. Peça ao Admin para conferir o espaço em disco e as permissões de /var/lib/dgclaw/web/atualizacao.');
+      return H.erroJson(res, 500, dgIdiomaBackend.descricao("Não consegui guardar que você dispensou o aviso. Peça ao Admin para conferir o espaço em disco e as permissões de /var/lib/dgclaw/web/atualizacao."));
     }
     return H.enviaJson(res, 200, { ok: true, dispensado: commit });
   }
@@ -145,7 +146,7 @@ function criarAtualizacao(opcoes) {
       res.end(t);
     } catch (e) {
       log('erro', `Atualização: não consegui ler docs/ATUALIZACAO.md (${e.code || e.message}).`);
-      H.erroJson(res, 500, 'O documento do aviso de atualização não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      H.erroJson(res, 500, dgIdiomaBackend.descricao("O documento do aviso de atualização não foi encontrado no servidor. Reinstale o DG Claw Web."));
     }
   }
 
@@ -155,23 +156,23 @@ function criarAtualizacao(opcoes) {
     if (p !== BASE && !p.startsWith(`${BASE}/`)) return false;
     // Agente não tem o que fazer aqui; o servidor já não libera a rota na caixa, isto é a segunda trava.
     if (!sessao || sessao.via === 'caixa') {
-      H.erroJson(res, 403, 'O aviso de atualização é só do dono, pelo painel. Agente não usa esta rota.');
+      H.erroJson(res, 403, dgIdiomaBackend.descricao("O aviso de atualização é só do dono, pelo painel. Agente não usa esta rota."));
       return true;
     }
     const m = req.method;
     const sub = p.slice(BASE.length);
-    const metodoErrado = (usar) => { H.erroJson(res, 405, `Use ${usar} em ${p}.`); return true; };
+    const metodoErrado = (usar) => { H.erroJson(res, 405, dgIdiomaBackend.descricao("Use {p0} em {p1}.", {p0: (usar), p1: (p)})); return true; };
     try {
       if (sub === '') { if (m !== 'GET') return metodoErrado('GET'); estadoDaApi(res); return true; }
       if (sub === '/docs.md') { if (m !== 'GET') return metodoErrado('GET'); docs(res); return true; }
       if (sub === '/descansar') { if (m !== 'POST') return metodoErrado('POST'); await descansar(req, res); return true; }
     } catch (e) {
-      if (e.status) { H.erroJson(res, e.status, e.message); return true; }
+      if (e.status) { H.erroJson(res, e.status, dgIdiomaBackend.campo(e, "message")); return true; }
       log('erro', `Atualização: falha inesperada em ${m} ${p}: ${e.stack || e.message}`);
-      H.erroJson(res, 500, 'Não consegui tratar o pedido do aviso de atualização. O detalhe está no log do Web (journalctl -u dgclaw-web).');
+      H.erroJson(res, 500, dgIdiomaBackend.descricao("Não consegui tratar o pedido do aviso de atualização. O detalhe está no log do Web (journalctl -u dgclaw-web)."));
       return true;
     }
-    H.erroJson(res, 404, `Não existe ${m} ${p}. As rotas estão em GET ${BASE}/docs.md.`);
+    H.erroJson(res, 404, dgIdiomaBackend.descricao("Não existe {p0} {p1}. As rotas estão em GET {p2}/docs.md.", {p0: (m), p1: (p), p2: (BASE)}));
     return true;
   }
 

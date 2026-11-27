@@ -110,6 +110,8 @@ else
     criar_agente ana --nome "Ana"
     mkdir -p "$APP/web" "$APP/panel"
     cp -r "$REPO/web/bin" "$REPO/web/lib" "$APP/web/"
+    mkdir -p "$APP/web/public/ds"
+    cp "$REPO/web/public/ds/idioma.js" "$REPO/web/public/ds/idiomas.js" "$APP/web/public/ds/"
     cp -r "$REPO/panel/lib" "$APP/panel/"
     casa="$(jq -r '.. | .home_host? // empty' "$DGCLAW_RAIZ/etc/dgclaw/agentes.json" | head -1)"
     case "$casa" in

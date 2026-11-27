@@ -7,6 +7,26 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+**Interface em Português / English.** O Web e o painel compartilham um seletor de
+idioma por navegador, incluindo textos dinâmicos, visitas guiadas, erros próprios
+e os 13 capítulos do manual. A troca preserva campos preenchidos e a conversa
+aberta. Nomes, mensagens, arquivos, comandos e diagnósticos externos continuam
+como foram recebidos. Tradução do manual desatualizada mostra um aviso e a fonte
+portuguesa atual. O [guia de idiomas](docs/IDIOMAS.md) explica a manutenção.
+
+A tradução de erros distingue mensagens do produto de dados externos por identidade.
+Um nome igual a outro aviso permanece como foi cadastrado. Logs, arquivos gravados
+e decisões internas conservam seus textos em português; a tradução ocorre na saída
+para a interface.
+
+### Como atualizar
+
+Português continua sendo o padrão. Para iniciar uma instalação em inglês, acrescente
+`DGCLAW_WEB_IDIOMA=en` ao `web.env` existente, preservando suas outras linhas, e
+reinicie somente o Web conforme o procedimento da instalação. Uma preferência já
+salva no seletor continua valendo. Não substitua o arquivo de configuração inteiro.
+
+
 **Correção nos limites de memória: o agente principal tem prioridade e os outros usam a memória livre.** Quem tinha vários
 agentes ficava com 1 a 2 GB em cada um, e o Admin chegava a recusar a atualização por causa disso. Agora todo agente recebe
 o mesmo teto, a RAM da VPS menos a reserva do sistema, só como proteção: ninguém fica com uma fatia fixa, e os agentes

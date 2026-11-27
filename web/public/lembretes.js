@@ -1,4 +1,9 @@
 'use strict';
+const dgUiText_lembretes_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiHtml_lembretes_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
+const dgUiLabel_lembretes_js = (el, fonte, atributo) => { if (globalThis.DGI18n) globalThis.DGI18n.rotulo(el, fonte, atributo); else if (atributo) el.setAttribute(atributo, fonte); else el.textContent = fonte; };
+const dgTexto_lembretes = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgHtml_lembretes = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* lembretes.js: a tela /lembretes. Lista, filtra, cria, pausa, retoma e apaga lembretes, mostra o
    histórico de cada um e liga os avisos neste aparelho (window.DGClawAvisos).
    Tudo passa pela API (web/docs/LEMBRETES.md); nenhuma informação vem de outro lugar.
@@ -32,7 +37,7 @@
     const inteiro = x => (x === '' || x == null ? NaN : Number(x));
     if (v.quando === 'daqui') {
       const n = inteiro(v.daqui);
-      if (!Number.isInteger(n) || n < 1 || n > 10080) return { erro: 'Diga daqui a quantos minutos (de 1 a 10080).' };
+      if (!Number.isInteger(n) || n < 1 || n > 10080) return { erro: dgUiText_lembretes_js("Diga daqui a quantos minutos (de 1 a 10080).") };
       corpo.daqui_min = n;
     } else {
       if (!v.hora) return { erro: 'Escolha a hora.' };
@@ -47,8 +52,8 @@
         regra = { tipo: 'semanal', dias: v.dias, hora: v.hora };
       } else if (v.quando === 'a_cada_n_dias') {
         const n = inteiro(v.n);
-        if (!Number.isInteger(n) || n < 1 || n > 365) return { erro: 'Diga de quantos em quantos dias (de 1 a 365).' };
-        if (!v.inicio) return { erro: 'Escolha o dia em que a contagem começa.' };
+        if (!Number.isInteger(n) || n < 1 || n > 365) return { erro: dgUiText_lembretes_js("Diga de quantos em quantos dias (de 1 a 365).") };
+        if (!v.inicio) return { erro: dgUiText_lembretes_js("Escolha o dia em que a contagem começa.") };
         regra = { tipo: 'a_cada_n_dias', n, inicio: v.inicio, hora: v.hora };
       } else return { erro: 'Escolha quando o lembrete toca.' };
       corpo.regra = regra;
@@ -56,12 +61,12 @@
     }
     const intervalo = inteiro(v.intervalo);
     if (v.intervalo !== '' && v.intervalo != null) {
-      if (!Number.isInteger(intervalo) || intervalo < 1 || intervalo > 120) return { erro: 'O intervalo vai de 1 a 120 minutos.' };
+      if (!Number.isInteger(intervalo) || intervalo < 1 || intervalo > 120) return { erro: dgUiText_lembretes_js("O intervalo vai de 1 a 120 minutos.") };
       corpo.intervalo_min = intervalo;
     }
     const teto = inteiro(v.teto);
     if (v.teto !== '' && v.teto != null) {
-      if (!Number.isInteger(teto) || teto < 1 || teto > 60) return { erro: 'O máximo de avisos vai de 1 a 60.' };
+      if (!Number.isInteger(teto) || teto < 1 || teto > 60) return { erro: dgUiText_lembretes_js("O máximo de avisos vai de 1 a 60.") };
       corpo.teto_envios = teto;
     }
     corpo.pelo_agente = v.peloAgente !== false;
@@ -71,26 +76,26 @@
   /* Estado dos avisos neste aparelho (DGClawAvisos.estado) -> frase e botões. */
   function fraseAvisos(estado) {
     switch (estado) {
-      case 'ativo': return { texto: 'Os avisos estão ativos neste aparelho: o lembrete toca mesmo com a tela fechada.', ativar: false, desativar: true, teste: true };
-      case 'inativo': return { texto: 'Os avisos ainda não estão ativos neste aparelho. Ative para o lembrete tocar com a tela fechada.', ativar: true, desativar: false, teste: false };
-      case 'negado': return { texto: 'O navegador bloqueou os avisos deste site. Libere nas configurações do navegador (cadeado ao lado do endereço, Notificações, Permitir) e ative de novo.', ativar: true, desativar: false, teste: false };
-      case 'iphone-precisa-instalar': return { texto: 'No iPhone, os avisos só funcionam com o ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' instalado na tela de início: toque em Compartilhar, Adicionar à Tela de Início, abra por lá e ative de novo.', ativar: false, desativar: false, teste: false };
-      case 'sem-suporte': return { texto: 'Este navegador não aceita avisos. Use o Chrome, o Edge ou o Firefox no computador ou no Android, ou instale o ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' na tela de início do iPhone.', ativar: false, desativar: false, teste: false };
-      default: return { texto: 'Não consegui conferir o estado dos avisos.', ativar: true, desativar: false, teste: false };
+      case 'ativo': return { texto: dgUiText_lembretes_js("Os avisos estão ativos neste aparelho: o lembrete toca mesmo com a tela fechada."), ativar: false, desativar: true, teste: true };
+      case 'inativo': return { texto: dgUiText_lembretes_js("Os avisos ainda não estão ativos neste aparelho. Ative para o lembrete tocar com a tela fechada."), ativar: true, desativar: false, teste: false };
+      case 'negado': return { texto: dgUiText_lembretes_js("O navegador bloqueou os avisos deste site. Libere nas configurações do navegador (cadeado ao lado do endereço, Notificações, Permitir) e ative de novo."), ativar: true, desativar: false, teste: false };
+      case 'iphone-precisa-instalar': return { texto: dgUiText_lembretes_js("No iPhone, os avisos só funcionam com o ") + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + dgUiText_lembretes_js(" instalado na tela de início: toque em Compartilhar, Adicionar à Tela de Início, abra por lá e ative de novo."), ativar: false, desativar: false, teste: false };
+      case 'sem-suporte': return { texto: dgUiText_lembretes_js("Este navegador não aceita avisos. Use o Chrome, o Edge ou o Firefox no computador ou no Android, ou instale o ") + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + dgUiText_lembretes_js(" na tela de início do iPhone."), ativar: false, desativar: false, teste: false };
+      default: return { texto: dgUiText_lembretes_js("Não consegui conferir o estado dos avisos."), ativar: true, desativar: false, teste: false };
     }
   }
 
   const PASSOS = {
     avisos: {
       alvo: '#secAvisos', titulo: 'Avisos neste aparelho',
-      oque: 'O botão que liga os avisos do ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' neste celular ou computador, e o botão que manda um aviso de teste.',
+      get oque() { return dgUiText_lembretes_js("O botão que liga os avisos do ") + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + dgUiText_lembretes_js(" neste celular ou computador, e o botão que manda um aviso de teste."); },
       como: 'O navegador guarda uma inscrição deste aparelho no servidor. Quando um lembrete toca, o servidor manda o aviso para todos os aparelhos inscritos, com os botões Feito e Adiar, mesmo com a tela fechada. Os dois interruptores abaixo controlam os avisos dos agentes: "precisar de mim" (pedem permissão, fazem uma pergunta ou perdem o login) e "terminar" (acabaram de responder). Eles não mandam aviso de uma conversa que você está olhando.',
       porque: 'Sem isso o lembrete só aparece na faixa dentro da conversa e no recado do agente. O teste confirma agora que o aviso chega.',
     },
     novo: {
       alvo: '#secNovo', titulo: 'Novo lembrete',
       oque: 'O formulário para agendar um lembrete: o que lembrar, de qual agente, quando e com que insistência.',
-      como: 'Daqui a N minutos é o jeito mais seguro: o ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' faz a conta da hora no fuso do servidor. As outras opções repetem o lembrete (todo dia, em certos dias da semana, a cada N dias). O aviso se repete a cada intervalo até você tocar Feito ou até o máximo de avisos.',
+      get como() { return dgUiText_lembretes_js("Daqui a N minutos é o jeito mais seguro: o ") + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + dgUiText_lembretes_js(" faz a conta da hora no fuso do servidor. As outras opções repetem o lembrete (todo dia, em certos dias da semana, a cada N dias). O aviso se repete a cada intervalo até você tocar Feito ou até o máximo de avisos."); },
       porque: 'Para você agendar na própria tela. O agente também cria lembretes por conta própria quando você pede na conversa.',
     },
     lista: {
@@ -119,11 +124,11 @@
         body: corpo === undefined ? undefined : JSON.stringify(corpo),
       });
     } catch (e) {
-      return { ok: false, erro: 'Não consegui falar com o servidor (' + e.message + '). Confira a conexão e tente de novo.' };
+      return { ok: false, erro: dgUiText_lembretes_js("Não consegui falar com o servidor (") + e.message + dgUiText_lembretes_js("). Confira a conexão e tente de novo.") };
     }
     let json = null;
     try { json = await r.json(); } catch (e) { console.warn('lembretes: a resposta de ' + caminho + ' não veio em JSON:', e.message); }
-    if (r.status === 401) return { ok: false, erro: 'Sua sessão acabou. Entre de novo em /login.' };
+    if (r.status === 401) return { ok: false, erro: dgUiText_lembretes_js("Sua sessão acabou. Entre de novo em /login.") };
     if (!r.ok) return { ok: false, erro: (json && json.erro) || ('O servidor respondeu ' + r.status + ' em ' + caminho + '.') };
     return { ok: true, json: json || {} };
   }
@@ -139,7 +144,7 @@
   async function pintaAvisos() {
     const A = window.DGClawAvisos;
     if (!A) {
-      $('avisosEstado').textContent = 'O código dos avisos não carregou. Recarregue a página.';
+      dgUiLabel_lembretes_js($('avisosEstado'), "O código dos avisos não carregou. Recarregue a página.", null);
       $('btnAtivar').hidden = true; $('btnTeste').hidden = true;
       return;
     }
@@ -159,14 +164,14 @@
     const A = window.DGClawAvisos;
     if (!A || !A.preferencias) { $('avisosPrefs').hidden = true; return; }
     const r = await A.preferencias();
-    if (!r.ok) { msg('avisosMsg', 'Não consegui ler as suas preferências de aviso: ' + r.erro, 'erro'); return; }
+    if (!r.ok) { msg('avisosMsg', dgUiText_lembretes_js("Não consegui ler as suas preferências de aviso: ") + r.erro, 'erro'); return; }
     for (const [tipo, id] of PREFS) { $(id).checked = r.preferencias[tipo] !== false; $(id).disabled = false; }
   }
   async function salvaPref(tipo, caixa) {
     caixa.disabled = true;
     const r = await window.DGClawAvisos.salvarPreferencia(tipo, caixa.checked);
     caixa.disabled = false;
-    if (!r.ok) { caixa.checked = !caixa.checked; msg('avisosMsg', 'Não consegui guardar a preferência: ' + r.erro, 'erro'); return; }
+    if (!r.ok) { caixa.checked = !caixa.checked; msg('avisosMsg', dgUiText_lembretes_js("Não consegui guardar a preferência: ") + r.erro, 'erro'); return; }
     msg('avisosMsg', '');
   }
 
@@ -178,7 +183,7 @@
       if (!r.ok) msg('avisosMsg', r.erro, 'erro');
       else msg('avisosMsg', okTexto(r), 'ok');
     } catch (e) {
-      msg('avisosMsg', 'Algo falhou (' + e.message + '). Recarregue a página e tente de novo.', 'erro');
+      msg('avisosMsg', 'Algo falhou (' + e.message + dgUiText_lembretes_js("). Recarregue a página e tente de novo."), 'erro');
     }
     botao.disabled = false;
     pintaAvisos();
@@ -190,7 +195,7 @@
     const guardado = filtro.value;
     const opts = lista.map(a => `<option value="${esc(a.id)}">${esc(a.nome)}</option>`).join('');
     sel.innerHTML = opts;
-    filtro.innerHTML = '<option value="">Todos os agentes</option>' + opts;
+    filtro.innerHTML = dgHtml_lembretes("<option value=\"\"><!--dg-i18n:e3c5c212401b-->Todos os agentes<!--/dg-i18n--></option>") + opts;
     filtro.value = guardado;
     const trabalho = lista.filter(a => a.tipo === 'agente');
     if (trabalho.length) sel.value = trabalho[0].id;
@@ -198,26 +203,26 @@
 
   function linhaHtml(l) {
     const aberto = abertos.has(l.id);
-    const acoes = `<button type="button" class="lp-btn" data-hist="${esc(l.id)}">${aberto ? 'Esconder histórico' : 'Histórico'}</button>` +
+    const acoes = `<button type="button" class="lp-btn" data-hist="${esc(l.id)}">${aberto ? dgUiText_lembretes_js("Esconder histórico") : dgUiText_lembretes_js("Histórico")}</button>` +
       (l.estado === 'pausado'
-        ? `<button type="button" class="lp-btn" data-retomar="${esc(l.id)}">Retomar</button>`
-        : `<button type="button" class="lp-btn" data-pausar="${esc(l.id)}">Pausar</button>`) +
-      `<button type="button" class="lp-btn perigo" data-apagar="${esc(l.id)}">Apagar</button>`;
+        ? (dgUiHtml_lembretes_js("<button type=\"button\" class=\"lp-btn\" data-retomar=\"") + (esc(l.id)) + dgUiHtml_lembretes_js("\"><!--dg-i18n:6304c5019ae8-->Retomar<!--/dg-i18n--></button>"))
+        : (dgUiHtml_lembretes_js("<button type=\"button\" class=\"lp-btn\" data-pausar=\"") + (esc(l.id)) + dgUiHtml_lembretes_js("\"><!--dg-i18n:cd25ee5b1db8-->Pausar<!--/dg-i18n--></button>"))) +
+      (dgUiHtml_lembretes_js("<button type=\"button\" class=\"lp-btn perigo\" data-apagar=\"") + (esc(l.id)) + dgUiHtml_lembretes_js("\"><!--dg-i18n:7d2434081ba5-->Apagar<!--/dg-i18n--></button>"));
     return `<tr data-id="${esc(l.id)}"><td data-r="Lembrete">${esc(l.texto)}<span class="lp-regra">${esc(l.regra_texto)}</span></td>` +
       `<td data-r="Agente">${esc(l.agente_nome || l.agente)}</td>` +
       `<td data-r="Próxima">${esc(fmt(l.proxima))}</td>` +
-      `<td data-r="Estado"><span class="lp-chip ${esc(l.estado)}">${esc(ROTULO_ESTADO[l.estado] || l.estado)}</span></td>` +
+      `<td data-r="Estado"><span class="lp-chip ${esc(l.estado)}">${esc(dgUiText_lembretes_js(ROTULO_ESTADO[l.estado]) || l.estado)}</span></td>` +
       `<td class="acoes">${acoes}</td></tr>` +
-      (aberto ? `<tr class="lp-hist" data-hist-de="${esc(l.id)}"><td colspan="5"><p class="lp-fraco">${dsCarregando({ rotulo: 'Carregando o histórico', tamanho: 'p' })} Carregando o histórico…</p></td></tr>` : '');
+      (aberto ? `<tr class="lp-hist" data-hist-de="${esc(l.id)}"><td colspan="5"><p class="lp-fraco">${dsCarregando({ rotulo: dgUiText_lembretes_js("Carregando o histórico"), tamanho: 'p' })} Carregando o histórico…</p></td></tr>` : '');
   }
 
   function pintaLista(itens) {
     ultimaLista = itens;
     if (!itens.length) {
-      $('lista').innerHTML = '<p class="lp-vazio">Nenhum lembrete por aqui. Crie o primeiro no formulário acima, ou peça ao agente na conversa.</p>';
+      $('lista').innerHTML = dgUiHtml_lembretes_js("<p class=\"lp-vazio\"><!--dg-i18n:e4c83e820d21-->Nenhum lembrete por aqui. Crie o primeiro no formulário acima, ou peça ao agente na conversa.<!--/dg-i18n--></p>");
       return;
     }
-    $('lista').innerHTML = '<table class="lp-tabela"><thead><tr><th>Lembrete</th><th>Agente</th><th>Próxima</th><th>Estado</th><th></th></tr></thead><tbody>' +
+    $('lista').innerHTML = dgHtml_lembretes("<table class=\"lp-tabela\"><thead><tr><th><!--dg-i18n:37055ac9e56e-->Lembrete<!--/dg-i18n--></th><th><!--dg-i18n:1e068f0819ee-->Agente<!--/dg-i18n--></th><th><!--dg-i18n:2fe966afd7f9-->Próxima<!--/dg-i18n--></th><th><!--dg-i18n:98e5acddb6c4-->Estado<!--/dg-i18n--></th><th></th></tr></thead><tbody>") +
       itens.map(linhaHtml).join('') + '</tbody></table>';
     for (const id of abertos) carregaHistorico(id);
   }
@@ -226,15 +231,15 @@
     const linha = document.querySelector('tr[data-hist-de="' + id + '"] td');
     if (!linha) return;
     const r = await chamar('GET', '/api/v1/lembretes/' + encodeURIComponent(id) + '/ocorrencias?limit=30');
-    if (!r.ok) { linha.innerHTML = '<p class="lp-msg erro">Não consegui ler o histórico: ' + esc(r.erro) + '</p>'; return; }
+    if (!r.ok) { linha.innerHTML = dgUiHtml_lembretes_js("<p class=\"lp-msg erro\"><!--dg-i18n:4e3ca037c48e-->Não consegui ler o histórico:<!--/dg-i18n--> ") + esc(r.erro) + '</p>'; return; }
     const ocs = r.json.ocorrencias || [];
-    if (!ocs.length) { linha.innerHTML = '<p class="lp-fraco">Ainda não tocou nenhuma vez.</p>'; return; }
+    if (!ocs.length) { linha.innerHTML = dgUiHtml_lembretes_js("<p class=\"lp-fraco\"><!--dg-i18n:93fcb5e017e6-->Ainda não tocou nenhuma vez.<!--/dg-i18n--></p>"); return; }
     linha.innerHTML = '<ul>' + ocs.map(o => {
-      const quem = o.feito_por ? ' por ' + esc(o.feito_por) + (o.tarde ? ' (depois do teto)' : '') : '';
+      const quem = o.feito_por ? ' por ' + esc(o.feito_por) + (o.tarde ? dgUiText_lembretes_js(" (depois do teto)") : '') : '';
       const abertoOc = ['insistindo', 'adiada', 'sem_resposta'].includes(o.estado);
       const bot = abertoOc
-        ? `<button type="button" class="lp-btn pri" data-feito="${esc(o.id)}">Feito</button><button type="button" class="lp-btn" data-adiar="${esc(o.id)}">Adiar 10 min</button>` : '';
-      return `<li><b>${esc(fmt(o.agendada_para))}</b><span class="lp-chip ${esc(o.estado)}">${esc(ROTULO_ESTADO[o.estado] || o.estado)}</span>` +
+        ? (dgUiHtml_lembretes_js("<button type=\"button\" class=\"lp-btn pri\" data-feito=\"") + (esc(o.id)) + dgUiHtml_lembretes_js("\"><!--dg-i18n:cb8eec47629b-->Feito<!--/dg-i18n--></button><button type=\"button\" class=\"lp-btn\" data-adiar=\"") + (esc(o.id)) + dgUiHtml_lembretes_js("\"><!--dg-i18n:96998bb4291b-->Adiar 10 min<!--/dg-i18n--></button>")) : '';
+      return `<li><b>${esc(fmt(o.agendada_para))}</b><span class="lp-chip ${esc(o.estado)}">${esc(dgUiText_lembretes_js(ROTULO_ESTADO[o.estado]) || o.estado)}</span>` +
         `<span class="lp-fraco">${o.total_envios} aviso(s)${quem}${o.motivo ? ', ' + esc(o.motivo) : ''}</span>${bot}</li>`;
     }).join('') + '</ul>';
   }
@@ -245,8 +250,8 @@
     if ($('filtroEstado').value) q.set('estado', $('filtroEstado').value);
     const r = await chamar('GET', '/api/v1/lembretes' + (q.toString() ? '?' + q : ''));
     if (!r.ok) {
-      msg('msgGeral', 'Não consegui ler os lembretes: ' + r.erro, 'erro');
-      if (!ultimaLista.length) $('lista').innerHTML = '<p class="lp-vazio">A lista não carregou. <button type="button" class="lp-btn" id="btnRecarrega">Tentar de novo</button></p>';
+      msg('msgGeral', dgUiText_lembretes_js("Não consegui ler os lembretes: ") + r.erro, 'erro');
+      if (!ultimaLista.length) $('lista').innerHTML = dgHtml_lembretes("<p class=\"lp-vazio\"><!--dg-i18n:138879fdd08a-->A lista não carregou.<!--/dg-i18n--> <button type=\"button\" class=\"lp-btn\" id=\"btnRecarrega\"><!--dg-i18n:6bb3150b9757-->Tentar de novo<!--/dg-i18n--></button></p>");
       const b = $('btnRecarrega'); if (b) b.onclick = carrega;
       return;
     }
@@ -254,13 +259,13 @@
     pintaLista(r.json.lembretes || []);
     const a = r.json.agendador || {};
     $('agendador').textContent = a.erro
-      ? 'Atenção: o agendador está parado. ' + a.erro
-      : 'Fuso: ' + (a.fuso || '?') + '. Última conferência do agendador: ' + fmt(a.ultimo_tique_em) + ' (confere a cada ' + (a.intervalo_s || 15) + ' s).';
+      ? dgUiText_lembretes_js("Atenção: o agendador está parado. ") + a.erro
+      : 'Fuso: ' + (a.fuso || '?') + dgUiText_lembretes_js('. Última conferência do agendador: ') + fmt(a.ultimo_tique_em) + ' (confere a cada ' + (a.intervalo_s || 15) + ' s).';
   }
 
   async function carregaAgentes() {
     const r = await chamar('GET', '/api/v1/agents');
-    if (!r.ok) { msg('msgGeral', 'Não consegui ler a lista de agentes: ' + r.erro, 'erro'); return; }
+    if (!r.ok) { msg('msgGeral', dgUiText_lembretes_js("Não consegui ler a lista de agentes: ") + r.erro, 'erro'); return; }
     agentes = r.json.agentes || [];
     preencheAgentes(agentes);
   }
@@ -281,7 +286,7 @@
       if (r.ok && r.json.aviso) msg('msgGeral', r.json.aviso, 'erro');
     } else if (d.apagar) {
       const l = ultimaLista.find(x => x.id === d.apagar);
-      if (!window.confirm('Apagar o lembrete "' + (l ? l.texto : d.apagar) + '"? Isso não tem volta.')) return;
+      if (!window.confirm('Apagar o lembrete "' + (l ? l.texto : d.apagar) + dgUiText_lembretes_js("\"? Isso não tem volta."))) return;
       r = await chamar('DELETE', '/api/v1/lembretes/' + encodeURIComponent(d.apagar));
       abertos.delete(d.apagar);
     } else if (d.feito) r = await chamar('POST', '/api/v1/lembretes/ocorrencias/' + encodeURIComponent(d.feito) + '/feito', { origem: 'tela' });
@@ -317,21 +322,21 @@
     $('btnCriar').disabled = false;
     if (!r.ok) { msg('novoMsg', r.erro, 'erro'); return; }
     const l = r.json.lembrete;
-    msg('novoMsg', 'Criado: ' + l.regra_texto + '. Próxima vez: ' + fmt(l.proxima) + '.', 'ok');
+    msg('novoMsg', 'Criado: ' + l.regra_texto + dgUiText_lembretes_js('. Próxima vez: ') + fmt(l.proxima) + '.', 'ok');
     $('fTexto').value = '';
     carrega();
   }
 
   function ajuda(chave) {
-    if (!window.DGTour) { msg('msgGeral', 'A visita guiada não carregou. Recarregue a página.', 'erro'); return; }
+    if (!window.DGTour) { msg('msgGeral', dgUiText_lembretes_js("A visita guiada não carregou. Recarregue a página."), 'erro'); return; }
     window.DGTour.inicia({ passos: [PASSOS[chave]] });
   }
 
   function iniciaTutorial() {
-    if (!window.DGTour) { msg('msgGeral', 'A visita guiada não carregou. Recarregue a página.', 'erro'); return; }
+    if (!window.DGTour) { msg('msgGeral', dgUiText_lembretes_js("A visita guiada não carregou. Recarregue a página."), 'erro'); return; }
     window.DGTour.inicia({
       passos: [
-        { alvo: '#cabecalho', titulo: 'Lembretes', oque: 'A tela de todos os lembretes que insistem até você confirmar.', como: 'O ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + ' confere a cada 15 segundos. Na hora marcada, avisa na faixa da conversa, no aparelho e pelo agente, e repete até você tocar Feito ou Adiar.', porque: 'Para nada que você pediu para lembrar ficar esquecido.' },
+        { alvo: '#cabecalho', titulo: 'Lembretes', oque: 'A tela de todos os lembretes que insistem até você confirmar.', get como() { return 'O ' + (typeof dsMarca !== 'undefined' ? dsMarca.nome : 'DG Claw') + dgUiText_lembretes_js(" confere a cada 15 segundos. Na hora marcada, avisa na faixa da conversa, no aparelho e pelo agente, e repete até você tocar Feito ou Adiar."); }, porque: 'Para nada que você pediu para lembrar ficar esquecido.' },
         PASSOS.avisos, PASSOS.novo, PASSOS.lista,
       ],
     });
@@ -341,9 +346,9 @@
     // o botão Tutorial fica no cabeçalho da casca (casca.js), que chama esta função
     window.DGLembretesTutorial = iniciaTutorial;
     document.querySelectorAll('[data-ajuda]').forEach(b => { b.onclick = () => ajuda(b.dataset.ajuda); });
-    $('btnAtivar').onclick = () => acaoAvisos($('btnAtivar'), () => window.DGClawAvisos.ativar(), () => 'Pronto: os avisos estão ativos neste aparelho.');
+    $('btnAtivar').onclick = () => acaoAvisos($('btnAtivar'), () => window.DGClawAvisos.ativar(), () => dgUiText_lembretes_js("Pronto: os avisos estão ativos neste aparelho."));
     $('btnDesativar').onclick = () => acaoAvisos($('btnDesativar'), () => window.DGClawAvisos.desativar(), () => 'Avisos desligados neste aparelho.');
-    $('btnTeste').onclick = () => acaoAvisos($('btnTeste'), () => window.DGClawAvisos.testar(), r => 'Aviso de teste enviado para ' + r.enviados + ' aparelho(s).');
+    $('btnTeste').onclick = () => acaoAvisos($('btnTeste'), () => window.DGClawAvisos.testar(), r => dgUiText_lembretes_js("Aviso de teste enviado para ") + r.enviados + ' aparelho(s).');
     for (const [tipo, id] of PREFS) $(id).onchange = () => salvaPref(tipo, $(id));
     $('fQuando').onchange = mostraCampos;
     $('formNovo').addEventListener('submit', criar);

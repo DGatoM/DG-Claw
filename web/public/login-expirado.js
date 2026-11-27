@@ -1,4 +1,5 @@
 'use strict';
+const dgUiText_login_expirado_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* login-expirado.js: a parte pura do pop-up "Seu login do Claude expirou" da conversa.
 
    Sem DOM e sem rede: decide quando o pop-up aparece, quando fica dispensado e o que ele diz.
@@ -21,7 +22,7 @@
   function hora(iso, fuso) {
     const t = Date.parse(iso || '');
     if (!isFinite(t)) return '';
-    return new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: fuso || 'America/Sao_Paulo' });
+    return new Date(t).toLocaleTimeString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { hour: '2-digit', minute: '2-digit', timeZone: fuso || 'America/Sao_Paulo' });
   }
 
   /** Um incidente = um agente + o instante em que o login morreu. Sem instante, o `desde` da foto faz o papel. */
@@ -65,17 +66,17 @@
     const prov = nomeProvedor(provedor);
     const h = hora(expirouEm);
     return {
-      titulo: 'Seu login do ' + prov + ' expirou',
-      corpo: (h ? 'A sessão de ' + nome + ' parou de responder às ' + h + ' porque a conta do ' + prov + ' saiu. '
-                : 'A sessão de ' + nome + ' parou de responder porque a conta do ' + prov + ' saiu. ') +
-        'O que você mandou desde então ficou sem resposta. Reconecte a conta e eu reinicio a sessão dela sozinho.',
-      primario: 'Reconectar conta do ' + prov,
-      secundario: 'Reiniciar a sessão',
-      agoraNao: 'Agora não',
-      reiniciando: 'Reiniciando a sessão de ' + nome + '…',
+      get titulo() { return dgUiText_login_expirado_js("Seu login do ") + prov + ' expirou'; },
+      corpo: (h ? dgUiText_login_expirado_js("A sessão de ") + nome + dgUiText_login_expirado_js(" parou de responder às ") + h + dgUiText_login_expirado_js(" porque a conta do ") + prov + ' saiu. '
+                : dgUiText_login_expirado_js("A sessão de ") + nome + dgUiText_login_expirado_js(" parou de responder porque a conta do ") + prov + ' saiu. ') +
+        dgUiText_login_expirado_js("O que você mandou desde então ficou sem resposta. Reconecte a conta e eu reinicio a sessão dela sozinho."),
+      primario: dgUiText_login_expirado_js("Reconectar conta do ") + prov,
+      secundario: dgUiText_login_expirado_js("Reiniciar a sessão"),
+      agoraNao: dgUiText_login_expirado_js("Agora não"),
+      reiniciando: dgUiText_login_expirado_js("Reiniciando a sessão de ") + nome + '…',
       pronto: 'Pronto, ' + nome + ' voltou.',
-      naoVoltou: 'Passaram ' + Math.round(PRAZO_VOLTA_MS / 1000) + ' s e ' + nome + ' ainda não voltou a responder.' +
-        (motivo ? ' ' + motivo : ' Tente reiniciar a sessão.'),
+      naoVoltou: 'Passaram ' + Math.round(PRAZO_VOLTA_MS / 1000) + ' s e ' + nome + dgUiText_login_expirado_js(" ainda não voltou a responder.") +
+        (motivo ? ' ' + motivo : dgUiText_login_expirado_js(" Tente reiniciar a sessão.")),
     };
   }
 

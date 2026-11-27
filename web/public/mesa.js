@@ -1,4 +1,9 @@
 'use strict';
+const dgUiText_mesa_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiHtml_mesa_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
+const dgUiFragment_mesa_js = (fonte, valores, original) => globalThis.DGI18n ? globalThis.DGI18n.fragmento(fonte, valores) : original();
+const dgTexto_mesa = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgHtml_mesa = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 /* mesa.js: a tela da Mesa de tarefas (/mesa). Contrato da API em web/docs/MESA.md.
 
    As partes puras (rótulos, texto do progresso, "há X min", agrupamento, texto da origem, HTML do
@@ -26,13 +31,13 @@
   /* { texto, classe } do selo. "parada?" só vale para fazendo. */
   function rotuloEstado(t) {
     const e = normEstado(t && t.estado);
-    if (e === 'concluida') return { texto: 'concluída', classe: 'concluida' };
-    if (e === 'cancelada') return { texto: 'cancelada', classe: 'cancelada' };
-    if (e === ESTADO_DONO) return { texto: 'esperando você', classe: 'esperando' };
-    if (e === 'travada') return { texto: 'travada', classe: 'travada' };
-    if (e === 'fazendo' && t.parada) return { texto: 'parada?', classe: 'parada' };
-    if (e === 'fazendo') return { texto: 'fazendo', classe: 'fazendo' };
-    return { texto: String(e || 'sem estado'), classe: 'outro' };
+    if (e === 'concluida') return { texto: dgUiText_mesa_js("concluída"), classe: 'concluida' };
+    if (e === 'cancelada') return { texto: dgUiText_mesa_js("cancelada"), classe: 'cancelada' };
+    if (e === ESTADO_DONO) return { texto: dgUiText_mesa_js("esperando você"), classe: 'esperando' };
+    if (e === 'travada') return { texto: dgUiText_mesa_js("travada"), classe: 'travada' };
+    if (e === 'fazendo' && t.parada) return { texto: dgUiText_mesa_js("parada?"), classe: 'parada' };
+    if (e === 'fazendo') return { texto: dgUiText_mesa_js("fazendo"), classe: 'fazendo' };
+    return { texto: String(e || dgUiText_mesa_js("sem estado")), classe: 'outro' };
   }
 
   /* Chave do grupo "Estado" dos filtros: "parada" é fazendo + parada, não um estado do servidor. */
@@ -59,16 +64,16 @@
 
   /* null (não medido) nunca vira 0%: 0 é "medido e deu zero". */
   function textoProgresso(p) {
-    if (p == null || typeof p !== 'number' || !isFinite(p)) return 'sem medida';
+    if (p == null || typeof p !== 'number' || !isFinite(p)) return dgUiText_mesa_js("sem medida");
     return Math.round(Math.max(0, Math.min(100, p))) + '%';
   }
 
   function haMin(min) {
-    if (min == null || typeof min !== 'number' || !isFinite(min)) return 'sem registro de atualização';
-    if (min < 1) return 'atualizada agora mesmo';
-    if (min < 60) return 'atualizada há ' + Math.floor(min) + ' min';
-    if (min < 1440) return 'atualizada há ' + Math.floor(min / 60) + ' h';
-    return 'atualizada há ' + Math.floor(min / 1440) + ' d';
+    if (min == null || typeof min !== 'number' || !isFinite(min)) return dgUiText_mesa_js("sem registro de atualização");
+    if (min < 1) return dgUiText_mesa_js("atualizada agora mesmo");
+    if (min < 60) return dgUiText_mesa_js("atualizada há ") + Math.floor(min) + ' min';
+    if (min < 1440) return dgUiText_mesa_js("atualizada há ") + Math.floor(min / 60) + ' h';
+    return dgUiText_mesa_js("atualizada há ") + Math.floor(min / 1440) + ' d';
   }
 
   /* [{ agente, tarefas }] na ordem da lista de agentes; tarefa de agente desconhecido vai no fim. */
@@ -103,7 +108,7 @@
   function fraseErro(dados, status) {
     const campos = dados && dados.erros && typeof dados.erros === 'object' ? dados.erros : {};
     let texto = dados && dados.erro ? String(dados.erro) : '';
-    if (!texto) texto = Object.keys(campos).length ? 'Alguns campos precisam de ajuste.' : 'O servidor recusou o pedido (código ' + status + ').';
+    if (!texto) texto = Object.keys(campos).length ? dgUiText_mesa_js("Alguns campos precisam de ajuste.") : dgUiText_mesa_js("O servidor recusou o pedido (código ") + status + ').';
     return { texto, campos };
   }
 
@@ -123,9 +128,9 @@
   /* O formato exato dos eventos é do backend: aqui se aceita o que a spec descreve (quem, quando,
      o antes e o depois de cada campo) em mais de um desenho, sem quebrar se faltar algo. */
   function htmlHistorico(eventos) {
-    if (eventos === 'erro') return '<p class="mz-vazio">Não consegui carregar o histórico. Feche e abra o cartão para tentar de novo.</p>';
-    if (!Array.isArray(eventos)) return '<p class="mz-vazio">' + dsCarregando({ rotulo: 'Carregando o histórico', tamanho: 'p' }) + ' Carregando o histórico…</p>';
-    if (!eventos.length) return '<p class="mz-vazio">Ainda não há eventos registrados.</p>';
+    if (eventos === 'erro') return dgUiHtml_mesa_js("<p class=\"mz-vazio\"><!--dg-i18n:3411546170b8-->Não consegui carregar o histórico. Feche e abra o cartão para tentar de novo.<!--/dg-i18n--></p>");
+    if (!Array.isArray(eventos)) return '<p class="mz-vazio">' + dsCarregando({ rotulo: dgUiText_mesa_js("Carregando o histórico"), tamanho: 'p' }) + dgUiHtml_mesa_js(" <!--dg-i18n:8a73da58f8ad-->Carregando o histórico…<!--/dg-i18n--></p>");
+    if (!eventos.length) return dgUiHtml_mesa_js("<p class=\"mz-vazio\"><!--dg-i18n:a7c9c568a4fc-->Ainda não há eventos registrados.<!--/dg-i18n--></p>");
     return '<ol class="mz-eventos">' + eventos.map(e => {
       const quando = formataQuando(e.quando || e.em || e.data || e.criado_em || e.em_iso || e.epoch);
       const mud = e.mudancas || e.campos || e.alteracoes || e.diff;
@@ -160,26 +165,26 @@
     const atrib = `data-id="${esc(id)}"`;
     let campos = '', titulo = '', ok = '';
     if (form.tipo === 'responder') {
-      titulo = 'Sua resposta ao agente';
-      ok = 'Enviar resposta';
-      campos = `<label>Resposta<textarea name="nota" rows="3" maxlength="200" required>${esc(v.nota != null ? v.nota : '')}</textarea></label>` +
-        '<p class="mz-dica">A resposta vira a nota da tarefa, ela volta para "fazendo" e o agente é avisado.</p>';
+      titulo = dgUiText_mesa_js("Sua resposta ao agente");
+      ok = dgUiText_mesa_js("Enviar resposta");
+      campos = (dgUiHtml_mesa_js("<label><!--dg-i18n:e209fb3bb698-->Resposta<!--/dg-i18n--><textarea name=\"nota\" rows=\"3\" maxlength=\"200\" required>") + (esc(v.nota != null ? v.nota : '')) + dgUiHtml_mesa_js("</textarea></label>")) +
+        dgUiHtml_mesa_js("<p class=\"mz-dica\"><!--dg-i18n:150b520ceee5-->A resposta vira a nota da tarefa, ela volta para \"fazendo\" e o agente é avisado.<!--/dg-i18n--></p>");
     } else if (form.tipo === 'cancelar') {
-      titulo = 'Cancelar esta tarefa?';
+      titulo = dgUiText_mesa_js("Cancelar esta tarefa?");
       ok = 'Cancelar a tarefa';
-      campos = `<label>Motivo (opcional)<input name="motivo" type="text" maxlength="300" value="${esc(v.motivo != null ? v.motivo : '')}"></label>`;
+      campos = (dgUiHtml_mesa_js("<label><!--dg-i18n:decd42d278ee-->Motivo (opcional)<!--/dg-i18n--><input name=\"motivo\" type=\"text\" maxlength=\"300\" value=\"") + (esc(v.motivo != null ? v.motivo : '')) + dgUiHtml_mesa_js("\"></label>"));
     } else {
       titulo = 'Editar a tarefa';
-      ok = 'Salvar';
+      ok = dgTexto_mesa('Salvar');
       const prog = v.progresso != null ? v.progresso : (t.progresso_origem === 'informado' && t.progresso != null ? t.progresso : '');
-      campos = `<label>Título<input name="titulo" type="text" maxlength="120" value="${esc(v.titulo != null ? v.titulo : t.titulo)}"></label>` +
-        `<label>Nota<input name="nota" type="text" maxlength="200" value="${esc(v.nota != null ? v.nota : (t.nota || ''))}"></label>` +
-        `<label>Progresso (0 a 100, vazio = sem medida)<input name="progresso" type="number" min="0" max="100" step="1" inputmode="numeric" value="${esc(prog)}"></label>` +
-        `<label>Link<input name="link" type="text" maxlength="500" value="${esc(v.link != null ? v.link : (t.link || ''))}"></label>`;
+      campos = (dgUiHtml_mesa_js("<label><!--dg-i18n:4c08a5d5feb2-->Título<!--/dg-i18n--><input name=\"titulo\" type=\"text\" maxlength=\"120\" value=\"") + (esc(v.titulo != null ? v.titulo : t.titulo)) + dgUiHtml_mesa_js("\"></label>")) +
+        (dgUiHtml_mesa_js("<label><!--dg-i18n:ecef8a87fff0-->Nota<!--/dg-i18n--><input name=\"nota\" type=\"text\" maxlength=\"200\" value=\"") + (esc(v.nota != null ? v.nota : (t.nota || ''))) + dgUiHtml_mesa_js("\"></label>")) +
+        (dgUiHtml_mesa_js("<label><!--dg-i18n:abd45d3e7486-->Progresso (0 a 100, vazio = sem medida)<!--/dg-i18n--><input name=\"progresso\" type=\"number\" min=\"0\" max=\"100\" step=\"1\" inputmode=\"numeric\" value=\"") + (esc(prog)) + dgUiHtml_mesa_js("\"></label>")) +
+        (dgUiHtml_mesa_js("<label><!--dg-i18n:a6a32dbc5618-->Link<!--/dg-i18n--><input name=\"link\" type=\"text\" maxlength=\"500\" value=\"") + (esc(v.link != null ? v.link : (t.link || ''))) + dgUiHtml_mesa_js("\"></label>"));
     }
     return `<form class="mz-form" ${atrib} data-form="${esc(form.tipo)}"><h4>${esc(titulo)}</h4>${campos}${htmlErros(form.erro)}` +
       `<div class="mz-linha"><button type="submit" class="mz-btn pri" ${atrib} data-acao="enviar-form">${esc(ok)}</button>` +
-      `<button type="button" class="mz-btn" ${atrib} data-acao="fechar-form">Voltar</button></div></form>`;
+      (dgUiHtml_mesa_js("<button type=\"button\" class=\"mz-btn\" ") + (atrib) + dgUiHtml_mesa_js(" data-acao=\"fechar-form\"><!--dg-i18n:59dc926760d0-->Voltar<!--/dg-i18n--></button></div></form>"));
   }
 
   /* opcoes = { aberto, eventos, form, msg, demo }. Tudo o que vem da API passa por esc(). */
@@ -192,18 +197,18 @@
     const atrib = `data-id="${id}"`;
     const prog = textoProgresso(t.progresso);
     const pct = typeof t.progresso === 'number' ? Math.max(0, Math.min(100, t.progresso)) : null;
-    const origemProg = { informado: 'informado pelo agente', passos: 'passos feitos ÷ total', concluida: 'tarefa concluída' }[t.progresso_origem] || '';
+    const origemProg = { informado: dgUiText_mesa_js("informado pelo agente"), passos: 'passos feitos ÷ total', concluida: dgUiText_mesa_js("tarefa concluída") }[t.progresso_origem] || '';
     const passos = Array.isArray(t.passos) ? t.passos : [];
     const anexos = Array.isArray(t.anexos) ? t.anexos : [];
     let h = `<article class="mz-cartao est-${sel.classe}${fechada ? ' fechada' : ''}${o.demo ? ' demo' : ''}" id="t${id}" ${atrib} data-estado="${esc(estado)}">`;
     h += `<button type="button" class="mz-cab" ${atrib} data-acao="abrir" aria-expanded="${o.aberto ? 'true' : 'false'}">` +
-      `<span class="mz-tit">${esc(t.titulo)}${o.demo ? ' <em>(demonstração)</em>' : ''}</span>` +
+      `<span class="mz-tit">${esc(t.titulo)}${o.demo ? dgUiHtml_mesa_js(" <em><!--dg-i18n:27c8ea087184-->(demonstração)<!--/dg-i18n--></em>") : ''}</span>` +
       `<span class="mz-selo ${sel.classe}">${esc(sel.texto)}</span></button>`;
     if ((estado === ESTADO_DONO || estado === 'travada') && t.motivo) {
-      h += `<p class="mz-motivo"><b>${estado === 'travada' ? 'Travou porque' : 'Precisa de você'}:</b> ${esc(t.motivo)}</p>`;
+      h += `<p class="mz-motivo"><b>${estado === 'travada' ? 'Travou porque' : dgUiText_mesa_js("Precisa de você")}:</b> ${esc(t.motivo)}</p>`;
     }
     h += pct == null
-      ? '<div class="mz-prog" data-tour-alvo="progresso"><span class="mz-semmedida">sem medida</span></div>'
+      ? dgUiHtml_mesa_js("<div class=\"mz-prog\" data-tour-alvo=\"progresso\"><span class=\"mz-semmedida\"><!--dg-i18n:e3af4ab28b1b-->sem medida<!--/dg-i18n--></span></div>")
       : `<div class="mz-prog" data-tour-alvo="progresso"><div class="mz-barra" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${esc(Math.round(pct))}"` +
         `${origemProg ? ` title="${esc(origemProg)}"` : ''}><i style="width:${pct}%"></i></div><span class="mz-pnum">${esc(prog)}</span></div>`;
     if (passos.length) {
@@ -212,7 +217,7 @@
     if (t.nota) h += `<p class="mz-nota">${esc(t.nota)}</p>`;
     if (t.origem) h += `<p class="mz-origem">${esc(t.origem)}</p>`;
     const ligacoes = [];
-    if (t.link) ligacoes.push(linkHtml(t.link, 'Ver o trabalho'));
+    if (t.link) ligacoes.push(linkHtml(t.link, dgUiText_mesa_js("Ver o trabalho")));
     for (const a of anexos) ligacoes.push(linkHtml(a.url, a.rotulo || a.url));
     if (ligacoes.length) h += '<p class="mz-links">' + ligacoes.join('') + '</p>';
     h += `<p class="mz-quando">${esc(haMin(t.atualizada_ha_min))}</p>`;
@@ -222,17 +227,17 @@
       if (o.form) {
         h += htmlFormCartao(t, o.form);
       } else {
-        h += '<div class="mz-acoes" role="group" aria-label="Ações do dono">';
-        if (estado === ESTADO_DONO || estado === 'travada') h += `<button type="button" class="mz-btn pri" ${atrib} data-acao="responder">Responder</button>`;
+        h += dgUiHtml_mesa_js("<div class=\"mz-acoes\" role=\"group\" aria-label=\"Ações do dono\" data-dg-i18n-aria-label=\"4f4264f731c3\">");
+        if (estado === ESTADO_DONO || estado === 'travada') h += (dgUiHtml_mesa_js("<button type=\"button\" class=\"mz-btn pri\" ") + (atrib) + dgUiHtml_mesa_js(" data-acao=\"responder\"><!--dg-i18n:8630a0dc25e2-->Responder<!--/dg-i18n--></button>"));
         if (!fechada) {
-          h += `<button type="button" class="mz-btn" ${atrib} data-acao="concluir">Concluir</button>` +
-            `<button type="button" class="mz-btn" ${atrib} data-acao="cancelar">Cancelar</button>`;
+          h += (dgUiHtml_mesa_js("<button type=\"button\" class=\"mz-btn\" ") + (atrib) + dgUiHtml_mesa_js(" data-acao=\"concluir\"><!--dg-i18n:6e91752edf51-->Concluir<!--/dg-i18n--></button>")) +
+            (dgUiHtml_mesa_js("<button type=\"button\" class=\"mz-btn\" ") + (atrib) + dgUiHtml_mesa_js(" data-acao=\"cancelar\"><!--dg-i18n:bb9dbb406dcb-->Cancelar<!--/dg-i18n--></button>"));
         } else {
-          h += `<button type="button" class="mz-btn" ${atrib} data-acao="reabrir">Reabrir</button>`;
+          h += (dgUiHtml_mesa_js("<button type=\"button\" class=\"mz-btn\" ") + (atrib) + dgUiHtml_mesa_js(" data-acao=\"reabrir\"><!--dg-i18n:fd566216be94-->Reabrir<!--/dg-i18n--></button>"));
         }
-        h += `<button type="button" class="mz-btn" ${atrib} data-acao="editar">Editar</button></div>`;
+        h += (dgUiHtml_mesa_js("<button type=\"button\" class=\"mz-btn\" ") + (atrib) + dgUiHtml_mesa_js(" data-acao=\"editar\"><!--dg-i18n:2eba946b2e1e-->Editar<!--/dg-i18n--></button></div>"));
       }
-      h += `<h4 class="mz-h4">Histórico</h4><div class="mz-hist">${htmlHistorico(o.demo ? [] : o.eventos)}</div></div>`;
+      h += (dgUiHtml_mesa_js("<h4 class=\"mz-h4\"><!--dg-i18n:a80de96d9716-->Histórico<!--/dg-i18n--></h4><div class=\"mz-hist\">") + (htmlHistorico(o.demo ? [] : o.eventos)) + dgUiHtml_mesa_js("</div></div>"));
     }
     return h + '</article>';
   }
@@ -345,7 +350,7 @@
       aba.montada = true;
       try { aba.montar(aba.painel, { bolinha: aba.interruptor }); } catch (e) {
         console.warn('mesa: a aba ' + aba.id + ' falhou ao montar:', e);
-        aba.painel.innerHTML = `<div class="mz-erro" role="alert"><p>Não consegui montar a aba "${esc(aba.titulo)}": ${esc(e && e.message)}.</p></div>`;
+        aba.painel.innerHTML = (dgUiHtml_mesa_js("<div class=\"mz-erro\" role=\"alert\"><p>") + dgUiFragment_mesa_js("Não consegui montar a aba \"{v0}\": {v1}.", {v0: aba.titulo, v1: e && e.message}, () => `Não consegui montar a aba "${esc(aba.titulo)}": ${esc(e && e.message)}.`) + dgUiHtml_mesa_js("</p></div>"));
       }
     }
     for (const f of ouvintesAba) f(aba.id);
@@ -366,7 +371,7 @@
   function setErroCarga(texto) {
     els.erro.innerHTML = texto
       ? `<div class="mz-erro mz-erro-carga" role="alert"><p>${esc(texto)}</p>` +
-        '<button type="button" class="mz-btn pri" data-acao="recarregar">Tentar de novo</button></div>'
+        dgHtml_mesa("<button type=\"button\" class=\"mz-btn pri\" data-acao=\"recarregar\"><!--dg-i18n:6bb3150b9757-->Tentar de novo<!--/dg-i18n--></button></div>")
       : '';
   }
 
@@ -379,11 +384,11 @@
   async function carregaAgentes() {
     let r;
     try { r = await fetch('/api/v1/agents', { credentials: 'same-origin', headers: { Accept: 'application/json' } }); }
-    catch (e) { throw new Error('Não consegui falar com o servidor para listar os agentes (' + e.message + ').'); }
-    if (r.status === 401) { vaiParaLogin(); throw new Error('Sua sessão expirou. Redirecionando para o login...'); }
+    catch (e) { throw new Error(dgUiText_mesa_js("Não consegui falar com o servidor para listar os agentes (") + e.message + ').'); }
+    if (r.status === 401) { vaiParaLogin(); throw new Error(dgUiText_mesa_js("Sua sessão expirou. Redirecionando para o login...")); }
     const d = await lerJson(r);
     if (!r.ok || !d || !Array.isArray(d.agentes)) {
-      throw new Error('Não consegui carregar a lista de agentes: ' + fraseErro(d, r.status).texto);
+      throw new Error(dgUiText_mesa_js("Não consegui carregar a lista de agentes: ") + fraseErro(d, r.status).texto);
     }
     E.agentes = d.agentes;
     // agente guardado no filtro que não existe mais esconderia tudo sem o dono entender por quê
@@ -399,13 +404,13 @@
       if (E.etag && !forca) h['If-None-Match'] = E.etag;
       let r;
       try { r = await fetch('/api/v1/tarefas?dia=' + encodeURIComponent(E.dia), { credentials: 'same-origin', headers: h, cache: 'no-store' }); }
-      catch (e) { throw new Error('Não consegui falar com o servidor (' + e.message + '). Verifique a conexão.'); }
+      catch (e) { throw new Error(dgUiText_mesa_js("Não consegui falar com o servidor (") + e.message + dgUiText_mesa_js("). Verifique a conexão.")); }
       if (r.status === 304) { setErroCarga(''); return false; }
-      if (r.status === 401) { vaiParaLogin(); throw new Error('Sua sessão expirou. Redirecionando para o login...'); }
+      if (r.status === 401) { vaiParaLogin(); throw new Error(dgUiText_mesa_js("Sua sessão expirou. Redirecionando para o login...")); }
       const d = await lerJson(r);
       if (!r.ok || !d || !Array.isArray(d.tarefas)) {
         const f = fraseErro(d, r.status);
-        throw new Error((r.status === 503 ? 'A mesa está indisponível: ' : 'Não consegui carregar a mesa: ') + f.texto);
+        throw new Error((r.status === 503 ? dgUiText_mesa_js("A mesa está indisponível: ") : dgUiText_mesa_js("Não consegui carregar a mesa: ")) + f.texto);
       }
       E.tarefas = d.tarefas; E.contagem = d.contagem || null;
       E.etag = r.headers.get('ETag'); E.jaCarregou = true;
@@ -429,9 +434,9 @@
   function tarefasVisiveis() {
     if (E.demo && !E.tarefas.length) {
       const ag = E.agentes[0];
-      return [{ id: 0, agente: ag ? ag.id : 'exemplo', titulo: 'Roteiro do reels de exemplo', estado: ESTADO_DONO, aberta: true, parada: false,
-        progresso: 50, progresso_origem: 'passos', motivo: 'Gancho A ou B? Os dois estão na conversa.', nota: 'escrevendo o gancho',
-        passos: [{ texto: 'pesquisa', feito: true }, { texto: 'roteiro', feito: false }], origem: 'Dono, 05/10 15h42: faz o roteiro do reels',
+      return [{ id: 0, agente: ag ? ag.id : 'exemplo', get titulo() { return dgUiText_mesa_js("Roteiro do reels de exemplo"); }, estado: ESTADO_DONO, aberta: true, parada: false,
+        progresso: 50, progresso_origem: 'passos', motivo: dgUiText_mesa_js("Gancho A ou B? Os dois estão na conversa."), nota: 'escrevendo o gancho',
+        passos: [{ texto: 'pesquisa', feito: true }, { texto: 'roteiro', feito: false }], origem: dgUiText_mesa_js("Dono, 05/10 15h42: faz o roteiro do reels"),
         versao: '0', atualizada_ha_min: 3, _demo: true }];
     }
     const f = filtroDaTela();
@@ -455,18 +460,18 @@
       return `<section class="mz-bloco" data-agente="${esc(g.agente.id)}">` +
         `<header class="mz-bloco-cab">${avatar(g.agente)}<h3>${esc(g.agente.nome)}</h3>` +
         `<span class="mz-conta">${abertas} ${abertas === 1 ? 'aberta' : 'abertas'}</span>` +
-        `<button type="button" class="mz-ajuda" data-acao="ajuda-cartao" title="Como ler um cartão" aria-label="Como ler um cartão">?</button></header>` +
+        (dgUiHtml_mesa_js("<button type=\"button\" class=\"mz-ajuda\" data-acao=\"ajuda-cartao\" title=\"Como ler um cartão\" data-dg-i18n-title=\"8af0d1d18bb8\" aria-label=\"Como ler um cartão\" data-dg-i18n-aria-label=\"8af0d1d18bb8\">?</button></header>")) +
         (g.tarefas.length
           ? '<div class="mz-cartoes">' + g.tarefas.map(t => htmlCartao(t, {
             aberto: E.abertos.has(t.id), eventos: E.eventos[t.id], demo: !!t._demo,
             form: E.form && E.form.id === t.id ? E.form : null, msg: E.msg[t.id],
           })).join('') + '</div>'
-          : '<p class="mz-vazio">Nenhuma tarefa neste filtro.</p>') +
+          : dgUiHtml_mesa_js("<p class=\"mz-vazio\"><!--dg-i18n:05f709271a86-->Nenhuma tarefa neste filtro.<!--/dg-i18n--></p>")) +
         '</section>';
     };
     let h = comTarefa.map(bloco).join('');
     if (!comTarefa.length && E.jaCarregou) {
-      h = '<p class="mz-vazio grande">Nenhuma tarefa neste filtro. Quando um agente começar um trabalho, ele aparece aqui.</p>';
+      h = dgUiHtml_mesa_js("<p class=\"mz-vazio grande\"><!--dg-i18n:67f571ccee1b-->Nenhuma tarefa neste filtro. Quando um agente começar um trabalho, ele aparece aqui.<!--/dg-i18n--></p>");
     }
     if (sem.length) {
       h += `<button type="button" class="mz-btn mz-vazios-btn" data-acao="vazios" aria-expanded="${E.mostraVazios}">` +
@@ -481,9 +486,9 @@
 
   function renderContagem() {
     const c = E.contagem;
-    if (!c) { els.contagem.innerHTML = '<span class="mz-vazio">' + dsCarregando({ rotulo: 'Carregando a mesa', tamanho: 'p' }) + ' Carregando a mesa…</span>'; return; }
+    if (!c) { els.contagem.innerHTML = '<span class="mz-vazio">' + dsCarregando({ rotulo: dgUiText_mesa_js("Carregando a mesa"), tamanho: 'p' }) + dgUiHtml_mesa_js(" <!--dg-i18n:7e0abfb9390b-->Carregando a mesa…<!--/dg-i18n--></span>"); return; }
     const item = (n, rot, cl) => `<span class="mz-cont ${cl}${n ? ' tem' : ''}"><b>${esc(n)}</b> ${esc(rot)}</span>`;
-    els.contagem.innerHTML = item(c.esperando_dono, 'esperando você', 'esperando') + item(c.travadas, 'travadas', 'travada') +
+    els.contagem.innerHTML = item(c.esperando_dono, dgUiText_mesa_js("esperando você"), 'esperando') + item(c.travadas, 'travadas', 'travada') +
       item(c.paradas, 'paradas', 'parada') + item(c.abertas, 'abertas', 'abertas');
   }
 
@@ -495,7 +500,7 @@
     els.filtros.innerHTML =
       '<div class="mz-busca-lin"><input type="search" id="mzBusca" class="mz-busca" maxlength="80" autocomplete="off" ' +
       'placeholder="Buscar em título, pedido, nota e motivo" aria-label="Buscar nas tarefas">' +
-      '<button type="button" class="mz-limpa" data-acao="limpar-filtros" hidden>Limpar filtros</button></div>' +
+      dgHtml_mesa("<button type=\"button\" class=\"mz-limpa\" data-acao=\"limpar-filtros\" hidden><!--dg-i18n:fade927f9c61-->Limpar filtros<!--/dg-i18n--></button></div>") +
       '<div id="mzChips" class="mz-chips"></div>';
     els.busca = $('mzBusca'); els.chips = $('mzChips'); els.limpa = els.filtros.querySelector('[data-acao="limpar-filtros"]');
     els.busca.value = E.busca;
@@ -516,10 +521,10 @@
     const tiposHtml = tipos.map(v => chip('chip-tipo', `data-v="${esc(v)}"`, E.filtroTipos.has(v), v, conta('tipo', t => t.tipo === v))).join('');
     const agentes = E.agentes.map(a => chip('chip', `data-agente="${esc(a.id)}"`, E.filtroAgentes.has(a.id), a.nome, conta('agente', t => t.agente === a.id))).join('');
     const ehData = /^\d{4}-\d{2}-\d{2}$/.test(E.dia);
-    const dia = `<button type="button" class="mz-chip${E.dia === 'hoje' ? ' on' : ''}" data-acao="dia" data-dia="hoje">Hoje</button>` +
-      `<button type="button" class="mz-chip${E.dia === 'todos' ? ' on' : ''}" data-acao="dia" data-dia="todos">Todos</button>` +
-      `<input type="date" class="mz-data${ehData ? ' on' : ''}" id="mzData" aria-label="Escolher um dia" value="${ehData ? esc(E.dia) : ''}">`;
-    const html = grupo('Filtrar por estado', estados) + grupo('Filtrar por agente', agentes) +
+    const dia = (dgUiHtml_mesa_js("<button type=\"button\" class=\"mz-chip") + (E.dia === 'hoje' ? ' on' : '') + dgUiHtml_mesa_js("\" data-acao=\"dia\" data-dia=\"hoje\"><!--dg-i18n:a46d7cd01bd9-->Hoje<!--/dg-i18n--></button>")) +
+      (dgUiHtml_mesa_js("<button type=\"button\" class=\"mz-chip") + (E.dia === 'todos' ? ' on' : '') + dgUiHtml_mesa_js("\" data-acao=\"dia\" data-dia=\"todos\"><!--dg-i18n:bd02b9a7d71d-->Todos<!--/dg-i18n--></button>")) +
+      (dgUiHtml_mesa_js("<input type=\"date\" class=\"mz-data") + (ehData ? ' on' : '') + dgUiHtml_mesa_js("\" id=\"mzData\" aria-label=\"Escolher um dia\" data-dg-i18n-aria-label=\"e45711194b95\" value=\"") + (ehData ? esc(E.dia) : '') + dgUiHtml_mesa_js("\">"));
+    const html = grupo(dgTexto_mesa('Filtrar por estado'), estados) + grupo(dgTexto_mesa('Filtrar por agente'), agentes) +
       (tiposHtml ? grupo('Filtrar por tipo', tiposHtml) : '') + grupo('Filtrar por dia', dia);
     if (els.chips.__html !== html) { els.chips.innerHTML = html; els.chips.__html = html; }
     els.limpa.hidden = !filtroAtivo(f);
@@ -559,7 +564,7 @@
     try { r = await fetch(url, { method: metodo, headers: h, credentials: 'same-origin', body: corpo == null ? undefined : JSON.stringify(corpo) }); }
     catch (e) {
       console.warn('mesa: ' + metodo + ' ' + url + ' falhou:', e);
-      return { ok: false, status: 0, erro: { texto: 'Não consegui falar com o servidor (' + e.message + '). Nada foi gravado; tente de novo.', campos: {} } };
+      return { ok: false, status: 0, erro: { texto: dgUiText_mesa_js("Não consegui falar com o servidor (") + e.message + dgUiText_mesa_js("). Nada foi gravado; tente de novo."), campos: {} } };
     }
     if (r.status === 401) { vaiParaLogin(); }
     const d = await lerJson(r);
@@ -602,7 +607,7 @@
     const v = valoresDoForm(f);
     E.form.valores = v;
     if (E.form.tipo === 'responder') {
-      if (!v.nota.trim()) { E.form.erro = { texto: 'Escreva a resposta antes de enviar.', campos: {} }; render(); return; }
+      if (!v.nota.trim()) { E.form.erro = { texto: dgUiText_mesa_js("Escreva a resposta antes de enviar."), campos: {} }; render(); return; }
       return aplica(id, 'PATCH', { nota: v.nota.trim(), estado: 'fazendo' }, 'resposta');
     }
     if (E.form.tipo === 'cancelar') {
@@ -624,14 +629,14 @@
     const padrao = E.filtroAgentes.size === 1 ? [...E.filtroAgentes][0] : (E.agentes[0] && E.agentes[0].id);
     const opAg = E.agentes.map(a => `<option value="${esc(a.id)}"${a.id === padrao ? ' selected' : ''}>${esc(a.nome)}</option>`).join('');
     els.nova.innerHTML = '<form class="mz-form mz-nova-form" id="mzNovaForm" novalidate>' +
-      '<h4>Nova tarefa</h4>' +
-      `<label>Agente<select name="agente">${opAg}</select></label>` +
-      '<label>Título<input name="titulo" type="text" maxlength="120" required></label>' +
-      `<label>Origem (o pedido, com a data)<input name="origem" type="text" maxlength="300" required value="${esc(textoOrigem(new Date()))}"></label>` +
-      '<label>Tipo<select name="tipo"><option value="outro">outro</option><option value="conteudo">conteúdo</option><option value="desenvolvimento">desenvolvimento</option><option value="projeto">projeto</option></select></label>' +
-      '<label>Passos (um por linha, opcional)<textarea name="passos" rows="3"></textarea></label>' +
+      dgUiHtml_mesa_js("<h4><!--dg-i18n:98df98ad7e73-->Nova tarefa<!--/dg-i18n--></h4>") +
+      (dgUiHtml_mesa_js("<label><!--dg-i18n:1e068f0819ee-->Agente<!--/dg-i18n--><select name=\"agente\">") + (opAg) + dgUiHtml_mesa_js("</select></label>")) +
+      dgUiHtml_mesa_js("<label><!--dg-i18n:4c08a5d5feb2-->Título<!--/dg-i18n--><input name=\"titulo\" type=\"text\" maxlength=\"120\" required></label>") +
+      (dgUiHtml_mesa_js("<label><!--dg-i18n:23f506564f80-->Origem (o pedido, com a data)<!--/dg-i18n--><input name=\"origem\" type=\"text\" maxlength=\"300\" required value=\"") + (esc(textoOrigem(new Date()))) + dgUiHtml_mesa_js("\"></label>")) +
+      dgHtml_mesa("<label><!--dg-i18n:3868d2843d59-->Tipo<!--/dg-i18n--><select name=\"tipo\"><option value=\"outro\"><!--dg-i18n:1e5fe046884a-->outro<!--/dg-i18n--></option><option value=\"conteudo\"><!--dg-i18n:026363788678-->conteúdo<!--/dg-i18n--></option><option value=\"desenvolvimento\"><!--dg-i18n:e622a97d5044-->desenvolvimento<!--/dg-i18n--></option><option value=\"projeto\"><!--dg-i18n:c88ba7bb9e34-->projeto<!--/dg-i18n--></option></select></label>") +
+      dgUiHtml_mesa_js("<label><!--dg-i18n:b116e7550a17-->Passos (um por linha, opcional)<!--/dg-i18n--><textarea name=\"passos\" rows=\"3\"></textarea></label>") +
       '<div id="mzNovaErro"></div>' +
-      '<div class="mz-linha"><button type="submit" class="mz-btn pri">Criar tarefa</button><button type="button" class="mz-btn" data-acao="fechar-nova">Voltar</button></div></form>';
+      dgHtml_mesa("<div class=\"mz-linha\"><button type=\"submit\" class=\"mz-btn pri\"><!--dg-i18n:0a2e86911a40-->Criar tarefa<!--/dg-i18n--></button><button type=\"button\" class=\"mz-btn\" data-acao=\"fechar-nova\"><!--dg-i18n:59dc926760d0-->Voltar<!--/dg-i18n--></button></div></form>");
     els.novaBtn.setAttribute('aria-expanded', 'true');
     els.nova.querySelector('[name=titulo]').focus();
   }
@@ -644,7 +649,7 @@
     const passos = v.passos.split('\n').map(s => s.trim()).filter(Boolean);
     if (passos.length) corpo.passos = passos.map(texto => ({ texto, feito: false }));
     const caixa = $('mzNovaErro');
-    if (!corpo.agente) { caixa.innerHTML = htmlErros({ texto: 'Escolha o agente que vai fazer a tarefa.', campos: {} }); return; }
+    if (!corpo.agente) { caixa.innerHTML = htmlErros({ texto: dgUiText_mesa_js("Escolha o agente que vai fazer a tarefa."), campos: {} }); return; }
     E.ocupado = true;
     const res = await escreve('POST', '/api/v1/tarefas', corpo, null);
     E.ocupado = false;
@@ -760,7 +765,7 @@
     ];
   }
   function iniciaPassos(passos, soCartao) {
-    if (!raiz.DGTour) { setErroCarga('A visita guiada não carregou (tour.js). Recarregue a página.'); return; }
+    if (!raiz.DGTour) { setErroCarga(dgUiText_mesa_js("A visita guiada não carregou (tour.js). Recarregue a página.")); return; }
     if (!E.tarefas.length) { E.demo = true; render(); }
     raiz.DGTour.inicia({ passos, aoFechar: () => { if (E.demo) { E.demo = false; render(); } } });
   }
@@ -770,11 +775,11 @@
     el.innerHTML =
       '<div class="mz-topo2">' +
       '<div class="mz-contagem-lin"><div id="mzContagem" class="mz-contagem" data-tour="mz-contagem"></div>' +
-      '<button type="button" class="mz-ajuda" data-acao="ajuda-contagem" title="O que é a contagem" aria-label="O que é a contagem">?</button></div>' +
-      '<button type="button" class="mz-btn pri" id="mzNovaBtn" data-acao="nova" aria-expanded="false">+ Nova tarefa</button></div>' +
+      dgUiHtml_mesa_js("<button type=\"button\" class=\"mz-ajuda\" data-acao=\"ajuda-contagem\" title=\"O que é a contagem\" data-dg-i18n-title=\"dd3e8cb2efec\" aria-label=\"O que é a contagem\" data-dg-i18n-aria-label=\"dd3e8cb2efec\">?</button></div>") +
+      dgUiHtml_mesa_js("<button type=\"button\" class=\"mz-btn pri\" id=\"mzNovaBtn\" data-acao=\"nova\" aria-expanded=\"false\"><!--dg-i18n:ffab1f42ce87-->+ Nova tarefa<!--/dg-i18n--></button></div>") +
       '<div id="mzNova"></div>' +
       '<div class="mz-filtros-lin"><div id="mzFiltros" class="mz-filtros"></div>' +
-      '<button type="button" class="mz-ajuda" data-acao="ajuda-filtros" title="Como funcionam os filtros" aria-label="Como funcionam os filtros">?</button></div>' +
+      dgUiHtml_mesa_js("<button type=\"button\" class=\"mz-ajuda\" data-acao=\"ajuda-filtros\" title=\"Como funcionam os filtros\" data-dg-i18n-title=\"6c570c898e8e\" aria-label=\"Como funcionam os filtros\" data-dg-i18n-aria-label=\"6c570c898e8e\">?</button></div>") +
       '<div id="mzErroCarga"></div><div id="mzBoard" class="mz-board"></div>';
     els.contagem = $('mzContagem'); els.nova = $('mzNova'); els.novaBtn = $('mzNovaBtn');
     els.filtros = $('mzFiltros'); els.erro = $('mzErroCarga'); els.board = $('mzBoard');
@@ -802,14 +807,14 @@
     const id = Number(m[1]);
     if (focaTarefa(id)) return;
     if (E.dia !== 'todos') { E.dia = 'todos'; E.etag = null; E.focoId = id; renderFiltros(); atualiza(true); }
-    else setErroCarga('A tarefa #' + id + ' não está na mesa.');
+    else setErroCarga('A tarefa #' + id + dgUiText_mesa_js(" não está na mesa."));
   }
 
   /* ── Boot ── */
   function boot() {
     registrar({ id: 'tarefas', titulo: 'Tarefas', montar: montaTarefas });
     if (raiz.DGAvisos && typeof raiz.DGAvisos.montar === 'function' && !abas.some(a => a.id === 'avisos')) {
-      registrar({ id: 'avisos', titulo: raiz.DGAvisos.titulo || 'Quadro de avisos', montar: raiz.DGAvisos.montar, bolinha: raiz.DGAvisos.bolinha });
+      registrar({ id: 'avisos', get titulo() { return raiz.DGAvisos.titulo || dgUiText_mesa_js("Quadro de avisos"); }, montar: raiz.DGAvisos.montar, bolinha: raiz.DGAvisos.bolinha });
     }
     abasIniciadas = true;
     for (const a of abas) criaAba(a);
@@ -820,7 +825,7 @@
       tarefas.montada = true;
       try { tarefas.montar(tarefas.painel, { bolinha: tarefas.interruptor }); } catch (e) {
         console.warn('mesa: a aba tarefas falhou ao montar:', e);
-        tarefas.painel.innerHTML = `<div class="mz-erro" role="alert"><p>Não consegui montar a aba "Tarefas": ${esc(e && e.message)}.</p></div>`;
+        tarefas.painel.innerHTML = (dgUiHtml_mesa_js("<div class=\"mz-erro\" role=\"alert\"><p>") + dgUiFragment_mesa_js("Não consegui montar a aba \"Tarefas\": {v0}.", {v0: e && e.message}, () => `Não consegui montar a aba "Tarefas": ${esc(e && e.message)}.`) + dgUiHtml_mesa_js("</p></div>"));
       }
     }
     // o botão Tutorial agora fica no cabeçalho da casca (casca.js), que chama esta função

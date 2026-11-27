@@ -1,0 +1,23 @@
+{
+  "Este convite era de um agente que foi removido. Peça um convite novo ao dono.": "This invitation was for an agent that has been removed. Ask the owner for a new invitation.",
+  "Falta o usuário do painel (DGCLAW_PANEL_USER).": "The dashboard username (DGCLAW_PANEL_USER) is missing.",
+  "Ainda não há senha cadastrada. Use o link de primeiro acesso.": "No password has been set yet. Use the first-access link.",
+  "O hash da senha não vale: {p0}.": "The password hash is invalid: {p0}.",
+  "Digite a senha atual.": "Enter your current password.",
+  "Digite a senha nova.": "Enter your new password.",
+  "As senhas não conferem.": "The passwords do not match.",
+  "A senha precisa ter pelo menos 12 caracteres (a sua tem {p0}).": "Your password must have at least 12 characters (yours has {p0}).",
+  "Essa senha é fácil demais de adivinhar. Escolha outra.": "That password is too easy to guess. Choose another one.",
+  "Não consegui processar a senha agora. Tente de novo em instantes.": "Could not process your password right now. Try again shortly.",
+  "Muitas tentativas. Tente de novo em {p0} min.": "Too many attempts. Try again in {p0} min.",
+  "Este link está incompleto. Copie o link inteiro que apareceu no fim da instalação.": "This link is incomplete. Copy the entire link shown at the end of installation.",
+  "Este link já foi usado. Se não foi você, rode no servidor: sudo dgclaw senha": "This link has already been used. If it was not you, run on the server: sudo dgclaw senha",
+  "Este link não vale mais. Gere outro com: sudo dgclaw primeiro-acesso": "This link is no longer valid. Generate another with: sudo dgclaw primeiro-acesso",
+  "Não consegui ler o arquivo do link de primeiro acesso ({p0}). No servidor, rode: sudo dgclaw primeiro-acesso": "Could not read the first-access link file ({p0}). Run on the server: sudo dgclaw primeiro-acesso",
+  "Este link não vale (ou foi copiado pela metade, ou já foi trocado por um mais novo). Gere outro com: sudo dgclaw primeiro-acesso": "This link is invalid (it was either not copied in full or has been replaced with a newer one). Generate another with: sudo dgclaw primeiro-acesso",
+  "Este link expirou. Gere outro com: sudo dgclaw primeiro-acesso": "This link has expired. Generate another with: sudo dgclaw primeiro-acesso",
+  "Digite a senha.": "Enter your password.",
+  "Não consegui gravar o uso do link ({p0}). No servidor, rode: sudo dgclaw primeiro-acesso": "Could not record the use of the link ({p0}). Run on the server: sudo dgclaw primeiro-acesso",
+  "Não consegui gravar a senha no servidor ({p0}). O link já foi usado: rode no servidor sudo dgclaw primeiro-acesso e tente de novo.": "Could not save the password on the server ({p0}). The link has already been used: run sudo dgclaw primeiro-acesso on the server and try again.",
+  "O servidor não aceitou o hash gerado ({p0}). Rode: sudo dgclaw primeiro-acesso": "The server did not accept the generated hash ({p0}). Run: sudo dgclaw primeiro-acesso"
+}

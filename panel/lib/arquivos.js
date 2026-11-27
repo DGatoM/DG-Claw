@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 // arquivos.js — a aba Pasta: o que o agente guarda, e o que o dono sobe para ele.
 //
 // ╔══════════════════════════════════════════════════════════════════════════╗
@@ -93,14 +94,14 @@ function buildArquivos(config) {
   function resolver(rel) {
     const bruto = typeof rel === 'string' ? rel : '';
     if (bruto.includes('\0')) {
-      return { erro: 'Pedido inválido: o caminho tem um caractere que não pode existir em nome de arquivo.', status: 400 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Pedido inválido: o caminho tem um caractere que não pode existir em nome de arquivo."), status: 400 });
     }
     if (path.isAbsolute(bruto)) {
-      return {
+      return dgIdiomaBackend.objeto({
         erro: 'Pedido inválido: esta aba só aceita caminho relativo à pasta do agente. ' +
           'Volte para a raiz pela trilha lá em cima e navegue clicando nas pastas.',
         status: 400,
-      };
+      });
     }
 
     // Barra dupla e barra no fim são digitação, não intenção: some com elas antes
@@ -109,25 +110,25 @@ function buildArquivos(config) {
     const partes = bruto.split('/').filter((p) => p !== '');
     for (const parte of partes) {
       if (parte === '.' || parte === '..') {
-        return {
+        return dgIdiomaBackend.objeto({
           erro: 'Pedido inválido: caminho com ".." não é aceito. ' +
             'Esta aba enxerga só a pasta de arquivos do agente, e nada acima dela.',
           status: 400,
-        };
+        });
       }
       if (parte.startsWith('.')) {
-        return {
+        return dgIdiomaBackend.objeto({
           erro: `Pedido inválido: "${parte}" começa com ponto. ` +
             'Arquivo e pasta que começam com ponto são configuração interna do agente, e esta aba não mostra nenhum.',
           status: 400,
-        };
+        });
       }
     }
 
     const limpo = partes.join('/');
     const caminho = path.resolve(RAIZ, limpo);
     if (!dentroDe(RAIZ, caminho)) {
-      return { erro: 'Pedido inválido: esse caminho cai fora da pasta de arquivos do agente.', status: 400 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Pedido inválido: esse caminho cai fora da pasta de arquivos do agente."), status: 400 });
     }
 
     // Terceira camada: o caminho REAL, com atalho já seguido. Só vale para o que
@@ -137,15 +138,15 @@ function buildArquivos(config) {
       try {
         real = fs.realpathSync(caminho);
       } catch (err) {
-        return { erro: `Não consegui resolver o caminho "${limpo}": ${err.message}`, status: 500 };
+        return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui resolver o caminho \"{p0}\": {p1}", {p0: (limpo), p1: (dgIdiomaBackend.campo(err, "message"))}), status: 500 });
       }
       let raizReal = RAIZ;
       try { raizReal = fs.realpathSync(RAIZ); } catch { /* raiz ainda não existe */ }
       if (!dentroDe(raizReal, real)) {
-        return {
-          erro: `"${limpo}" é um atalho que aponta para fora da pasta do agente, então eu não abro.`,
+        return dgIdiomaBackend.objeto({
+          erro: dgIdiomaBackend.descricao("\"{p0}\" é um atalho que aponta para fora da pasta do agente, então eu não abro.", {p0: (limpo)}),
           status: 400,
-        };
+        });
       }
     }
 
@@ -174,31 +175,31 @@ function buildArquivos(config) {
 
     if (!existe(r.caminho)) {
       if (!r.rel) {
-        return {
+        return dgIdiomaBackend.objeto({
           caminho: '',
           pastas: [],
           arquivos: [],
           motivo:
             'O agente ainda não guardou nada aqui. Você pode subir um arquivo mesmo assim: ' +
             'a pasta é criada no primeiro envio.',
-        };
+        });
       }
-      return { erro: `Não achei a pasta "${r.rel}". Ela pode ter sido renomeada ou apagada.`, status: 404 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não achei a pasta \"{p0}\". Ela pode ter sido renomeada ou apagada.", {p0: (r.rel)}), status: 404 });
     }
 
     let st;
     try { st = fs.statSync(r.caminho); } catch (err) {
-      return { erro: `Não consegui abrir "${r.rel || 'a pasta de arquivos'}": ${err.message}`, status: 500 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui abrir \"{p0}\": {p1}", {p0: (r.rel || 'a pasta de arquivos'), p1: (dgIdiomaBackend.campo(err, "message"))}), status: 500 });
     }
     if (!st.isDirectory()) {
-      return { erro: `"${r.rel}" é um arquivo, não uma pasta. Use o botão Ver para abrir.`, status: 400 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("\"{p0}\" é um arquivo, não uma pasta. Use o botão Ver para abrir.", {p0: (r.rel)}), status: 400 });
     }
 
     let entradas;
     try {
       entradas = fs.readdirSync(r.caminho, { withFileTypes: true });
     } catch (err) {
-      return { erro: `Não consegui ler "${r.rel || 'a pasta de arquivos'}": ${err.message}`, status: 500 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui ler \"{p0}\": {p1}", {p0: (r.rel || 'a pasta de arquivos'), p1: (dgIdiomaBackend.campo(err, "message"))}), status: 500 });
     }
 
     const pastas = [];
@@ -221,14 +222,14 @@ function buildArquivos(config) {
     pastas.sort(porNome);
     arquivos.sort(porNome);
 
-    return {
+    return dgIdiomaBackend.objeto({
       caminho: r.rel,
       pastas,
       arquivos,
       motivo: pastas.length || arquivos.length
         ? null
-        : `A pasta "${r.rel || 'arquivos'}" existe, mas está vazia.`,
-    };
+        : dgIdiomaBackend.descricao("A pasta \"{p0}\" existe, mas está vazia.", {p0:(r.rel || 'arquivos')}),
+    });
   }
 
   /** O que a tela precisa para abrir um arquivo: o texto, ou o aviso de que não é texto. */
@@ -238,10 +239,10 @@ function buildArquivos(config) {
 
     let st;
     try { st = fs.lstatSync(r.caminho); } catch {
-      return { erro: `Não achei o arquivo "${r.rel}". Ele pode ter sido renomeado ou apagado.`, status: 404 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não achei o arquivo \"{p0}\". Ele pode ter sido renomeado ou apagado.", {p0: (r.rel)}), status: 404 });
     }
     if (!st.isFile()) {
-      return { erro: `"${r.rel}" não é um arquivo comum, então eu não abro.`, status: 400 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("\"{p0}\" não é um arquivo comum, então eu não abro.", {p0: (r.rel)}), status: 400 });
     }
 
     const nome = path.basename(r.caminho);
@@ -251,12 +252,12 @@ function buildArquivos(config) {
       return { nome, caminho: r.rel, bytes: st.size, em: mtime(r.caminho), editavel: false, mime: mimeDaExt(ext), tipo: tipoDaExt(ext), ext };
     }
     if (st.size > TETO_TEXTO) {
-      return {
+      return dgIdiomaBackend.objeto({
         erro:
           `"${nome}" tem ${(st.size / (1024 * 1024)).toFixed(1)} MB, e o limite para abrir na tela é 2 MB. ` +
           'Arquivo maior que isso trava o navegador em vez de mostrar alguma coisa. Use o botão Baixar para ver o arquivo inteiro no seu computador.',
         status: 413,
-      };
+      });
     }
     try {
       return {
@@ -269,7 +270,7 @@ function buildArquivos(config) {
         ext,
       };
     } catch (err) {
-      return { erro: `Não consegui ler "${nome}": ${err.message}`, status: 500 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui ler \"{p0}\": {p1}", {p0: (nome), p1: (dgIdiomaBackend.campo(err, "message"))}), status: 500 });
     }
   }
 
@@ -279,10 +280,10 @@ function buildArquivos(config) {
     if (r.erro) return r;
     let st;
     try { st = fs.lstatSync(r.caminho); } catch {
-      return { erro: `Não achei o arquivo "${r.rel}".`, status: 404 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não achei o arquivo \"{p0}\".", {p0: (r.rel)}), status: 404 });
     }
     if (!st.isFile()) {
-      return { erro: `"${r.rel}" não é um arquivo comum, então eu não sirvo.`, status: 400 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("\"{p0}\" não é um arquivo comum, então eu não sirvo.", {p0: (r.rel)}), status: 400 });
     }
     const nome = path.basename(r.caminho);
     const ext = extDe(nome);
@@ -298,35 +299,35 @@ function buildArquivos(config) {
    */
   function salvar(rel, texto) {
     if (typeof texto !== 'string') {
-      return { erro: 'Não veio texto nenhum para salvar. Nada foi alterado no arquivo.', status: 400 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não veio texto nenhum para salvar. Nada foi alterado no arquivo."), status: 400 });
     }
     if (Buffer.byteLength(texto, 'utf-8') > TETO_TEXTO) {
-      return { erro: 'O texto passou de 2 MB, que é o limite desta tela. Nada foi alterado no arquivo.', status: 413 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O texto passou de 2 MB, que é o limite desta tela. Nada foi alterado no arquivo."), status: 413 });
     }
     const r = resolver(rel);
     if (r.erro) return r;
 
     let st;
     try { st = fs.lstatSync(r.caminho); } catch {
-      return {
+      return dgIdiomaBackend.objeto({
         erro: `Não achei o arquivo "${r.rel}" para salvar. Se ele foi apagado enquanto você editava, ` +
           'copie o seu texto antes de recarregar a lista: eu não crio arquivo novo por aqui.',
         status: 404,
-      };
+      });
     }
     if (!st.isFile()) {
-      return { erro: `"${r.rel}" não é um arquivo comum, então eu não escrevo nele.`, status: 400 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("\"{p0}\" não é um arquivo comum, então eu não escrevo nele.", {p0: (r.rel)}), status: 400 });
     }
     if (!ehTexto(extDe(r.caminho))) {
-      return {
-        erro: `"${path.basename(r.caminho)}" não é um arquivo de texto, e salvar texto por cima dele destruiria o conteúdo.`,
+      return dgIdiomaBackend.objeto({
+        erro: dgIdiomaBackend.descricao("\"{p0}\" não é um arquivo de texto, e salvar texto por cima dele destruiria o conteúdo.", {p0: (path.basename(r.caminho))}),
         status: 400,
-      };
+      });
     }
     try {
       fs.writeFileSync(r.caminho, texto, 'utf-8');
     } catch (err) {
-      return { erro: `Não consegui salvar "${path.basename(r.caminho)}": ${err.message}`, status: 500 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui salvar \"{p0}\": {p1}", {p0: (path.basename(r.caminho)), p1: (dgIdiomaBackend.campo(err, "message"))}), status: 500 });
     }
     return { ok: true, caminho: r.rel, bytes: Buffer.byteLength(texto, 'utf-8'), em: mtime(r.caminho) };
   }
@@ -343,29 +344,29 @@ function buildArquivos(config) {
     const r = resolver(rel);
     if (r.erro) return r;
     if (!r.rel) {
-      return { erro: 'A pasta de arquivos do agente não é apagada por aqui.', status: 400 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("A pasta de arquivos do agente não é apagada por aqui."), status: 400 });
     }
 
     let st;
     try { st = fs.lstatSync(r.caminho); } catch {
-      return { erro: `Não achei "${r.rel}". Talvez já tenha sido apagado.`, status: 404 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não achei \"{p0}\". Talvez já tenha sido apagado.", {p0: (r.rel)}), status: 404 });
     }
     if (st.isDirectory()) {
-      return {
+      return dgIdiomaBackend.objeto({
         erro:
           `"${r.rel}" é uma pasta, e apagar pasta não é feito por aqui. ` +
           'Apagar uma pasta levaria junto tudo o que está dentro dela, inclusive o que não aparece nesta tela. ' +
           'Se for isso mesmo, peça ao agente na aba Conversa, que ele diz o que tem lá dentro antes.',
         status: 400,
-      };
+      });
     }
     if (!st.isFile()) {
-      return { erro: `"${r.rel}" não é um arquivo comum, então eu não apago.`, status: 400 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("\"{p0}\" não é um arquivo comum, então eu não apago.", {p0: (r.rel)}), status: 400 });
     }
     try {
       fs.unlinkSync(r.caminho);
     } catch (err) {
-      return { erro: `Não consegui apagar "${r.rel}": ${err.message}`, status: 500 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui apagar \"{p0}\": {p1}", {p0: (r.rel), p1: (dgIdiomaBackend.campo(err, "message"))}), status: 500 });
     }
     return { ok: true, apagado: r.rel };
   }
@@ -390,9 +391,9 @@ function buildArquivos(config) {
     } catch (err) {
       if (err && err.code === 'EEXIST') return { ok: true };
       if (err && err.code === 'ENOENT') {
-        return { erro: 'A pasta do agente não existe no servidor, então não há onde criar a pasta de arquivos.', status: 404 };
+        return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("A pasta do agente não existe no servidor, então não há onde criar a pasta de arquivos."), status: 404 });
       }
-      return { erro: `Não consegui criar a pasta de arquivos do agente: ${err.message}`, status: 500 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui criar a pasta de arquivos do agente: {p0}", {p0: (dgIdiomaBackend.campo(err, "message"))}), status: 500 });
     }
     return { ok: true };
   }
@@ -406,60 +407,60 @@ function buildArquivos(config) {
    */
   function subir(rel, nome, buffer) {
     if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
-      return { erro: 'O arquivo chegou vazio, então não gravei nada. Escolha o arquivo de novo e tente outra vez.', status: 400 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O arquivo chegou vazio, então não gravei nada. Escolha o arquivo de novo e tente outra vez."), status: 400 });
     }
     if (typeof nome !== 'string' || !NOME_UPLOAD_OK.test(nome)) {
-      return {
+      return dgIdiomaBackend.objeto({
         erro:
           'Nome de arquivo não aceito. Ele precisa começar com letra ou número e pode ter letras, números, ' +
           'espaço, ponto, hífen, sublinhado e parênteses. Renomeie o arquivo no seu computador e envie de novo.',
         status: 400,
-      };
+      });
     }
 
     const r = resolver(rel);
     if (r.erro) return r;
     if (!existe(r.caminho)) {
       if (r.rel) {
-        return { erro: `Não achei a pasta "${r.rel}" para guardar o arquivo.`, status: 404 };
+        return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não achei a pasta \"{p0}\" para guardar o arquivo.", {p0: (r.rel)}), status: 404 });
       }
       const criada = criarRaiz();
       if (criada.erro) return criada;
     }
     let stPasta;
     try { stPasta = fs.statSync(r.caminho); } catch (err) {
-      return { erro: `Não consegui abrir a pasta de destino: ${err.message}`, status: 500 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui abrir a pasta de destino: {p0}", {p0: (dgIdiomaBackend.campo(err, "message"))}), status: 500 });
     }
     if (!stPasta.isDirectory()) {
-      return { erro: `"${r.rel}" não é uma pasta, então não dá para guardar arquivo dentro dele.`, status: 400 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("\"{p0}\" não é uma pasta, então não dá para guardar arquivo dentro dele.", {p0: (r.rel)}), status: 400 });
     }
 
     // Terceira camada, de novo: o `resolver` só olha o que já existia. Vale
     // também para a raiz recém-criada, que alguém pode ter trocado por um atalho.
     try {
       if (!dentroDe(fs.realpathSync(config.agentDir), fs.realpathSync(r.caminho))) {
-        return { erro: 'Pedido inválido: a pasta de destino aponta para fora da pasta do agente.', status: 400 };
+        return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Pedido inválido: a pasta de destino aponta para fora da pasta do agente."), status: 400 });
       }
       if (!r.rel && fs.lstatSync(RAIZ).isSymbolicLink()) {
-        return { erro: 'Pedido inválido: a pasta de arquivos do agente é um atalho, e esta aba não grava através de atalho.', status: 400 };
+        return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Pedido inválido: a pasta de arquivos do agente é um atalho, e esta aba não grava através de atalho."), status: 400 });
       }
     } catch (err) {
-      return { erro: `Não consegui conferir a pasta de destino: ${err.message}`, status: 500 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui conferir a pasta de destino: {p0}", {p0: (dgIdiomaBackend.campo(err, "message"))}), status: 500 });
     }
 
     const alvo = path.join(r.caminho, nome);
     // O `resolver` já conferiu a pasta; o nome ainda passa pela mesma régua,
     // porque é ele que vem do formulário e é ele que vira caminho no fim.
     if (!dentroDe(r.caminho, alvo) || path.dirname(alvo) !== r.caminho) {
-      return { erro: 'Pedido inválido: esse nome de arquivo sairia da pasta escolhida.', status: 400 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Pedido inválido: esse nome de arquivo sairia da pasta escolhida."), status: 400 });
     }
     if (existe(alvo)) {
-      return {
+      return dgIdiomaBackend.objeto({
         erro:
           `Já existe um arquivo chamado "${nome}" nesta pasta, e eu não escrevo por cima. ` +
           'Renomeie o seu arquivo, ou apague o que está aqui antes de subir o novo.',
         status: 409,
-      };
+      });
     }
 
     try {
@@ -470,9 +471,9 @@ function buildArquivos(config) {
       darAoDono(alvo);
     } catch (err) {
       if (err && err.code === 'EEXIST') {
-        return { erro: `Já existe um arquivo chamado "${nome}" nesta pasta, e eu não escrevo por cima.`, status: 409 };
+        return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Já existe um arquivo chamado \"{p0}\" nesta pasta, e eu não escrevo por cima.", {p0: (nome)}), status: 409 });
       }
-      return { erro: `Não consegui guardar "${nome}": ${err.message}`, status: 500 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui guardar \"{p0}\": {p1}", {p0: (nome), p1: (dgIdiomaBackend.campo(err, "message"))}), status: 500 });
     }
     return { ok: true, nome, caminho: r.rel ? `${r.rel}/${nome}` : nome, bytes: buffer.length };
   }

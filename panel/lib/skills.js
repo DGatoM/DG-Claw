@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 /**
  * skills.js: lista as skills do agente, lendo as pastas `<dir>/<nome>/SKILL.md`.
  *
@@ -101,7 +102,7 @@ function listar(agentDir, extras) {
     try {
       entradas = fs.readdirSync(dir, { withFileTypes: true });
     } catch (e) {
-      infoPastas.push({ caminho: dir, existe: false, ...(e.code === 'ENOENT' ? {} : { erro: `não consegui abrir: ${e.message}` }) });
+      infoPastas.push(dgIdiomaBackend.objeto({ caminho: dir, existe: false, ...dgIdiomaBackend.espalhar(e.code === 'ENOENT' ? {} : dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("não consegui abrir: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) })) }));
       continue;
     }
     infoPastas.push({ caminho: dir, existe: true });
@@ -112,15 +113,15 @@ function listar(agentDir, extras) {
       const item = { nome: ent.name, descricao: '', pasta, origem: dir };
       try {
         const fm = lerFrontmatter(lerCabecalho(arquivo));
-        if (!fm) item.erro = `O SKILL.md em ${arquivo} não começa com o bloco de cabeçalho entre "---". Peça ao agente para corrigir o arquivo.`;
+        if (!fm) dgIdiomaBackend.definir(item, "erro", `O SKILL.md em ${arquivo} não começa com o bloco de cabeçalho entre "---". Peça ao agente para corrigir o arquivo.`);
         else {
           if (fm.name) item.nome = fm.name;
           item.descricao = fm.description || '';
           item.integracoes = lerIntegracoes(fm.integracoes);
-          if (!item.descricao) item.erro = `O cabeçalho de ${arquivo} não tem "description".`;
+          if (!item.descricao) dgIdiomaBackend.definir(item, "erro", `O cabeçalho de ${arquivo} não tem "description".`);
         }
       } catch (e) {
-        item.erro = `Não consegui ler ${arquivo}: ${e.message}`;
+        dgIdiomaBackend.definir(item, "erro", `Não consegui ler ${arquivo}: ${e.message}`);
         console.warn(`[painel] ignorei a skill em ${arquivo}: ${e.message}.`);
       }
       skills.push(item);

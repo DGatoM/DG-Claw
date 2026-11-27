@@ -1,4 +1,6 @@
 'use strict';
+const dgUiText_logs_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgTexto_logs = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
 /* logs.js: a tela "Logs" (/logs): o histórico do que cada agente fez, só para o dono. Lê GET /api/v1/logs/agentes,
    /agentes/:slug/sessoes e /agentes/:slug/eventos. Contrato: web/docs/LOGS.md.
 
@@ -36,8 +38,8 @@
   function quando(ms) {
     if (typeof ms !== 'number' || !isFinite(ms)) return '';
     const d = new Date(ms);
-    const dia = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const dia = d.toLocaleDateString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const hora = d.toLocaleTimeString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     return dia + ' ' + hora;
   }
 
@@ -51,41 +53,41 @@
   function sessaoCurta(ev) { return (ev.sessao || String(ev.id || '').split(':')[0]).slice(0, 8); }
 
   function descreveFonte(f) {
-    const motor = ROTULO_MOTOR[f.motor] || f.motor;
+    const motor = dgUiText_logs_js(ROTULO_MOTOR[f.motor]) || f.motor;
     if (f.estado === 'ok' || (f.estado === 'parcial' && typeof f.arquivos === 'number')) {
-      return { titulo: motor + ': ' + ROTULO_ESTADO[f.estado], detalhe: f.arquivos + ' arquivo(s), ' + tamanho(f.bytes) + (f.ultima_atividade ? '. Última atividade em ' + quando(f.ultima_atividade) + '.' : '.') + (f.estado === 'parcial' ? ' Atenção: ' + (f.motivo || 'a lista pode estar incompleta') + '.' : '') };
+      return { titulo: motor + ': ' + dgUiText_logs_js(ROTULO_ESTADO[f.estado]), detalhe: f.arquivos + ' arquivo(s), ' + tamanho(f.bytes) + (f.ultima_atividade ? '. Última atividade em ' + quando(f.ultima_atividade) + '.' : '.') + (f.estado === 'parcial' ? dgUiText_logs_js(" Atenção: ") + (f.motivo || 'a lista pode estar incompleta') + '.' : '') };
     }
-    return { titulo: motor + ': ' + (ROTULO_ESTADO[f.estado] || f.estado), detalhe: f.motivo || '' };
+    return { titulo: motor + ': ' + (dgUiText_logs_js(ROTULO_ESTADO[f.estado]) || f.estado), detalhe: f.motivo || '' };
   }
 
   /* O que dizer quando a lista veio vazia. "Nada com os filtros", "o agente ainda não fez nada" e "não há fonte para ler" são três coisas diferentes. */
   function estadoVazio(fontes, filtrado, parcial, podeContinuar) {
     const lista = Array.isArray(fontes) ? fontes : [];
     if (!lista.some(f => f.estado === 'ok' || (f.estado === 'parcial' && f.arquivos > 0))) {
-      const motivos = lista.map(f => (ROTULO_MOTOR[f.motor] || f.motor) + ': ' + (f.motivo || f.estado)).join(' ');
-      return { tipo: 'faltando', texto: 'Não há histórico para ler deste agente. ' + motivos + ' Confira se o agente já conversou neste servidor e se o registro de agentes aponta para a pasta certa.' };
+      const motivos = lista.map(f => (dgUiText_logs_js(ROTULO_MOTOR[f.motor]) || f.motor) + ': ' + (f.motivo || f.estado)).join(' ');
+      return { tipo: 'faltando', texto: dgUiText_logs_js("Não há histórico para ler deste agente. ") + motivos + dgUiText_logs_js(" Confira se o agente já conversou neste servidor e se o registro de agentes aponta para a pasta certa.") };
     }
-    if (parcial && podeContinuar === false) return { tipo: 'parada', texto: 'A busca parou antes de olhar tudo e não conseguiu avançar. Leia o aviso acima e estreite o período ou o tipo.' };
-    if (parcial) return { tipo: 'parcial', texto: 'Ainda não achei nada, mas a busca não olhou tudo. Toque em "Continuar procurando".' };
-    if (filtrado) return { tipo: 'filtro', texto: 'Nada com esses filtros. Tente outro período, outro tipo ou outra palavra.' };
-    return { tipo: 'nada', texto: 'O agente ainda não fez nada que apareça aqui.' };
+    if (parcial && podeContinuar === false) return { tipo: 'parada', texto: dgUiText_logs_js("A busca parou antes de olhar tudo e não conseguiu avançar. Leia o aviso acima e estreite o período ou o tipo.") };
+    if (parcial) return { tipo: 'parcial', texto: dgUiText_logs_js("Ainda não achei nada, mas a busca não olhou tudo. Toque em \"Continuar procurando\".") };
+    if (filtrado) return { tipo: 'filtro', texto: dgUiText_logs_js("Nada com esses filtros. Tente outro período, outro tipo ou outra palavra.") };
+    return { tipo: 'nada', texto: dgUiText_logs_js("O agente ainda não fez nada que apareça aqui.") };
   }
 
   function erroDaResposta(status, corpo) {
     const motivo = corpo && typeof corpo.erro === 'string' ? corpo.erro : '';
-    if (status === 401) return 'Sua sessão venceu. Entre de novo em /login.';
-    if (status === 403) return motivo || 'Só o dono do DG Claw vê os logs.';
-    if (status === 429) return (motivo || 'Há outras buscas em andamento.') + ' Espere um instante e toque em Aplicar de novo.';
-    if (status === 503) return (motivo || 'A lista de agentes está indisponível.') + ' Confira o registro de agentes no servidor.';
-    return (motivo || 'O servidor respondeu com o erro ' + status + '.') + ' Tente de novo; se repetir, veja o log do Web (journalctl -u dgclaw-web).';
+    if (status === 401) return dgUiText_logs_js("Sua sessão venceu. Entre de novo em /login.");
+    if (status === 403) return motivo || dgUiText_logs_js("Só o dono do DG Claw vê os logs.");
+    if (status === 429) return (motivo || dgUiText_logs_js("Há outras buscas em andamento.")) + dgUiText_logs_js(" Espere um instante e toque em Aplicar de novo.");
+    if (status === 503) return (motivo || dgUiText_logs_js("A lista de agentes está indisponível.")) + dgUiText_logs_js(" Confira o registro de agentes no servidor.");
+    return (motivo || dgUiText_logs_js("O servidor respondeu com o erro ") + status + '.') + dgUiText_logs_js(" Tente de novo; se repetir, veja o log do Web (journalctl -u dgclaw-web).");
   }
 
   function resumoContagens(c) {
     if (!c) return '';
     const p = [];
-    if (c.linhas_ilegiveis) p.push(c.linhas_ilegiveis + ' linha(s) com JSON quebrado');
+    if (c.linhas_ilegiveis) p.push(c.linhas_ilegiveis + dgUiText_logs_js(" linha(s) com JSON quebrado"));
     if (c.linhas_gigantes) p.push(c.linhas_gigantes + ' linha(s) grande(s) demais, puladas');
-    if (c.sem_horario) p.push(c.sem_horario + ' registro(s) sem horário, omitidos');
+    if (c.sem_horario) p.push(c.sem_horario + dgUiText_logs_js(" registro(s) sem horário, omitidos"));
     if (c.atalhos_ignorados) p.push(c.atalhos_ignorados + ' atalho(s) ignorado(s)');
     return p.length ? 'Nesta leitura: ' + p.join('; ') + '.' : '';
   }
@@ -150,7 +152,7 @@
   async function pedir(caminho) {
     let r;
     try { r = await raiz.fetch(caminho, { headers: { Accept: 'application/json' }, cache: 'no-store' }); } catch (e) {
-      throw new Error('Não consegui falar com o servidor (' + (e && e.message ? e.message : 'sem rede') + '). Confira a conexão e tente de novo.');
+      throw new Error(dgUiText_logs_js("Não consegui falar com o servidor (") + (e && e.message ? e.message : dgUiText_logs_js("sem rede")) + dgUiText_logs_js("). Confira a conexão e tente de novo."));
     }
     let corpo = null;
     try { corpo = await r.json(); } catch (_) { /* resposta que não é JSON */ }
@@ -169,7 +171,7 @@
       if (d.detalhe) c.appendChild(el('small', null, d.detalhe));
       grade.appendChild(c);
     }
-    if (!grade.childNodes.length) grade.appendChild(el('p', 'lg-fraco', 'Este agente não tem fontes de histórico configuradas.'));
+    if (!grade.childNodes.length) grade.appendChild(el('p', 'lg-fraco', dgUiText_logs_js("Este agente não tem fontes de histórico configuradas.")));
     caixa.appendChild(grade);
   }
 
@@ -195,11 +197,11 @@
     const c = el('article', 'lg-card');
     const topo = el('div', 'lg-topo');
     topo.appendChild(el('span', null, quando(ev.t)));
-    topo.appendChild(el('span', 'lg-tag', ROTULO_TIPO[ev.tipo] || ev.tipo));
-    if (ev.papel) topo.appendChild(el('span', 'lg-tag', ROTULO_PAPEL[ev.papel] || ev.papel));
-    topo.appendChild(el('span', null, (ROTULO_MOTOR[ev.motor] || ev.motor) + ' · sessão ' + sessaoCurta(ev)));
+    topo.appendChild(el('span', 'lg-tag', dgUiText_logs_js(ROTULO_TIPO[ev.tipo]) || ev.tipo));
+    if (ev.papel) topo.appendChild(el('span', 'lg-tag', dgUiText_logs_js(ROTULO_PAPEL[ev.papel]) || ev.papel));
+    topo.appendChild(el('span', null, (dgUiText_logs_js(ROTULO_MOTOR[ev.motor]) || ev.motor) + dgUiText_logs_js(" · sessão ") + sessaoCurta(ev)));
     if (ev.subagente) topo.appendChild(el('span', 'lg-tag lg-sub', 'subagente'));
-    if (ev.horario_suspeito) topo.appendChild(el('span', 'lg-tag lg-susp', 'horário suspeito'));
+    if (ev.horario_suspeito) topo.appendChild(el('span', 'lg-tag lg-susp', dgUiText_logs_js("horário suspeito")));
     c.appendChild(topo);
     c.appendChild(el('p', 'lg-titulo', ev.titulo));
     if (ev.texto) c.appendChild(el('p', 'lg-texto', ev.texto + (ev.truncado ? '\n[texto cortado]' : '')));
@@ -212,20 +214,20 @@
       det.appendChild(el('summary', null, 'Detalhes'));
       const dl = el('dl');
       linhaDetalhe(dl, 'Comando', d.comando, true);
-      linhaDetalhe(dl, 'Descrição', d.descricao);
-      linhaDetalhe(dl, 'Operação', d.operacao);
-      linhaDetalhe(dl, 'Arquivo', d.caminho);
+      linhaDetalhe(dl, dgUiText_logs_js("Descrição"), d.descricao);
+      linhaDetalhe(dl, dgTexto_logs('Operação'), d.operacao);
+      linhaDetalhe(dl, dgTexto_logs('Arquivo'), d.caminho);
       linhaDetalhe(dl, 'Ferramenta', d.ferramenta);
       linhaDetalhe(dl, 'Entrada', d.entrada, true);
       if (temResultado) {
         if (ev.resultado) {
-          dl.appendChild(el('dt', ev.resultado.erro ? 'lg-erro-res' : null, ev.resultado.erro ? 'Resultado (com erro)' : 'Resultado'));
+          dl.appendChild(el('dt', ev.resultado.erro ? 'lg-erro-res' : null, ev.resultado.erro ? dgUiText_logs_js("Resultado (com erro)") : 'Resultado'));
           const dd = el('dd');
           dd.appendChild(el('pre', null, ev.resultado.texto === '' ? '(resultado vazio)' : ev.resultado.texto + (ev.resultado.truncado ? '\n[resultado cortado]' : '')));
           dl.appendChild(dd);
         } else {
           dl.appendChild(el('dt', null, 'Resultado'));
-          dl.appendChild(el('dd', null, 'sem resultado registrado'));
+          dl.appendChild(el('dd', null, dgUiText_logs_js("sem resultado registrado")));
         }
       }
       det.appendChild(dl);
@@ -245,7 +247,7 @@
     const r = $('lgRodape');
     const b = $('lgMais');
     r.hidden = !est.proximo;
-    b.textContent = est.parcial ? 'Continuar procurando' : 'Carregar mais';
+    b.textContent = est.parcial ? 'Continuar procurando' : dgTexto_logs('Carregar mais');
     b.disabled = est.carregando;
   }
 
@@ -261,7 +263,7 @@
     const gen = maisUma ? est.gen : ++est.gen;
     est.carregando = true;
     msgGeral('');
-    if (!maisUma) { limpar($('lgLista')); est.proximo = null; est.parcial = false; pintaEstado('Carregando…'); }
+    if (!maisUma) { limpar($('lgLista')); est.proximo = null; est.parcial = false; pintaEstado(dgTexto_logs('Carregando…')); }
     pintaRodape();
     const f = filtros();
     try {
@@ -292,16 +294,16 @@
   async function carregaSessoes() {
     const sel = $('lgSessao');
     limpar(sel);
-    sel.appendChild(el('option', null, 'Todas as sessões')).value = '';
+    sel.appendChild(el('option', null, dgTexto_logs('Todas as sessões'))).value = '';
     if (!est.agente) return;
     try {
       const r = await pedir('/api/v1/logs/agentes/' + encodeURIComponent(est.agente) + '/sessoes?limite=100');
       for (const s of r.sessoes || []) {
-        const o = el('option', null, (ROTULO_MOTOR[s.motor] || s.motor) + ' · ' + quando(Date.parse(s.atualizado)) + (s.subagente ? ' · subagente' : '') + ' · ' + s.id);
+        const o = el('option', null, (dgUiText_logs_js(ROTULO_MOTOR[s.motor]) || s.motor) + ' · ' + quando(Date.parse(s.atualizado)) + (s.subagente ? ' · subagente' : '') + ' · ' + s.id);
         o.value = s.id;
         sel.appendChild(o);
       }
-    } catch (e) { msgGeral('Não consegui listar as sessões: ' + e.message); }
+    } catch (e) { msgGeral(dgUiText_logs_js("Não consegui listar as sessões: ") + e.message); }
   }
 
   async function trocaAgente() {
@@ -330,7 +332,7 @@
       sel.appendChild(o);
     }
     sel.disabled = !est.agentes.length;
-    if (!est.agentes.length) { pintaEstado('O registro não tem nenhum agente.', 'faltando'); return; }
+    if (!est.agentes.length) { pintaEstado(dgUiText_logs_js("O registro não tem nenhum agente."), 'faltando'); return; }
     const pedido = new URLSearchParams(raiz.location.search).get('a');
     if (pedido && est.agentes.some(a => a.id === pedido)) sel.value = pedido;
     await trocaAgente();
@@ -340,7 +342,8 @@
     const caixa = $('lgChips');
     limpar(caixa);
     for (const [valor, rotulo] of TIPOS) {
-      const b = el('button', 'lg-chip', rotulo);
+      const b = el('button', 'lg-chip');
+      if (raiz.DGI18n) raiz.DGI18n.rotulo(b, rotulo); else b.textContent = rotulo;
       b.type = 'button';
       b.setAttribute('aria-pressed', est.tipos.has(valor) ? 'true' : 'false');
       b.dataset.tipo = valor;
@@ -369,7 +372,7 @@
 
   function comTour(fn) {
     if (raiz.DGTour) { fn(); return; }
-    msgGeral('A visita guiada não carregou. Recarregue a página e tente de novo.');
+    msgGeral(dgUiText_logs_js("A visita guiada não carregou. Recarregue a página e tente de novo."));
   }
   function ajudaSecao(chave) { comTour(() => raiz.DGTour.inicia({ passos: (PASSOS[chave] || []).filter(p => doc.querySelector(p.alvo)) })); }
   function tutorial() { comTour(() => raiz.DGTour.inicia({ passos: passosPagina(doc) })); }

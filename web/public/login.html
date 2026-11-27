@@ -2,8 +2,11 @@
 <html lang="pt-BR" data-tema="{{MARCA_TEMA}}">
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/ds/idioma.css">
+<script src="/ds/idiomas.js"></script>
+<script src="/ds/idioma.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Entrar - {{MARCA_NOME}}</title>
+<title data-dg-i18n="5229f1dd7670">Entrar - {{MARCA_NOME}}</title>
 <meta name="marca-nome" content="{{MARCA_NOME}}">
 <meta name="marca-logo-tem-nome" content="{{MARCA_LOGO_TEM_NOME}}">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -28,21 +31,21 @@
 <body>
 <main class="cartao">
   <div class="marca"><img class="marca-logo" src="/marca/logo" alt="" width="56" height="56"><span class="marca-nome">{{MARCA_NOME}}</span></div>
-  <h1>{{MARCA_TITULO_LOGIN}}</h1>
+  <h1 data-marca-titulo-login>{{MARCA_TITULO_LOGIN}}</h1>
   <div id="erro" class="erro" role="alert" hidden></div>
   <form method="post" action="/login" id="form" autocomplete="on">
     <input type="hidden" name="next" id="next" value="/">
-    <label for="usuario">Usuário</label>
+    <label for="usuario"><!--dg-i18n:f53bbaa05fae-->Usuário<!--/dg-i18n--></label>
     <input id="usuario" name="usuario" type="text" autocomplete="username" autocapitalize="none"
            autocorrect="off" spellcheck="false" required autofocus>
-    <label for="campoSenha">Senha</label>
+    <label for="campoSenha"><!--dg-i18n:d482c10b3d4d-->Senha<!--/dg-i18n--></label>
     <div class="campo-senha">
       <input id="campoSenha" name="senha" type="password" autocomplete="current-password" required>
-      <button type="button" class="ver-senha" id="verSenha" aria-pressed="false" aria-label="Mostrar senha" title="Mostrar senha"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-eye"/></svg></button>
+      <button type="button" class="ver-senha" id="verSenha" aria-pressed="false" aria-label="Mostrar senha" title="Mostrar senha" data-dg-i18n-aria-label="1f16e9e90444" data-dg-i18n-title="1f16e9e90444"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-eye"/></svg></button>
     </div>
-    <button type="submit" id="entrar">Entrar</button>
+    <button type="submit" id="entrar"><!--dg-i18n:4105811890ae-->Entrar<!--/dg-i18n--></button>
   </form>
-  <p class="slogan">{{MARCA_SLOGAN}}</p>
+  <p class="slogan" data-marca-slogan>{{MARCA_SLOGAN}}</p>
 </main>
 <script src="/login.js"></script>
 </body>

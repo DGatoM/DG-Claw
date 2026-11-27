@@ -2,8 +2,11 @@
 <html lang="pt-BR" data-tema="{{MARCA_TEMA}}">
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/ds/idioma.css">
+<script src="/ds/idiomas.js"></script>
+<script src="/ds/idioma.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
-<title>Conversa - {{MARCA_NOME}}</title>
+<title data-dg-i18n="7fefdd804a35">Conversa - {{MARCA_NOME}}</title>
 <meta name="marca-nome" content="{{MARCA_NOME}}">
 <meta name="marca-logo-tem-nome" content="{{MARCA_LOGO_TEM_NOME}}">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -53,36 +56,36 @@ if (navigator.standalone === true ||
 
 <!-- Erro de carga (agente que não existe, lista que não veio): o JS mostra aqui -->
 <div class="erroconfig" id="erroTela" hidden>
-  <h1 id="erroTelaTit">Não consegui abrir essa conversa</h1>
+  <h1 id="erroTelaTit"><!--dg-i18n:07b3c50c1a5b-->Não consegui abrir essa conversa<!--/dg-i18n--></h1>
   <p id="erroTelaTxt"></p>
   <p id="erroTelaLinks"></p>
 </div>
 
 <header data-tour="header" id="cabecalho">
-  <button class="btn ghost" id="btnMenu" aria-label="Abrir o menu" data-tour="menu"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-menu"/></svg></button>
+  <button class="btn ghost" id="btnMenu" aria-label="Abrir o menu" data-tour="menu" data-dg-i18n-aria-label="3723e68815c2"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-menu"/></svg></button>
   <div class="av" id="av" aria-hidden="true"></div>
-  <div class="who" id="who" data-tour="titulo" role="button" tabindex="0" title="Mídias, links e arquivos desta conversa">
+  <div class="who" id="who" data-tour="titulo" role="button" tabindex="0" title="Mídias, links e arquivos desta conversa" data-dg-i18n-title="b8cc969caa2b">
     <b id="nomeAgente">{{MARCA_NOME}}</b>
-    <span id="estado">conectando…</span>
+    <span id="estado"><!--dg-i18n:f23e794dc909-->conectando…<!--/dg-i18n--></span>
   </div>
-  <button class="btn" id="btnTutorial" type="button" title="Visita guiada desta tela: o que é cada parte e por que está aqui">Tutorial</button>
+  <button class="btn" id="btnTutorial" type="button" title="Visita guiada desta tela: o que é cada parte e por que está aqui" data-dg-i18n-title="1fc19b1d3b71"><!--dg-i18n:c26982b1425d-->Tutorial<!--/dg-i18n--></button>
   <div class="ferr" id="ferr">
-    <div class="tools" id="tools" role="toolbar" aria-label="Ferramentas da conversa">
-      <a id="btnMesa" class="btn" href="/mesa" data-tour="btn-mesa" title="Abrir a Mesa de tarefas" aria-label="Abrir a Mesa de tarefas"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-board"/></svg> <span class="lbl">Mesa</span></a>
-      <a id="btnSessoes" class="btn" href="#" hidden data-tour="btn-sessoes" title="Sessões de trabalho deste agente" aria-label="Abrir as Sessões deste agente"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-monitor"/></svg> <span class="lbl">Sessões</span></a>
-      <a id="btnAnon" class="btn" href="/anonimizar" hidden data-tour="btn-anon" title="Documentos anonimizados: abrir a tela de Anonimizar" aria-label="Documentos anonimizados"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-glasses"/></svg> <span class="lbl">Documentos anonimizados</span></a>
-      <a id="btnLembretes" class="btn" href="/lembretes" data-tour="btn-lembretes" title="Abrir os lembretes" aria-label="Abrir os lembretes"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-clock"/></svg> <span class="lbl">Lembretes</span></a>
-      <button id="btnNaoLida" class="btn" type="button" data-tour="btn-nao-lida" title="Marcar esta conversa como não lida e voltar à lista de agentes" aria-label="Marcar esta conversa como não lida"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-mail"/></svg> <span class="lbl">não lida</span></button>
+    <div class="tools" id="tools" role="toolbar" aria-label="Ferramentas da conversa" data-dg-i18n-aria-label="65b9abdefad9">
+      <a id="btnMesa" class="btn" href="/mesa" data-tour="btn-mesa" title="Abrir a Mesa de tarefas" aria-label="Abrir a Mesa de tarefas" data-dg-i18n-title="41fbf6f36751" data-dg-i18n-aria-label="41fbf6f36751"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-board"/></svg> <span class="lbl"><!--dg-i18n:e465ce782408-->Mesa<!--/dg-i18n--></span></a>
+      <a id="btnSessoes" class="btn" href="#" hidden data-tour="btn-sessoes" title="Sessões de trabalho deste agente" aria-label="Abrir as Sessões deste agente" data-dg-i18n-title="e1e9e5bbb44a" data-dg-i18n-aria-label="630516b72d73"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-monitor"/></svg> <span class="lbl"><!--dg-i18n:549a96da6ff6-->Sessões<!--/dg-i18n--></span></a>
+      <a id="btnAnon" class="btn" href="/anonimizar" hidden data-tour="btn-anon" title="Documentos anonimizados: abrir a tela de Anonimizar" aria-label="Documentos anonimizados" data-dg-i18n-title="d654670ec8b2" data-dg-i18n-aria-label="3e97f8477f16"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-glasses"/></svg> <span class="lbl"><!--dg-i18n:3e97f8477f16-->Documentos anonimizados<!--/dg-i18n--></span></a>
+      <a id="btnLembretes" class="btn" href="/lembretes" data-tour="btn-lembretes" title="Abrir os lembretes" aria-label="Abrir os lembretes" data-dg-i18n-title="953febc488dc" data-dg-i18n-aria-label="953febc488dc"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-clock"/></svg> <span class="lbl"><!--dg-i18n:1a02ec714ff6-->Lembretes<!--/dg-i18n--></span></a>
+      <button id="btnNaoLida" class="btn" type="button" data-tour="btn-nao-lida" title="Marcar esta conversa como não lida e voltar à lista de agentes" aria-label="Marcar esta conversa como não lida" data-dg-i18n-title="d2cc0cfa1e84" data-dg-i18n-aria-label="96689bbebb86"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-mail"/></svg> <span class="lbl"><!--dg-i18n:d6e388a8ce15-->não lida<!--/dg-i18n--></span></button>
       <!-- btnLer e btnContinua nascem aqui (como antes) para o sigilo.js de qualquer versão achar a âncora
            dele dentro de #tools; o conversa.js, que carrega depois, os move para o #menuVoz -->
-      <button id="btnLer" class="btn" type="button" aria-pressed="false" aria-label="Leitura em voz alta: desligada" title="Ler as respostas em voz alta"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-volume"/></svg> <span class="lbl">Ler respostas em voz alta: desligado</span></button>
+      <button id="btnLer" class="btn" type="button" aria-pressed="false" aria-label="Leitura em voz alta: desligada" title="Ler as respostas em voz alta" data-dg-i18n-title="807b19f48f94" data-dg-i18n-aria-label="7f1e7fb41f71"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-volume"/></svg> <span class="lbl"><!--dg-i18n:2d552d13e281-->Ler respostas em voz alta: desligado<!--/dg-i18n--></span></button>
       <button id="btnContinua" class="btn" type="button" aria-pressed="false"
               aria-label="Conversa contínua: desligada"
-              title="Conversa contínua: ao terminar de tocar a resposta, grava de novo"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-repeat"/></svg> <span class="lbl">Conversa contínua: desligada</span></button>
+              title="Conversa contínua: ao terminar de tocar a resposta, grava de novo" data-dg-i18n-title="319d9c38747f" data-dg-i18n-aria-label="1e57d7533205"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-repeat"/></svg> <span class="lbl"><!--dg-i18n:1e57d7533205-->Conversa contínua: desligada<!--/dg-i18n--></span></button>
       <button id="btnVoz" class="btn" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-controls="menuVoz"
               title="Voz: leitura em voz alta e conversa contínua" aria-label="Voz: leitura em voz alta e conversa contínua"
-              data-tour="voz"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-volume"/></svg> <span class="lbl">Voz</span></button>
-      <button id="btnParar" class="btn" type="button" style="display:none">parar</button>
+              data-tour="voz" data-dg-i18n-title="c61e636e53d6" data-dg-i18n-aria-label="c61e636e53d6"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-volume"/></svg> <span class="lbl"><!--dg-i18n:c9566ca43bdc-->Voz<!--/dg-i18n--></span></button>
+      <button id="btnParar" class="btn" type="button" style="display:none"><!--dg-i18n:d1fbff47348c-->parar<!--/dg-i18n--></button>
     </div>
     <i class="ferr-sombra esq" id="ferrEsq" aria-hidden="true"></i>
     <i class="ferr-sombra dir" id="ferrDir" aria-hidden="true"></i>
@@ -90,29 +93,29 @@ if (navigator.standalone === true ||
 </header>
 
   <!-- Fica fora do header e de #tools: a faixa rola e cortaria o popover, e o z-index do header ficaria abaixo da faixa de foco -->
-  <div id="menuVoz" class="menu-voz" role="group" aria-label="Voz" hidden></div>
+  <div id="menuVoz" class="menu-voz" role="group" aria-label="Voz" hidden data-dg-i18n-aria-label="c9566ca43bdc"></div>
 
 <!-- O menu vem da marcação da casca (casca.js, MARCACAO_MENU): uma fonte só para todas as telas -->
 <div id="menuPonto"></div>
 
 <div id="chat" data-tour="thread"><div class="wrap" id="wrap"></div>
-  <section id="loginCartao" class="lc" role="region" aria-label="Conectar a sua conta" tabindex="-1" hidden></section>
-  <section id="permCartao" class="pc" role="alertdialog" aria-live="assertive" aria-label="Permissão pedida pelo agente" tabindex="-1" hidden></section>
-  <section id="perguntaCartao" class="pc pq" role="alertdialog" aria-live="polite" aria-label="Pergunta de escolha do agente" tabindex="-1" hidden></section></div>
+  <section id="loginCartao" class="lc" role="region" aria-label="Conectar a sua conta" tabindex="-1" hidden data-dg-i18n-aria-label="cc6265bcd6d3"></section>
+  <section id="permCartao" class="pc" role="alertdialog" aria-live="assertive" aria-label="Permissão pedida pelo agente" tabindex="-1" hidden data-dg-i18n-aria-label="52afdba5845f"></section>
+  <section id="perguntaCartao" class="pc pq" role="alertdialog" aria-live="polite" aria-label="Pergunta de escolha do agente" tabindex="-1" hidden data-dg-i18n-aria-label="c97c652aa942"></section></div>
 
-<aside id="alertasMensagem" data-tour="alertas" aria-label="Entregas e pedidos não vistos" hidden>
+<aside id="alertasMensagem" data-tour="alertas" aria-label="Entregas e pedidos não vistos" hidden data-dg-i18n-aria-label="bbc76ee65eb8">
   <div id="alertasPilha"></div>
-  <button id="alertasAjuda" type="button" aria-label="Tutorial dos alertas" title="Como funcionam os alertas de entrega e pedido">?</button>
+  <button id="alertasAjuda" type="button" aria-label="Tutorial dos alertas" title="Como funcionam os alertas de entrega e pedido" data-dg-i18n-aria-label="b31af744d9ae" data-dg-i18n-title="a5c5d32cb693">?</button>
 </aside>
 <button id="btnFim" class="seta-fim" aria-label="Ir para a mensagem mais nova"
-        title="Ir para a mensagem mais nova" hidden><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-arrow-down"/></svg><span
+        title="Ir para a mensagem mais nova" hidden data-dg-i18n-aria-label="fa1ead74ebb8" data-dg-i18n-title="fa1ead74ebb8"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-arrow-down"/></svg><span
         id="fimNovas" class="fimnovas" hidden></span></button>
 
 <div id="faixaReinicio" role="status" aria-live="polite" hidden><span class="rico" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-refresh"/></svg></span><span class="rtxt"></span></div>
 <dialog id="dlgReinicio" aria-labelledby="dlgReinicioTit" aria-describedby="dlgReinicioTxt">
-  <h2 id="dlgReinicioTit">Reiniciar a sessão?</h2>
-  <p id="dlgReinicioTxt">Isto reinicia o processo do agente quando ele travar. A conversa continua de onde estava.</p>
-  <div class="dacoes"><button type="button" id="dlgReinicioNao">Cancelar</button><button type="button" class="perigo" id="dlgReinicioSim">Reiniciar</button></div>
+  <h2 id="dlgReinicioTit"><!--dg-i18n:dfe05a953129-->Reiniciar a sessão?<!--/dg-i18n--></h2>
+  <p id="dlgReinicioTxt"><!--dg-i18n:fcc887252ae6-->Isto reinicia o processo do agente quando ele travar. A conversa continua de onde estava.<!--/dg-i18n--></p>
+  <div class="dacoes"><button type="button" id="dlgReinicioNao"><!--dg-i18n:bb9dbb406dcb-->Cancelar<!--/dg-i18n--></button><button type="button" class="perigo" id="dlgReinicioSim"><!--dg-i18n:4d1e6caec772-->Reiniciar<!--/dg-i18n--></button></div>
 </dialog>
 <dialog id="dlgLoginExpirado" class="le" role="dialog" aria-modal="true" aria-labelledby="leTit" aria-describedby="leTxt">
   <h2 id="leTit"></h2>
@@ -120,7 +123,7 @@ if (navigator.standalone === true ||
   <div id="leCartao"></div>
   <p id="leErro" role="alert" hidden></p>
   <p id="leEstado" role="status" aria-live="polite" hidden></p>
-  <p class="le-conectar" id="leConectar"><a href="/conectar">Abrir a página Conectar conta</a></p>
+  <p class="le-conectar" id="leConectar"><a href="/conectar"><!--dg-i18n:216ac3b761ab-->Abrir a página Conectar conta<!--/dg-i18n--></a></p>
   <div class="le-acoes">
     <button type="button" id="lePrimario" class="le-primario"></button>
     <button type="button" id="leSecundario" class="le-secundario"></button>
@@ -143,43 +146,43 @@ if (navigator.standalone === true ||
   </div>
 </dialog>
 <div class="faixa" id="faixaErro"><span class="txt"></span>
-  <button class="x" aria-label="Fechar aviso"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-x"/></svg></button></div>
+  <button class="x" aria-label="Fechar aviso" data-dg-i18n-aria-label="f39dd9babf20"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-x"/></svg></button></div>
 <div class="faixa" id="faixaAviso"><span class="txt"></span>
-  <button class="x" aria-label="Fechar aviso"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-x"/></svg></button></div>
+  <button class="x" aria-label="Fechar aviso" data-dg-i18n-aria-label="f39dd9babf20"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-x"/></svg></button></div>
 <div class="faixa" id="faixaAudio" aria-live="polite"><span class="txt"></span></div>
 
-<div id="atividade" hidden data-tour="atividade"><span class="atv-pts" aria-hidden="true"><i></i><i></i><i></i></span><span class="atv-txt"><span class="atv-nome"></span><span class="atv-sep"> · </span><span class="atv-acao"></span></span><button class="atv-parar" id="btnPararAgente" type="button" hidden aria-label="Parar o agente (igual a apertar Esc)" title="Parar: o mesmo que apertar Esc no terminal"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-stop"/></svg><span>Parar</span></button></div>
+<div id="atividade" hidden data-tour="atividade"><span class="atv-pts" aria-hidden="true"><i></i><i></i><i></i></span><span class="atv-txt"><span class="atv-nome"></span><span class="atv-sep"> · </span><span class="atv-acao"></span></span><button class="atv-parar" id="btnPararAgente" type="button" hidden aria-label="Parar o agente (igual a apertar Esc)" title="Parar: o mesmo que apertar Esc no terminal" data-dg-i18n-aria-label="f0fa3549182e" data-dg-i18n-title="93183c4eee7a"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-stop"/></svg><span><!--dg-i18n:d36c5e504eb7-->Parar<!--/dg-i18n--></span></button></div>
 
 <div class="barra" data-tour="barra">
-  <div id="anexoChip" hidden><div id="anexoLista" role="list" aria-label="Anexos desta mensagem"></div><div id="anexoInfo" aria-live="polite"></div></div>
-  <div id="avisoAdmin" hidden>Comandos como <code>/compact</code> e <code>/clear</code> funcionam aqui.</div>
+  <div id="anexoChip" hidden><div id="anexoLista" role="list" aria-label="Anexos desta mensagem" data-dg-i18n-aria-label="09c5a609766f"></div><div id="anexoInfo" aria-live="polite"></div></div>
+  <div id="avisoAdmin" hidden><!--dg-i18n:5b49044c828a-->Comandos como<!--/dg-i18n--> <code>/compact</code> e <code>/clear</code> <!--dg-i18n:0a1673ecb288-->funcionam aqui.<!--/dg-i18n--></div>
   <div class="linha1">
     <button id="btnAnexo" aria-label="Anexar fotos, vídeos, áudios ou PDFs"
-            title="Anexar fotos, vídeos, áudios ou PDFs (vários de uma vez)" data-tour="anexo"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-paperclip"/></svg></button>
+            title="Anexar fotos, vídeos, áudios ou PDFs (vários de uma vez)" data-tour="anexo" data-dg-i18n-aria-label="fb22564aba15" data-dg-i18n-title="90822c49d5d6"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-paperclip"/></svg></button>
     <input type="file" id="arquivo" multiple>
     <div class="campo" data-tour="campo"><textarea id="entrada" rows="1" placeholder="Escrever mensagem"
-              autocomplete="off" enterkeyhint="send"></textarea><span id="micTxt" aria-live="polite"></span></div>
-    <button id="btnMic" aria-label="Gravar áudio" data-tour="mic"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-mic"/></svg></button>
-    <button id="btnEnviar" aria-label="Enviar"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-send"/></svg></button>
+              autocomplete="off" enterkeyhint="send" data-dg-i18n-placeholder="dc6d5acae43e"></textarea><span id="micTxt" aria-live="polite"></span></div>
+    <button id="btnMic" aria-label="Gravar áudio" data-tour="mic" data-dg-i18n-aria-label="352965f9ddd9"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-mic"/></svg></button>
+    <button id="btnEnviar" aria-label="Enviar" data-dg-i18n-aria-label="e1d12d1a29a7"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-send"/></svg></button>
   </div>
   <!-- celular: fileira das agentes no lugar do respiro em branco do rodapé; o conversa.js preenche -->
-  <nav id="trocaBaixo" class="troca-baixo" aria-label="Trocar de agente" data-tour="troca-baixo"></nav>
+  <nav id="trocaBaixo" class="troca-baixo" aria-label="Trocar de agente" data-tour="troca-baixo" data-dg-i18n-aria-label="94e50cf6b314"></nav>
 </div>
 
 <audio id="player" preload="auto" playsinline></audio>
 
-<div id="lightbox" aria-label="Arquivo em tamanho cheio">
+<div id="lightbox" aria-label="Arquivo em tamanho cheio" data-dg-i18n-aria-label="784ba5088a2b">
   <div class="lbtopo">
     <span class="lbnome" id="lbNome"></span>
-    <a id="lbBaixar" href="#" download>baixar</a>
-    <button id="lbFechar" aria-label="Fechar"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-x"/></svg></button>
+    <a id="lbBaixar" href="#" download><!--dg-i18n:8b0ded274a36-->baixar<!--/dg-i18n--></a>
+    <button id="lbFechar" aria-label="Fechar" data-dg-i18n-aria-label="0f2bd88ef0ac"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-x"/></svg></button>
   </div>
   <div class="lbcorpo" id="lbCorpo"></div>
 </div>
 
-<section id="acervoPainel" aria-label="Mídias, links e arquivos" hidden>
-  <header><b>Compartilhados</b><button id="acervoAjuda" title="Tutorial dos compartilhados" aria-label="Tutorial dos compartilhados">?</button><button id="acervoFechar" aria-label="Fechar compartilhados"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-x"/></svg></button></header>
-  <nav role="tablist" aria-label="Tipo de item"><button data-aba="midias" role="tab" aria-selected="true">Mídias</button><button data-aba="links" role="tab" aria-selected="false">Links</button><button data-aba="docs" role="tab" aria-selected="false">Arquivos</button></nav>
+<section id="acervoPainel" aria-label="Mídias, links e arquivos" hidden data-dg-i18n-aria-label="1309a602f543">
+  <header><b><!--dg-i18n:0493c802d555-->Compartilhados<!--/dg-i18n--></b><button id="acervoAjuda" title="Tutorial dos compartilhados" aria-label="Tutorial dos compartilhados" data-dg-i18n-title="71090996a64d" data-dg-i18n-aria-label="71090996a64d">?</button><button id="acervoFechar" aria-label="Fechar compartilhados" data-dg-i18n-aria-label="29f51a2ae5eb"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-x"/></svg></button></header>
+  <nav role="tablist" aria-label="Tipo de item" data-dg-i18n-aria-label="eef9ba224ea4"><button data-aba="midias" role="tab" aria-selected="true"><!--dg-i18n:18e0b11a5b29-->Mídias<!--/dg-i18n--></button><button data-aba="links" role="tab" aria-selected="false">Links</button><button data-aba="docs" role="tab" aria-selected="false"><!--dg-i18n:c11445cb4fe1-->Arquivos<!--/dg-i18n--></button></nav>
   <p id="acervoEstado" role="status"></p><div id="acervoLista" data-tour="acervo"></div>
 </section>
 <script src="/midias-cache.js"></script>

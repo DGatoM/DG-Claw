@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 /**
  * tela.js: a aba Tela do painel. O dono abre, de dentro do painel, o navegador do agente
  * (Chrome num Xvfb, visto por x11vnc + noVNC) para fazer login nos sistemas que o agente
@@ -50,7 +51,7 @@ function lerHostPorta(texto, variavel) {
   const limpo = String(texto).trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
   const m = /^([A-Za-z0-9.\-_]+|\[[0-9a-fA-F:]+\]):(\d{1,5})$/.exec(limpo);
   if (!m || Number(m[2]) < 1 || Number(m[2]) > 65535) {
-    return { erro: `${variavel} vale "${texto}", e eu esperava host:porta (por exemplo ${variavel === 'DGCLAW_TELA_CDP' ? PADRAO_CDP : PADRAO_NOVNC}).` };
+    return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("{p0} vale \"{p1}\", e eu esperava host:porta (por exemplo {p2}).", {p0:(variavel),p1:(texto),p2:(variavel === 'DGCLAW_TELA_CDP' ? PADRAO_CDP : PADRAO_NOVNC)}) });
   }
   return { host: m[1].replace(/^\[|\]$/g, ''), port: Number(m[2]) };
 }
@@ -109,46 +110,46 @@ function sondarTcp(destino) {
 function montarProblemas(e) {
   const p = [];
   if (!e.instalada && !e.unidades) {
-    p.push({
+    p.push(dgIdiomaBackend.objeto({
       codigo: 'sem-navegador', nivel: 'erro',
       texto: 'Este agente foi criado com uma imagem sem a Tela, então ele não tem navegador para você abrir.',
       como_resolver: 'Peça ao Admin para reconstruir a imagem com navegador e recriar este agente (dgclaw imagem construir --agora e depois dgclaw agente recriar <nome do agente>). A casa e as conversas dele não são tocadas.',
-    });
+    }));
     return p;
   }
   if (!e.instalada) {
-    p.push({
+    p.push(dgIdiomaBackend.objeto({
       codigo: 'websockify-parado', nivel: 'erro',
       texto: 'O serviço que leva a tela até o painel (noVNC/websockify) não está respondendo.',
       como_resolver: 'Peça ao Admin para conferir com "dgclaw agente tela <nome do agente>" e reiniciar o serviço dgclaw-tela-web. Se acabou de recriar o agente, espere um minuto e atualize esta página.',
-    });
+    }));
   }
   if (e.senha === false) {
-    p.push({
+    p.push(dgIdiomaBackend.objeto({
       codigo: 'senha-nao-definida', nivel: 'erro',
       texto: 'A senha da tela ainda não foi definida. Sem ela o navegador do agente não abre para você.',
-      como_resolver: 'Defina a senha no formulário "Defina a senha da tela" desta página (de 6 a 8 caracteres). Ela vale na hora.',
-    });
+      como_resolver: dgIdiomaBackend.descricao("Defina a senha no formulário \"Defina a senha da tela\" desta página (de 6 a 8 caracteres). Ela vale na hora."),
+    }));
   } else if (e.senha === true && e.vnc === false) {
-    p.push({
+    p.push(dgIdiomaBackend.objeto({
       codigo: 'vnc-parado', nivel: 'erro',
       texto: 'A senha da tela existe, mas o programa que mostra a tela (x11vnc) está parado.',
       como_resolver: 'Espere uns 10 segundos e atualize: ele religa sozinho depois de uma troca de senha. Se continuar assim, peça ao Admin para rodar "dgclaw agente tela <nome do agente>".',
-    });
+    }));
   }
   if (e.cdp === false) {
-    p.push({
+    p.push(dgIdiomaBackend.objeto({
       codigo: 'cdp-parado', nivel: 'erro',
       texto: 'O navegador do agente não está respondendo, então o agente não consegue usá-lo.',
       como_resolver: 'Peça ao Admin para rodar "dgclaw agente tela <nome do agente>" e reiniciar o serviço dgclaw-tela-chrome.',
-    });
+    }));
   }
   if (e.chromeExiste === false) {
-    p.push({
+    p.push(dgIdiomaBackend.objeto({
       codigo: 'navegador-alternativo', nivel: 'aviso',
       texto: 'Este servidor não é amd64, onde existe o Google Chrome. A tela usa o Chromium, que funciona igual para você, mas alguns sites com proteção contra robôs podem tratá-lo de outro jeito.',
-      como_resolver: 'Nada a fazer. Se um site recusar o login, tente de novo pela tela e avise o agente.',
-    });
+      como_resolver: dgIdiomaBackend.descricao("Nada a fazer. Se um site recusar o login, tente de novo pela tela e avise o agente."),
+    }));
   }
   return p;
 }
@@ -218,43 +219,43 @@ function registrar(router, o) {
       });
     } catch (err) {
       log(`[painel] Tela: GET /api/tela quebrou: ${err.stack || err.message}`);
-      res.status(500).json({ error: `Não consegui montar o status da tela: ${err.message}`, howToFix: 'Veja o registro do painel e tente de novo.' });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui montar o status da tela: {p0}", {p0: (dgIdiomaBackend.campo(err, "message"))}), howToFix: dgIdiomaBackend.texto("Veja o registro do painel e tente de novo.") }));
     }
   });
 
   const limiteSenha = rateLimit({
     windowMs: 60000, max: 10, standardHeaders: true, legacyHeaders: false,
-    handler: (req, res) => res.status(429).json({
-      error: 'Muitas trocas de senha da tela em pouco tempo.',
-      howToFix: 'Espere um minuto e tente de novo.',
-    }),
+    handler: (req, res) => res.status(429).json(dgIdiomaBackend.objeto({
+      error: dgIdiomaBackend.descricao("Muitas trocas de senha da tela em pouco tempo."),
+      howToFix: dgIdiomaBackend.texto("Espere um minuto e tente de novo."),
+    })),
   });
 
   router.put('/api/tela/senha', limiteSenha, (req, res) => {
     if (req.dgclawAuth && req.dgclawAuth.tipo === 'chave-api') {
-      return res.status(403).json({
-        error: 'Uma chave de API não pode trocar a senha da tela.',
-        howToFix: 'Troque pela aba Tela do painel, entrando com a senha, ou pela máquina com "node panel/bin/tela-senha.js".',
-      });
+      return res.status(403).json(dgIdiomaBackend.objeto({
+        error: dgIdiomaBackend.descricao("Uma chave de API não pode trocar a senha da tela."),
+        howToFix: dgIdiomaBackend.texto("Troque pela aba Tela do painel, entrando com a senha, ou pela máquina com \"node panel/bin/tela-senha.js\"."),
+      }));
     }
     const senha = (req.body || {}).senha;
     const v = validarSenha(senha);
-    if (!v.ok) return res.status(400).json({ error: v.erro, howToFix: v.howToFix });
+    if (!v.ok) return res.status(400).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.campo(v, "erro"), howToFix: dgIdiomaBackend.campo(v, "howToFix") }));
     try {
       gravarRfbauth(arquivoSenha, senha);
     } catch (err) {
       log(`[painel] Tela: a troca de senha de ${o.quemFez(req)} falhou: ${err.message}`);
-      return res.status(500).json({ error: err.message, howToFix: 'Peça a quem instalou o agente para conferir a pasta da senha da tela e as permissões dela.' });
+      return res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.campo(err, "message"), howToFix: dgIdiomaBackend.texto("Peça a quem instalou o agente para conferir a pasta da senha da tela e as permissões dela.") }));
     }
     log(`[painel] Tela: a senha da tela foi trocada por ${o.quemFez(req)}.`);
-    return res.json({ ok: true, aviso: 'quem estava vendo a tela foi desconectado' });
+    return res.json(dgIdiomaBackend.objeto({ ok: true, aviso: dgIdiomaBackend.descricao("quem estava vendo a tela foi desconectado") }));
   });
 
   // ─── Os arquivos do noVNC (proxy HTTP) ─────────────────────────────────────
 
   router.get('/tela/novnc/*', (req, res) => {
     if (novnc.erro) {
-      return res.status(503).type('text/plain; charset=utf-8').send(`A tela não está configurada: ${novnc.erro}`);
+      return res.status(503).type('text/plain; charset=utf-8').send(dgIdiomaBackend.texto("A tela não está configurada: {p0}", {p0: (dgIdiomaBackend.campo(novnc, "erro"))}));
     }
     const bruto = req.url.slice('/tela/novnc'.length) || '/';
     // Sobe nenhum diretório: o websockify serve uma pasta, e ".." (inclusive codificado)
@@ -262,7 +263,7 @@ function registrar(router, o) {
     let decodificado;
     try { decodificado = decodeURIComponent(bruto.split('?')[0]); } catch { decodificado = '..'; }
     if (decodificado.split(/[\\/]/).includes('..') || decodificado.includes('\0')) {
-      return res.status(400).type('text/plain; charset=utf-8').send('Caminho inválido para a tela.');
+      return res.status(400).type('text/plain; charset=utf-8').send(dgIdiomaBackend.texto("Caminho inválido para a tela."));
     }
     const preq = http.request({
       host: novnc.host, port: novnc.port, path: bruto, method: 'GET', timeout: 10000,
@@ -276,12 +277,12 @@ function registrar(router, o) {
       pres.pipe(res);
       pres.on('error', () => res.destroy());
     });
-    preq.on('timeout', () => preq.destroy(new Error('demorou mais de 10 s')));
+    preq.on('timeout', () => preq.destroy(dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("demorou mais de 10 s")])));
     preq.on('error', (err) => {
       log(`[painel] Tela: não consegui buscar ${decodificado.slice(0, 100)} em ${novnc.host}:${novnc.port} (${err.code || err.message}).`);
       if (res.headersSent) { res.destroy(); return; }
       res.status(502).type('text/plain; charset=utf-8')
-        .send('A tela não respondeu. Este agente ainda não tem tela ligada, ou ela caiu. Peça a quem instalou para conferir o serviço da tela.');
+        .send(dgIdiomaBackend.texto("A tela não respondeu. Este agente ainda não tem tela ligada, ou ela caiu. Peça a quem instalou para conferir o serviço da tela."));
     });
     res.on('close', () => { if (!res.writableEnded) preq.destroy(); });
     return preq.end();
@@ -331,7 +332,7 @@ function registrar(router, o) {
 
     const destino = net.connect({ host: novnc.host, port: novnc.port });
     let conectou = false;
-    const prazo = setTimeout(() => destino.destroy(new Error('sem resposta em 5 s')), CONEXAO_MS);
+    const prazo = setTimeout(() => destino.destroy(dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("sem resposta em 5 s")])), CONEXAO_MS);
     destino.on('connect', () => {
       conectou = true;
       clearTimeout(prazo);

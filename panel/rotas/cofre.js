@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 // Cofre do agente e chaves de API do painel.
 
 module.exports = function registrar(router, ctx) {
@@ -16,8 +17,8 @@ module.exports = function registrar(router, ctx) {
 
   function responderCofre(res, r) {
     if (r && r.erro) {
-      const corpo = { error: r.erro };
-      if (r.howToFix) corpo.howToFix = r.howToFix;
+      const corpo = dgIdiomaBackend.objeto({ error: dgIdiomaBackend.campo(r, "erro") });
+      if (r.howToFix) dgIdiomaBackend.definir(corpo, "howToFix", dgIdiomaBackend.campo(r, "howToFix"));
       return res.status(r.status || 500).json(corpo);
     }
     res.json(r);
@@ -27,7 +28,7 @@ module.exports = function registrar(router, ctx) {
     try {
       res.json(cofre.estado());
     } catch (e) {
-      res.status(500).json({ error: `Não consegui abrir o cofre: ${e.message}` });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui abrir o cofre: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }));
     }
   });
 
@@ -51,18 +52,18 @@ module.exports = function registrar(router, ctx) {
       // para que quem só olha o status não ache que deu tudo certo.
       const aplicado = cofre.aplicar();
       if (aplicado && aplicado.erro) {
-        return res.status(aplicado.status || 500).json({
-          error: `A chave foi guardada. ${aplicado.erro}`,
-          howToFix: aplicado.howToFix || 'Guardar já foi feito; falta só reiniciar o agente (aba Cofre, "aplicar e reiniciar").',
+        return res.status(aplicado.status || 500).json(dgIdiomaBackend.objeto({
+          error: dgIdiomaBackend.descricao("A chave foi guardada. {p0}", {p0:(dgIdiomaBackend.campo(aplicado, "erro"))}),
+          howToFix: dgIdiomaBackend.campo(aplicado, "howToFix") || 'Guardar já foi feito; falta só reiniciar o agente (aba Cofre, "aplicar e reiniciar").',
           guardado,
-          aplicado: { ok: false, erro: aplicado.erro },
-        });
+          aplicado: dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.campo(aplicado, "erro") }),
+        }));
       }
-      res.json({ ...guardado, aplicado });
+      res.json(dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(guardado), aplicado }));
     } catch (e) {
       // A mensagem de exceção NÃO leva o corpo do pedido junto, e é por isso que
       // este catch não faz `JSON.stringify(req.body)`: o valor da chave está lá.
-      res.status(500).json({ error: `Não consegui guardar a chave: ${e.message}` });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui guardar a chave: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }));
     }
   });
 
@@ -70,7 +71,7 @@ module.exports = function registrar(router, ctx) {
     try {
       responderCofre(res, cofre.revogar(req.query.envName || '', CONFIG.creatorName || 'Dono'));
     } catch (e) {
-      res.status(500).json({ error: `Não consegui revogar a chave: ${e.message}` });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui revogar a chave: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }));
     }
   });
 
@@ -82,14 +83,14 @@ module.exports = function registrar(router, ctx) {
     try {
       const r = cofre.aplicar();
       if (r && r.erro) {
-        const corpo = { error: r.erro };
-        if (r.howToFix) corpo.howToFix = r.howToFix;
+        const corpo = dgIdiomaBackend.objeto({ error: dgIdiomaBackend.campo(r, "erro") });
+        if (r.howToFix) dgIdiomaBackend.definir(corpo, "howToFix", dgIdiomaBackend.campo(r, "howToFix"));
         if (r.materializou) corpo.materializou = true;
         return res.status(r.status || 500).json(corpo);
       }
       res.json(r);
     } catch (e) {
-      res.status(500).json({ error: `Não consegui aplicar o cofre: ${e.message}` });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui aplicar o cofre: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }));
     }
   });
 
@@ -101,10 +102,10 @@ module.exports = function registrar(router, ctx) {
 
   function soHumano(req, res, next) {
     if (req.dgclawAuth && req.dgclawAuth.tipo === 'chave-api') {
-      return res.status(403).json({
-        error: 'Uma chave de API não pode criar, listar nem revogar chaves de API.',
-        howToFix: 'Faça isto pela aba Cofre do painel (entrando com a senha).',
-      });
+      return res.status(403).json(dgIdiomaBackend.objeto({
+        error: dgIdiomaBackend.descricao("Uma chave de API não pode criar, listar nem revogar chaves de API."),
+        howToFix: dgIdiomaBackend.texto("Faça isto pela aba Cofre do painel (entrando com a senha)."),
+      }));
     }
     next();
   }
@@ -113,7 +114,7 @@ module.exports = function registrar(router, ctx) {
     try {
       res.json({ chaves: chavesApi.listar() });
     } catch (e) {
-      res.status(500).json({ error: `Não consegui listar as chaves de API: ${e.message}` });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui listar as chaves de API: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }));
     }
   });
 
@@ -122,7 +123,7 @@ module.exports = function registrar(router, ctx) {
       const r = chavesApi.criar({ nome: (req.body || {}).nome, quem: quemFez(req) });
       responderCofre(res, r);
     } catch (e) {
-      res.status(500).json({ error: `Não consegui criar a chave de API: ${e.message}` });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui criar a chave de API: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }));
     }
   });
 
@@ -130,7 +131,7 @@ module.exports = function registrar(router, ctx) {
     try {
       responderCofre(res, chavesApi.revogar(req.query.id || '', quemFez(req)));
     } catch (e) {
-      res.status(500).json({ error: `Não consegui revogar a chave de API: ${e.message}` });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui revogar a chave de API: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }));
     }
   });
 };

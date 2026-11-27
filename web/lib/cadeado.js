@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Cadeado com Face ID (WebAuthn): opcional, ligado pela pessoa, por aparelho. Referência: web/docs/CADEADO.md.
 //
 // Como funciona, em curto:
@@ -112,9 +113,9 @@ function criarCadeado({ config, log, agora, sessoesDoCadeado, gravaSessoes, ence
     if (texto !== null) {
       try {
         const d = JSON.parse(texto);
-        if (!d || typeof d !== 'object' || !Array.isArray(d.passkeys)) throw new Error('o arquivo não tem a lista "passkeys"');
+        if (!d || typeof d !== 'object' || !Array.isArray(d.passkeys)) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o arquivo não tem a lista \"passkeys\"")]);
         const ruim = d.passkeys.findIndex((p) => !registroValido(p));
-        if (ruim >= 0) throw new Error(`a passkey número ${ruim + 1} está incompleta ou fora do formato`);
+        if (ruim >= 0) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("a passkey número {p0} está incompleta ou fora do formato", {p0: (ruim + 1)})]);
         // Uma passkey pode ter vários aparelhos (iCloud sincroniza a mesma para o iPhone e o Mac). O campo antigo
         // aparelho_hash vira o primeiro item da lista, sem perder ninguém.
         for (const p of d.passkeys) { if (!Array.isArray(p.aparelhos)) p.aparelhos = [p.aparelho_hash]; delete p.aparelho_hash; }
@@ -242,7 +243,7 @@ function criarCadeado({ config, log, agora, sessoesDoCadeado, gravaSessoes, ence
       if (!manter) return null;
     }
     const e = estadoDe(k, titular) || { uso: 0, destravada_em: 0, vence: 0, como: 'vinculo', titular };
-    Object.assign(e, { exige: true, aparelho_hash: apHash, auth: authHash, expira });
+    dgIdiomaBackend.atribuir(e, { exige: true, aparelho_hash: apHash, auth: authHash, expira });
     estados.set(k, e);
     return e;
   }
@@ -259,7 +260,7 @@ function criarCadeado({ config, log, agora, sessoesDoCadeado, gravaSessoes, ence
       const marca = authHash && lerMarca ? lerMarca(authHash) : null;
       if (marca) {
         // O auth diz que esta sessão exige o cadeado mas o estado se perdeu: sem registro não há prova de uso recente, então trava.
-        e = Object.assign(e || { uso: 0, destravada_em: 0, vence: 0, como: 'marca', titular }, { exige: true, aparelho_hash: marca.aparelho_hash, auth: authHash, expira: sessao.expira });
+        e = dgIdiomaBackend.atribuir(e || { uso: 0, destravada_em: 0, vence: 0, como: 'marca', titular }, { exige: true, aparelho_hash: marca.aparelho_hash, auth: authHash, expira: sessao.expira });
         estados.set(k, e);
         salvaEstado();
       } else {
@@ -299,7 +300,7 @@ function criarCadeado({ config, log, agora, sessoesDoCadeado, gravaSessoes, ence
     if (prender && !prende(k, titular, prender.apHash, prender.authHash, prender.expira, prender.manter)) return false;
     const t = relogio();
     const e = estadoDe(k, titular) || {};
-    Object.assign(e, { uso: t, destravada_em: t, como, titular, vence: t + travaMin(titular) * 60000 });
+    dgIdiomaBackend.atribuir(e, { uso: t, destravada_em: t, como, titular, vence: t + travaMin(titular) * 60000 });
     estados.set(k, e);
     salvaEstado();
     return true;
@@ -348,15 +349,15 @@ function criarCadeado({ config, log, agora, sessoesDoCadeado, gravaSessoes, ence
   function ambiente(req) {
     let u;
     try { u = new URL(H.origemPropria(req, config.proxiesConfiaveis)); } catch (_) {
-      return { erro: 'Não consegui entender o endereço pelo qual você abriu o DG Claw, então não sei para qual endereço criar a passkey.' };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui entender o endereço pelo qual você abriu o DG Claw, então não sei para qual endereço criar a passkey.") });
     }
     const host = u.hostname;
     const local = host === 'localhost' || host.endsWith('.localhost');
     if (u.protocol !== 'https:' && !(u.protocol === 'http:' && local)) {
-      return { erro: `O navegador só libera o Face ID em endereço com HTTPS, e você abriu o DG Claw por ${u.origin}. Abra pelo endereço com https:// (peça ao Admin para conferir o certificado) e tente de novo.` };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O navegador só libera o Face ID em endereço com HTTPS, e você abriu o DG Claw por {p0}. Abra pelo endereço com https:// (peça ao Admin para conferir o certificado) e tente de novo.", {p0: (u.origin)}) });
     }
     if (net.isIP(host.replace(/^\[|\]$/g, ''))) {
-      return { erro: `O navegador não aceita Face ID em endereço de IP (${host}). Use o endereço com nome do painel (por exemplo o de HTTPS que o instalador mostrou).` };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O navegador não aceita Face ID em endereço de IP ({p0}). Use o endereço com nome do painel (por exemplo o de HTTPS que o instalador mostrou).", {p0: (host)}) });
     }
     return { origem: u.origin, rpId: host, https: u.protocol === 'https:' };
   }
@@ -615,11 +616,11 @@ function criarCadeado({ config, log, agora, sessoesDoCadeado, gravaSessoes, ence
     const amb = ambiente(req);
     const ativo = ligado(req, sessao);
     const ap = aparelhoDe(req);
-    return {
+    return dgIdiomaBackend.objeto({
       ok: true, ativo, travado: travada(req, sessao), trava_min: travaMin(titular), resta_s: restaS(req, sessao),
       passkeys: passkeysDe(titular).length, neste_aparelho: !!ap && passkeysDe(titular).some((p) => p.aparelhos.includes(ap.hash)),
       host: amb.rpId || null, https: amb.erro ? null : amb.https, ambiente_erro: amb.erro || null, aviso: falhaCarga,
-    };
+    });
   }
   function cookieAparelho(valor, req) {
     let c = `${COOKIE_APARELHO}=${valor}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${COOKIE_APARELHO_S}`;
@@ -627,13 +628,13 @@ function criarCadeado({ config, log, agora, sessoesDoCadeado, gravaSessoes, ence
     return c;
   }
   async function corpoJson(req, res, max) {
-    try { return await H.lerJson(req, max); } catch (e) { H.erroJson(res, e.status || 400, e.message); return null; }
+    try { return await H.lerJson(req, max); } catch (e) { H.erroJson(res, e.status || 400, dgIdiomaBackend.campo(e, "message")); return null; }
   }
   function falhou(res, e, k, ip, etapa) {
     if (!(e instanceof WebAuthnErro)) throw e;
     if (e.status < 500 && !['arquivo', 'travado', 'sessao'].includes(e.motivo)) registraFalha(k, ip);
     log('aviso', `Cadeado: ${etapa} recusado (${e.motivo}): ${e.message}`);
-    return H.erroJson(res, e.status, e.message, e.recebido === undefined ? { motivo: e.motivo } : { motivo: e.motivo, recebido: e.recebido });
+    return H.erroJson(res, e.status, dgIdiomaBackend.campo(e, "message"), e.recebido === undefined ? dgIdiomaBackend.objeto({ motivo: dgIdiomaBackend.campo(e, "motivo") }) : dgIdiomaBackend.objeto({ motivo: dgIdiomaBackend.campo(e, "motivo"), recebido: e.recebido }));
   }
 
   function docs(res) {
@@ -643,7 +644,7 @@ function criarCadeado({ config, log, agora, sessoesDoCadeado, gravaSessoes, ence
       res.end(texto);
     } catch (e) {
       log('erro', `Cadeado: não consegui ler docs/CADEADO.md (${e.code || e.message}).`);
-      H.erroJson(res, 500, 'O documento do Face ID não foi encontrado no servidor. Reinstale o DG Claw Web.');
+      H.erroJson(res, 500, dgIdiomaBackend.descricao("O documento do Face ID não foi encontrado no servidor. Reinstale o DG Claw Web."));
     }
   }
 
@@ -653,14 +654,14 @@ function criarCadeado({ config, log, agora, sessoesDoCadeado, gravaSessoes, ence
     if (p !== BASE && !p.startsWith(`${BASE}/`)) return false;
     const m = req.method;
     const sub = p.slice(BASE.length).replace(/\/+$/, '');
-    const metodo = (usar) => H.erroJson(res, 405, `Use ${usar} em ${p}.`);
+    const metodo = (usar) => H.erroJson(res, 405, dgIdiomaBackend.descricao("Use {p0} em {p1}.", {p0: (usar), p1: (p)}));
     const titular = titularDe(sessao);
-    if (!titular) { H.erroJson(res, 403, 'O Face ID é da sessão de quem entrou pelo painel; a caixa dos agentes não o usa.'); return true; }
-    if (sessao.trocar_senha) { H.erroJson(res, 403, 'Troque a senha temporária antes de ativar o Face ID.', { trocar_senha: true }); return true; }
+    if (!titular) { H.erroJson(res, 403, dgIdiomaBackend.descricao("O Face ID é da sessão de quem entrou pelo painel; a caixa dos agentes não o usa.")); return true; }
+    if (sessao.trocar_senha) { H.erroJson(res, 403, dgIdiomaBackend.descricao("Troque a senha temporária antes de ativar o Face ID."), { trocar_senha: true }); return true; }
     if (sub === '/docs.md') { if (m === 'GET') docs(res); else metodo('GET'); return true; }
 
     const k = chaveSessao(req);
-    if (!k) { H.erroJson(res, 401, 'Sem sessão de login válida. Entre em /login.'); return true; }
+    if (!k) { H.erroJson(res, 401, dgIdiomaBackend.descricao("Sem sessão de login válida. Entre em /login.")); return true; }
     const ip = H.ipDoPedido(req, config.proxiesConfiaveis);
     const livreTravada = (sub === '/estado' && m === 'GET') || (sub === '/verificar/opcoes' && m === 'GET') || (sub === '/verificar' && m === 'POST');
     if (!livreTravada && travada(req, sessao)) { H.erroJson(res, 423, MSG_TRAVADO, { travado: true }); return true; }
@@ -696,14 +697,14 @@ function criarCadeado({ config, log, agora, sessoesDoCadeado, gravaSessoes, ence
       if (sub === '/cadastro') {
         if (m !== 'POST') { metodo('POST'); return true; }
         const b = espera(k, ip);
-        if (b) { H.erroJson(res, 429, `Muitas tentativas recusadas. Tente de novo em ${Math.ceil(b / 60)} min.`, { retryAfter: b }, { 'Retry-After': String(b) }); return true; }
+        if (b) { H.erroJson(res, 429, dgIdiomaBackend.descricao("Muitas tentativas recusadas. Tente de novo em {p0} min.", {p0: (Math.ceil(b / 60))}), { retryAfter: b }, { 'Retry-After': String(b) }); return true; }
         const corpo = await corpoJson(req, res, 96 * 1024);
         if (!corpo) return true;
         try {
           confereSessao(req, sessao);
           const r = await cadastra(req, sessao, titular, k, corpo);
           // O cookie novo só chega ao navegador com esta resposta; o estado devolvido já o considera.
-          const reqNovo = Object.assign(Object.create(req), { headers: Object.assign({}, req.headers, { cookie: `${COOKIE_APARELHO}=${r.cookie}; ${req.headers.cookie || ''}` }) });
+          const reqNovo = dgIdiomaBackend.atribuir(Object.create(req), { headers: dgIdiomaBackend.atribuir({}, req.headers, { cookie: `${COOKIE_APARELHO}=${r.cookie}; ${req.headers.cookie || ''}` }) });
           H.enviaJson(res, 201, { ok: true, passkey: r.passkey, estado: estadoPublico(reqNovo, sessao) }, { 'Set-Cookie': cookieAparelho(r.cookie, req) });
         } catch (e) { falhou(res, e, k, ip, 'cadastro'); }
         return true;
@@ -716,14 +717,14 @@ function criarCadeado({ config, log, agora, sessoesDoCadeado, gravaSessoes, ence
       if (sub === '/aparelho') {
         if (m !== 'POST') { metodo('POST'); return true; }
         const b = espera(k, ip);
-        if (b) { H.erroJson(res, 429, `Muitas tentativas recusadas. Tente de novo em ${Math.ceil(b / 60)} min.`, { retryAfter: b }, { 'Retry-After': String(b) }); return true; }
+        if (b) { H.erroJson(res, 429, dgIdiomaBackend.descricao("Muitas tentativas recusadas. Tente de novo em {p0} min.", {p0: (Math.ceil(b / 60))}), { retryAfter: b }, { 'Retry-After': String(b) }); return true; }
         const corpo = await corpoJson(req, res, 96 * 1024);
         if (!corpo) return true;
         try {
           confereSessao(req, sessao);
           const r = await verifica(req, sessao, titular, k, corpo, 'aparelho');
           falhas.delete(`s:${k}`);
-          const reqNovo = Object.assign(Object.create(req), { headers: Object.assign({}, req.headers, { cookie: `${COOKIE_APARELHO}=${r.cookie}; ${req.headers.cookie || ''}` }) });
+          const reqNovo = dgIdiomaBackend.atribuir(Object.create(req), { headers: dgIdiomaBackend.atribuir({}, req.headers, { cookie: `${COOKIE_APARELHO}=${r.cookie}; ${req.headers.cookie || ''}` }) });
           H.enviaJson(res, 200, { ok: true, passkey: r.passkey, estado: estadoPublico(reqNovo, sessao) }, { 'Set-Cookie': cookieAparelho(r.cookie, req) });
         } catch (e) { falhou(res, e, k, ip, 'ligar aparelho'); }
         return true;
@@ -736,7 +737,7 @@ function criarCadeado({ config, log, agora, sessoesDoCadeado, gravaSessoes, ence
       if (sub === '/verificar') {
         if (m !== 'POST') { metodo('POST'); return true; }
         const b = espera(k, ip);
-        if (b) { H.erroJson(res, 429, `Muitas tentativas recusadas. Tente de novo em ${Math.ceil(b / 60)} min, ou entre com a senha.`, { retryAfter: b }, { 'Retry-After': String(b) }); return true; }
+        if (b) { H.erroJson(res, 429, dgIdiomaBackend.descricao("Muitas tentativas recusadas. Tente de novo em {p0} min, ou entre com a senha.", {p0: (Math.ceil(b / 60))}), { retryAfter: b }, { 'Retry-After': String(b) }); return true; }
         const corpo = await corpoJson(req, res, 96 * 1024);
         if (!corpo) return true;
         try {
@@ -767,10 +768,10 @@ function criarCadeado({ config, log, agora, sessoesDoCadeado, gravaSessoes, ence
           const corpo = await corpoJson(req, res, 4 * 1024);
           if (!corpo) return true;
           const nome = limpaNome(corpo.nome);
-          if (!nome) { H.erroJson(res, 400, 'Mande o nome novo em JSON: {"nome": "iPhone da Maria"}.'); return true; }
-          if (nome.length > NOME_MAX) { H.erroJson(res, 400, `O nome passou de ${NOME_MAX} caracteres.`, { recebido: nome.length }); return true; }
+          if (!nome) { H.erroJson(res, 400, dgIdiomaBackend.descricao("Mande o nome novo em JSON: {\"nome\": \"iPhone da Maria\"}.")); return true; }
+          if (nome.length > NOME_MAX) { H.erroJson(res, 400, dgIdiomaBackend.descricao("O nome passou de {p0} caracteres.", {p0: (NOME_MAX)}), { recebido: nome.length }); return true; }
           confereSessao(req, sessao);
-          const novo = await altera((c) => { confereSessao(req, sessao); const alvo = c.passkeys.find((x) => x.id === id && x.titular === titular); if (!alvo) throw sumiu(); alvo.nome = nome; return { ...alvo }; });
+          const novo = await altera((c) => { confereSessao(req, sessao); const alvo = c.passkeys.find((x) => x.id === id && x.titular === titular); if (!alvo) throw sumiu(); alvo.nome = nome; return dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(alvo) }); });
           H.enviaJson(res, 200, { ok: true, passkey: publica(novo, aparelhoDe(req)) });
           return true;
         }
@@ -812,11 +813,11 @@ function criarCadeado({ config, log, agora, sessoesDoCadeado, gravaSessoes, ence
         if (!corpo) return true;
         const v = corpo.trava_min;
         if (typeof v !== 'number' || !Number.isInteger(v) || v < TRAVA_LIMITES[0] || v > TRAVA_LIMITES[1]) {
-          H.erroJson(res, 400, `"trava_min" precisa ser um número inteiro de minutos entre ${TRAVA_LIMITES[0]} e ${TRAVA_LIMITES[1]}.`, { recebido: typeof v === 'number' ? v : typeof v });
+          H.erroJson(res, 400, dgIdiomaBackend.descricao("\"trava_min\" precisa ser um número inteiro de minutos entre {p0} e {p1}.", {p0: (TRAVA_LIMITES[0]), p1: (TRAVA_LIMITES[1])}), { recebido: typeof v === 'number' ? v : typeof v });
           return true;
         }
         confereSessao(req, sessao);
-        await altera((c) => { confereSessao(req, sessao); c.ajustes[titular] = Object.assign({}, c.ajustes[titular], { trava_min: v }); });
+        await altera((c) => { confereSessao(req, sessao); c.ajustes[titular] = dgIdiomaBackend.atribuir({}, c.ajustes[titular], { trava_min: v }); });
         // Mudar o tempo vale a partir do próximo uso de cada sessão (ninguém é destravado por isso); quem muda está usando.
         const eu = estadoDe(k, titular);
         if (eu && eu.exige && !travada(req, sessao)) { eu.uso = relogio(); eu.vence = eu.uso + v * 60000; salvaEstado(); }
@@ -825,10 +826,10 @@ function criarCadeado({ config, log, agora, sessoesDoCadeado, gravaSessoes, ence
         return true;
       }
     } catch (e) {
-      if (e instanceof WebAuthnErro) { H.erroJson(res, e.status, e.message, e.status === 423 ? { motivo: e.motivo, travado: true } : { motivo: e.motivo }); return true; }
+      if (e instanceof WebAuthnErro) { H.erroJson(res, e.status, dgIdiomaBackend.campo(e, "message"), e.status === 423 ? dgIdiomaBackend.objeto({ motivo: dgIdiomaBackend.campo(e, "motivo"), travado: true }) : dgIdiomaBackend.objeto({ motivo: dgIdiomaBackend.campo(e, "motivo") })); return true; }
       throw e;
     }
-    H.erroJson(res, 404, `Não existe ${m} ${p}. As rotas estão em GET ${BASE}/docs.md.`);
+    H.erroJson(res, 404, dgIdiomaBackend.descricao("Não existe {p0} {p1}. As rotas estão em GET {p2}/docs.md.", {p0: (m), p1: (p), p2: (BASE)}));
     return true;
   }
 

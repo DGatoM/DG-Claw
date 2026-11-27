@@ -1,3 +1,4 @@
+const dgIdiomaBackend = require("../../web/lib/idioma-contexto");
 const express = require('express');
 const { servirBinario } = require('../lib/servir-binario');
 
@@ -12,7 +13,7 @@ module.exports = function registrar(router, ctx) {
   // caminho que saia dela. Todo erro desce com motivo em português E o que fazer.
 
   function responderArquivos(res, r) {
-    if (r && r.erro) return res.status(r.status || 500).json({ error: r.erro });
+    if (r && r.erro) return res.status(r.status || 500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.campo(r, "erro") }));
     res.json(r);
   }
 
@@ -20,7 +21,7 @@ module.exports = function registrar(router, ctx) {
     try {
       responderArquivos(res, arquivos.listar(req.query.path || ''));
     } catch (e) {
-      res.status(500).json({ error: `Não consegui listar a pasta: ${e.message}` });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui listar a pasta: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }));
     }
   });
 
@@ -28,7 +29,7 @@ module.exports = function registrar(router, ctx) {
     try {
       responderArquivos(res, arquivos.ler(req.query.path || ''));
     } catch (e) {
-      res.status(500).json({ error: `Não consegui abrir o arquivo: ${e.message}` });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui abrir o arquivo: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }));
     }
   });
 
@@ -41,7 +42,7 @@ module.exports = function registrar(router, ctx) {
       const abreNaTela = r && !r.erro && ['imagem', 'video', 'audio', 'pdf'].includes(r.tipo);
       servirBinario(res, r, !abreNaTela);
     } catch (e) {
-      res.status(500).type('text/plain; charset=utf-8').send(`Não consegui baixar o arquivo: ${e.message}`);
+      res.status(500).type('text/plain; charset=utf-8').send(dgIdiomaBackend.texto("Não consegui baixar o arquivo: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}));
     }
   });
 
@@ -49,14 +50,14 @@ module.exports = function registrar(router, ctx) {
     try {
       const texto = req.body && typeof req.body.texto === 'string' ? req.body.texto : null;
       if (texto === null) {
-        return res.status(400).json({
-          error: 'Não veio texto nenhum no pedido, então o arquivo continua como estava.',
-          howToFix: 'Abra o arquivo de novo, edite e clique em Salvar.',
-        });
+        return res.status(400).json(dgIdiomaBackend.objeto({
+          error: dgIdiomaBackend.descricao("Não veio texto nenhum no pedido, então o arquivo continua como estava."),
+          howToFix: dgIdiomaBackend.texto("Abra o arquivo de novo, edite e clique em Salvar."),
+        }));
       }
       responderArquivos(res, arquivos.salvar(req.query.path || '', texto));
     } catch (e) {
-      res.status(500).json({ error: `Não consegui salvar o arquivo: ${e.message}` });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui salvar o arquivo: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }));
     }
   });
 
@@ -64,7 +65,7 @@ module.exports = function registrar(router, ctx) {
     try {
       responderArquivos(res, arquivos.apagar(req.query.path || ''));
     } catch (e) {
-      res.status(500).json({ error: `Não consegui apagar o arquivo: ${e.message}` });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui apagar o arquivo: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }));
     }
   });
 
@@ -86,14 +87,14 @@ module.exports = function registrar(router, ctx) {
     (req, res) => {
       try {
         if (!Buffer.isBuffer(req.body)) {
-          return res.status(400).json({
-            error: 'O arquivo não chegou como arquivo, e eu prefiro não gravar um pedaço de coisa nenhuma.',
-            howToFix: 'Tente enviar de novo pelo botão Subir arquivo. Se continuar, recarregue a página antes.',
-          });
+          return res.status(400).json(dgIdiomaBackend.objeto({
+            error: dgIdiomaBackend.descricao("O arquivo não chegou como arquivo, e eu prefiro não gravar um pedaço de coisa nenhuma."),
+            howToFix: dgIdiomaBackend.texto("Tente enviar de novo pelo botão Subir arquivo. Se continuar, recarregue a página antes."),
+          }));
         }
         responderArquivos(res, arquivos.subir(req.query.path || '', req.query.nome || '', req.body));
       } catch (e) {
-        res.status(500).json({ error: `Não consegui guardar o arquivo: ${e.message}` });
+        res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui guardar o arquivo: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }));
       }
     },
   );

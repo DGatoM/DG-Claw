@@ -79,3 +79,12 @@ test('título indentado ou vazio não trava o renderizador', () => {
     assert.equal(typeof M.renderiza(md).html, 'string', JSON.stringify(md));
   }
 });
+
+test('manual inglês conserva as âncoras PT sem mostrar metadados e continua escapando HTML', () => {
+  const r = M.renderiza('# Agent profile {#perfil-do-agente}\n\n[Link](#perfil-do-agente)\n\n## Settings {#configuracoes}\n\n<script>alert(1)</script>');
+  assert.match(r.html, /id="perfil-do-agente"/);
+  assert.match(r.html, /href="#perfil-do-agente"/);
+  assert.match(r.html, /id="configuracoes"/);
+  assert.doesNotMatch(r.html, /\{#|<script>/);
+  assert.match(r.html, /&lt;script&gt;/);
+});

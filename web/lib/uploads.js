@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Upload multipart sem dependências. O corpo é lido em memória até o limite configurado
 // (DGCLAW_WEB_MAX_UPLOAD_MB, padrão 50) e gravado em <home_host>/uploads/AAAA-MM-DD/.
 
@@ -13,13 +14,13 @@ async function lerMultipart(req, limite) {
   const ct = String(req.headers['content-type'] || '');
   const m = /multipart\/form-data;.*?boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(ct);
   if (!m) {
-    const e = new Error('Mande o arquivo como multipart/form-data (campo "file").');
+    const e = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("Mande o arquivo como multipart/form-data (campo \"file\").")]);
     e.status = 400;
     throw e;
   }
   const declarado = Number(req.headers['content-length']);
   if (Number.isFinite(declarado) && declarado > limite + 64 * 1024) {
-    const e = new Error(`O envio tem ${Math.round(declarado / 1048576)} MB e o limite aqui é ${Math.round(limite / 1048576)} MB.`);
+    const e = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("O envio tem {p0} MB e o limite aqui é {p1} MB.", {p0: (Math.round(declarado / 1048576)), p1: (Math.round(limite / 1048576))})]);
     e.status = 413;
     req.resume();
     throw e;
@@ -28,7 +29,7 @@ async function lerMultipart(req, limite) {
   try {
     corpo = await lerCorpo(req, limite + 64 * 1024);
   } catch (e) {
-    if (e.status === 413) e.message = `O envio passou do limite de ${Math.round(limite / 1048576)} MB.`;
+    if (e.status === 413) dgIdiomaBackend.definir(e, "message", `O envio passou do limite de ${Math.round(limite / 1048576)} MB.`);
     throw e;
   }
   const delim = Buffer.from('--' + (m[1] || m[2]));
@@ -90,8 +91,7 @@ function gravaSemSobrescrever(pasta, nome, dados) {
       if (e.code !== 'EEXIST') throw e;
     }
   }
-  if (!st.isDirectory()) throw new Error(`O home_host de ${agente.nome} (${agente.home_host}) não é uma pasta. Confira o registro de agentes.`);
-  return { uid: st.uid, gid: st.gid };
+  throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao('Não achei um nome livre para o arquivo.')]);
 }
 
 module.exports = { lerMultipart, nomeSeguro, nomeNeutro, gravaSemSobrescrever, FLAGS_NOVO };

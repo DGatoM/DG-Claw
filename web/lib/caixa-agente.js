@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Caixa do agente: o agente (dentro do container, sem alcance ao host) deixa um pedido em
 // <home_host>/.dgclaw/caixa/entrada/<id>.json; o Web, que é root, executa o pedido contra a
 // própria API em 127.0.0.1 e grava a resposta em saida/<id>.json. Contrato completo em
@@ -182,10 +183,10 @@ function criarCaixaAgente({ config, registro, log, porta, agora, filtroRetrato }
           let total = 0;
           res.on('data', (c) => {
             total += c.length;
-            if (total > MAX_RESPOSTA) { res.destroy(); fim({ status: 502, corpo: { ok: false, erro: `A resposta de ${pedido.metodo} ${pedido.rota} passou de ${MAX_RESPOSTA} bytes e foi descartada. Peça menos dados (use filtros ou limit).` } }); return; }
+            if (total > MAX_RESPOSTA) { res.destroy(); fim({ status: 502, corpo: dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.descricao("A resposta de {p0} {p1} passou de {p2} bytes e foi descartada. Peça menos dados (use filtros ou limit).", {p0: (pedido.metodo), p1: (pedido.rota), p2: (MAX_RESPOSTA)}) }) }); return; }
             partes.push(c);
           });
-          res.on('error', (e) => fim({ status: 502, corpo: { ok: false, erro: `A resposta de ${pedido.rota} foi interrompida (${e.code || e.message}). Tente de novo.` } }));
+          res.on('error', (e) => fim({ status: 502, corpo: dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.descricao("A resposta de {p0} foi interrompida ({p1}). Tente de novo.", {p0: (pedido.rota), p1: (e.code || dgIdiomaBackend.campo(e, "message"))}) }) }));
           res.on('end', () => {
             const texto = Buffer.concat(partes).toString('utf8');
             let corpo = texto;
@@ -198,13 +199,13 @@ function criarCaixaAgente({ config, registro, log, porta, agora, filtroRetrato }
           });
         });
       } catch (e) {
-        fim({ status: 502, corpo: { ok: false, erro: `Não consegui montar a chamada para ${pedido.rota} (${e.message}). Confira o caminho da rota.` } });
+        fim({ status: 502, corpo: dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.descricao("Não consegui montar a chamada para {p0} ({p1}). Confira o caminho da rota.", {p0: (pedido.rota), p1: (dgIdiomaBackend.campo(e, "message"))}) }) });
         return;
       }
-      req.on('timeout', () => { req.destroy(new Error('sem resposta em 30 s')); });
+      req.on('timeout', () => { req.destroy(dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("sem resposta em 30 s")])); });
       req.on('error', (e) => {
         log('erro', `Caixa de ${slug}: a chamada interna ${pedido.metodo} ${pedido.rota} falhou (${e.code || e.message}). Se o Web acabou de reiniciar, o agente pode repetir o pedido.`);
-        fim({ status: 502, corpo: { ok: false, erro: `O Web não conseguiu atender ${pedido.metodo} ${pedido.rota} (${e.code || e.message}). Tente de novo em instantes; se repetir, avise o dono.` } });
+        fim({ status: 502, corpo: dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.descricao("O Web não conseguiu atender {p0} {p1} ({p2}). Tente de novo em instantes; se repetir, avise o dono.", {p0: (pedido.metodo), p1: (pedido.rota), p2: (e.code || dgIdiomaBackend.campo(e, "message"))}) }) });
       });
       if (dados) req.write(dados);
       req.end();
@@ -218,23 +219,23 @@ function criarCaixaAgente({ config, registro, log, porta, agora, filtroRetrato }
     let st;
     try { st = fs.lstatSync(p); } catch (e) {
       if (e.code === 'ENOENT') return { sumiu: true };
-      return { status: 500, erro: `O Web não conseguiu conferir o pedido ${id} (${e.code || e.message}). Envie de novo.` };
+      return dgIdiomaBackend.objeto({ status: 500, erro: dgIdiomaBackend.descricao("O Web não conseguiu conferir o pedido {p0} ({p1}). Envie de novo.", {p0: (id), p1: (e.code || dgIdiomaBackend.campo(e, "message"))}) });
     }
     if (!st.isFile()) {
       log('aviso', `Caixa de ${agente.slug}: recusei ${p} porque não é um arquivo comum (${st.isSymbolicLink() ? 'é um atalho' : 'tipo estranho'}). Pedidos são arquivos .json normais.`);
-      return { status: 403, erro: `O pedido ${id} não é um arquivo comum (atalhos, pastas e pipes são recusados). Grave um arquivo .json normal em entrada/.` };
+      return dgIdiomaBackend.objeto({ status: 403, erro: dgIdiomaBackend.descricao("O pedido {p0} não é um arquivo comum (atalhos, pastas e pipes são recusados). Grave um arquivo .json normal em entrada/.", {p0: (id)}) });
     }
     if (st.uid !== dono.uid) {
       log('aviso', `Caixa de ${agente.slug}: recusei ${p} porque o dono dele (uid ${st.uid}) não é o dono da casa (uid ${dono.uid}).`);
-      return { status: 403, erro: `O pedido ${id} pertence a outro usuário (uid ${st.uid}) e foi recusado.` };
+      return dgIdiomaBackend.objeto({ status: 403, erro: dgIdiomaBackend.descricao("O pedido {p0} pertence a outro usuário (uid {p1}) e foi recusado.", {p0: (id), p1: (st.uid)}) });
     }
     if (st.size > MAX_PEDIDO) {
       log('aviso', `Caixa de ${agente.slug}: pedido ${id} com ${st.size} bytes passou do teto de ${MAX_PEDIDO}.`);
-      return { status: 413, erro: `O pedido ${id} tem ${st.size} bytes e o teto é ${MAX_PEDIDO} (1 MB). Mande menos dados.` };
+      return dgIdiomaBackend.objeto({ status: 413, erro: dgIdiomaBackend.descricao("O pedido {p0} tem {p1} bytes e o teto é {p2} (1 MB). Mande menos dados.", {p0: (id), p1: (st.size), p2: (MAX_PEDIDO)}) });
     }
     if (relogio() - st.mtimeMs > IDADE_MAX_MS) {
       log('aviso', `Caixa de ${agente.slug}: pedido ${id} esperou mais de 5 minutos e foi descartado.`);
-      return { status: 408, erro: `O pedido ${id} esperou mais de 5 minutos na entrada e foi descartado. Envie de novo.` };
+      return dgIdiomaBackend.objeto({ status: 408, erro: dgIdiomaBackend.descricao("O pedido {p0} esperou mais de 5 minutos na entrada e foi descartado. Envie de novo.", {p0: (id)}) });
     }
     let fd = null; let texto;
     try {
@@ -242,7 +243,7 @@ function criarCaixaAgente({ config, registro, log, porta, agora, filtroRetrato }
       const st2 = fs.fstatSync(fd);
       if (!st2.isFile() || st2.ino !== st.ino || st2.dev !== st.dev || st2.uid !== dono.uid || st2.size > MAX_PEDIDO) {
         log('aviso', `Caixa de ${agente.slug}: ${p} mudou entre a conferência e a leitura; recusei.`);
-        return { status: 403, erro: `O pedido ${id} mudou enquanto era lido e foi recusado. Envie de novo.` };
+        return dgIdiomaBackend.objeto({ status: 403, erro: dgIdiomaBackend.descricao("O pedido {p0} mudou enquanto era lido e foi recusado. Envie de novo.", {p0: (id)}) });
       }
       const buf = Buffer.alloc(st2.size);
       let lidos = 0;
@@ -254,19 +255,19 @@ function criarCaixaAgente({ config, registro, log, porta, agora, filtroRetrato }
       texto = buf.toString('utf8', 0, lidos);
     } catch (e) {
       log('aviso', `Caixa de ${agente.slug}: não consegui abrir ${p} (${e.code || e.message}); recusei.`);
-      return { status: 403, erro: `O pedido ${id} não pôde ser aberto (${e.code || e.message}). Grave um arquivo .json normal em entrada/.` };
+      return dgIdiomaBackend.objeto({ status: 403, erro: dgIdiomaBackend.descricao("O pedido {p0} não pôde ser aberto ({p1}). Grave um arquivo .json normal em entrada/.", {p0: (id), p1: (e.code || dgIdiomaBackend.campo(e, "message"))}) });
     } finally {
       if (fd != null) { try { fs.closeSync(fd); } catch (e) { log('aviso', `Caixa de ${agente.slug}: falha ao fechar ${p} (${e.code || e.message}).`); } }
     }
     let ped;
     try { ped = JSON.parse(texto); } catch (e) {
       log('aviso', `Caixa de ${agente.slug}: o pedido ${id} não é JSON válido (${e.message}).`);
-      return { status: 400, erro: `O pedido ${id} não é um JSON válido (${e.message}). Use o comando dgclaw-api, que monta o arquivo certo.` };
+      return dgIdiomaBackend.objeto({ status: 400, erro: dgIdiomaBackend.descricao("O pedido {p0} não é um JSON válido ({p1}). Use o comando dgclaw-api, que monta o arquivo certo.", {p0: (id), p1: (dgIdiomaBackend.campo(e, "message"))}) });
     }
     const prob = validaPedido(ped, id);
     if (prob) {
       log('aviso', `Caixa de ${agente.slug}: pedido ${id} inválido: ${prob}`);
-      return { status: 400, erro: `O pedido ${id} é inválido: ${prob}` };
+      return dgIdiomaBackend.objeto({ status: 400, erro: dgIdiomaBackend.descricao("O pedido {p0} é inválido: {p1}", {p0: (id), p1: (prob)}) });
     }
     return { pedido: ped };
   }
@@ -292,25 +293,25 @@ function criarCaixaAgente({ config, registro, log, porta, agora, filtroRetrato }
 
     let status; let corpo;
     if (l.erro) {
-      status = l.status; corpo = { ok: false, erro: l.erro };
+      status = l.status; corpo = dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.campo(l, "erro") });
     } else {
       const espera = esperaDoTeto(agente.slug);
       if (espera) {
         log('aviso', `Caixa de ${agente.slug}: passou de ${TETO_POR_MINUTO} pedidos por minuto; o pedido ${id} voltou 429.`);
         status = 429;
-        corpo = { ok: false, erro: `Pedidos demais: o limite é ${TETO_POR_MINUTO} por minuto por agente. Espere ${espera} s e tente de novo.`, retryAfter: espera };
+        corpo = dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.descricao("Pedidos demais: o limite é {p0} por minuto por agente. Espere {p1} s e tente de novo.", {p0: (TETO_POR_MINUTO), p1: (espera)}), retryAfter: espera });
       } else {
         const ped = l.pedido;
         let pathname = '';
         try { pathname = decodeURIComponent(new URL(ped.rota, 'http://local').pathname); } catch (e) {
           log('aviso', `Caixa de ${agente.slug}: a rota do pedido ${id} não é um endereço válido (${e.message}).`);
-          status = 400; corpo = { ok: false, erro: `A rota ${ped.rota.slice(0, 80)} não é um endereço válido (${e.message}).` };
+          status = 400; corpo = dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.descricao("A rota {p0} não é um endereço válido ({p1}).", {p0: (ped.rota.slice(0, 80)), p1: (dgIdiomaBackend.campo(e, "message"))}) });
         }
         if (status === undefined) {
           if (pathname.includes('..') || !rotaPermitida(pathname)) {
             log('aviso', `Caixa de ${agente.slug}: rota ${pathname.slice(0, 120)} não liberada (pedido ${id}).`);
             status = 403;
-            corpo = { ok: false, erro: `A rota ${pathname.slice(0, 120)} não está liberada para agentes. Só as rotas que a frente liberou com caixa.permitir() respondem pela caixa; peça ao dono se precisar dela.` };
+            corpo = dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.descricao("A rota {p0} não está liberada para agentes. Só as rotas que a frente liberou com caixa.permitir() respondem pela caixa; peça ao dono se precisar dela.", {p0: (pathname.slice(0, 120))}) });
           } else {
             const r = await executa(agente.slug, ped);
             status = r.status; corpo = r.corpo;
@@ -378,31 +379,31 @@ function criarCaixaAgente({ config, registro, log, porta, agora, filtroRetrato }
   // ── Web deixando arquivo na casa do agente ─────────────────────────────────
   function agenteOuErro(agente) {
     const a = typeof agente === 'string' ? registro.obter(agente) : agente;
-    if (!a || !a.home_host) throw new ErroGravacao(`Não achei a casa do agente ${JSON.stringify(typeof agente === 'string' ? agente : agente && agente.slug)}: ele não existe ou não tem home_host no registro.`, 'SEM_CASA');
+    if (!a || !a.home_host) throw dgIdiomaBackend.criarErro(ErroGravacao, [dgIdiomaBackend.descricao("Não achei a casa do agente {p0}: ele não existe ou não tem home_host no registro.", {p0: (JSON.stringify(typeof agente === 'string' ? agente : agente && agente.slug))}), 'SEM_CASA']);
     return a;
   }
 
   function gravaNaCasa(agente, relPath, objeto) {
     const ag = agenteOuErro(agente);
     if (typeof relPath !== 'string' || !RX_REL.test(relPath) || relPath.includes('..')) {
-      throw new ErroGravacao(`O caminho ${JSON.stringify(relPath)} não vale: use só a-z, 0-9, ponto, sublinhado e hífen, separados por barras, sem "..", sem começar por barra.`, 'OPCAO_INVALIDA');
+      throw dgIdiomaBackend.criarErro(ErroGravacao, [dgIdiomaBackend.descricao("O caminho {p0} não vale: use só a-z, 0-9, ponto, sublinhado e hífen, separados por barras, sem \"..\", sem começar por barra.", {p0: (JSON.stringify(relPath))}), 'OPCAO_INVALIDA']);
     }
     let st;
     try { st = fs.statSync(ag.home_host); } catch (e) {
-      throw new ErroGravacao(`Não consegui ler a casa ${ag.home_host} do agente ${ag.slug} (${e.code || e.name}). Confira o home_host no registro.`, 'PASTA_AUSENTE');
+      throw dgIdiomaBackend.criarErro(ErroGravacao, [dgIdiomaBackend.descricao("Não consegui ler a casa {p0} do agente {p1} ({p2}). Confira o home_host no registro.", {p0: (ag.home_host), p1: (ag.slug), p2: (e.code || e.name)}), 'PASTA_AUSENTE']);
     }
-    if (st.uid === 0) throw new ErroGravacao(`A casa ${ag.home_host} de ${ag.slug} pertence ao root; recusei gravar ali. Confira o home_host no registro.`, 'CASA_DE_ROOT');
+    if (st.uid === 0) throw dgIdiomaBackend.criarErro(ErroGravacao, [dgIdiomaBackend.descricao("A casa {p0} de {p1} pertence ao root; recusei gravar ali. Confira o home_host no registro.", {p0: (ag.home_host), p1: (ag.slug)}), 'CASA_DE_ROOT']);
     const partes = ['.dgclaw', ...relPath.split('/')];
     let atual = fs.realpathSync(ag.home_host);
     for (const parte of partes.slice(0, -1)) {
       atual = path.join(atual, parte);
       let s;
       try { s = fs.lstatSync(atual); } catch (e) {
-        if (e.code !== 'ENOENT') throw new ErroGravacao(`Não consegui conferir ${atual} (${e.code || e.name}).`, 'FALHA_ESCRITA');
+        if (e.code !== 'ENOENT') throw dgIdiomaBackend.criarErro(ErroGravacao, [dgIdiomaBackend.descricao("Não consegui conferir {p0} ({p1}).", {p0: (atual), p1: (e.code || e.name)}), 'FALHA_ESCRITA']);
         criaPastaSemAtalho(atual, 0o700, st.uid, st.gid);
         continue;
       }
-      if (s.isSymbolicLink() || !s.isDirectory()) throw new ErroGravacao(`${atual} é ${s.isSymbolicLink() ? 'um atalho' : 'algo que não é pasta'}; recusei gravar por ele.`, s.isSymbolicLink() ? 'ATALHO' : 'NAO_E_PASTA');
+      if (s.isSymbolicLink() || !s.isDirectory()) throw dgIdiomaBackend.criarErro(ErroGravacao, [dgIdiomaBackend.descricao("{p0} é {p1}; recusei gravar por ele.", {p0: (atual), p1: (s.isSymbolicLink() ? 'um atalho' : 'algo que não é pasta')}), s.isSymbolicLink() ? 'ATALHO' : 'NAO_E_PASTA']);
     }
     return gravaArquivoSeguro(path.join(atual, partes[partes.length - 1]), JSON.stringify(objeto, null, 2), {
       raiz: ag.home_host, uid: st.uid, gid: st.gid, modo: 0o600,
@@ -411,11 +412,11 @@ function criarCaixaAgente({ config, registro, log, porta, agora, filtroRetrato }
 
   function gravaRetrato(agente, frente, objeto) {
     if (typeof frente !== 'string' || !RX_FRENTE.test(frente)) {
-      throw new ErroGravacao(`O nome da frente ${JSON.stringify(frente)} não vale para retrato: use de 1 a 40 caracteres entre a-z, 0-9 e hífen.`, 'OPCAO_INVALIDA');
+      throw dgIdiomaBackend.criarErro(ErroGravacao, [dgIdiomaBackend.descricao("O nome da frente {p0} não vale para retrato: use de 1 a 40 caracteres entre a-z, 0-9 e hífen.", {p0: (JSON.stringify(frente))}), 'OPCAO_INVALIDA']);
     }
     // Retrato com texto do dono (foco, avisos) vai para a casa do agente: passa pelo filtro da anonimização. Lança se não puder filtrar.
     if (filtroRetrato) objeto = filtroRetrato(agenteOuErro(agente).slug, objeto);   // aceita slug ou objeto; sem casa, recusa
-    return gravaNaCasa(agente, `retratos/${frente}.json`, Object.assign({}, objeto, { atualizado_em: new Date(relogio()).toISOString() }));
+    return gravaNaCasa(agente, `retratos/${frente}.json`, dgIdiomaBackend.atribuir({}, objeto, { atualizado_em: new Date(relogio()).toISOString() }));
   }
 
   return {

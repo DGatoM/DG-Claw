@@ -1,3 +1,10 @@
+const dgBindFull_cofre = (el, fonte, atributo, valores) => { if(globalThis.DGI18n) return globalThis.DGI18n.rotulo(el,fonte,atributo,valores); const valor=String(fonte).replace(/\{([a-z_][a-z_0-9]*)\}/g,(m,k)=>valores&&Object.hasOwn(valores,k)?String(valores[k]):m); if(atributo)el.setAttribute(atributo,valor);else el.textContent=valor; };
+const dgHtmlFull_cofre = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, "");
+const dgTextFull_cofre = fonte => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.t(trecho)) : fonte;
+const dgPhraseFull_cofre = (fonte, valores) => globalThis.DGI18n ? fonte.replace(/\S[\s\S]*\S|\S/g, trecho => globalThis.DGI18n.frase(trecho, valores)) : fonte.replace(/\{([a-z_][a-z_0-9]*)\}/g, (m,k) => valores && Object.hasOwn(valores,k) ? String(valores[k]) : m);
+const dgFragFull_cofre = (fonte, valores) => globalThis.DGI18n ? globalThis.DGI18n.fragmento(fonte, valores) : dgPhraseFull_cofre(fonte,valores).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;", "'":"&#39;"}[c]));
+
+const dgHtml_cofre = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
 // cofre.js — a tela da aba Cofre.
 //
 // O QUE ELA MOSTRA: as chaves de serviço que o dono deste agente cadastrou, para
@@ -42,7 +49,7 @@
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '';
     // Fuso do navegador, como o resto do painel: o ISO do servidor vem em UTC.
-    return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleString((globalThis.DGI18n ? globalThis.DGI18n.locale : 'pt-BR'), { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
 
   /** Chamada que preserva o corpo do erro. Devolve {ok, status, corpo}. */
@@ -62,7 +69,7 @@
   function motivoDoErro(r) {
     const c = r.corpo || {};
     if (c.error && c.howToFix) return `${c.error} ${c.howToFix}`;
-    return c.error || `O painel respondeu ${r.status}.`;
+    return c.error || dgPhraseFull_cofre("O painel respondeu {v0}.",{v0:(r.status)});
   }
 
   // ─── Tutorial da tela ───────────────────────────────────────────────────
@@ -144,260 +151,260 @@
   // ─── Desenho ─────────────────────────────────────────────────
 
   function cabecalho() {
-    const ajuda = 'As chaves de serviço que este agente pode usar. Uma chave cadastrada aqui vale só para ele, '
-      + 'e o que ele gastar com ela é cobrado de quem cadastrou.';
-    return `<div class="app-cabeca">
+    const ajuda = dgTextFull_cofre("As chaves de serviço que este agente pode usar. Uma chave cadastrada aqui vale só para ele, ")
+      + dgTextFull_cofre("e o que ele gastar com ela é cobrado de quem cadastrou.");
+    return dgHtmlFull_cofre(`<div class="app-cabeca">
         <div class="app-cabeca-linha">
-          <h2 title="${esc(ajuda)}">Cofre do agente</h2>
+          <h2 title="${esc(ajuda)}"><!--dg-i18n:b54c982c3bfb-->Cofre do agente<!--/dg-i18n--></h2>
           <button type="button" class="app-tutorial-abrir" id="cofre-tutorial-abrir"
-                  title="Uma visita guiada por esta tela, passo a passo.">Tutorial</button>
+                  data-dg-i18n-title="0fb8e9479f21" title="Uma visita guiada por esta tela, passo a passo.">Tutorial</button>
           <button type="button" class="app-ajuda-secao" data-tutorial="tela"
-                  aria-label="O que é este cofre" title="O que é este cofre">?</button>
+                  data-dg-i18n-aria-label="a79d0822a602" aria-label="O que é este cofre" data-dg-i18n-title="a79d0822a602" title="O que é este cofre">?</button>
         </div>
         <p>${esc(ajuda)}</p>
       </div>
-      <div id="cofre-corpo"></div>`;
+      <div id="cofre-corpo"></div>`);
   }
 
   function blocoAviso() {
     if (!aviso) return '';
     const classe = aviso.tipo === 'erro' ? 'app-erro' : (aviso.tipo === 'andando' ? 'app-carregando' : 'cofre-ok');
-    const titulo = aviso.tipo === 'erro' ? 'Não consegui fazer isto.' : '';
+    const titulo = aviso.tipo === 'erro' ? dgTextFull_cofre("Não consegui fazer isto.") : '';
     return `<div class="${classe} cofre-aviso">${titulo ? `<strong>${esc(titulo)}</strong>` : ''}<p>${esc(aviso.texto)}</p></div>`;
   }
 
   /** O aviso de quem paga a conta. Regra 11 da nota de segurança do cofre. */
   function blocoConta() {
-    return `<div class="cartao cofre-conta">
-        <div class="section-title">A chave é sua, e a conta também
+    return dgHtmlFull_cofre(`<div class="cartao cofre-conta">
+        <div class="section-title"><!--dg-i18n:0e86bb68020c-->A chave é sua, e a conta também<!--/dg-i18n-->
           <button type="button" class="app-ajuda-secao" data-tutorial="conta"
-                  aria-label="Quem paga pelo uso da chave" title="Quem paga pelo uso da chave">?</button>
+                  data-dg-i18n-aria-label="75dea5bc8a5d" aria-label="Quem paga pelo uso da chave" data-dg-i18n-title="75dea5bc8a5d" title="Quem paga pelo uso da chave">?</button>
         </div>
-        <p class="ajuda-secao">A chave que você cadastra aqui é gerada por <b>você</b>, no site do serviço, com o seu
-          cadastro. O que o agente consumir com ela é cobrado <b>de você</b>, direto pelo serviço, e não passa por este
+        <p class="ajuda-secao"><!--dg-i18n:522089745abc-->A chave que você cadastra aqui é gerada por<!--/dg-i18n--> <b><!--dg-i18n:9548a53a0c25-->você<!--/dg-i18n--></b><!--dg-i18n:b3ca036362bb-->, no site do serviço, com o seu
+          cadastro. O que o agente consumir com ela é cobrado<!--/dg-i18n--> <b><!--dg-i18n:f0efca46c620-->de você<!--/dg-i18n--></b><!--dg-i18n:c0fb07479472-->, direto pelo serviço, e não passa por este
           painel. No painel do próprio serviço você vê o gasto, pode pôr um limite e pode cancelar a chave a qualquer
-          momento.</p>
-      </div>`;
+          momento.<!--/dg-i18n--></p>
+      </div>`);
   }
 
   function linhaDaChave(c) {
     const revogada = !!c.revogadaEm;
     const estado = revogada
       ? `<span class="cofre-selo revogada" title="Esta chave saiu do cofre em ${esc(quando(c.revogadaEm))}. O registro fica para você saber o que já esteve aqui.">revogada</span>`
-      : '<span class="cofre-selo ativa" title="Esta chave está no cofre e entra no ambiente do agente quando ele inicia.">ativa</span>';
+      : dgHtmlFull_cofre(`<span class="cofre-selo ativa" data-dg-i18n-title="3dbad9944e1e" title="Esta chave está no cofre e entra no ambiente do agente quando ele inicia.">ativa</span>`);
     const acao = revogada
       ? ''
-      : `<button type="button" class="btn-leve cofre-revogar" data-env="${esc(c.envName)}"
-                 title="Tira esta chave do cofre. Ela some do agente no próximo reinício, e o registro de que ela existiu fica.">revogar</button>`;
+      : dgHtmlFull_cofre(`<button type="button" class="btn-leve cofre-revogar" data-env="${esc(c.envName)}"
+                 data-dg-i18n-title="81247808ef74" title="Tira esta chave do cofre. Ela some do agente no próximo reinício, e o registro de que ela existiu fica.">revogar</button>`);
     // O `data-rot` é o rótulo da coluna, e ele existe para o CELULAR: em tela
     // estreita a tabela vira cartão, e cada valor aparece com o nome da coluna do
     // lado. Tabela de seis colunas em 390px ou rola para o lado ou espreme tudo,
     // e as duas saídas são ruins numa tela em que a pessoa precisa conferir de
     // qual chave ela está falando antes de clicar em revogar.
-    return `<tr>
+    return dgHtmlFull_cofre(`<tr>
         <td data-rot="Serviço">${esc(c.provedorNome || c.provedor)}</td>
-        <td data-rot="Nome"><code title="É por este nome que o agente procura a chave.">${esc(c.envName)}</code></td>
-        <td data-rot="Chave"><span class="cofre-mascara" title="Os quatro últimos caracteres da chave. Servem para você conferir que é a chave certa sem precisar ver a chave inteira.">••••${esc(c.ultimos4 || '')}</span></td>
+        <td data-rot="Nome"><code data-dg-i18n-title="9115fc40ba68" title="É por este nome que o agente procura a chave.">${esc(c.envName)}</code></td>
+        <td data-rot="Chave"><span class="cofre-mascara" data-dg-i18n-title="91c19f293c52" title="Os quatro últimos caracteres da chave. Servem para você conferir que é a chave certa sem precisar ver a chave inteira.">••••${esc(c.ultimos4 || '')}</span></td>
         <td data-rot="Cadastrada por" title="Quem cadastrou e quando.">${esc(c.cadastradaPor || '')} <span class="cofre-quando">${esc(quando(c.cadastradaEm))}</span>
-          <span class="cofre-selo origem" title="${c.origem === 'api' ? 'Esta chave foi colocada por outro assistente, usando uma chave de API, sem passar pela tela.' : 'Esta chave foi colada por uma pessoa, nesta tela.'}">${c.origem === 'api' ? 'por API' : 'pela tela'}</span></td>
+          <span class="cofre-selo origem" title="${c.origem === 'api' ? dgTextFull_cofre("Esta chave foi colocada por outro assistente, usando uma chave de API, sem passar pela tela.") : dgTextFull_cofre("Esta chave foi colada por uma pessoa, nesta tela.")}">${dgFragFull_cofre(c.origem === 'api' ? "por API" : "pela tela")}</span></td>
         <td data-rot="Estado">${estado}</td>
         <td class="cofre-linha-acoes">${acao}</td>
-      </tr>`;
+      </tr>`);
   }
 
   function blocoLista() {
     const chaves = (dados && dados.chaves) || [];
     if (!chaves.length) {
-      return `<div class="cartao cofre-lista">
-          <div class="section-title">Chaves guardadas
+      return dgHtmlFull_cofre(`<div class="cartao cofre-lista">
+          <div class="section-title"><!--dg-i18n:5c1650da70d7-->Chaves guardadas<!--/dg-i18n-->
             <button type="button" class="app-ajuda-secao" data-tutorial="lista"
                     aria-label="O que aparece nesta lista" title="O que aparece nesta lista">?</button>
           </div>
-          <div class="app-vazio"><strong>Nenhuma chave guardada ainda.</strong>
-            <p>Enquanto não houver nenhuma, o agente trabalha normalmente: ele só não consegue usar
-               serviço que cobre à parte. Use o campo abaixo para guardar a primeira.</p></div>
-        </div>`;
+          <div class="app-vazio"><strong><!--dg-i18n:40f5e775db46-->Nenhuma chave guardada ainda.<!--/dg-i18n--></strong>
+            <p><!--dg-i18n:c7b10bf2033d-->Enquanto não houver nenhuma, o agente trabalha normalmente: ele só não consegue usar
+               serviço que cobre à parte. Use o campo abaixo para guardar a primeira.<!--/dg-i18n--></p></div>
+        </div>`);
     }
-    return `<div class="cartao cofre-lista">
-        <div class="section-title">Chaves guardadas
+    return dgHtmlFull_cofre(`<div class="cartao cofre-lista">
+        <div class="section-title"><!--dg-i18n:5c1650da70d7-->Chaves guardadas<!--/dg-i18n-->
           <button type="button" class="app-ajuda-secao" data-tutorial="lista"
                   aria-label="O que aparece nesta lista" title="O que aparece nesta lista">?</button>
         </div>
-        <p class="ajuda-secao">A chave inteira não aparece aqui e não aparece em lugar nenhum depois de guardada.
-          Se você perdeu a sua, gere outra no site do serviço e cadastre por cima.</p>
+        <p class="ajuda-secao"><!--dg-i18n:36ea7e9b9ba4-->A chave inteira não aparece aqui e não aparece em lugar nenhum depois de guardada.
+          Se você perdeu a sua, gere outra no site do serviço e cadastre por cima.<!--/dg-i18n--></p>
         <table class="pixel-table cofre-tabela">
           <thead><tr>
-            <th title="O serviço que emitiu a chave.">Serviço</th>
-            <th title="O nome pelo qual o agente procura esta chave no ambiente dele.">Nome</th>
-            <th title="Os quatro últimos caracteres, para conferência.">Chave</th>
-            <th title="Quem cadastrou, e quando.">Cadastrada por</th>
-            <th title="Se ela está no cofre agora ou se já foi revogada.">Estado</th>
+            <th data-dg-i18n-title="0ca789dedeef" title="O serviço que emitiu a chave."><!--dg-i18n:dfec253a064f-->Serviço<!--/dg-i18n--></th>
+            <th data-dg-i18n-title="55d57c3f7294" title="O nome pelo qual o agente procura esta chave no ambiente dele."><!--dg-i18n:5086900635fe-->Nome<!--/dg-i18n--></th>
+            <th data-dg-i18n-title="6644bf620ac5" title="Os quatro últimos caracteres, para conferência."><!--dg-i18n:01966c51593a-->Chave<!--/dg-i18n--></th>
+            <th title="Quem cadastrou, e quando."><!--dg-i18n:a52b43348e8f-->Cadastrada por<!--/dg-i18n--></th>
+            <th data-dg-i18n-title="e20e6a5fd916" title="Se ela está no cofre agora ou se já foi revogada.">Estado</th>
             <th></th>
           </tr></thead>
           <tbody>${chaves.map(linhaDaChave).join('')}</tbody>
         </table>
-      </div>`;
+      </div>`);
   }
 
   function blocoNova() {
     const provedores = (dados && dados.provedores) || [];
     const opcoes = provedores.map((p) => `<option value="${esc(p.id)}" data-sugestao="${esc(p.sugestao || '')}" data-onde="${esc(p.onde || '')}" data-dica="${esc(p.dica || '')}">${esc(p.nome)}</option>`).join('');
-    return `<div class="cartao cofre-nova" id="cofre-nova">
-        <div class="section-title">Guardar uma chave
+    return dgHtmlFull_cofre(`<div class="cartao cofre-nova" id="cofre-nova">
+        <div class="section-title"><!--dg-i18n:cb8e9975e279-->Guardar uma chave<!--/dg-i18n-->
           <button type="button" class="app-ajuda-secao" data-tutorial="nova"
-                  aria-label="Como guardar uma chave" title="Como guardar uma chave">?</button>
+                  data-dg-i18n-aria-label="ad6ddec4d57c" aria-label="Como guardar uma chave" data-dg-i18n-title="ad6ddec4d57c" title="Como guardar uma chave">?</button>
         </div>
         <div class="cofre-campo">
-          <label for="cofre-provedor" title="Escolher o serviço preenche sozinho o nome certo e mostra onde gerar a chave.">Serviço</label>
+          <label for="cofre-provedor" data-dg-i18n-title="6fb4606c4af9" title="Escolher o serviço preenche sozinho o nome certo e mostra onde gerar a chave."><!--dg-i18n:dfec253a064f-->Serviço<!--/dg-i18n--></label>
           <select id="cofre-provedor">${opcoes}</select>
         </div>
         <p class="ajuda-secao cofre-onde" id="cofre-onde"></p>
         <div class="cofre-campo">
-          <label for="cofre-nome" title="É por este nome que o agente procura a chave. Escolher o serviço acima já preenche o nome certo.">Nome da chave</label>
+          <label for="cofre-nome" data-dg-i18n-title="e2c1ed6805d8" title="É por este nome que o agente procura a chave. Escolher o serviço acima já preenche o nome certo."><!--dg-i18n:824ad4cdfb41-->Nome da chave<!--/dg-i18n--></label>
           <input type="text" id="cofre-nome" spellcheck="false" autocomplete="off" placeholder="OPENAI_API_KEY">
         </div>
         <div class="cofre-campo">
-          <label for="cofre-valor" title="Cole aqui a chave que você gerou no site do serviço. Ela não volta a aparecer depois de guardada.">A chave</label>
-          <input type="password" id="cofre-valor" spellcheck="false" autocomplete="off" placeholder="cole aqui a chave gerada no serviço">
+          <label for="cofre-valor" data-dg-i18n-title="7f91ae52ddda" title="Cole aqui a chave que você gerou no site do serviço. Ela não volta a aparecer depois de guardada."><!--dg-i18n:f48fb9e13bf8-->A chave<!--/dg-i18n--></label>
+          <input type="password" id="cofre-valor" spellcheck="false" autocomplete="off" data-dg-i18n-placeholder="ac2a09c77b4c" placeholder="cole aqui a chave gerada no serviço">
         </div>
         <div class="cofre-botoes">
-          <button type="button" class="btn-leve" id="cofre-ver" title="Mostrar o que você colou, para conferir antes de guardar.">mostrar o que colei</button>
-          <button type="button" class="btn-principal" id="cofre-guardar">guardar a chave</button>
+          <button type="button" class="btn-leve" id="cofre-ver" data-dg-i18n-title="51f09919cbf1" title="Mostrar o que você colou, para conferir antes de guardar."><!--dg-i18n:a0b5b9cdcb9b-->mostrar o que colei<!--/dg-i18n--></button>
+          <button type="button" class="btn-principal" id="cofre-guardar"><!--dg-i18n:6660e812bd97-->guardar a chave<!--/dg-i18n--></button>
         </div>
-        <p class="ajuda-secao">Depois de guardada, a chave não volta a aparecer nesta tela nem em nenhuma outra.
-          Guarde a sua cópia no gerenciador de senhas do seu computador.</p>
-      </div>`;
+        <p class="ajuda-secao"><!--dg-i18n:252f95fb375e-->Depois de guardada, a chave não volta a aparecer nesta tela nem em nenhuma outra.
+          Guarde a sua cópia no gerenciador de senhas do seu computador.<!--/dg-i18n--></p>
+      </div>`);
   }
 
   function blocoAplicar() {
     const a = (dados && dados.aplicar) || {};
     if (!a.pode) {
-      return `<div class="cartao cofre-aplicar">
-          <div class="section-title">Fazer a chave valer
+      return dgHtmlFull_cofre(`<div class="cartao cofre-aplicar">
+          <div class="section-title"><!--dg-i18n:2ef239cf2804-->Fazer a chave valer<!--/dg-i18n-->
             <button type="button" class="app-ajuda-secao" data-tutorial="aplicar"
-                    aria-label="Por que precisa reiniciar" title="Por que precisa reiniciar">?</button>
+                    data-dg-i18n-aria-label="91d9d4eabea6" aria-label="Por que precisa reiniciar" data-dg-i18n-title="91d9d4eabea6" title="Por que precisa reiniciar">?</button>
           </div>
-          <div class="app-erro"><strong>Não dá para reiniciar o agente por aqui.</strong>
+          <div class="app-erro"><strong><!--dg-i18n:a1ee1d8922fe-->Não dá para reiniciar o agente por aqui.<!--/dg-i18n--></strong>
             <p>${esc(a.motivo || '')} ${esc(a.howToFix || '')}</p></div>
-        </div>`;
+        </div>`);
     }
-    return `<div class="cartao cofre-aplicar">
-        <div class="section-title">Fazer a chave valer
+    return dgHtmlFull_cofre(`<div class="cartao cofre-aplicar">
+        <div class="section-title"><!--dg-i18n:2ef239cf2804-->Fazer a chave valer<!--/dg-i18n-->
           <button type="button" class="app-ajuda-secao" data-tutorial="aplicar"
-                  aria-label="Por que precisa reiniciar" title="Por que precisa reiniciar">?</button>
+                  data-dg-i18n-aria-label="91d9d4eabea6" aria-label="Por que precisa reiniciar" data-dg-i18n-title="91d9d4eabea6" title="Por que precisa reiniciar">?</button>
         </div>
-        <p class="ajuda-secao">O agente lê o cofre <b>quando inicia</b>. Enquanto você não clicar aqui, ele continua
+        <p class="ajuda-secao"><!--dg-i18n:042e2634d61d-->O agente lê o cofre<!--/dg-i18n--> <b><!--dg-i18n:63bf63376b13-->quando inicia<!--/dg-i18n--></b><!--dg-i18n:323ff6eabde0-->. Enquanto você não clicar aqui, ele continua
           usando o que tinha antes. Reiniciar interrompe o que ele estiver fazendo neste momento, e por isso o botão
-          é seu e não acontece sozinho ao guardar.</p>
-        <p class="ajuda-secao"><b>A conversa não se perde.</b> Ele volta de onde parou, na mesma conversa. O que
+          é seu e não acontece sozinho ao guardar.<!--/dg-i18n--></p>
+        <p class="ajuda-secao"><b><!--dg-i18n:50dd6d81870e-->A conversa não se perde.<!--/dg-i18n--></b> <!--dg-i18n:ab3a4a472efd-->Ele volta de onde parou, na mesma conversa. O que
           acontece é que o terminal dele pisca por alguns segundos enquanto ele se levanta, e quem estiver olhando
-          a aba Conversa nesse instante vê isso.</p>
+          a aba Conversa nesse instante vê isso.<!--/dg-i18n--></p>
         <button type="button" class="btn-principal" id="cofre-aplicar"
-                title="Reinicia o agente para que ele leia o cofre. É o passo que faz a chave nova passar a valer.">
-          aplicar e reiniciar o agente
+                data-dg-i18n-title="abaf109f3ee1" title="Reinicia o agente para que ele leia o cofre. É o passo que faz a chave nova passar a valer.">
+          <!--dg-i18n:a6f69f1da5d2-->aplicar e reiniciar o agente<!--/dg-i18n-->
         </button>
-      </div>`;
+      </div>`);
   }
 
   function blocoGuarda() {
     const g = (dados && dados.guarda) || {};
-    return `<div class="cartao cofre-guarda">
-        <div class="section-title">Como a chave fica guardada
+    return dgHtmlFull_cofre(`<div class="cartao cofre-guarda">
+        <div class="section-title"><!--dg-i18n:4f724ce9ab77-->Como a chave fica guardada<!--/dg-i18n-->
           <button type="button" class="app-ajuda-secao" data-tutorial="guarda"
-                  aria-label="Como a chave fica guardada" title="Como a chave fica guardada">?</button>
+                  data-dg-i18n-aria-label="4f724ce9ab77" aria-label="Como a chave fica guardada" data-dg-i18n-title="4f724ce9ab77" title="Como a chave fica guardada">?</button>
         </div>
         <ul class="cofre-guarda-lista">
           <li>${esc(g.motorExplicacao || '')}</li>
           <li>${esc(g.emMemoriaExplicacao || '')}</li>
-          <li>Uma chave cadastrada aqui vale <b>só para este agente</b>. Nenhum outro agente a enxerga, nem o assistente
+          <li><!--dg-i18n:03a9231243ad-->Uma chave cadastrada aqui vale<!--/dg-i18n--> <b><!--dg-i18n:7f0e6ebea083-->só para este agente<!--/dg-i18n--></b><!--dg-i18n:151c57dc9787-->. Nenhum outro agente a enxerga, nem o assistente
               principal. Para outro agente usar o mesmo serviço, o dono dele cadastra a chave lá, ou autoriza alguém
-              (criando uma chave de API <b>daquele</b> agente) a cadastrar.</li>
-          <li>O cofre é <b>desta máquina</b>: a chave é cifrada de um jeito que só abre aqui. Cadastre sempre por esta
+              (criando uma chave de API<!--/dg-i18n--> <b>daquele</b> <!--dg-i18n:54bad92533b5-->agente) a cadastrar.<!--/dg-i18n--></li>
+          <li><!--dg-i18n:d472ff0f6cd8-->O cofre é<!--/dg-i18n--> <b><!--dg-i18n:8b8dcf8bf5a5-->desta máquina<!--/dg-i18n--></b><!--dg-i18n:aac8d74e5fab-->: a chave é cifrada de um jeito que só abre aqui. Cadastre sempre por esta
               tela. Copiar o cofre de outro lugar não funciona, e se este agente for refeito do zero as chaves
-              precisam ser cadastradas de novo.</li>
-          <li>Revogar tira a chave do cofre e guarda a data. Para a chave deixar de funcionar de verdade,
-              cancele também no site do serviço, que é o único lugar onde isso acontece.</li>
+              precisam ser cadastradas de novo.<!--/dg-i18n--></li>
+          <li><!--dg-i18n:1d88858fb4e4-->Revogar tira a chave do cofre e guarda a data. Para a chave deixar de funcionar de verdade,
+              cancele também no site do serviço, que é o único lugar onde isso acontece.<!--/dg-i18n--></li>
         </ul>
-      </div>`;
+      </div>`);
   }
 
   function linhaDaChaveApi(c) {
     const revogada = !!c.revogadaEm;
     const estado = revogada
       ? `<span class="cofre-selo revogada" title="Esta chave de API deixou de valer em ${esc(quando(c.revogadaEm))}.">revogada</span>`
-      : '<span class="cofre-selo ativa" title="Quem tiver este token consegue guardar chaves neste agente.">ativa</span>';
-    const acao = revogada ? '' : `<button type="button" class="btn-leve cofre-api-revogar" data-id="${esc(c.id)}" data-nome="${esc(c.nome)}"
-        title="Faz esta chave de API parar de valer agora. Quem a usava passa a receber recusa.">revogar</button>`;
-    return `<tr>
-        <td data-rot="Nome" title="O nome que você deu à chave, para lembrar quem a usa.">${esc(c.nome)}</td>
-        <td data-rot="Final do token" title="Os quatro últimos caracteres do token, para você reconhecer a chave."><span class="cofre-mascara">••••${esc(c.ultimos4 || '')}</span></td>
-        <td data-rot="Criada por" title="Quem criou a chave e quando.">${esc(c.criadaPor || '')} <span class="cofre-quando">${esc(quando(c.criadaEm))}</span></td>
-        <td data-rot="Último uso" title="A última vez que alguém usou esta chave. Uma chave que nunca foi usada talvez não precise existir.">${c.ultimoUsoEm ? esc(quando(c.ultimoUsoEm)) : '<span class="cofre-quando">nunca usada</span>'}</td>
+      : dgHtmlFull_cofre(`<span class="cofre-selo ativa" data-dg-i18n-title="981d18fd93cb" title="Quem tiver este token consegue guardar chaves neste agente.">ativa</span>`);
+    const acao = revogada ? '' : dgHtmlFull_cofre(`<button type="button" class="btn-leve cofre-api-revogar" data-id="${esc(c.id)}" data-nome="${esc(c.nome)}"
+        data-dg-i18n-title="a46bf3be7f01" title="Faz esta chave de API parar de valer agora. Quem a usava passa a receber recusa.">revogar</button>`);
+    return dgHtmlFull_cofre(`<tr>
+        <td data-rot="Nome" data-dg-i18n-title="4c8fe26d4b7c" title="O nome que você deu à chave, para lembrar quem a usa.">${esc(c.nome)}</td>
+        <td data-rot="Final do token" data-dg-i18n-title="626dd087bc8e" title="Os quatro últimos caracteres do token, para você reconhecer a chave."><span class="cofre-mascara">••••${esc(c.ultimos4 || '')}</span></td>
+        <td data-rot="Criada por" data-dg-i18n-title="d6e603be66c6" title="Quem criou a chave e quando.">${esc(c.criadaPor || '')} <span class="cofre-quando">${esc(quando(c.criadaEm))}</span></td>
+        <td data-rot="Último uso" data-dg-i18n-title="be4144eba8a8" title="A última vez que alguém usou esta chave. Uma chave que nunca foi usada talvez não precise existir.">${c.ultimoUsoEm ? esc(quando(c.ultimoUsoEm)) : dgHtmlFull_cofre(`<span class="cofre-quando"><!--dg-i18n:5e8d3fd1fac3-->nunca usada<!--/dg-i18n--></span>`)}</td>
         <td data-rot="Estado">${estado}</td>
         <td class="cofre-linha-acoes">${acao}</td>
-      </tr>`;
+      </tr>`);
   }
 
   function blocoTokenNovo() {
     if (!tokenNovo) return '';
-    return `<div class="cofre-token-novo">
-        <strong>Chave "${esc(tokenNovo.nome)}" criada. Guarde agora, ele não aparece de novo.</strong>
-        <p class="ajuda-secao">Copie este token e entregue a quem vai usá-lo. O painel guarda só uma marca dele: se você
-          perder, a saída é revogar esta chave e criar outra.</p>
+    return dgHtmlFull_cofre(`<div class="cofre-token-novo">
+        <strong>${dgFragFull_cofre("Chave \"{v0}\" criada. Guarde agora, ele não aparece de novo.",{v0:(tokenNovo.nome)})}</strong>
+        <p class="ajuda-secao"><!--dg-i18n:afb9e9f51b8a-->Copie este token e entregue a quem vai usá-lo. O painel guarda só uma marca dele: se você
+          perder, a saída é revogar esta chave e criar outra.<!--/dg-i18n--></p>
         <div class="cofre-token-linha">
           <input type="text" id="cofre-token-valor" readonly value="${esc(tokenNovo.token)}" spellcheck="false"
-                 title="O token da chave de API. Ele só aparece nesta tela agora.">
-          <button type="button" class="btn-principal" id="cofre-token-copiar" title="Copia o token para a área de transferência.">copiar</button>
-          <button type="button" class="btn-leve" id="cofre-token-fechar" title="Esconde o token. Depois de fechar, não há como vê-lo de novo.">já guardei</button>
+                 data-dg-i18n-title="ff93e49ee402" title="O token da chave de API. Ele só aparece nesta tela agora.">
+          <button type="button" class="btn-principal" id="cofre-token-copiar" data-dg-i18n-title="af833daf0544" title="Copia o token para a área de transferência."><!--dg-i18n:9d14fb1e68df-->copiar<!--/dg-i18n--></button>
+          <button type="button" class="btn-leve" id="cofre-token-fechar" data-dg-i18n-title="cf740eba7eb2" title="Esconde o token. Depois de fechar, não há como vê-lo de novo."><!--dg-i18n:87354dd8b90a-->já guardei<!--/dg-i18n--></button>
         </div>
-      </div>`;
+      </div>`);
   }
 
   function blocoApi() {
     const lista = chavesApi.lista || [];
     let corpo;
     if (!chavesApi.ok) {
-      corpo = `<div class="app-erro"><strong>Não consegui abrir a lista de chaves de acesso.</strong><p>${esc(chavesApi.erro)}</p></div>`;
+      corpo = dgHtmlFull_cofre(`<div class="app-erro"><strong><!--dg-i18n:c6beea2938b8-->Não consegui abrir a lista de chaves de acesso.<!--/dg-i18n--></strong><p>${esc(chavesApi.erro)}</p></div>`);
     } else if (!lista.length) {
-      corpo = `<div class="app-vazio"><strong>Nenhuma chave de acesso criada ainda.</strong>
-          <p>Sem chave de acesso, só quem entra nesta tela guarda chaves aqui. Crie uma quando outro assistente precisar
-             fazer isso por conta própria.</p></div>`;
+      corpo = dgHtmlFull_cofre(`<div class="app-vazio"><strong><!--dg-i18n:58e0021b4c11-->Nenhuma chave de acesso criada ainda.<!--/dg-i18n--></strong>
+          <p><!--dg-i18n:ae64088d387d-->Sem chave de acesso, só quem entra nesta tela guarda chaves aqui. Crie uma quando outro assistente precisar
+             fazer isso por conta própria.<!--/dg-i18n--></p></div>`);
     } else {
-      corpo = `<table class="pixel-table cofre-tabela">
+      corpo = dgHtmlFull_cofre(`<table class="pixel-table cofre-tabela">
           <thead><tr>
-            <th title="O nome que você deu à chave.">Nome</th>
-            <th title="Os quatro últimos caracteres do token.">Final do token</th>
-            <th title="Quem criou a chave e quando.">Criada por</th>
-            <th title="A última vez que a chave foi usada.">Último uso</th>
-            <th title="Se a chave ainda vale ou já foi revogada.">Estado</th>
+            <th data-dg-i18n-title="f0359a55ade8" title="O nome que você deu à chave."><!--dg-i18n:5086900635fe-->Nome<!--/dg-i18n--></th>
+            <th data-dg-i18n-title="700fa6ebec5b" title="Os quatro últimos caracteres do token."><!--dg-i18n:b55e3276b10d-->Final do token<!--/dg-i18n--></th>
+            <th data-dg-i18n-title="d6e603be66c6" title="Quem criou a chave e quando."><!--dg-i18n:18e880376708-->Criada por<!--/dg-i18n--></th>
+            <th data-dg-i18n-title="2455a5694fed" title="A última vez que a chave foi usada."><!--dg-i18n:0d1faa403cdd-->Último uso<!--/dg-i18n--></th>
+            <th data-dg-i18n-title="c3fbe2c97dbf" title="Se a chave ainda vale ou já foi revogada.">Estado</th>
             <th></th>
           </tr></thead>
           <tbody>${lista.map(linhaDaChaveApi).join('')}</tbody>
-        </table>`;
+        </table>`);
     }
-    return `<div class="cartao cofre-api">
-        <div class="section-title">Chaves de acesso à API
+    return dgHtmlFull_cofre(`<div class="cartao cofre-api">
+        <div class="section-title"><!--dg-i18n:564fa5e5a831-->Chaves de acesso à API<!--/dg-i18n-->
           <button type="button" class="app-ajuda-secao" data-tutorial="api"
-                  aria-label="O que é uma chave de acesso à API" title="O que é uma chave de acesso à API">?</button>
+                  data-dg-i18n-aria-label="f9104d4accbd" aria-label="O que é uma chave de acesso à API" data-dg-i18n-title="f9104d4accbd" title="O que é uma chave de acesso à API">?</button>
         </div>
-        <p class="ajuda-secao cofre-api-aviso"><b>Estas chaves deixam outro programa ou agente usar a API.</b> Não é aqui
-          que se guarda senha ou token de serviço (OpenAI, Hostinger...): para isso use o formulário
-          <a href="#cofre-nova" class="cofre-ir-guardar">Guardar uma chave</a> do Cofre.</p>
-        <p class="ajuda-secao">É o jeito de <b>outro assistente</b> (a assistente principal, ou o Admin, por exemplo)
-          colocar chaves neste agente <b>sem ver esta tela</b>. Você cria uma chave de API, copia o token na hora e
-          entrega a quem você confia. Ela só serve para guardar chaves <b>neste</b> agente: não lê o que já está
-          guardado, não cria outras chaves de API e deixa de valer quando você clica em revogar.</p>
+        <p class="ajuda-secao cofre-api-aviso"><b><!--dg-i18n:bbc4474d7cc1-->Estas chaves deixam outro programa ou agente usar a API.<!--/dg-i18n--></b> <!--dg-i18n:5039abbeccfb-->Não é aqui
+          que se guarda senha ou token de serviço (OpenAI, Hostinger...): para isso use o formulário<!--/dg-i18n-->
+          <a href="#cofre-nova" class="cofre-ir-guardar"><!--dg-i18n:cb8e9975e279-->Guardar uma chave<!--/dg-i18n--></a> <!--dg-i18n:358658c00010-->do Cofre.<!--/dg-i18n--></p>
+        <p class="ajuda-secao"><!--dg-i18n:b7f034edf420-->É o jeito de<!--/dg-i18n--> <b><!--dg-i18n:fea21272080e-->outro assistente<!--/dg-i18n--></b> <!--dg-i18n:bd7d4a467b62-->(a assistente principal, ou o Admin, por exemplo)
+          colocar chaves neste agente<!--/dg-i18n--> <b><!--dg-i18n:a1f81dfc3e4a-->sem ver esta tela<!--/dg-i18n--></b><!--dg-i18n:7b9502826633-->. Você cria uma chave de API, copia o token na hora e
+          entrega a quem você confia. Ela só serve para guardar chaves<!--/dg-i18n--> <b>neste</b> <!--dg-i18n:6e13218b2473-->agente: não lê o que já está
+          guardado, não cria outras chaves de API e deixa de valer quando você clica em revogar.<!--/dg-i18n--></p>
         ${blocoTokenNovo()}
         ${corpo}
         <div class="cofre-campo cofre-api-nova">
-          <label for="cofre-api-nome" title="Um nome que lembre quem vai usar esta chave, por exemplo Admin.">Nome da nova chave de acesso</label>
+          <label for="cofre-api-nome" data-dg-i18n-title="46de078d2b17" title="Um nome que lembre quem vai usar esta chave, por exemplo Admin."><!--dg-i18n:77f21d8157ad-->Nome da nova chave de acesso<!--/dg-i18n--></label>
           <input type="text" id="cofre-api-nome" maxlength="60" spellcheck="false" autocomplete="off" placeholder="Admin">
         </div>
         <div class="cofre-botoes">
           <button type="button" class="btn-principal" id="cofre-api-criar"
-                  title="Cria a chave de acesso e mostra o token uma única vez.">criar chave de acesso</button>
+                  data-dg-i18n-title="f6bc1abbaccf" title="Cria a chave de acesso e mostra o token uma única vez."><!--dg-i18n:e27ab5ca3025-->criar chave de acesso<!--/dg-i18n--></button>
         </div>
-      </div>`;
+      </div>`);
   }
 
   function desenhar() {
@@ -447,8 +454,8 @@
         const url = op ? op.dataset.onde : '';
         const dica = op ? op.dataset.dica : '';
         onde.innerHTML = dica ? esc(dica) : url
-          ? `Você gera essa chave aqui: <a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>. Precisa estar logado na sua conta do serviço.`
-          : 'Gere a chave no painel do serviço que você quer ligar, com a sua conta, e escreva abaixo o nome pelo qual o agente deve procurá-la.';
+          ? dgHtmlFull_cofre(`<!--dg-i18n:560f7736149b-->Você gera essa chave aqui:<!--/dg-i18n--> <a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a><!--dg-i18n:d6def6f981a1-->. Precisa estar logado na sua conta do serviço.<!--/dg-i18n-->`)
+          : dgTextFull_cofre("Gere a chave no painel do serviço que você quer ligar, com a sua conta, e escreva abaixo o nome pelo qual o agente deve procurá-la.");
       };
       sel.addEventListener('change', aplicarProvedor);
       nome.addEventListener('input', () => { nome.dataset.veioDaLista = '0'; });
@@ -461,7 +468,7 @@
       ver.addEventListener('click', () => {
         const escondido = valor.type === 'password';
         valor.type = escondido ? 'text' : 'password';
-        ver.textContent = escondido ? 'esconder de novo' : 'mostrar o que colei';
+        dgBindFull_cofre(ver,escondido ? dgTextFull_cofre("esconder de novo") : dgTextFull_cofre("mostrar o que colei"),undefined);
       });
     }
 
@@ -495,7 +502,7 @@
     const provedor = (document.getElementById('cofre-provedor') || {}).value || 'outro';
 
     ocupado = true;
-    mostrarAviso('andando', 'Guardando a chave...');
+    mostrarAviso('andando', dgTextFull_cofre("Guardando a chave..."));
     const r = await chamar('/api/cofre', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -524,14 +531,14 @@
   async function revogarChave(envName) {
     if (ocupado || !envName) return;
     const certeza = window.confirm(
-      `Revogar a chave "${envName}"?\n\n` +
-      'Ela sai do cofre agora e some do agente no próximo reinício dele. ' +
-      'Isso NÃO cancela a chave no site do serviço: se ela vazou, cancele lá também.',
+      dgPhraseFull_cofre("Revogar a chave \"{v0}\"?\n\n",{v0:(envName)}) +
+      dgTextFull_cofre("Ela sai do cofre agora e some do agente no próximo reinício dele. ") +
+      dgTextFull_cofre("Isso NÃO cancela a chave no site do serviço: se ela vazou, cancele lá também."),
     );
     if (!certeza) return;
 
     ocupado = true;
-    mostrarAviso('andando', `Revogando ${envName}...`);
+    mostrarAviso('andando', dgPhraseFull_cofre("Revogando {v0}...",{v0:(envName)}));
     const r = await chamar(`/api/cofre?envName=${encodeURIComponent(envName)}`, { method: 'DELETE' });
     ocupado = false;
 
@@ -542,9 +549,9 @@
   async function aplicarCofre() {
     if (ocupado) return;
     const certeza = window.confirm(
-      'Reiniciar o agente agora?\n\n' +
-      'É o que faz as chaves do cofre passarem a valer. Se ele estiver no meio de um trabalho, o trabalho é interrompido.\n' +
-      'A conversa de vocês não se perde: ele volta de onde parou.',
+      dgTextFull_cofre("Reiniciar o agente agora?\n\n") +
+      dgTextFull_cofre("É o que faz as chaves do cofre passarem a valer. Se ele estiver no meio de um trabalho, o trabalho é interrompido.\n") +
+      dgTextFull_cofre("A conversa de vocês não se perde: ele volta de onde parou."),
     );
     if (!certeza) return;
 
@@ -555,9 +562,9 @@
 
     if (!r.ok) { await recarregar({ tipo: 'erro', texto: motivoDoErro(r) }); return; }
     const c = r.corpo || {};
-    let texto = c.feito || 'O agente foi reiniciado.';
+    let texto = c.feito || dgTextFull_cofre("O agente foi reiniciado.");
     if (c.falhas && c.falhas.length) {
-      texto += ` Atenção: ${c.falhas.join(', ')} está no cofre e não abriu nesta máquina, então o agente ficou sem ela.`;
+      texto += dgPhraseFull_cofre(" Atenção: {v0} está no cofre e não abriu nesta máquina, então o agente ficou sem ela.",{v0:(c.falhas.join(', '))});
     }
     await recarregar({ tipo: 'ok', texto });
   }
@@ -566,7 +573,7 @@
     if (ocupado) return;
     const nome = ((document.getElementById('cofre-api-nome') || {}).value || '').trim();
     ocupado = true;
-    mostrarAviso('andando', 'Criando a chave de acesso...');
+    mostrarAviso('andando', dgTextFull_cofre("Criando a chave de acesso..."));
     const r = await chamar('/api/chaves-api', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -582,13 +589,13 @@
   async function revogarChaveApi(id, nome) {
     if (ocupado || !id) return;
     const certeza = window.confirm(
-      `Revogar a chave de acesso "${nome}"?\n\n` +
-      'Ela deixa de valer agora. Quem a usa passa a receber recusa até você criar outra. ' +
-      'As chaves de serviço que ela já guardou neste cofre continuam onde estão.',
+      dgPhraseFull_cofre("Revogar a chave de acesso \"{v0}\"?\n\n",{v0:(nome)}) +
+      dgTextFull_cofre("Ela deixa de valer agora. Quem a usa passa a receber recusa até você criar outra. ") +
+      dgTextFull_cofre("As chaves de serviço que ela já guardou neste cofre continuam onde estão."),
     );
     if (!certeza) return;
     ocupado = true;
-    mostrarAviso('andando', 'Revogando a chave de acesso...');
+    mostrarAviso('andando', dgTextFull_cofre("Revogando a chave de acesso..."));
     const r = await chamar(`/api/chaves-api?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
     ocupado = false;
     if (!r.ok) { await recarregar({ tipo: 'erro', texto: motivoDoErro(r) }); return; }
@@ -600,11 +607,11 @@
     if (!campo) return;
     try {
       await navigator.clipboard.writeText(campo.value);
-      mostrarAviso('ok', 'Token copiado. Cole-o onde o outro assistente vai guardá-lo.');
+      mostrarAviso('ok', dgTextFull_cofre("Token copiado. Cole-o onde o outro assistente vai guardá-lo."));
     } catch {
       // Página sem HTTPS não tem área de transferência: seleciona para copiar à mão.
       campo.focus(); campo.select();
-      mostrarAviso('erro', 'O navegador não deixou copiar sozinho. O token está selecionado: use Ctrl+C (ou "copiar" do menu).');
+      mostrarAviso('erro', dgTextFull_cofre("O navegador não deixou copiar sozinho. O token está selecionado: use Ctrl+C (ou \"copiar\" do menu)."));
     }
   }
 
@@ -632,19 +639,19 @@
     el.innerHTML = cabecalho();
     ligarCabecalho();
     const corpo = document.getElementById('cofre-corpo');
-    if (corpo) corpo.innerHTML = '<div class="app-carregando">Carregando...</div>';
+    if (corpo) corpo.innerHTML = dgHtml_cofre("<div class=\"app-carregando\"><!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>");
 
     const r = await chamar('/api/cofre');
     if (!r.ok && r.status === 403) {
       // Colaborador: o Web recusa o cofre inteiro. Não é falha, é a regra; a frase vem pronta do servidor.
       const alvo = document.getElementById('cofre-corpo');
       const c = r.corpo || {};
-      if (alvo) alvo.innerHTML = `<div class="app-erro"><strong>${esc(c.error || 'O cofre é só do dono do DG Claw.')}</strong>${c.howToFix ? `<p>${esc(c.howToFix)}</p>` : ''}</div>`;
+      if (alvo) alvo.innerHTML = `<div class="app-erro"><strong>${esc(c.error || dgTextFull_cofre("O cofre é só do dono do DG Claw."))}</strong>${c.howToFix ? `<p>${esc(c.howToFix)}</p>` : ''}</div>`;
       return;
     }
     if (!r.ok) {
       const alvo = document.getElementById('cofre-corpo');
-      if (alvo) alvo.innerHTML = `<div class="app-erro"><strong>Não consegui abrir o cofre.</strong><p>${esc(motivoDoErro(r))}</p></div>`;
+      if (alvo) alvo.innerHTML = dgHtmlFull_cofre(`<div class="app-erro"><strong><!--dg-i18n:c7924ca977f4-->Não consegui abrir o cofre.<!--/dg-i18n--></strong><p>${esc(motivoDoErro(r))}</p></div>`);
       return;
     }
     dados = r.corpo;

@@ -1,3 +1,4 @@
+const { preludioIdioma } = require('./idioma-fixture');
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const fonte=fs.readFileSync(require('node:path').join(__dirname,'../public/conversa.js'),'utf8');
 const ini=fonte.indexOf('/* ── Fila de leitura');
@@ -19,7 +20,7 @@ test('cancelar durante A impede B enfileirada de gerar voz ou tocar',async()=>{
   fimToque:null,faloAbort:null,faloGeracao:0};
  // o código real declara faloGeracao/fimToque/faloAbort em outro ponto: aqui vêm do contexto
  vm.createContext(ctx);
- vm.runInContext(bloco.replace(/^(let (faloGeracao|faloAbort|fimToque)|const (vozCache|VOZ_CACHE_MAX)).*$/gm,'').replace(/(async )?function pegaPedacoVoz[\s\S]*?\n}\n/,'').replace(/function tocaPedaco[\s\S]*?\n}\n/,''),ctx);
+ vm.runInContext(preludioIdioma(fonte) + bloco.replace(/^(let (faloGeracao|faloAbort|fimToque)|const (vozCache|VOZ_CACHE_MAX)).*$/gm,'').replace(/(async )?function pegaPedacoVoz[\s\S]*?\n}\n/,'').replace(/function tocaPedaco[\s\S]*?\n}\n/,''),ctx);
  ctx.msgs.push({id:1,text:'A'});
  vm.runInContext('falaNovas()',ctx);
  await new Promise(r=>setImmediate(r));
@@ -43,7 +44,7 @@ test('fone com o microfone gravando ou abrindo não gera voz nem toca',async()=>
    vozCache:new Map(),VOZ_CACHE_MAX:12,pegaPedacoVoz:async t=>{tts.push(t);return{blob:t,partes:1};},
    tocaPedaco:async t=>{tocou.push(t);return true;},fimToque:null,faloAbort:null,faloGeracao:0},estado);
   vm.createContext(ctx);
-  vm.runInContext(bloco.replace(/^(let (faloGeracao|faloAbort|fimToque)|const (vozCache|VOZ_CACHE_MAX)).*$/gm,'').replace(/(async )?function pegaPedacoVoz[\s\S]*?\n}\n/,'').replace(/function tocaPedaco[\s\S]*?\n}\n/,''),ctx);
+  vm.runInContext(preludioIdioma(fonte) + bloco.replace(/^(let (faloGeracao|faloAbort|fimToque)|const (vozCache|VOZ_CACHE_MAX)).*$/gm,'').replace(/(async )?function pegaPedacoVoz[\s\S]*?\n}\n/,'').replace(/function tocaPedaco[\s\S]*?\n}\n/,''),ctx);
   ctx.msgs.push({id:1,text:'resposta'});
   vm.runInContext("ouvirAPartirDe({ id: 1, texto: 'resposta' })",ctx);
   await new Promise(r=>setImmediate(r));
@@ -62,7 +63,7 @@ test('aparelho que não toca o pedaço para a fila e não pede mais voz',async()
   vozCache:new Map(),VOZ_CACHE_MAX:12,pegaPedacoVoz:async(t,i)=>{tts.push(t+':'+i);return{blob:i,partes:4};},
   tocaPedaco:async()=>false,fimToque:null,faloAbort:null,faloGeracao:0};
  vm.createContext(ctx);
- vm.runInContext(bloco.replace(/^(let (faloGeracao|faloAbort|fimToque)|const (vozCache|VOZ_CACHE_MAX)).*$/gm,'').replace(/(async )?function pegaPedacoVoz[\s\S]*?\n}\n/,'').replace(/function tocaPedaco[\s\S]*?\n}\n/,''),ctx);
+ vm.runInContext(preludioIdioma(fonte) + bloco.replace(/^(let (faloGeracao|faloAbort|fimToque)|const (vozCache|VOZ_CACHE_MAX)).*$/gm,'').replace(/(async )?function pegaPedacoVoz[\s\S]*?\n}\n/,'').replace(/function tocaPedaco[\s\S]*?\n}\n/,''),ctx);
  vm.runInContext("enfileiraFala({id:1,texto:'longa'});enfileiraFala({id:2,texto:'outra'})",ctx);
  await vm.runInContext('filaFala',ctx);
  await new Promise(r=>setImmediate(r));

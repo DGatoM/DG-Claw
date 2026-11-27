@@ -19,6 +19,7 @@
 
 (function (raiz) {
   'use strict';
+  const dgIntT = fonte => raiz.DGI18n ? raiz.DGI18n.t(fonte) : fonte;
 
   // ── tabelas do código ───────────────────────────────────────────────────────
   // Estado validado -> classe de cor e palavra de reserva. Valor fora daqui NUNCA vira verde.
@@ -111,20 +112,20 @@
   function frase(integracoes) {
     const lista = Array.isArray(integracoes) ? integracoes : [];
     if (!lista.length) {
-      return 'Ainda não usou nenhum sistema externo. Cada sistema aparece aqui sozinho na primeira vez que o agente o usar.';
+      return dgIntT('Ainda não usou nenhum sistema externo. Cada sistema aparece aqui sozinho na primeira vez que o agente o usar.');
     }
     const ligados = lista.filter((i) => i.estado !== 'desligado').length;
     const defeito = lista.filter((i) => i.estado === 'vermelho').length;
-    if (!ligados) return 'Todos os sistemas estão desligados no mapa.';
-    let t = 'Ligado em ' + ligados + (ligados === 1 ? ' sistema' : ' sistemas');
-    if (defeito) t += ' · ' + defeito + ' com defeito';
+    if (!ligados) return dgIntT('Todos os sistemas estão desligados no mapa.');
+    let t = dgIntT('Ligado em ') + ligados + (ligados === 1 ? dgIntT(' sistema') : dgIntT(' sistemas'));
+    if (defeito) t += ' · ' + defeito + dgIntT(' com defeito');
     return t;
   }
   function quando(iso) {
     if (!iso) return '';
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '';
-    return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleString(raiz.DGI18n ? raiz.DGI18n.locale : 'pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
   function aparar(texto, max) {
     const s = String(texto == null ? '' : texto);
@@ -136,7 +137,7 @@
   }
   function palavraDe(i) {
     const e = estadoDe(i.estado) || ESTADO_DESCONHECIDO;
-    return aparar(i.palavra || e.palavra, 24);
+    return aparar(dgIntT(e.palavra), 24);
   }
 
   const puro = { hash, layout, estadoDe, classeDoEstado, iconeSeguro, frase, quando, visiveis, ESTADOS, ICONES, DURACAO, MAX_ANEL };
@@ -151,7 +152,7 @@
   const NS = 'http://www.w3.org/2000/svg';
   const LOGO = '/marca/logo'; // o logo da marca: o do DG Claw, ou o personalizado quando o Web tem marca própria
 
-  const estadoTela = { dados: null, modoAula: false, selecionado: null, foto: '', nos: [], raf: 0, timer: 0, T: 5, ultimo: 0, larguraDesenhada: 0 };
+  const estadoTela = { dados: null, modoAula: false, selecionado: null, foto: '', nos: [], raf: 0, timer: 0, T: 5, ultimo: 0, larguraDesenhada: 0, alterando: new Set(), erros: new Map() };
 
   function h(tag, attrs, texto) {
     const e = document.createElement(tag);
@@ -264,7 +265,7 @@
     lista.forEach((i) => { porId[i.id] = i; });
 
     const svg = s('svg', {
-      class: 'int-svg', viewBox: '0 0 ' + w + ' ' + alt, role: 'group', 'aria-label': 'Mapa das integrações de ' + aparar(agente.nome, 40),
+      class: 'int-svg', viewBox: '0 0 ' + w + ' ' + alt, role: 'group', 'aria-label': dgIntT('Mapa das integrações de ') + aparar(agente.nome, 40),
     });
     const clip = s('clipPath', { id: 'int-recorte-foto' }, s('defs', null, svg));
     s('circle', { r: rf, cx: 0, cy: 0 }, clip);
@@ -336,7 +337,7 @@
     }
     s('circle', { class: 'int-centro-aro', r: rf }, centro);
     s('text', { class: 'int-centro-nome', y: rf + (movel ? 20 : 24), 'text-anchor': 'middle' }, centro, aparar(agente.nome, 30));
-    s('text', { class: 'int-centro-sub', y: rf + (movel ? 35 : 40), 'text-anchor': 'middle' }, centro, 'agente');
+    s('text', { class: 'int-centro-sub', y: rf + (movel ? 35 : 40), 'text-anchor': 'middle' }, centro, dgIntT('agente'));
     estadoTela.centro = centro;
     estadoTela.L = L;
 
@@ -347,7 +348,7 @@
     Object.keys(ESTADOS).forEach((k) => {
       const item = h('span');
       item.appendChild(glifoSolto(k, 16));
-      item.appendChild(document.createTextNode(ESTADOS[k].palavra));
+      item.appendChild(document.createTextNode(dgIntT(ESTADOS[k].palavra)));
       leg.appendChild(item);
     });
     destino.appendChild(leg);
@@ -440,46 +441,58 @@
     selo.appendChild(glifoSolto(it.estado, 20));
     selo.appendChild(document.createTextNode(palavraDe(it)));
     cab.appendChild(selo);
-    const ajuda = h('button', { type: 'button', class: 'app-ajuda-secao', 'aria-label': 'O que é este cartão', title: 'O que é este cartão, e como a conta é feita' }, '?');
+    const ajuda = h('button', { type: 'button', class: 'app-ajuda-secao', 'aria-label': dgIntT('O que é este cartão'), title: dgIntT('O que é este cartão, e como a conta é feita') }, '?');
     ajuda.addEventListener('click', () => { if (raiz.DGTutoriais) raiz.DGTutoriais.abrir('integracoes', 'cartao'); });
     cab.appendChild(ajuda);
-    const fechar = h('button', { type: 'button', class: 'int-fechar', 'aria-label': 'Fechar o cartão' }, '×');
+    const fechar = h('button', { type: 'button', class: 'int-fechar', 'aria-label': dgIntT('Fechar o cartão') }, '×');
     fechar.addEventListener('click', () => { estadoTela.selecionado = null; desenhar(); });
     cab.appendChild(fechar);
     caixa.appendChild(cab);
 
     const dl = h('dl', { class: 'int-dl' });
     const okEm = quando(it.ultimoOk);
-    linhaDoCartao(dl, 'Última vez que funcionou', okEm || 'ainda não funcionou nenhuma vez');
+    linhaDoCartao(dl, dgIntT('Última vez que funcionou'), okEm || dgIntT('ainda não funcionou nenhuma vez'));
     const falhaEm = quando(it.ultimaFalha);
-    let falha = 'nenhum problema registrado';
+    let falha = dgIntT('nenhum problema registrado');
     if (it.ultimaFalhaExplica) falha = aparar(it.ultimaFalhaExplica, 300) + (falhaEm ? ' (' + falhaEm + ')' : '');
     else if (falhaEm) falha = falhaEm;
-    linhaDoCartao(dl, 'Último problema', falha);
+    linhaDoCartao(dl, dgIntT('Último problema'), falha);
     caixa.appendChild(dl);
 
-    caixa.appendChild(h('div', { class: 'int-dl-rotulo' }, 'Quais skills usam'));
+    caixa.appendChild(h('div', { class: 'int-dl-rotulo' }, dgIntT('Quais skills usam')));
     const skills = Array.isArray(it.skills) ? it.skills : [];
     if (skills.length) {
       const ul = h('ul', { class: 'int-skills' });
       skills.slice(0, 30).forEach((n) => ul.appendChild(h('li', null, aparar(n, 60))));
       caixa.appendChild(ul);
     } else {
-      caixa.appendChild(h('p', { class: 'int-skills-vazio' }, 'nenhuma skill declarou'));
+      caixa.appendChild(h('p', { class: 'int-skills-vazio' }, dgIntT('nenhuma skill declarou')));
     }
 
     const desligada = it.estado === 'desligado';
-    const botao = h('button', { type: 'button', class: 'int-botao' }, desligada ? 'Ligar no mapa' : 'Desligar no mapa');
+    const botao = h('button', { type: 'button', class: 'int-botao' }, desligada ? dgIntT('Ligar no mapa') : dgIntT('Desligar no mapa'));
     const msg = h('p', { class: 'int-erro', role: 'alert', hidden: '' });
+    botao.disabled = estadoTela.alterando.has(it.id);
+    if (estadoTela.erros.has(it.id)) { msg.textContent = estadoTela.erros.get(it.id); msg.hidden = false; }
     botao.addEventListener('click', async () => {
+      if (estadoTela.alterando.has(it.id)) return;
+      estadoTela.alterando.add(it.id);
+      estadoTela.erros.delete(it.id);
       botao.disabled = true;
       msg.hidden = true;
-      const r = await alternarLigada(it.id, !desligada);
-      if (r.ok) { await carregar(); return; }
-      botao.disabled = false;
+      let r;
+      try { r = await alternarLigada(it.id, !desligada); }
+      catch (_) { r = { ok: false }; }
+      finally { estadoTela.alterando.delete(it.id); }
+      if (r.ok) {
+        estadoTela.alterando.add(it.id);
+        try { await carregar(); }
+        finally { estadoTela.alterando.delete(it.id); desenharCartao(); }
+        return;
+      }
       const c = r.corpo || {};
-      msg.textContent = (c.error || 'Não consegui mudar isso agora.') + (c.howToFix ? ' ' + c.howToFix : '');
-      msg.hidden = false;
+      estadoTela.erros.set(it.id, (c.error || dgIntT('Não consegui mudar isso agora.')) + (c.howToFix ? ' ' + c.howToFix : ''));
+      desenharCartao();
     });
     caixa.appendChild(botao);
     caixa.appendChild(msg);
@@ -488,7 +501,7 @@
   async function alternarLigada(id, desligar) {
     const url = '/api/integracoes/' + encodeURIComponent(id) + (desligar ? '/desligar' : '/ligar');
     if (typeof API !== 'undefined' && API.post) return API.post(url, {});
-    return { ok: false, corpo: { error: 'O painel não carregou por inteiro.', howToFix: 'Recarregue a página.' } };
+    return { ok: false, corpo: { error: dgIntT('O painel não carregou por inteiro.'), howToFix: dgIntT('Recarregue a página.') } };
   }
 
   function selecionar(id, origem) {
@@ -520,8 +533,8 @@
 
     if (dados.medido === false) {
       // Nunca o mapa verde: só o motivo.
-      resumo.textContent = 'Não foi possível medir as integrações agora.';
-      mostrarAviso(aparar(dados.motivo || 'O painel não conseguiu ler o registro das integrações.', 400));
+      resumo.textContent = dgIntT('Não foi possível medir as integrações agora.');
+      mostrarAviso(aparar(dados.motivo || dgIntT('O painel não conseguiu ler o registro das integrações.'), 400));
       mapa.textContent = ''; parar();
       estadoTela.nos = [];
       if (caixa) caixa.hidden = true;
@@ -538,21 +551,21 @@
     if (!vis.length) {
       mapa.textContent = ''; parar(); estadoTela.nos = [];
       if (caixa) caixa.style.height = '';
-      mapa.appendChild(h('p', { class: 'int-vazio' }, 'Nenhum sistema está funcionando agora, então o modo aula não tem o que mostrar.'));
+      mapa.appendChild(h('p', { class: 'int-vazio' }, dgIntT('Nenhum sistema está funcionando agora, então o modo aula não tem o que mostrar.')));
       desenharCartao();
       return;
     }
-    const agente = dados.agente || { nome: 'Agente', slug: '' };
+    const agente = dados.agente || { nome: dgIntT('Agente'), slug: '' };
     desenharMapa(mapa, agente, vis);
     desenharCartao();
   }
 
   function mostrarErro(r) {
     const c = (r && r.corpo) || {};
-    const causa = c.error || (r && r.status ? 'o painel respondeu com o código ' + r.status : 'sem resposta do painel');
+    const causa = c.error || (r && r.status ? dgIntT('o painel respondeu com o código ') + r.status : dgIntT('sem resposta do painel'));
     const resumo = el$('int-resumo-texto');
-    if (resumo) resumo.textContent = 'Não consegui carregar as integrações.';
-    mostrarAviso('Não consegui carregar as integrações: ' + aparar(causa, 300) + ' ' + aparar(c.howToFix || 'Confira a internet e tente de novo.', 200));
+    if (resumo) resumo.textContent = dgIntT('Não consegui carregar as integrações.');
+    mostrarAviso(dgIntT('Não consegui carregar as integrações: ') + aparar(causa, 300) + ' ' + aparar(c.howToFix || dgIntT('Confira a internet e tente de novo.'), 200));
     const caixa = el$('int-mapa-caixa');
     if (caixa) caixa.hidden = true;
     parar();
@@ -563,7 +576,7 @@
     if (!el$('int-mapa')) return;
     ligar();
     const get = typeof API !== 'undefined' && API.integracoes ? API.integracoes() : null;
-    if (!get) { mostrarErro({ corpo: { error: 'O painel não carregou por inteiro.', howToFix: 'Recarregue a página.' } }); return; }
+    if (!get) { mostrarErro({ corpo: { error: dgIntT('O painel não carregou por inteiro.'), howToFix: dgIntT('Recarregue a página.') } }); return; }
     const r = await get;
     if (!r.ok || !r.corpo || r.corpo.ok === false) { mostrarErro(r); return; }
     // Recarga automática que não mudou nada não refaz o desenho (o foco do teclado fica onde está).
@@ -592,7 +605,7 @@
     });
     const res = el$('int-resumo');
     if (res && !res.querySelector('.app-ajuda-secao')) {
-      const aj = h('button', { type: 'button', class: 'app-ajuda-secao', 'aria-label': 'O que é esta seção', title: 'O que é esta seção, e como a conta é feita' }, '?');
+      const aj = h('button', { type: 'button', class: 'app-ajuda-secao', 'aria-label': dgIntT('O que é esta seção'), title: dgIntT('O que é esta seção, e como a conta é feita') }, '?');
       aj.addEventListener('click', () => { if (raiz.DGTutoriais) raiz.DGTutoriais.abrir('integracoes', 'resumo'); });
       res.appendChild(aj);
     }
@@ -602,5 +615,6 @@
     }, 30000);
   }
 
+  raiz.addEventListener('dgclaw:idioma', () => { if (estadoTela.dados) { desenhar(); carregar(); } });
   raiz.DGIntegracoes = { carregar, puro };
 })(typeof window !== 'undefined' ? window : globalThis);

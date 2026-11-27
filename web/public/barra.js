@@ -1,4 +1,7 @@
 'use strict';
+const dgUiText_barra_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.t(fonte) : fonte;
+const dgUiHtml_barra_js = fonte => globalThis.DGI18n ? globalThis.DGI18n.html(fonte) : fonte.replace(/<!--(?:dg-i18n:[a-f0-9]{12}|\/dg-i18n)-->/g, '');
+const dgUiLabel_barra_js = (el, fonte, atributo) => { if (globalThis.DGI18n) globalThis.DGI18n.rotulo(el, fonte, atributo); else if (atributo) el.setAttribute(atributo, fonte); else el.textContent = fonte; };
 /* barra.js: a lista de comandos que abre quando o campo da conversa começa com "/".
 
    As funções puras (deveAbrir, filtrar) não tocam no DOM e têm teste em web/test/barra.test.js.
@@ -45,7 +48,7 @@
 
   /** O que a pessoa lê quando escolhe um item que não roda. */
   function textoMotivo(c) {
-    return c.nome + ' não roda por aqui: ' + (c.motivo || 'o servidor não disse o motivo') + '.';
+    return c.nome + dgUiText_barra_js(" não roda por aqui: ") + (c.motivo || dgUiText_barra_js("o servidor não disse o motivo")) + '.';
   }
 
   const api = { deveAbrir, nomeDigitado, filtrar, textoMotivo, VAZIO };
@@ -66,7 +69,7 @@
     lista.className = 'barra-lista';
     lista.id = 'barraLista';
     lista.setAttribute('role', 'listbox');
-    lista.setAttribute('aria-label', 'Comandos disponíveis');
+    dgUiLabel_barra_js(lista, "Comandos disponíveis", "aria-label");
     lista.hidden = true;
     pai.appendChild(lista);
     campo.setAttribute('aria-controls', 'barraLista');
@@ -85,12 +88,12 @@
       buscando = fetch(opt.url, { cache: 'no-store' }).then(async r => {
         let d = null;
         try { d = await r.json(); } catch (e) { d = null; }
-        if (r.status === 401) throw new Error('a sessão expirou, entre de novo');
+        if (r.status === 401) throw new Error(dgUiText_barra_js("a sessão expirou, entre de novo"));
         if (!r.ok || !d || d.ok === false) throw new Error((d && d.erro) || ('o app respondeu ' + r.status));
         catalogo = Array.isArray(d.comandos) ? d.comandos : [];
         buscouEm = Date.now();
       }).catch(e => {
-        erro = e.message || 'sem resposta do app';
+        erro = e.message || dgUiText_barra_js("sem resposta do app");
         console.warn('barra: não consegui carregar os comandos:', erro);
       }).then(() => { buscando = null; if (aberta) desenha(); });
       return buscando;
@@ -106,18 +109,18 @@
       let html = '';
       itens = [];
       if (buscando && !catalogo) {
-        html = '<div class="barra-msg">' + dsCarregando({ rotulo: 'Carregando os comandos', tamanho: 'p' }) + ' Carregando os comandos…</div>';
+        html = '<div class="barra-msg">' + dsCarregando({ rotulo: dgUiText_barra_js("Carregando os comandos"), tamanho: 'p' }) + dgUiHtml_barra_js(" <!--dg-i18n:2da33f51d387-->Carregando os comandos…<!--/dg-i18n--></div>");
       } else if (erro && !catalogo) {
-        html = '<div class="barra-msg erro">Não consegui carregar os comandos: ' + esc(erro) +
+        html = dgUiHtml_barra_js("<div class=\"barra-msg erro\"><!--dg-i18n:6f9bca6c19b6-->Não consegui carregar os comandos:<!--/dg-i18n--> ") + esc(erro) +
                '. Você ainda pode enviar; o servidor confere o comando.</div>';
       } else {
         itens = filtrar(catalogo || [], termo);
-        if (!itens.length) html = '<div class="barra-msg">' + esc(VAZIO) + '</div>';
+        if (!itens.length) html = '<div class="barra-msg">' + esc(dgUiText_barra_js(VAZIO)) + '</div>';
         if (ativo >= itens.length) ativo = Math.max(0, itens.length - 1);
         let tipoAnterior = null;
         itens.forEach((c, i) => {
-          if (c.tipo !== tipoAnterior && ROTULO_TIPO[c.tipo] && !termo) {
-            html += '<div class="barra-grupo" role="presentation">' + esc(ROTULO_TIPO[c.tipo]) + '</div>';
+          if (c.tipo !== tipoAnterior && dgUiText_barra_js(ROTULO_TIPO[c.tipo]) && !termo) {
+            html += '<div class="barra-grupo" role="presentation">' + esc(dgUiText_barra_js(ROTULO_TIPO[c.tipo])) + '</div>';
           }
           tipoAnterior = c.tipo;
           const cls = 'barra-item' + (c.roda === false ? ' off' : '') + (i === ativo ? ' ativo' : '');
@@ -126,7 +129,7 @@
             '<div class="barra-topo"><b class="barra-nome">' + esc(c.nome) + '</b>' +
             (c.argumentos ? ' <span class="barra-args">' + esc(c.argumentos) + '</span>' : '') + '</div>' +
             (c.descricao ? '<div class="barra-desc">' + esc(c.descricao) + '</div>' : '') +
-            (c.roda === false ? '<div class="barra-motivo">' + esc(c.motivo || 'Não roda pela conversa.') + '</div>' : '') +
+            (c.roda === false ? '<div class="barra-motivo">' + esc(c.motivo || dgUiText_barra_js("Não roda pela conversa.")) + '</div>' : '') +
             '</div>';
         });
       }

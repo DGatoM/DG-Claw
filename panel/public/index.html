@@ -2,8 +2,12 @@
 <html lang="pt-BR"{{HTML_CLASSE}}>
 <head>
   <meta charset="UTF-8">
+<link rel="stylesheet" href="/ds/idioma.css">
+<script src="/ds/idiomas.js"></script>
+<script src="/ds/idioma.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>DG Claw - Painel</title>
+  <meta name="marca-nome" content="DG Claw">
+  <title data-dg-i18n="c040d853fbf5">{{MARCA_NOME}} - Painel</title>
   <link rel="icon" href="/marca/favicon">
   <link rel="stylesheet" href="/ds/tokens.css">
   <link rel="stylesheet" href="/ds/componentes.css">
@@ -44,12 +48,12 @@
     <aside class="lado">
       <div class="marca">
         <div class="moldura">
-          <img src="{{BASE}}/assets/sprites/default.gif" alt="retrato do agente" class="sprite-gif" id="sprite-img" loading="lazy">
+          <img src="{{BASE}}/assets/sprites/default.gif" alt="retrato do agente" class="sprite-gif" id="sprite-img" loading="lazy" data-dg-i18n-alt="4429811c0a9d">
           <span class="mood-badge" id="mood-badge" data-ext="alive">--</span>
         </div>
         <div class="char-name" id="char-name">--</div>
         <div class="char-level" id="char-level" style="display:none">Lv. --</div>
-        <div class="char-papel" id="header-title" data-marca-nome>DG Claw</div>
+        <div class="char-papel" id="header-title" data-marca-nome><!--dg-i18n:374ef13e0648-->DG Claw<!--/dg-i18n--></div>
 
         <!-- Nasce ESCONDIDO e só aparece se houver mesmo para onde ir. Antes ele
              nascia visível e o JavaScript o escondia quando a lista voltava com um
@@ -59,7 +63,7 @@
         <div class="troca" id="troca" style="display:none">
           <button type="button" id="btn-troca">
             <img src="{{BASE}}/assets/sprites/avatar.jpg" alt="" class="mini" id="header-avatar" loading="lazy">
-            <span>trocar de agente</span>
+            <span><!--dg-i18n:a9d725b2d564-->trocar de agente<!--/dg-i18n--></span>
             <span class="seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span>
           </button>
           <div class="lista" id="lista-agentes"></div>
@@ -72,61 +76,61 @@
              o resto fica em grupos que abrem e fecham (js/menu-grupos.js), e Como funciona e Socorro ficam soltos no fim.
              O balão de cada aba mora no EXPLICACAO_ABA do js/app.js, e é aplicado no boot. Fonte única: escrever aqui
              também criaria dois textos para a mesma aba, e um dia eles discordam. -->
-        <button class="tab active" data-tab="conversa"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-message"/></svg></span>Conversa</button>
-        <button class="tab" data-tab="arquivos"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-folder"/></svg></span>Pasta</button>
+        <button class="tab active" data-tab="conversa"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-message"/></svg></span><!--dg-i18n:2377f109281b-->Conversa<!--/dg-i18n--></button>
+        <button class="tab" data-tab="arquivos"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-folder"/></svg></span><!--dg-i18n:518e479153a3-->Pasta<!--/dg-i18n--></button>
         <div class="grupo" data-grupo="perfil">
-          <button type="button" class="grupo-cab" id="grp-perfil-b" aria-expanded="false" aria-controls="grp-perfil"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-id"/></svg></span><span class="grupo-nome">Perfil do agente</span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
+          <button type="button" class="grupo-cab" id="grp-perfil-b" aria-expanded="false" aria-controls="grp-perfil"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-id"/></svg></span><span class="grupo-nome"><!--dg-i18n:a7dd08b645b1-->Perfil do agente<!--/dg-i18n--></span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
           <div class="grupo-itens" id="grp-perfil" role="group" aria-labelledby="grp-perfil-b"><div class="grupo-lista">
-            <button class="tab" data-tab="identity"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-id"/></svg></span>Identidade</button>
-            <button class="tab" data-tab="personality"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-smile"/></svg></span>Personalidade</button>
-            <button class="tab" data-tab="memory"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-brain"/></svg></span>Memória</button>
+            <button class="tab" data-tab="identity"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-id"/></svg></span><!--dg-i18n:06bf4e3e327c-->Identidade<!--/dg-i18n--></button>
+            <button class="tab" data-tab="personality"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-smile"/></svg></span><!--dg-i18n:a7149a027507-->Personalidade<!--/dg-i18n--></button>
+            <button class="tab" data-tab="memory"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-brain"/></svg></span><!--dg-i18n:fcd95b14beda-->Memória<!--/dg-i18n--></button>
           </div></div>
         </div>
         <!-- Sessões (12/10/2026): nasce escondida; js/sessoes.js mostra quando /api/sessoes-config diz ligado:true. -->
         <div class="grupo" data-grupo="dia">
-          <button type="button" class="grupo-cab" id="grp-dia-b" aria-expanded="false" aria-controls="grp-dia"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-calendar"/></svg></span><span class="grupo-nome">Dia a dia</span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
+          <button type="button" class="grupo-cab" id="grp-dia-b" aria-expanded="false" aria-controls="grp-dia"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-calendar"/></svg></span><span class="grupo-nome"><!--dg-i18n:3f2090184bfa-->Dia a dia<!--/dg-i18n--></span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
           <div class="grupo-itens" id="grp-dia" role="group" aria-labelledby="grp-dia-b"><div class="grupo-lista">
-            <button class="tab" data-tab="rotinas"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-refresh"/></svg></span>Rotinas</button>
-            <button class="tab" data-tab="sessoes" hidden><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-monitor"/></svg></span>Sessões</button>
+            <button class="tab" data-tab="rotinas"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-refresh"/></svg></span><!--dg-i18n:d99573116da7-->Rotinas<!--/dg-i18n--></button>
+            <button class="tab" data-tab="sessoes" hidden><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-monitor"/></svg></span><!--dg-i18n:549a96da6ff6-->Sessões<!--/dg-i18n--></button>
           </div></div>
         </div>
         <div class="grupo" data-grupo="ferramentas">
-          <button type="button" class="grupo-cab" id="grp-ferramentas-b" aria-expanded="false" aria-controls="grp-ferramentas"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-package"/></svg></span><span class="grupo-nome">Ferramentas</span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
+          <button type="button" class="grupo-cab" id="grp-ferramentas-b" aria-expanded="false" aria-controls="grp-ferramentas"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-package"/></svg></span><span class="grupo-nome"><!--dg-i18n:b96a67bfde3e-->Ferramentas<!--/dg-i18n--></span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
           <div class="grupo-itens" id="grp-ferramentas" role="group" aria-labelledby="grp-ferramentas-b"><div class="grupo-lista">
             <button class="tab" data-tab="skills"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-sparkle"/></svg></span>Skills</button>
-            <button class="tab" data-tab="integracoes"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-link"/></svg></span>Integrações</button>
+            <button class="tab" data-tab="integracoes"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-link"/></svg></span><!--dg-i18n:02cba44bb25b-->Integrações<!--/dg-i18n--></button>
             <button class="tab" data-tab="apps"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-layout"/></svg></span>Apps</button>
           </div></div>
         </div>
         <!-- Operações e Pulso viraram UMA aba em 01/10/2026: nem o mantenedor sabia dizer a diferença entre as duas.
              Ver panel/docs/OPERACOES.md. -->
         <div class="grupo" data-grupo="operacao">
-          <button type="button" class="grupo-cab" id="grp-operacao-b" aria-expanded="false" aria-controls="grp-operacao"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-activity"/></svg></span><span class="grupo-nome">Operação</span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
+          <button type="button" class="grupo-cab" id="grp-operacao-b" aria-expanded="false" aria-controls="grp-operacao"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-activity"/></svg></span><span class="grupo-nome"><!--dg-i18n:40e49271ddad-->Operação<!--/dg-i18n--></span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
           <div class="grupo-itens" id="grp-operacao" role="group" aria-labelledby="grp-operacao-b"><div class="grupo-lista">
             <button class="tab" data-tab="status"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-activity"/></svg></span>Status</button>
-            <button class="tab" data-tab="operations"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-settings"/></svg></span>Operações</button>
-            <button class="tab" data-tab="costs"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chart"/></svg></span>Custos</button>
+            <button class="tab" data-tab="operations"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-settings"/></svg></span><!--dg-i18n:727ddbc785ad-->Operações<!--/dg-i18n--></button>
+            <button class="tab" data-tab="costs"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chart"/></svg></span><!--dg-i18n:2eadc5de57bb-->Custos<!--/dg-i18n--></button>
           </div></div>
         </div>
         <div class="grupo" data-grupo="seguranca">
-          <button type="button" class="grupo-cab" id="grp-seguranca-b" aria-expanded="false" aria-controls="grp-seguranca"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-shield"/></svg></span><span class="grupo-nome">Segurança</span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
+          <button type="button" class="grupo-cab" id="grp-seguranca-b" aria-expanded="false" aria-controls="grp-seguranca"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-shield"/></svg></span><span class="grupo-nome"><!--dg-i18n:d5668a0b8310-->Segurança<!--/dg-i18n--></span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
           <div class="grupo-itens" id="grp-seguranca" role="group" aria-labelledby="grp-seguranca-b"><div class="grupo-lista">
-            <button class="tab" data-tab="cofre"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-vault"/></svg></span>Cofre</button>
+            <button class="tab" data-tab="cofre"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-vault"/></svg></span><!--dg-i18n:98a4feebe11e-->Cofre<!--/dg-i18n--></button>
           </div></div>
         </div>
         <!-- Só existe com pelo menos uma aba visível (Tela, ou as de Instagram e reuniões quando o poder está ligado). -->
         <div class="grupo" data-grupo="conexoes">
-          <button type="button" class="grupo-cab" id="grp-conexoes-b" aria-expanded="false" aria-controls="grp-conexoes"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-globe"/></svg></span><span class="grupo-nome">Conexões</span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
+          <button type="button" class="grupo-cab" id="grp-conexoes-b" aria-expanded="false" aria-controls="grp-conexoes"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-globe"/></svg></span><span class="grupo-nome"><!--dg-i18n:21f857046944-->Conexões<!--/dg-i18n--></span><span class="grupo-seta" aria-hidden="true"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-chevron-down"/></svg></span></button>
           <div class="grupo-itens" id="grp-conexoes" role="group" aria-labelledby="grp-conexoes-b"><div class="grupo-lista">
-            <button class="tab" data-tab="tela"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-presentation"/></svg></span>Tela</button>
+            <button class="tab" data-tab="tela"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-presentation"/></svg></span><!--dg-i18n:2d31efc9c2ed-->Tela<!--/dg-i18n--></button>
             <button class="tab" data-tab="posts" data-power="instagram"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-image"/></svg></span>Posts</button>
-            <button class="tab" data-tab="followers" data-power="instagram"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-users"/></svg></span>Seguidores</button>
-            <button class="tab" data-tab="reunioes" data-power="meetings"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-video"/></svg></span>Reuniões</button>
+            <button class="tab" data-tab="followers" data-power="instagram"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-users"/></svg></span><!--dg-i18n:6a2fc86a95c5-->Seguidores<!--/dg-i18n--></button>
+            <button class="tab" data-tab="reunioes" data-power="meetings"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-video"/></svg></span><!--dg-i18n:f476e8cd586e-->Reuniões<!--/dg-i18n--></button>
           </div></div>
         </div>
         <div class="solto">
-        <button class="tab" data-tab="como"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-info"/></svg></span>Como funciona</button>
-        <button class="tab" data-tab="socorro"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-lifebuoy"/></svg></span>Socorro</button>
+        <button class="tab" data-tab="como"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-info"/></svg></span><!--dg-i18n:991f80d4356d-->Como funciona<!--/dg-i18n--></button>
+        <button class="tab" data-tab="socorro"><span class="ico"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-lifebuoy"/></svg></span><!--dg-i18n:af5f5e0f527b-->Socorro<!--/dg-i18n--></button>
         </div>
       </nav>
 
@@ -140,13 +144,13 @@
              dois voltam a fazer sentido e reaparecem sozinhos. -->
         <div class="footer-stats" id="footer-stats">
           <span class="footer-stat" data-power="instagram">Posts <span class="val" id="ft-posts">--</span></span>
-          <span class="footer-stat" data-power="instagram">Pendentes <span class="val" id="ft-pending">--</span></span>
-          <span class="footer-stat" data-ext="alive">Alegria <span class="val" id="ft-joy">--</span></span>
-          <span class="footer-stat" data-ext="alive">Energia <span class="val" id="ft-energy">--</span></span>
+          <span class="footer-stat" data-power="instagram"><!--dg-i18n:7c091a838d93-->Pendentes<!--/dg-i18n--> <span class="val" id="ft-pending">--</span></span>
+          <span class="footer-stat" data-ext="alive"><!--dg-i18n:ca9f559431fc-->Alegria<!--/dg-i18n--> <span class="val" id="ft-joy">--</span></span>
+          <span class="footer-stat" data-ext="alive"><!--dg-i18n:2ced24713ba0-->Energia<!--/dg-i18n--> <span class="val" id="ft-energy">--</span></span>
         </div>
         <div class="rodape-acoes">
-          <button type="button" class="btn-tema" id="btn-tema">tema</button>
-          <form method="post" action="{{BASE}}/logout" class="form-sair"><button type="submit" class="btn-sair" title="Encerra a sua entrada neste navegador. Para entrar de novo, use a senha.">sair</button></form>
+          <button type="button" class="btn-tema" id="btn-tema"><!--dg-i18n:7c0485361de3-->tema<!--/dg-i18n--></button>
+          <form method="post" action="{{BASE}}/logout" class="form-sair"><button type="submit" class="btn-sair" title="Encerra a sua entrada neste navegador. Para entrar de novo, use a senha." data-dg-i18n-title="2f16971f8a39"><!--dg-i18n:ab0d4d26b12c-->sair<!--/dg-i18n--></button></form>
         </div>
       </div>
     </aside>
@@ -154,7 +158,7 @@
     <!-- Area principal -->
     <div class="principal">
       <header class="header">
-        <button type="button" class="btn-menu" id="btn-menu" aria-label="abrir o menu" aria-expanded="false"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-menu"/></svg></button>
+        <button type="button" class="btn-menu" id="btn-menu" aria-label="abrir o menu" aria-expanded="false" data-dg-i18n-aria-label="b1a39d16e120"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-menu"/></svg></button>
         <!-- A setinha de voltar fica AQUI, no cabeçalho, e não dentro da gaveta: no
              celular a gaveta está fechada, e uma saída que exige abrir o menu para ser
              encontrada não é uma saída. Só aparece quando o painel é servido pela
@@ -162,7 +166,7 @@
         {{VOLTAR}}
         <div class="header-left">
           <div class="header-titulo-linha">
-            <h1 class="header-titulo" id="titulo-aba">Conversa</h1>
+            <h1 class="header-titulo" id="titulo-aba"><!--dg-i18n:2377f109281b-->Conversa<!--/dg-i18n--></h1>
             <!-- UM botão de tutorial, sempre no MESMO lugar, para todas as abas.
                  Ele nasce escondido e o js/app.js o mostra quando a aba aberta tem
                  visita guiada. Nas três abas que desenham a si mesmas (Apps, Pasta
@@ -170,9 +174,9 @@
                  de passos de js/tutoriais.js. Botão que muda de lugar conforme a
                  aba é botão que a pessoa procura toda vez. -->
             <button type="button" class="btn-tutorial-aba" id="btn-tutorial-aba" hidden
-                    title="Uma visita guiada por esta tela, passo a passo.">Tutorial</button>
+                    title="Uma visita guiada por esta tela, passo a passo." data-dg-i18n-title="0fb8e9479f21"><!--dg-i18n:c26982b1425d-->Tutorial<!--/dg-i18n--></button>
           </div>
-          <p class="header-sub" id="subtitulo-aba">fale com ele por aqui</p>
+          <p class="header-sub" id="subtitulo-aba"><!--dg-i18n:29f3be4a476d-->fale com ele por aqui<!--/dg-i18n--></p>
         </div>
         <div class="header-status" id="header-status">
           <!-- Nasce NEUTRO e escrito "verificando", nunca verde e "Online". Este selo
@@ -183,8 +187,8 @@
                e a frase que explica o estado precisa abrir com um toque. -->
           <div class="saude-wrap" id="saude-wrap">
             <button type="button" class="selo selo-saude" id="health-selo" aria-expanded="false" aria-controls="health-pop"
-                    title="Como o agente está agora. O painel pergunta a cada 30 segundos. Toque para ver o detalhe.">
-              <span class="status-dot" id="health-dot"></span> <span id="health-label">verificando</span>
+                    title="Como o agente está agora. O painel pergunta a cada 30 segundos. Toque para ver o detalhe." data-dg-i18n-title="910405731d4c">
+              <span class="status-dot" id="health-dot"></span> <span id="health-label"><!--dg-i18n:13d0df3c09a5-->verificando<!--/dg-i18n--></span>
             </button>
             <span class="saude-frase" id="health-frase"></span>
             <div class="saude-pop" id="health-pop" hidden></div>
@@ -208,7 +212,7 @@
                  atenção, com a frase, o que fazer e o botão certo para aquele caso. -->
             <div class="faixa-saude" id="conversa-faixa" hidden></div>
             <div class="conversa-lista" id="conversa-lista" aria-live="polite">
-              <div class="conversa-vazia"><span data-carregando="Carregando a conversa" data-tam="m"></span><br>carregando a conversa...</div>
+              <div class="conversa-vazia"><span data-carregando="Carregando a conversa" data-tam="m"></span><br><!--dg-i18n:0012d8af7080-->carregando a conversa...<!--/dg-i18n--></div>
             </div>
 
             <div class="conversa-recado" id="conversa-recado" hidden></div>
@@ -216,12 +220,12 @@
             <div class="conversa-rodape">
               <div class="conversa-sinal" id="conversa-sinal">
                 <span class="sinal-ponto" id="sinal-ponto"></span>
-                <span id="sinal-frase">carregando...</span>
-                <button type="button" class="btn-parar" id="btn-parar" hidden title="Interrompe o que ele está fazendo agora. A conversa continua guardada e você pode mandar outra mensagem em seguida.">parar</button>
+                <span id="sinal-frase"><!--dg-i18n:99304d4e4bf6-->carregando...<!--/dg-i18n--></span>
+                <button type="button" class="btn-parar" id="btn-parar" hidden title="Interrompe o que ele está fazendo agora. A conversa continua guardada e você pode mandar outra mensagem em seguida." data-dg-i18n-title="c986fbd1fc1e"><!--dg-i18n:d1fbff47348c-->parar<!--/dg-i18n--></button>
                 <!-- Só aparece com o terminal caído. É a única saída que a dona do
                      agente tem nesse estado: sem ele, a tela dizia que a conversa
                      estava guardada e não dizia como voltar a usá-la. -->
-                <button type="button" class="btn-reativar" id="btn-reativar" hidden title="Religa o agente a partir da conversa guardada. Leva alguns segundos.">acordar</button>
+                <button type="button" class="btn-reativar" id="btn-reativar" hidden title="Religa o agente a partir da conversa guardada. Leva alguns segundos." data-dg-i18n-title="82a201e45a2b"><!--dg-i18n:66f5047f0eef-->acordar<!--/dg-i18n--></button>
               </div>
               <!-- O ditado. Fica ANTES do enviar, na ordem em que a coisa acontece:
                    falar, ler o que saiu, mandar. O texto transcrito cai na mesma
@@ -229,18 +233,18 @@
                    e aperta enviar, igual a quem digita. -->
               <form class="conversa-escrever" id="conversa-form">
                 <textarea id="conversa-texto" rows="1" placeholder="Escreva aqui..."
-                          aria-label="sua mensagem"></textarea>
+                          aria-label="sua mensagem" data-dg-i18n-placeholder="6b8b5a83fba6" data-dg-i18n-aria-label="538213b6385d"></textarea>
                 <button type="button" class="btn-microfone" id="btn-microfone"
-                        aria-label="gravar um áudio" title="falar em vez de escrever"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-mic"/></svg></button>
-                <button type="submit" class="btn-enviar" id="btn-enviar" aria-label="enviar"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-send"/></svg></button>
+                        aria-label="gravar um áudio" title="falar em vez de escrever" data-dg-i18n-aria-label="5a405e8d4112" data-dg-i18n-title="146ee9e29f04"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-mic"/></svg></button>
+                <button type="submit" class="btn-enviar" id="btn-enviar" aria-label="enviar" data-dg-i18n-aria-label="4ed33f910391"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-send"/></svg></button>
               </form>
               <!-- A linha que só existe enquanto grava ou transcreve. Ela mostra o
                    tempo correndo, porque gravação sem relógio é a forma mais fácil de
                    mandar um áudio de oito minutos sem perceber. -->
               <div class="ditado-barra" id="ditado-barra" hidden>
                 <span class="ditado-ponto" aria-hidden="true"></span>
-                <span id="ditado-frase">gravando...</span>
-                <button type="button" class="ditado-cancelar" id="ditado-cancelar">descartar</button>
+                <span id="ditado-frase"><!--dg-i18n:f629b1901ea5-->gravando...<!--/dg-i18n--></span>
+                <button type="button" class="ditado-cancelar" id="ditado-cancelar"><!--dg-i18n:53c4d9446622-->descartar<!--/dg-i18n--></button>
               </div>
             </div>
           </div>
@@ -258,21 +262,21 @@
                botão de reiniciar: aqui a pessoa só precisa saber, e quem resolve é descrito
                no "como resolver". Vazio e escondido quando está tudo bem. -->
           <div class="faixa-saude inativo" id="status-faixa" hidden
-               title="Aviso do sistema: ele conferiu as respostas do agente e viu que ele não está conseguindo responder. O texto diz o motivo e o que fazer."></div>
+               title="Aviso do sistema: ele conferiu as respostas do agente e viu que ele não está conseguindo responder. O texto diz o motivo e o que fazer." data-dg-i18n-title="4fd49f071795"></div>
 
           <!-- Modelo e autenticação (12/10/2026): qual cérebro o agente usa e como se paga por ele.
                A estrutura é fixa aqui e o js/provedor.js preenche. -->
           <section class="cartao prov-cartao">
-            <div class="section-title" title="Qual modelo de IA o agente usa (o cérebro dele) e como isso é pago: pela assinatura do Claude ou do ChatGPT, ou por uma chave de API. O painel mostra o que está escolhido e o que o programa do agente confirma.">Modelo e autenticação</div>
-            <p class="ajuda-secao">O cérebro que o agente usa e como ele é pago. Se algo estiver diferente do escolhido, a linha de baixo fica amarela e diz o que fazer.</p>
+            <div class="section-title" title="Qual modelo de IA o agente usa (o cérebro dele) e como isso é pago: pela assinatura do Claude ou do ChatGPT, ou por uma chave de API. O painel mostra o que está escolhido e o que o programa do agente confirma." data-dg-i18n-title="f1aa5d87002d"><!--dg-i18n:300c619c78a7-->Modelo e autenticação<!--/dg-i18n--></div>
+            <p class="ajuda-secao"><!--dg-i18n:322ed20de172-->O cérebro que o agente usa e como ele é pago. Se algo estiver diferente do escolhido, a linha de baixo fica amarela e diz o que fazer.<!--/dg-i18n--></p>
             <div id="prov-status">
-              <div class="prov-rotulo" id="prov-rotulo">Conferindo o modelo...</div>
+              <div class="prov-rotulo" id="prov-rotulo"><!--dg-i18n:f22346fa9a0a-->Conferindo o modelo...<!--/dg-i18n--></div>
               <div class="prov-conferido" id="prov-conferido"></div>
               <div class="prov-aviso" id="prov-aviso" hidden></div>
               <div class="prov-sucesso" id="prov-sucesso" role="status" hidden></div>
               <div class="prov-acoes">
-                <button type="button" class="prov-btn" id="prov-trocar" hidden title="Abre a janela para escolher outro provedor, outro modelo ou outra forma de pagar. O agente reinicia numa conversa nova; a memória dele continua.">Trocar</button>
-                <button type="button" class="prov-btn" id="prov-entrar" hidden title="O agente não está logado na sua assinatura. Este botão mostra o link de login e, quando precisar, o código para digitar. Você não usa terminal.">Conectar minha conta</button>
+                <button type="button" class="prov-btn" id="prov-trocar" hidden title="Abre a janela para escolher outro provedor, outro modelo ou outra forma de pagar. O agente reinicia numa conversa nova; a memória dele continua." data-dg-i18n-title="be421658b120"><!--dg-i18n:a5575a1a9fa7-->Trocar<!--/dg-i18n--></button>
+                <button type="button" class="prov-btn" id="prov-entrar" hidden title="O agente não está logado na sua assinatura. Este botão mostra o link de login e, quando precisar, o código para digitar. Você não usa terminal." data-dg-i18n-title="212e2ab2f759"><!--dg-i18n:29fc41937b1d-->Conectar minha conta<!--/dg-i18n--></button>
               </div>
               <div class="prov-login" id="prov-login" hidden></div>
             </div>
@@ -281,83 +285,83 @@
           <!-- Uso da assinatura (19/10/2026): quanto da janela de 5 horas e da semana já foi gasto.
                O js/uso.js preenche; o número vem do runner (GET /api/uso), nunca é calculado aqui. -->
           <section class="cartao uso-cartao">
-            <div class="section-title" title="Quanto da sua assinatura o agente já gastou: na janela de 5 horas e na semana. Quando chega a 100%, o agente espera a janela zerar.">Uso da assinatura</div>
+            <div class="section-title" title="Quanto da sua assinatura o agente já gastou: na janela de 5 horas e na semana. Quando chega a 100%, o agente espera a janela zerar." data-dg-i18n-title="6e896c18e171"><!--dg-i18n:7d17b667d691-->Uso da assinatura<!--/dg-i18n--></div>
             <div id="uso-assinatura" class="uso-lista" aria-live="polite">
-              <p class="uso-fraco">Conferindo o uso...</p>
+              <p class="uso-fraco"><!--dg-i18n:d8322e6d1869-->Conferindo o uso...<!--/dg-i18n--></p>
             </div>
           </section>
 
           <!-- Faixa de cima: os números que respondem "está tudo bem?" -->
           <div class="faixa">
             <div class="destaque" data-ext="alive">
-              <span class="rot">Humor</span>
+              <span class="rot"><!--dg-i18n:8a590611f49c-->Humor<!--/dg-i18n--></span>
               <b class="num palavra" id="dest-humor">--</b>
-              <span class="pe" id="dest-humor-pe">carregando</span>
+              <span class="pe" id="dest-humor-pe"><!--dg-i18n:eb6c18930ef4-->carregando<!--/dg-i18n--></span>
             </div>
             <div class="destaque">
-              <span class="rot">Custo do mês</span>
+              <span class="rot"><!--dg-i18n:4bc6e216ef89-->Custo do mês<!--/dg-i18n--></span>
               <b class="num" id="dest-custo">--</b>
-              <span class="pe" id="dest-custo-pe">carregando</span>
+              <span class="pe" id="dest-custo-pe"><!--dg-i18n:eb6c18930ef4-->carregando<!--/dg-i18n--></span>
             </div>
             <div class="destaque">
-              <span class="rot" title="As rotinas que você pediu a ele, como 'todo sábado às 9h me manda o resumo'. As do sistema ficam na aba Operações.">Suas rotinas</span>
+              <span class="rot" title="As rotinas que você pediu a ele, como 'todo sábado às 9h me manda o resumo'. As do sistema ficam na aba Operações." data-dg-i18n-title="4d9d87c8f85c"><!--dg-i18n:2dd90d71155d-->Suas rotinas<!--/dg-i18n--></span>
               <b class="num" id="dest-rotinas">--</b>
-              <span class="pe" id="dest-rotinas-pe">carregando</span>
+              <span class="pe" id="dest-rotinas-pe"><!--dg-i18n:eb6c18930ef4-->carregando<!--/dg-i18n--></span>
             </div>
             <div class="destaque">
-              <span class="rot">Último sinal</span>
+              <span class="rot"><!--dg-i18n:2cb02ffde6e9-->Último sinal<!--/dg-i18n--></span>
               <b class="num" id="dest-sessao">--</b>
-              <span class="pe" id="dest-sessao-pe">carregando</span>
+              <span class="pe" id="dest-sessao-pe"><!--dg-i18n:eb6c18930ef4-->carregando<!--/dg-i18n--></span>
             </div>
           </div>
 
-          <div class="home-operacoes" id="home-operacoes">Conferindo as operações do sistema...</div>
+          <div class="home-operacoes" id="home-operacoes"><!--dg-i18n:27325ee080b5-->Conferindo as operações do sistema...<!--/dg-i18n--></div>
 
           <!-- A memória de trabalho, em uma olhada (05/10/2026): ele abriu o painel e
                achou que o agente não tinha working memory. O conteúdo fica no raio-X logo
                abaixo e na aba Memória; aqui fica o estado dela (js/wm-status.js). -->
           <section class="cartao wms-cartao">
-            <div class="section-title" title="A memória de trabalho (em inglês, working memory) é o bloco de anotações do momento: o que ele está fazendo, o que ficou pendente e o que combinou com você há pouco. Ele lê este arquivo no começo de toda conversa.">Memória de trabalho (working memory)</div>
-            <p class="ajuda-secao">Se ela está em dia, quando foi atualizada, quanto do teto ocupa, se a remontagem das 7h rodou hoje e o que ele anotou como pendente. O texto inteiro fica na aba Memória.</p>
-            <div id="wm-status"><div class="vazio-util">Conferindo a memória de trabalho...</div></div>
+            <div class="section-title" title="A memória de trabalho (em inglês, working memory) é o bloco de anotações do momento: o que ele está fazendo, o que ficou pendente e o que combinou com você há pouco. Ele lê este arquivo no começo de toda conversa." data-dg-i18n-title="69316dfebe30"><!--dg-i18n:48bc15f4d69d-->Memória de trabalho (working memory)<!--/dg-i18n--></div>
+            <p class="ajuda-secao"><!--dg-i18n:176b4dbb6528-->Se ela está em dia, quando foi atualizada, quanto do teto ocupa, se a remontagem das 7h rodou hoje e o que ele anotou como pendente. O texto inteiro fica na aba Memória.<!--/dg-i18n--></p>
+            <div id="wm-status"><div class="vazio-util"><!--dg-i18n:2e47ab6cf5c3-->Conferindo a memória de trabalho...<!--/dg-i18n--></div></div>
           </section>
 
           <section class="cartao cerebro">
-            <div class="section-title" title="Os arquivos de memória que ele está usando agora, lidos do disco na hora. Clique em qualquer um para ler inteiro e corrigir à mão.">O que ele sabe agora</div>
-            <p class="ajuda-secao">Os arquivos que ele lê para lembrar de você: o que está fazendo, o que sabe sobre você, as tarefas e os assuntos que separou. Clique num cartão para ler inteiro; se algo estiver errado, corrija ali mesmo.</p>
-            <div class="cerebro-grade" id="cerebro-grid"><div class="vazio-util">Lendo a memória dele...</div></div>
+            <div class="section-title" title="Os arquivos de memória que ele está usando agora, lidos do disco na hora. Clique em qualquer um para ler inteiro e corrigir à mão." data-dg-i18n-title="a1ed23858ce2"><!--dg-i18n:592466fdb6bd-->O que ele sabe agora<!--/dg-i18n--></div>
+            <p class="ajuda-secao"><!--dg-i18n:2857211e7796-->Os arquivos que ele lê para lembrar de você: o que está fazendo, o que sabe sobre você, as tarefas e os assuntos que separou. Clique num cartão para ler inteiro; se algo estiver errado, corrija ali mesmo.<!--/dg-i18n--></p>
+            <div class="cerebro-grade" id="cerebro-grid"><div class="vazio-util"><!--dg-i18n:87554bb01972-->Lendo a memória dele...<!--/dg-i18n--></div></div>
           </section>
 
           <!-- Mosaico: os cartões se encaixam em colunas sem deixar buraco. Os da
                extensão DG Alive somem inteiros quando ela não está instalada. -->
           <div class="status-mosaico">
             <div class="cartao" data-ext="alive">
-              <div class="section-title">O que ele anda pensando</div>
+              <div class="section-title"><!--dg-i18n:f9113cfa5b91-->O que ele anda pensando<!--/dg-i18n--></div>
               <div id="thoughts-present"></div>
-              <div class="section-title" style="margin-top:16px">Reflexões que voltam</div>
+              <div class="section-title" style="margin-top:16px"><!--dg-i18n:fa730df87bb4-->Reflexões que voltam<!--/dg-i18n--></div>
               <div id="thoughts-lingering"></div>
             </div>
             <div class="cartao" data-ext="alive">
-              <div class="section-title">Emoções</div>
+              <div class="section-title"><!--dg-i18n:ed99d50af162-->Emoções<!--/dg-i18n--></div>
               <div id="emotion-bars" class="barras-duplas"></div>
-              <div class="stat-group-title">Necessidades</div>
+              <div class="stat-group-title"><!--dg-i18n:96bc0ece1f09-->Necessidades<!--/dg-i18n--></div>
               <div id="needs-bars" class="barras-duplas"></div>
             </div>
             <div class="cartao" data-ext="alive">
-              <div class="section-title">Acontecimentos recentes</div>
+              <div class="section-title"><!--dg-i18n:b060b1c6f5aa-->Acontecimentos recentes<!--/dg-i18n--></div>
               <div id="recent-events" class="lista-eventos"></div>
             </div>
             <div class="cartao">
-              <div class="section-title">Metas</div>
+              <div class="section-title"><!--dg-i18n:792d8c616e8c-->Metas<!--/dg-i18n--></div>
               <div id="goals-short"></div>
               <div class="section-updated" id="last-update"></div>
             </div>
           </div>
 
           <div class="cartao">
-            <div class="section-title" title="Só as rotinas que você pediu a ele. As do sistema (batimento, reflexão, vigia) ficam na aba Operações.">Suas rotinas</div>
-            <p class="ajuda-secao">O que você pediu para ele fazer sozinho, de tempos em tempos: quando roda, a próxima vez, e se a última deu certo.</p>
-            <div id="home-rotinas"><div class="vazio-util"><span data-carregando="Carregando" data-tam="p"></span> Carregando...</div></div>
+            <div class="section-title" title="Só as rotinas que você pediu a ele. As do sistema (batimento, reflexão, vigia) ficam na aba Operações." data-dg-i18n-title="5260004737a1"><!--dg-i18n:2dd90d71155d-->Suas rotinas<!--/dg-i18n--></div>
+            <p class="ajuda-secao"><!--dg-i18n:38575a16eb54-->O que você pediu para ele fazer sozinho, de tempos em tempos: quando roda, a próxima vez, e se a última deu certo.<!--/dg-i18n--></p>
+            <div id="home-rotinas"><div class="vazio-util"><span data-carregando="Carregando" data-tam="p"></span> <!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div></div>
           </div>
         </div>
 
@@ -366,11 +370,11 @@
           <div class="posts-stats" id="posts-stats"></div>
           <div class="cartao">
             <div class="linha-filtro">
-              <label for="posts-date">Data</label>
+              <label for="posts-date"><!--dg-i18n:cec3a9b89b2e-->Data<!--/dg-i18n--></label>
               <input type="date" id="posts-date">
             </div>
             <table class="pixel-table">
-              <thead><tr><th></th><th>Data</th><th>Hora</th><th>Tema</th><th>Tipo</th><th>Link</th></tr></thead>
+              <thead><tr><th></th><th><!--dg-i18n:cec3a9b89b2e-->Data<!--/dg-i18n--></th><th><!--dg-i18n:503f312cde03-->Hora<!--/dg-i18n--></th><th><!--dg-i18n:d5df3708bc68-->Tema<!--/dg-i18n--></th><th><!--dg-i18n:3868d2843d59-->Tipo<!--/dg-i18n--></th><th><!--dg-i18n:a6a32dbc5618-->Link<!--/dg-i18n--></th></tr></thead>
               <tbody id="posts-table"></tbody>
             </table>
           </div>
@@ -379,34 +383,34 @@
         <!-- SEGUIDORES -->
         <div class="panel" id="panel-followers">
           <div class="posts-stats" id="followers-stats"></div>
-          <div class="section-title">Com quem ele mais fala</div>
+          <div class="section-title"><!--dg-i18n:124de09d7421-->Com quem ele mais fala<!--/dg-i18n--></div>
           <div class="cards-grid" id="followers-grid"></div>
         </div>
 
         <!-- MEMORIA -->
         <div class="panel" id="panel-memory">
-          <div class="section-title">Arquivos de memória</div>
+          <div class="section-title"><!--dg-i18n:8524868ab8e2-->Arquivos de memória<!--/dg-i18n--></div>
           <div class="memory-list" id="memory-list"></div>
         </div>
 
         <!-- PERSONALIDADE -->
         <div class="panel" id="panel-personality">
           <div class="cartao">
-            <div class="section-title" title="Os cinco traços que a psicologia usa para descrever personalidade. Cada barra vai de 0 a 100 e mexe num aspecto do jeito dele.">Big Five</div>
+            <div class="section-title" title="Os cinco traços que a psicologia usa para descrever personalidade. Cada barra vai de 0 a 100 e mexe num aspecto do jeito dele." data-dg-i18n-title="0caabb03e431">Big Five</div>
             <div class="big-five-grid" id="big-five"></div>
           </div>
           <div class="cartao">
-            <div class="section-title">Comportamento</div>
+            <div class="section-title"><!--dg-i18n:03b2ee227f72-->Comportamento<!--/dg-i18n--></div>
             <div id="proactivity-bars"></div>
           </div>
           <!-- Sem o DG Alive este bloco some inteiro (sem nota, sem buraco). -->
           <div data-ext="alive">
             <div class="cartao">
-              <div class="section-title">Opiniões formadas</div>
+              <div class="section-title"><!--dg-i18n:faa7a3b2c19b-->Opiniões formadas<!--/dg-i18n--></div>
               <div id="opinions-list"></div>
             </div>
             <div class="cartao">
-              <div class="section-title">Como ele mudou</div>
+              <div class="section-title"><!--dg-i18n:2475e7eac4f2-->Como ele mudou<!--/dg-i18n--></div>
               <div id="personality-changelog" class="log-viewer curto"></div>
             </div>
           </div>
@@ -419,22 +423,22 @@
              de /api/operacoes (lib/operacoes.js), que lê o diário do sistema. -->
         <div class="panel" id="panel-operations">
           <div class="op-topo">
-            <div class="op-resumo" id="op-resumo">Lendo o diário do sistema...</div>
-            <div class="op-alternar" id="op-alternar" role="tablist" aria-label="O que ver nesta aba">
+            <div class="op-resumo" id="op-resumo"><!--dg-i18n:b3b57683fe9f-->Lendo o diário do sistema...<!--/dg-i18n--></div>
+            <div class="op-alternar" id="op-alternar" role="tablist" aria-label="O que ver nesta aba" data-dg-i18n-aria-label="649338d76dbd">
               <button type="button" role="tab" class="ativo" data-vista="situacao" aria-selected="true"
-                      title="Cada operação do sistema com a fileira das últimas execuções. Responde: está tudo funcionando?">Situação</button>
+                      title="Cada operação do sistema com a fileira das últimas execuções. Responde: está tudo funcionando?" data-dg-i18n-title="bef7346b1cf0"><!--dg-i18n:cf7d46ded085-->Situação<!--/dg-i18n--></button>
               <button type="button" role="tab" data-vista="registros" aria-selected="false"
-                      title="O que cada rotina escreveu enquanto rodava, e a sessão viva. É técnico: serve para copiar e mandar para quem cuida dele.">Registros</button>
+                      title="O que cada rotina escreveu enquanto rodava, e a sessão viva. É técnico: serve para copiar e mandar para quem cuida dele." data-dg-i18n-title="024c4d26c1cc"><!--dg-i18n:aae57b720baa-->Registros<!--/dg-i18n--></button>
             </div>
           </div>
 
           <div id="op-situacao">
             <div class="op-legenda" id="op-legenda">
-              <span title="Rodou e deu certo."><span class="opq verde"></span> deu certo</span>
-              <span title="Rodou e terminou com erro, ou o registro dela diz que falhou. Serviço contínuo: caiu ou ficou fora do ar naquela hora."><span class="opq vermelho"></span> falhou</span>
-              <span title="Não rodou quando devia, foi cancelada, rodou com aviso, ou (serviço contínuo) reiniciou naquela hora."><span class="opq amarelo"></span> pede atenção</span>
-              <span title="Não há dado para aquele momento. Cinza nunca conta como sucesso."><span class="opq cinza"></span> sem dado</span>
-              <span class="op-legenda-dica">o mais recente fica à direita · toque na fileira para ver cada um</span>
+              <span title="Rodou e deu certo." data-dg-i18n-title="8d89bb1d2c43"><span class="opq verde"></span> <!--dg-i18n:139be2bd416f-->deu certo<!--/dg-i18n--></span>
+              <span title="Rodou e terminou com erro, ou o registro dela diz que falhou. Serviço contínuo: caiu ou ficou fora do ar naquela hora." data-dg-i18n-title="3d90f4a2f473"><span class="opq vermelho"></span> <!--dg-i18n:365a43015bce-->falhou<!--/dg-i18n--></span>
+              <span title="Não rodou quando devia, foi cancelada, rodou com aviso, ou (serviço contínuo) reiniciou naquela hora." data-dg-i18n-title="b86e8d9284c4"><span class="opq amarelo"></span> <!--dg-i18n:8d014f6e2bf8-->pede atenção<!--/dg-i18n--></span>
+              <span title="Não há dado para aquele momento. Cinza nunca conta como sucesso." data-dg-i18n-title="dbbaa88f710c"><span class="opq cinza"></span> <!--dg-i18n:c5df0bcfdaaa-->sem dado<!--/dg-i18n--></span>
+              <span class="op-legenda-dica"><!--dg-i18n:6554e162cb22-->o mais recente fica à direita · toque na fileira para ver cada um<!--/dg-i18n--></span>
             </div>
             <div id="op-grupos"></div>
           </div>
@@ -443,13 +447,13 @@
             <div class="cartao">
               <!-- "Sessão" é a palavra mais técnica que sobrou nesta tela, e o balão
                    existe para quem passa o olho e não vai abrir o tutorial. -->
-              <div class="section-title" title="Uma sessão é uma conversa contínua em que ele lembra do que foi dito antes. Preenchido aqui quer dizer que ele está de pé agora.">Sessão viva</div>
+              <div class="section-title" title="Uma sessão é uma conversa contínua em que ele lembra do que foi dito antes. Preenchido aqui quer dizer que ele está de pé agora." data-dg-i18n-title="0615b7e70084"><!--dg-i18n:da9a1f563e90-->Sessão viva<!--/dg-i18n--></div>
               <div id="session-info" class="info-blocos"></div>
             </div>
             <div class="cartao">
-              <div class="section-title" title="O texto que cada rotina escreve enquanto roda. É técnico de propósito: serve para copiar e mandar para quem cuida dele quando algo der errado.">Registros</div>
+              <div class="section-title" title="O texto que cada rotina escreve enquanto roda. É técnico de propósito: serve para copiar e mandar para quem cuida dele quando algo der errado." data-dg-i18n-title="8b1b8b69e7c5"><!--dg-i18n:aae57b720baa-->Registros<!--/dg-i18n--></div>
               <div class="linha-filtro" id="log-buttons"></div>
-              <div class="log-viewer" id="log-viewer">Escolha um registro acima.</div>
+              <div class="log-viewer" id="log-viewer"><!--dg-i18n:d258f94e1ea4-->Escolha um registro acima.<!--/dg-i18n--></div>
             </div>
           </div>
         </div>
@@ -458,24 +462,24 @@
         <!-- A tela inteira é desenhada por js/apps.js: o que existe aqui é só o
              lugar onde ela nasce. A lista de apps vem do agente, não do painel. -->
         <div class="panel" id="panel-apps">
-          <div id="apps-root"><span data-carregando="Carregando" data-tam="m"></span> Carregando...</div>
+          <div id="apps-root"><span data-carregando="Carregando" data-tam="m"></span> <!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>
         </div>
 
         <!-- SKILLS: desenhada por js/skills.js a partir de /api/skills. -->
         <div class="panel" id="panel-skills">
-          <div id="skills-root"><span data-carregando="Carregando" data-tam="m"></span> Carregando...</div>
+          <div id="skills-root"><span data-carregando="Carregando" data-tam="m"></span> <!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>
         </div>
 
         <!-- INTEGRAÇÕES: o palco com a foto do agente e uma placa por sistema. Desenhada por js/integracoes.js a partir de /api/integracoes
              (lib/integracoes.js). Ver panel/docs/INTEGRACOES.md. -->
         <div class="panel" id="panel-integracoes">
           <div class="int-topo">
-            <div class="int-resumo" id="int-resumo"><div class="int-resumo-texto" id="int-resumo-texto">Lendo as integrações...</div></div>
-            <div class="op-alternar int-alternar" id="int-alternar" role="group" aria-label="O que o mapa mostra">
+            <div class="int-resumo" id="int-resumo"><div class="int-resumo-texto" id="int-resumo-texto"><!--dg-i18n:8947670374a5-->Lendo as integrações...<!--/dg-i18n--></div></div>
+            <div class="op-alternar int-alternar" id="int-alternar" role="group" aria-label="O que o mapa mostra" data-dg-i18n-aria-label="e4bf81e9ae5a">
               <button type="button" class="ativo" data-modo="real" aria-pressed="true"
-                      title="Mostra todos os sistemas, cada um na cor que ele tem de verdade.">Estado real</button>
+                      title="Mostra todos os sistemas, cada um na cor que ele tem de verdade." data-dg-i18n-title="9b7841f333f0"><!--dg-i18n:faed796048f8-->Estado real<!--/dg-i18n--></button>
               <button type="button" data-modo="aula" aria-pressed="false"
-                      title="Mostra só os sistemas que estão funcionando. Serve para apresentar numa aula.">Modo aula</button>
+                      title="Mostra só os sistemas que estão funcionando. Serve para apresentar numa aula." data-dg-i18n-title="e9d8554c62dd"><!--dg-i18n:bb1f091ba3fb-->Modo aula<!--/dg-i18n--></button>
             </div>
           </div>
           <div class="int-aviso" id="int-aviso" role="status" hidden></div>
@@ -488,8 +492,8 @@
         <!-- ROTINAS: a mesma lista do Status (renderSuasRotinas), em página própria, com recarga a cada 15 s. -->
         <div class="panel" id="panel-rotinas">
           <section class="cartao">
-            <div class="section-title">Suas rotinas</div>
-            <div id="rotinas-lista"><div class="vazio-util"><span data-carregando="Carregando" data-tam="p"></span> Carregando...</div></div>
+            <div class="section-title"><!--dg-i18n:2dd90d71155d-->Suas rotinas<!--/dg-i18n--></div>
+            <div id="rotinas-lista"><div class="vazio-util"><span data-carregando="Carregando" data-tam="p"></span> <!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div></div>
           </section>
         </div>
 
@@ -498,7 +502,7 @@
              enxerga é travada em <agentDir>/arquivos no servidor, e o porquê
              está no topo de panel/lib/arquivos.js. -->
         <div class="panel" id="panel-arquivos">
-          <div id="arquivos-root"><span data-carregando="Carregando" data-tam="m"></span> Carregando...</div>
+          <div id="arquivos-root"><span data-carregando="Carregando" data-tam="m"></span> <!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>
         </div>
 
         <!-- COMO FUNCIONA -->
@@ -506,13 +510,13 @@
              docs/RADIOGRAFIA.md do plugin renderizado. Desenhada por js/cerebro.js. -->
         <div class="panel" id="panel-como">
           <section class="cartao">
-            <div class="section-title" title="Os números de verdade deste agente, lidos agora: o tamanho de cada camada da memória, as operações do sistema, as suas rotinas e a sessão.">O mapa dele, agora</div>
-            <p class="ajuda-secao">O texto abaixo explica as peças. Aqui em cima, as mesmas peças com os números dele neste instante.</p>
+            <div class="section-title" title="Os números de verdade deste agente, lidos agora: o tamanho de cada camada da memória, as operações do sistema, as suas rotinas e a sessão." data-dg-i18n-title="ffcb68e8dda8"><!--dg-i18n:0a6d776167e4-->O mapa dele, agora<!--/dg-i18n--></div>
+            <p class="ajuda-secao"><!--dg-i18n:e3e3542e9221-->O texto abaixo explica as peças. Aqui em cima, as mesmas peças com os números dele neste instante.<!--/dg-i18n--></p>
             <div class="mapa-vivo" id="como-mapa"></div>
           </section>
           <section class="cartao">
-            <div class="section-title">Como ele funciona</div>
-            <div id="como-doc"><div class="vazio-util"><span data-carregando="Carregando" data-tam="p"></span> Carregando...</div></div>
+            <div class="section-title"><!--dg-i18n:37e763a7df3c-->Como ele funciona<!--/dg-i18n--></div>
+            <div id="como-doc"><div class="vazio-util"><span data-carregando="Carregando" data-tam="p"></span> <!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div></div>
           </section>
         </div>
 
@@ -530,35 +534,35 @@
         <div class="panel" id="panel-tela"><div id="tela-root"></div></div>
 
         <div class="panel" id="panel-cofre">
-          <div id="cofre-root">Carregando...</div>
+          <div id="cofre-root"><!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>
         </div>
 
         <!-- CUSTOS -->
         <div class="panel" id="panel-costs">
-          <div class="section-title">Este mês</div>
+          <div class="section-title"><!--dg-i18n:b43f133fb98c-->Este mês<!--/dg-i18n--></div>
           <div id="costs-summary"></div>
           <div class="cartao">
-            <div class="section-title">Por categoria</div>
+            <div class="section-title"><!--dg-i18n:9ec1a9b47039-->Por categoria<!--/dg-i18n--></div>
             <div id="costs-categories"></div>
           </div>
           <div class="cartao">
-            <div class="section-title">Rotinas que mais custam no mês</div>
+            <div class="section-title"><!--dg-i18n:87514d5da1ee-->Rotinas que mais custam no mês<!--/dg-i18n--></div>
             <div id="costs-top-crons"></div>
           </div>
           <div class="cartao">
-            <div class="section-title">Execuções recentes</div>
+            <div class="section-title"><!--dg-i18n:de26219b7803-->Execuções recentes<!--/dg-i18n--></div>
             <div class="linha-filtro">
-              <label for="costs-hours">Janela</label>
-              <select id="costs-hours" title="Até quanto tempo para trás a lista de execuções olha.">
-                <option value="6">6 horas</option>
-                <option value="24" selected>24 horas</option>
-                <option value="72">3 dias</option>
-                <option value="168">7 dias</option>
+              <label for="costs-hours"><!--dg-i18n:28014ef35252-->Janela<!--/dg-i18n--></label>
+              <select id="costs-hours" title="Até quanto tempo para trás a lista de execuções olha." data-dg-i18n-title="44c055544cfc">
+                <option value="6"><!--dg-i18n:a4e4433db16d-->6 horas<!--/dg-i18n--></option>
+                <option value="24" selected><!--dg-i18n:10280491824d-->24 horas<!--/dg-i18n--></option>
+                <option value="72"><!--dg-i18n:cd410774d01b-->3 dias<!--/dg-i18n--></option>
+                <option value="168"><!--dg-i18n:23060decf8cd-->7 dias<!--/dg-i18n--></option>
               </select>
-              <button type="button" id="costs-refresh" class="btn-leve" title="Lê de novo a lista de execuções, com a janela escolhida ao lado.">atualizar</button>
+              <button type="button" id="costs-refresh" class="btn-leve" title="Lê de novo a lista de execuções, com a janela escolhida ao lado." data-dg-i18n-title="dce692109742"><!--dg-i18n:57b266ab39f8-->atualizar<!--/dg-i18n--></button>
             </div>
             <table class="pixel-table">
-              <thead><tr><th title="Dia e hora em que a rotina rodou.">Quando</th><th title="O nome da rotina que rodou.">Rotina</th><th title="Uma etiqueta que o sistema põe para agrupar execuções parecidas.">Tag</th><th title="Qual modelo de inteligência artificial fez o trabalho.">Modelo</th><th title="Quantas idas e vindas ele teve com o modelo nesta execução.">Turnos</th><th title="Quanto tempo a execução levou.">Duração</th><th title="Quanto esta execução custou, em dólar.">Custo</th></tr></thead>
+              <thead><tr><th title="Dia e hora em que a rotina rodou." data-dg-i18n-title="44f8f2b47912"><!--dg-i18n:9f8f7fa3a50f-->Quando<!--/dg-i18n--></th><th title="O nome da rotina que rodou." data-dg-i18n-title="ede6e75d4343"><!--dg-i18n:0d6df0edb035-->Rotina<!--/dg-i18n--></th><th title="Uma etiqueta que o sistema põe para agrupar execuções parecidas." data-dg-i18n-title="d4cc73310a6c">Tag</th><th title="Qual modelo de inteligência artificial fez o trabalho." data-dg-i18n-title="e1ee68c39e71"><!--dg-i18n:a5ab3212dad1-->Modelo<!--/dg-i18n--></th><th title="Quantas idas e vindas ele teve com o modelo nesta execução." data-dg-i18n-title="a5ee972f91e0"><!--dg-i18n:2e3f2a0e4559-->Turnos<!--/dg-i18n--></th><th title="Quanto tempo a execução levou." data-dg-i18n-title="6cdf9fde8783"><!--dg-i18n:6cecb49a79df-->Duração<!--/dg-i18n--></th><th title="Quanto esta execução custou, em dólar." data-dg-i18n-title="aec7398df81b"><!--dg-i18n:d997afc918e1-->Custo<!--/dg-i18n--></th></tr></thead>
               <tbody id="costs-executions"></tbody>
             </table>
           </div>
@@ -567,16 +571,16 @@
         <!-- REUNIOES -->
         <div class="panel" id="panel-reunioes">
           <div class="reunioes-header">
-            <div class="section-title">Reuniões</div>
-            <input type="search" id="reunioes-search" class="reunioes-search" placeholder="Buscar por participante, assunto ou conteúdo...">
+            <div class="section-title"><!--dg-i18n:f476e8cd586e-->Reuniões<!--/dg-i18n--></div>
+            <input type="search" id="reunioes-search" class="reunioes-search" placeholder="Buscar por participante, assunto ou conteúdo..." data-dg-i18n-placeholder="49960ebad91a">
           </div>
-          <div id="reunioes-list" class="reunioes-list">Carregando...</div>
+          <div id="reunioes-list" class="reunioes-list"><!--dg-i18n:1258573b225a-->Carregando...<!--/dg-i18n--></div>
           <div id="reunioes-detail" class="reunioes-detail" style="display:none"></div>
         </div>
 
         <!-- IDENTIDADE -->
         <div class="panel" id="panel-identity">
-          <div class="section-title">Arquivos de identidade</div>
+          <div class="section-title"><!--dg-i18n:874063336160-->Arquivos de identidade<!--/dg-i18n--></div>
           <div id="identity-files"></div>
         </div>
       </main>
@@ -587,8 +591,8 @@
   <div class="modal-overlay" id="modal">
     <div class="modal-box">
       <div class="modal-header">
-        <span class="modal-title" id="modal-title">Arquivo</span>
-        <button class="modal-close" onclick="closeModal()" aria-label="Fechar"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-x"/></svg></button>
+        <span class="modal-title" id="modal-title"><!--dg-i18n:ba8a452f2f83-->Arquivo<!--/dg-i18n--></span>
+        <button class="modal-close" onclick="closeModal()" aria-label="Fechar" data-dg-i18n-aria-label="0f2bd88ef0ac"><svg class="ds-ico" aria-hidden="true"><use href="/ds/icones.svg#i-x"/></svg></button>
       </div>
       <div class="modal-body" id="modal-body"></div>
     </div>

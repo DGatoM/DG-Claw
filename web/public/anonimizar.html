@@ -2,8 +2,11 @@
 <html lang="pt-BR" data-tema="{{MARCA_TEMA}}">
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="/ds/idioma.css">
+<script src="/ds/idiomas.js"></script>
+<script src="/ds/idioma.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Anonimizar documentos - {{MARCA_NOME}}</title>
+<title data-dg-i18n="31bc5113ad59">Anonimizar documentos - {{MARCA_NOME}}</title>
 <meta name="marca-nome" content="{{MARCA_NOME}}">
 <meta name="marca-logo-tem-nome" content="{{MARCA_LOGO_TEM_NOME}}">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -31,45 +34,45 @@
 
   <div id="anConfigErro"></div>
 
-  <section class="an-sec" id="secSobre" aria-label="O que é a anonimização de documentos">
-    <h2><span>Anonimizar documentos</span><button type="button" class="an-ajuda" data-an="ajuda" data-secao="sobre" aria-label="Tutorial: o que é a anonimização">?</button></h2>
-    <p>Com a opção ligada para um agente, os documentos que você manda pelo clipe da conversa passam antes por um filtro que troca nomes, CPF, telefone, e-mail e outros dados por marcadores, como <b>[PESSOA_1]</b> e <b>[CPF_1]</b>. O agente e o modelo na nuvem só recebem a versão com marcadores. A tabela que liga cada marcador ao dado real fica neste servidor, cifrada, fora da pasta do agente.</p>
-    <p class="an-limite"><b>O que ainda não passa pelo filtro:</b> o que chega por WhatsApp, Telegram ou e-mail. Só vale para o clipe da conversa web. O que você digita só é trocado se a opção estiver ligada, e apenas para dados que já apareceram em algum documento.</p>
+  <section class="an-sec" id="secSobre" aria-label="O que é a anonimização de documentos" data-dg-i18n-aria-label="3295617c78fe">
+    <h2><span><!--dg-i18n:f2a70b9715ac-->Anonimizar documentos<!--/dg-i18n--></span><button type="button" class="an-ajuda" data-an="ajuda" data-secao="sobre" aria-label="Tutorial: o que é a anonimização" data-dg-i18n-aria-label="ed9d587979d1">?</button></h2>
+    <p><!--dg-i18n:dad362cd634f-->Com a opção ligada para um agente, os documentos que você manda pelo clipe da conversa passam antes por um filtro que troca nomes, CPF, telefone, e-mail e outros dados por marcadores, como<!--/dg-i18n--> <b>[PESSOA_1]</b> e <b>[CPF_1]</b><!--dg-i18n:f6ac748b37ac-->. O agente e o modelo na nuvem só recebem a versão com marcadores. A tabela que liga cada marcador ao dado real fica neste servidor, cifrada, fora da pasta do agente.<!--/dg-i18n--></p>
+    <p class="an-limite"><b><!--dg-i18n:418a9c3e18d2-->O que ainda não passa pelo filtro:<!--/dg-i18n--></b> <!--dg-i18n:27e6f8283278-->o que chega por WhatsApp, Telegram ou e-mail. Só vale para o clipe da conversa web. O que você digita só é trocado se a opção estiver ligada, e apenas para dados que já apareceram em algum documento.<!--/dg-i18n--></p>
   </section>
 
-  <section class="an-sec" id="secDetector" aria-label="Detector de nomes">
-    <h2><span>Detector de nomes</span><button type="button" class="an-ajuda" data-an="ajuda" data-secao="detector" aria-label="Tutorial do detector de nomes">?</button></h2>
-    <div id="anDetector"><p class="an-vazio">Conferindo…</p></div>
+  <section class="an-sec" id="secDetector" aria-label="Detector de nomes" data-dg-i18n-aria-label="6f1bc86801f8">
+    <h2><span><!--dg-i18n:6f1bc86801f8-->Detector de nomes<!--/dg-i18n--></span><button type="button" class="an-ajuda" data-an="ajuda" data-secao="detector" aria-label="Tutorial do detector de nomes" data-dg-i18n-aria-label="100ad28aab66">?</button></h2>
+    <div id="anDetector"><p class="an-vazio"><!--dg-i18n:43bf08152a6e-->Conferindo…<!--/dg-i18n--></p></div>
   </section>
 
-  <section class="an-sec" id="secAgentes" aria-label="Anonimização por agente">
-    <h2><span>Por agente</span><button type="button" class="an-ajuda" data-an="ajuda" data-secao="agentes" aria-label="Tutorial das opções por agente">?</button></h2>
-    <div id="anAgentes"><p class="an-vazio"><span data-carregando="Carregando" data-tam="p"></span> Carregando…</p></div>
+  <section class="an-sec" id="secAgentes" aria-label="Anonimização por agente" data-dg-i18n-aria-label="e61df3ef69a2">
+    <h2><span><!--dg-i18n:11f9c4dbfaa9-->Por agente<!--/dg-i18n--></span><button type="button" class="an-ajuda" data-an="ajuda" data-secao="agentes" aria-label="Tutorial das opções por agente" data-dg-i18n-aria-label="4352a7fcd533">?</button></h2>
+    <div id="anAgentes"><p class="an-vazio"><span data-carregando="Carregando" data-tam="p"></span> <!--dg-i18n:6cc1bbba0f84-->Carregando…<!--/dg-i18n--></p></div>
   </section>
 
-  <section class="an-sec" id="secTeste" aria-label="Testar com um texto">
-    <h2><span>Testar com um texto</span><button type="button" class="an-ajuda" data-an="ajuda" data-secao="teste" aria-label="Tutorial do teste com um texto">?</button></h2>
-    <p class="an-fraco">Cole um texto para ver o que seria trocado. Nada é gravado: o teste usa uma tabela temporária.</p>
-    <label class="an-campo">Agente (usa as opções dele)
+  <section class="an-sec" id="secTeste" aria-label="Testar com um texto" data-dg-i18n-aria-label="fac62412cbd6">
+    <h2><span><!--dg-i18n:fac62412cbd6-->Testar com um texto<!--/dg-i18n--></span><button type="button" class="an-ajuda" data-an="ajuda" data-secao="teste" aria-label="Tutorial do teste com um texto" data-dg-i18n-aria-label="71b1f5b80230">?</button></h2>
+    <p class="an-fraco"><!--dg-i18n:98a030574eec-->Cole um texto para ver o que seria trocado. Nada é gravado: o teste usa uma tabela temporária.<!--/dg-i18n--></p>
+    <label class="an-campo"><!--dg-i18n:d32e2a9392b3-->Agente (usa as opções dele)<!--/dg-i18n-->
       <select id="anTesteAgente"></select>
     </label>
-    <label class="an-campo">Texto
-      <textarea id="anTesteTexto" rows="4" placeholder="Ex.: Maria Souza, CPF 123.456.789-00, telefone (11) 91234-5678"></textarea>
+    <label class="an-campo"><!--dg-i18n:6df3d6661c09-->Texto<!--/dg-i18n-->
+      <textarea id="anTesteTexto" rows="4" placeholder="Ex.: Maria Souza, CPF 123.456.789-00, telefone (11) 91234-5678" data-dg-i18n-placeholder="ac745c4b7d30"></textarea>
     </label>
-    <div class="an-acoes"><button type="button" class="an-btn an-pri" id="anTesteBtn">Testar</button></div>
+    <div class="an-acoes"><button type="button" class="an-btn an-pri" id="anTesteBtn"><!--dg-i18n:4edfe700c203-->Testar<!--/dg-i18n--></button></div>
     <div id="anTesteSaida" class="an-saida" aria-live="polite" hidden></div>
     <p class="an-msg" id="anTesteMsg" role="status" hidden></p>
   </section>
 
-  <section class="an-sec" id="secDocs" aria-label="Documentos anonimizados">
-    <h2><span>Documentos anonimizados</span><button type="button" class="an-ajuda" data-an="ajuda" data-secao="docs" aria-label="Tutorial da lista de documentos">?</button></h2>
-    <label class="an-campo">Agente
+  <section class="an-sec" id="secDocs" aria-label="Documentos anonimizados" data-dg-i18n-aria-label="3e97f8477f16">
+    <h2><span><!--dg-i18n:3e97f8477f16-->Documentos anonimizados<!--/dg-i18n--></span><button type="button" class="an-ajuda" data-an="ajuda" data-secao="docs" aria-label="Tutorial da lista de documentos" data-dg-i18n-aria-label="4c75082c7b9f">?</button></h2>
+    <label class="an-campo"><!--dg-i18n:1e068f0819ee-->Agente<!--/dg-i18n-->
       <select id="anDocsAgente"></select>
     </label>
-    <div id="anDocs"><p class="an-vazio">Escolha um agente.</p></div>
+    <div id="anDocs"><p class="an-vazio"><!--dg-i18n:29c7978fbe7e-->Escolha um agente.<!--/dg-i18n--></p></div>
     <div class="an-acoes" id="anDocsAcoes" hidden>
-      <button type="button" class="an-btn" id="anVerTabela" data-an="tabela">Ver tabela</button>
-      <button type="button" class="an-btn an-perigo" data-an="apagar-tudo">Apagar tudo deste agente</button>
+      <button type="button" class="an-btn" id="anVerTabela" data-an="tabela"><!--dg-i18n:d5b5867481df-->Ver tabela<!--/dg-i18n--></button>
+      <button type="button" class="an-btn an-perigo" data-an="apagar-tudo"><!--dg-i18n:f7b0adb0a00d-->Apagar tudo deste agente<!--/dg-i18n--></button>
     </div>
     <div id="anTabela" class="an-saida" hidden></div>
     <p class="an-msg" id="anDocsMsg" role="status" hidden></p>

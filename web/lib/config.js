@@ -62,8 +62,11 @@ function carregaConfig(opcoes, log) {
     hashPorFora = hashAdministradoPorFora(r.vars, process.env);
   }
   const num = (v, pad) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : pad; };
+  const idiomaConfigurado = env.DGCLAW_WEB_IDIOMA || 'pt-BR';
+  if (!['pt-BR', 'en'].includes(idiomaConfigurado)) log('aviso', 'DGCLAW_WEB_IDIOMA inválido. Use pt-BR ou en no web.env; a interface segue em pt-BR.');
   return {
     env,
+    idioma: idiomaConfigurado === 'en' ? 'en' : 'pt-BR',
     // true quando o hash da senha do painel só existe no ambiente do processo (ex.: Environment= na unidade) e o
     // web.env não o define. Se o web.env define, ele governa: depois de uma troca pelo painel o processo ainda
     // tem o hash antigo, o arquivo o novo, e vale o do arquivo.

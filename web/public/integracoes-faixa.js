@@ -14,6 +14,8 @@
   if (typeof module === 'object' && module.exports) module.exports = m;
   else raiz.DGIntegracoesFaixa = m;
 })(this, function (raiz) {
+  const dgIntT = fonte => raiz.DGI18n ? raiz.DGI18n.t(fonte) : fonte;
+  const dgIntF = (fonte, valores) => raiz.DGI18n ? raiz.DGI18n.frase(fonte, valores) : fonte.replace(/\{([a-z_]+)\}/g, (m,k) => String(valores[k]));
   const POLL_MS = 5 * 60 * 1000;
   const RX_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
@@ -21,20 +23,20 @@
   function textoDaFaixa(faixa) {
     const lista = Array.isArray(faixa) ? faixa : [];
     if (!lista.length) return '';
-    if (lista.length > 1) return 'Várias integrações estão com defeito.';
+    if (lista.length > 1) return dgIntT('Várias integrações estão com defeito.');
     const i = lista[0];
-    return 'A integração ' + i.integracaoNome + ' do agente ' + i.agenteNome + ' está com defeito: ' + i.categoriaTexto + '.';
+    return dgIntF('A integração {integracao} do agente {agente} está com defeito: {categoria}.', { integracao: i.integracaoNome, agente: i.agenteNome, categoria: i.categoriaTexto });
   }
 
   /* Uma linha da lista de detalhes (várias integrações). */
   function textoDaLinha(item) {
-    return item.integracaoNome + ' (agente ' + item.agenteNome + '): ' + item.categoriaTexto + '.';
+    return dgIntF('{integracao} (agente {agente}): {categoria}.', { integracao: item.integracaoNome, agente: item.agenteNome, categoria: item.categoriaTexto });
   }
 
   /* Uma linha por agente cujas integrações não deu para medir (o motivo é texto fixo do servidor). */
   function textoNaoMedido(n) {
-    const nome = n && (n.agenteNome || n.agente) ? (n.agenteNome || n.agente) : 'um agente';
-    return 'Não consegui medir as integrações de ' + nome + ': ' + (n && n.motivo ? n.motivo : 'sem motivo informado');
+    const nome = n && (n.agenteNome || n.agente) ? (n.agenteNome || n.agente) : dgIntT('um agente');
+    return dgIntF('Não consegui medir as integrações de {nome}: {motivo}', { nome, motivo: n && n.motivo ? n.motivo : dgIntT('sem motivo informado') });
   }
 
   /* Endereço do painel do agente já na aba Integrações; slug fora do formato não gera link. */
@@ -56,6 +58,16 @@
   let faixa = null;
   let atual = null;
   let ocupado = false;
+  const pendentes = new Set();
+  let ultimoErro = '';
+  const chaveDoPost = (caminho, corpo) => caminho + '|' + JSON.stringify(corpo || {});
+  function atualizaBotoesPendentes() {
+    if (!faixa) return;
+    for (const b of faixa.querySelectorAll('button[data-if]')) {
+      if (b.dataset.if === 'lembrar') b.disabled = pendentes.has(chaveDoPost('/api/v1/integracoes/lembrar', {}));
+      else if (b.dataset.if === 'silenciar') b.disabled = pendentes.has(chaveDoPost('/api/v1/integracoes/silenciar', { agente: b.dataset.agente, integracao: b.dataset.integracao }));
+    }
+  }
 
   function garanteCss() {
     if (document.querySelector('link[href="/integracoes-faixa.css"]')) return;
@@ -85,7 +97,7 @@
     faixa = el('section', 'if');
     faixa.id = 'faixaIntegracoes';
     faixa.setAttribute('role', 'alert');
-    faixa.setAttribute('aria-label', 'Integração com defeito');
+    faixa.setAttribute('aria-label', dgIntT('Integração com defeito'));
     faixa.hidden = true;
     const cab = document.querySelector('header');
     if (cab && cab.parentNode) cab.parentNode.insertBefore(faixa, cab.nextSibling);
@@ -94,6 +106,7 @@
   }
 
   function mostraErro(texto) {
+    ultimoErro = texto || '';
     const e = faixa && faixa.querySelector('.if-erro');
     if (!e) return;
     e.textContent = texto || '';
@@ -105,11 +118,11 @@
     li.appendChild(el('span', 'if-item-txt', textoDaLinha(item)));
     const href = hrefPainel(item.agente);
     if (href) {
-      const a = el('a', 'if-link', 'Ver detalhes');
+      const a = el('a', 'if-link', dgIntT('Ver detalhes'));
       a.href = href;
       li.appendChild(a);
     }
-    const s = botao('Silenciar esta integração', 'silenciar', 'if-silenciar');
+    const s = botao(dgIntT('Silenciar esta integração'), 'silenciar', 'if-silenciar');
     s.dataset.agente = item.agente;
     s.dataset.integracao = item.integracao;
     li.appendChild(s);
@@ -128,24 +141,24 @@
     tit.appendChild(document.createTextNode(' ' + textoDaFaixa(lista)));
     linha.appendChild(tit);
     const acoes = el('span', 'if-acoes');
-    acoes.appendChild(botao('Pedir ao Admin para verificar', 'pedir', 'if-pedir'));
+    acoes.appendChild(botao(dgIntT('Pedir ao Admin para verificar'), 'pedir', 'if-pedir'));
     if (lista.length === 1) {
       const href = hrefPainel(lista[0].agente);
       if (href) {
-        const a = el('a', 'if-btn', 'Ver detalhes');
+        const a = el('a', 'if-btn', dgIntT('Ver detalhes'));
         a.href = href;
         acoes.appendChild(a);
       }
     } else {
-      const v = botao('Ver detalhes', 'ver');
+      const v = botao(dgIntT('Ver detalhes'), 'ver');
       v.setAttribute('aria-expanded', 'false');
       v.setAttribute('aria-controls', 'faixaIntegracoesLista');
       acoes.appendChild(v);
     }
-    acoes.appendChild(botao('Lembrar em 1 hora', 'lembrar'));
+    acoes.appendChild(botao(dgIntT('Lembrar em 1 hora'), 'lembrar'));
     const aj = botao('?', 'ajuda', 'if-ajuda');
-    aj.setAttribute('aria-label', 'Tutorial da faixa de integração com defeito');
-    aj.title = 'O que é esta faixa';
+    aj.setAttribute('aria-label', dgIntT('Tutorial da faixa de integração com defeito'));
+    aj.title = dgIntT('O que é esta faixa');
     acoes.appendChild(aj);
     linha.appendChild(acoes);
     faixa.appendChild(linha);
@@ -160,6 +173,8 @@
     erro.setAttribute('role', 'alert');
     erro.hidden = true;
     faixa.appendChild(erro);
+    mostraErro(ultimoErro);
+    atualizaBotoesPendentes();
   }
 
   /* Linhas discretas dos agentes que não deu para medir, mesmo sem nenhum incidente. Só textContent. */
@@ -174,7 +189,7 @@
       garanteCss();
       naoMedidosEl = el('section', 'if-nm');
       naoMedidosEl.id = 'faixaIntegracoesNaoMedidas';
-      naoMedidosEl.setAttribute('aria-label', 'Integrações que não deu para medir');
+      naoMedidosEl.setAttribute('aria-label', dgIntT('Integrações que não deu para medir'));
       const ancora = faixa || document.querySelector('header');
       if (ancora && ancora.parentNode) ancora.parentNode.insertBefore(naoMedidosEl, ancora.nextSibling);
       else document.body.insertBefore(naoMedidosEl, document.body.firstChild);
@@ -224,31 +239,38 @@
     const s = document.createElement('script');
     s.src = '/tour.js';
     s.onload = fn;
-    s.onerror = () => mostraErro('A visita guiada não carregou. Recarregue a página e tente de novo.');
+    s.onerror = () => mostraErro(dgIntT('A visita guiada não carregou. Recarregue a página e tente de novo.'));
     document.head.appendChild(s);
   }
 
   /* Escreve o pedido no campo do Admin (sem enviar); quem faz isso é o mesmo atalho da faixa de atualização. */
   function pedirAoAdmin() {
-    if (!atual || typeof atual.pedido !== 'string' || !atual.pedido) { mostraErro('O servidor não trouxe o texto do pedido. Atualize a página e tente de novo.'); return; }
+    if (!atual || typeof atual.pedido !== 'string' || !atual.pedido) { mostraErro(dgIntT('O servidor não trouxe o texto do pedido. Atualize a página e tente de novo.')); return; }
     if (raiz.DGAtualizacaoFaixa && typeof raiz.DGAtualizacaoFaixa.instalar === 'function') { raiz.DGAtualizacaoFaixa.instalar(atual.pedido); return; }
-    mostraErro('Não consegui abrir a conversa com o Admin (o atalho não carregou). Recarregue a página e tente de novo.');
+    mostraErro(dgIntT('Não consegui abrir a conversa com o Admin (o atalho não carregou). Recarregue a página e tente de novo.'));
   }
 
   async function postar(caminho, corpo, botaoClicado) {
+    const chave = chaveDoPost(caminho, corpo);
+    if (pendentes.has(chave)) return false;
+    pendentes.add(chave);
     if (botaoClicado) botaoClicado.disabled = true;
     let r; let json = null;
     try {
       r = await fetch(caminho, { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo || {}) });
       try { json = await r.json(); } catch (e) { json = null; }
     } catch (e) {
+      pendentes.delete(chave);
+      atualizaBotoesPendentes();
       if (botaoClicado) botaoClicado.disabled = false;
-      mostraErro('Não consegui falar com o servidor (' + e.message + '). Confira a conexão e toque de novo.');
+      mostraErro(dgIntF('Não consegui falar com o servidor ({erro}). Confira a conexão e toque de novo.', { erro: e.message }));
       return false;
     }
+    pendentes.delete(chave);
+    atualizaBotoesPendentes();
     if (!r.ok) {
       if (botaoClicado) botaoClicado.disabled = false;
-      mostraErro((json && json.erro) || ('O servidor respondeu ' + r.status + '. Atualize a página e tente de novo.'));
+      mostraErro((json && json.erro) || (dgIntF('O servidor respondeu {status}. Atualize a página e tente de novo.', { status: r.status })));
       return false;
     }
     return true;
@@ -271,6 +293,12 @@
   function inicia() {
     atualiza();
     setInterval(atualiza, POLL_MS);
+    raiz.addEventListener('dgclaw:idioma', () => {
+      if (faixa) faixa.setAttribute('aria-label', dgIntT('Integração com defeito'));
+      if (naoMedidosEl) naoMedidosEl.setAttribute('aria-label', dgIntT('Integrações que não deu para medir'));
+      if (atual) pinta(atual);
+      atualiza();
+    });
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') atualiza(); });
   }
 

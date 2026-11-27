@@ -1,4 +1,5 @@
 'use strict';
+const dgIdiomaBackend = require("./idioma-contexto");
 // Primeiro acesso por link de uso único: o instalador (ou `dgclaw primeiro-acesso`) grava o sha256 de um token
 // em primeiro-acesso.json; a pessoa abre /primeiro-acesso#<token>, cadastra a senha no navegador e já entra logada.
 // O token nunca vai para o disco nem para o log. O arquivo tem {versao, usuario, token_sha256, criado, expira, usado_em}
@@ -93,7 +94,7 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy, travaEs
    *  recriar só com o hash trancaria o próximo login. */
   function textoComHash(hash, exigirExistente) {
     // Edição linha a linha: troca só a linha do hash e mantém o resto do web.env como está.
-    if (hash.includes("'")) throw new Error('o hash gerado contém aspas simples e não pode ser gravado no web.env');
+    if (hash.includes("'")) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o hash gerado contém aspas simples e não pode ser gravado no web.env")]);
     let texto = '';
     try { texto = fs.readFileSync(webEnv, 'utf8'); } catch (e) { if (e.code !== 'ENOENT' || exigirExistente) throw e; }
     const linha = `DGCLAW_PANEL_PASSWORD_HASH='${hash}'`;
@@ -115,12 +116,12 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy, travaEs
     let st;
     try { st = fs.lstatSync(webEnv); } catch (e) {
       // Sem o web.env o próximo reinício perde o usuário do painel e tranca o login: recusa antes de gravar.
-      if (e.code === 'ENOENT') return { motivo: 'não existe (a configuração do painel precisa ser restaurada antes)' };
-      return { motivo: `não pôde ser examinado (${e.code || e.message})` };
+      if (e.code === 'ENOENT') return dgIdiomaBackend.objeto({ motivo: dgIdiomaBackend.descricao("não existe (a configuração do painel precisa ser restaurada antes)") });
+      return dgIdiomaBackend.objeto({ motivo: dgIdiomaBackend.descricao("não pôde ser examinado ({p0})", {p0: (e.code || dgIdiomaBackend.campo(e, "message"))}) });
     }
     if (st.isFile()) return null;
     const tipo = st.isSymbolicLink() ? 'é um link simbólico' : st.isFIFO() ? 'é um FIFO' : st.isDirectory() ? 'é uma pasta' : 'não é um arquivo comum';
-    return { motivo: tipo };
+    return dgIdiomaBackend.objeto({ motivo: dgIdiomaBackend.descricao(tipo) });
   }
 
   const opcoesTrava = travaEsperaMs != null ? { esperaMs: travaEsperaMs } : {};
@@ -131,11 +132,11 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy, travaEs
       liberar = await pegarTrava(webEnv, opcoesTrava);
     } catch (e) {
       log('erro', `${contexto}: não consegui criar a trava do web.env ao lado de ${webEnv} (${e.code || e.message}). Nada foi gravado.`);
-      return { resposta: erro(500, `Não consegui preparar a gravação do web.env (${e.code || e.message}). Nada foi gravado e a senha antiga continua valendo; peça ao Admin para conferir a permissão da pasta de configuração.`) };
+      return { resposta: erro(500, dgIdiomaBackend.descricao("Não consegui preparar a gravação do web.env ({p0}). Nada foi gravado e a senha antiga continua valendo; peça ao Admin para conferir a permissão da pasta de configuração.", {p0:(e.code || dgIdiomaBackend.campo(e, "message"))})) };
     }
     if (!liberar) {
       log('aviso', `${contexto}: outro processo está gravando o web.env (a trava ao lado de ${webEnv} ficou ocupada). Nada foi gravado.`);
-      return { resposta: erro(409, 'Outro processo está gravando o web.env agora; nada foi gravado, a senha antiga continua valendo, tente de novo em alguns segundos.') };
+      return { resposta: erro(409, dgIdiomaBackend.descricao("Outro processo está gravando o web.env agora; nada foi gravado, a senha antiga continua valendo, tente de novo em alguns segundos.")) };
     }
     const soltar = () => {
       try { liberar(); } catch (e) { log('erro', `${contexto}: não consegui soltar a trava do web.env (${e.code || e.message}). Se ela travar o próximo pedido, apague a pasta .web.env.trava ao lado de ${webEnv}.`); }
@@ -143,55 +144,55 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy, travaEs
     return { liberar: soltar };
   }
 
-  const erro = (status, msg, extra) => ({ status, corpo: Object.assign({ ok: false, erro: msg }, extra || {}) });
+  const erro = (status, msg, extra) => ({ status, corpo: dgIdiomaBackend.atribuir(dgIdiomaBackend.objeto({ ok: false, erro: msg }), extra || {}) });
   let trocandoDono = false;
 
   /** Troca da senha do dono logado: confere a atual (mesmo limitador do login), grava só o hash no web.env e abre sessão nova.
    *  As demais sessões caem em auth.definirHash. Mesmas regras de força do primeiro acesso. */
   async function trocarSenhaDono(dados, ip, req, sessao) {
     const { atual, nova, confirmacao } = dados || {};
-    if (typeof atual !== 'string' || !atual) return erro(400, 'Digite a senha atual.');
-    if (typeof nova !== 'string') return erro(400, 'Digite a senha nova.');
-    if (typeof confirmacao !== 'string' || nova.normalize('NFKC') !== confirmacao.normalize('NFKC')) return erro(400, 'As senhas não conferem.');
+    if (typeof atual !== 'string' || !atual) return erro(400, dgIdiomaBackend.descricao("Digite a senha atual."));
+    if (typeof nova !== 'string') return erro(400, dgIdiomaBackend.descricao("Digite a senha nova."));
+    if (typeof confirmacao !== 'string' || nova.normalize('NFKC') !== confirmacao.normalize('NFKC')) return erro(400, dgIdiomaBackend.descricao("As senhas não conferem."));
     // Pontos de código na digitada e na forma que o scrypt usa (NFKC): as duas precisam chegar a 12.
     const tamNova = Math.min([...nova].length, [...nova.normalize('NFKC')].length);
-    if (tamNova < 12) return erro(400, `A senha precisa ter pelo menos 12 caracteres (a sua tem ${tamNova}).`);
-    if (nova.toLowerCase() === 'admin') return erro(400, 'Essa senha é fácil demais de adivinhar. Escolha outra.');
+    if (tamNova < 12) return erro(400, dgIdiomaBackend.descricao("A senha precisa ter pelo menos 12 caracteres (a sua tem {p0}).", {p0: (tamNova)}));
+    if (nova.toLowerCase() === 'admin') return erro(400, dgIdiomaBackend.descricao("Essa senha é fácil demais de adivinhar. Escolha outra."));
     const norm = (v) => String(v).normalize('NFKC'); // a mesma normalização do scrypt em lib/auth.js
-    if (norm(nova) === norm(atual)) return erro(400, 'A senha nova precisa ser diferente da atual.');
-    if (trocandoDono) return erro(409, 'Já há uma troca de senha em andamento. Espere alguns segundos e tente de novo.');
+    if (norm(nova) === norm(atual)) return erro(400, dgIdiomaBackend.descricao("A senha nova precisa ser diferente da atual."));
+    if (trocandoDono) return erro(409, dgIdiomaBackend.descricao("Já há uma troca de senha em andamento. Espere alguns segundos e tente de novo."));
     trocandoDono = true;
     try {
       if (config.hashPorFora) {
         log('aviso', `Troca de senha do dono recusada: o hash da senha vem do ambiente do serviço e não do ${webEnv}.`);
-        return erro(409, `A senha deste painel é definida fora do web.env, no ambiente do serviço (por exemplo, uma linha Environment= na unidade do systemd). Trocar por aqui não valeria depois de reiniciar, então nada foi gravado. Faça a troca lá (ou tire essa definição e use o web.env) e reinicie o serviço.`);
+        return erro(409, dgIdiomaBackend.descricao("A senha deste painel é definida fora do web.env, no ambiente do serviço (por exemplo, uma linha Environment= na unidade do systemd). Trocar por aqui não valeria depois de reiniciar, então nada foi gravado. Faça a troca lá (ou tire essa definição e use o web.env) e reinicie o serviço."));
       }
       const destino = destinoInvalido();
       if (destino) {
         log('erro', `Troca de senha do dono recusada: ${webEnv} ${destino.motivo}.`);
-        return erro(409, `Não dá para trocar a senha por aqui: ${webEnv} ${destino.motivo}. Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para deixar o web.env como arquivo comum (ou rode no servidor: sudo dgclaw senha).`);
+        return erro(409, dgIdiomaBackend.descricao("Não dá para trocar a senha por aqui: {p0} {p1}. Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para deixar o web.env como arquivo comum (ou rode no servidor: sudo dgclaw senha).", {p0:(webEnv),p1:(dgIdiomaBackend.campo(destino, "motivo"))}));
       }
       const v = await auth.verificaSenha(auth.usuario, atual, ip);
       if (!v.ok) {
-        if (v.limite) { log('aviso', `Troca de senha do dono bloqueada por excesso de tentativas (ip ${ip}).`); return erro(429, v.erro, { retryAfter: v.retryAfter }); }
-        if (v.trancado) return erro(403, v.erro);
+        if (v.limite) { log('aviso', `Troca de senha do dono bloqueada por excesso de tentativas (ip ${ip}).`); return erro(429, dgIdiomaBackend.campo(v, "erro"), { retryAfter: v.retryAfter }); }
+        if (v.trancado) return erro(403, dgIdiomaBackend.campo(v, "erro"));
         log('aviso', `Troca de senha do dono recusada (ip ${ip}): senha atual não confere.`);
-        return v.campo ? erro(403, 'A senha atual não confere.') : erro(500, v.erro);
+        return v.campo ? erro(403, dgIdiomaBackend.descricao("A senha atual não confere.")) : erro(500, dgIdiomaBackend.campo(v, "erro"));
       }
       let hash;
       try {
         hash = await auth.gerarHash(nova);
       } catch (e) {
-        if (e.ocupado) return erro(429, e.message, { retryAfter: 2 });
+        if (e.ocupado) return erro(429, dgIdiomaBackend.campo(e, "message"), { retryAfter: 2 });
         log('erro', `Troca de senha do dono: falha ao gerar o hash (${e.message}).`);
-        return erro(500, 'Não consegui processar a senha agora. Tente de novo em instantes.');
+        return erro(500, dgIdiomaBackend.descricao("Não consegui processar a senha agora. Tente de novo em instantes."));
       }
       // Depois dos awaits: a sessão que autorizou o pedido ainda tem de valer.
       const sessaoVale = () => {
         const agoraSessao = auth.sessaoDoPedido(req);
         return !!agoraSessao && agoraSessao.papel === 'dono' && agoraSessao.usuario === sessao.usuario;
       };
-      const MSG_SESSAO = 'A sua sessão deixou de valer enquanto você trocava a senha. Entre de novo.';
+      const MSG_SESSAO = dgIdiomaBackend.descricao("A sua sessão deixou de valer enquanto você trocava a senha. Entre de novo.");
       if (!sessaoVale()) return erro(401, MSG_SESSAO);
       const trava = await travaDoWebEnv('Troca de senha do dono');
       if (trava.resposta) return trava.resposta;
@@ -202,7 +203,7 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy, travaEs
         const destinoAgora = destinoInvalido();
         if (destinoAgora) {
           log('erro', `Troca de senha do dono recusada: ${webEnv} ${destinoAgora.motivo} (mudou durante a troca).`);
-          return erro(409, `Não dá para trocar a senha por aqui: ${webEnv} ${destinoAgora.motivo}. Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env como arquivo comum (ou rode no servidor: sudo dgclaw senha).`);
+          return erro(409, dgIdiomaBackend.descricao("Não dá para trocar a senha por aqui: {p0} {p1}. Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env como arquivo comum (ou rode no servidor: sudo dgclaw senha).", {p0:(webEnv),p1:(dgIdiomaBackend.campo(destinoAgora, "motivo"))}));
         }
         // O arquivo novo fica pronto (e conferido) ANTES de mexer no link: falta de espaço ou um web.env sem o
         // usuário do painel não podem custar o link de recuperação.
@@ -211,13 +212,13 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy, travaEs
           texto = textoComHash(hash, true);
         } catch (e) {
           log('erro', `Troca de senha do dono: não consegui ler ${webEnv} (${e.code || e.message}). A senha antiga continua valendo.`);
-          return erro(409, `Não consegui ler o web.env (${e.code || e.message}). Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env (ou rode no servidor: sudo dgclaw senha).`);
+          return erro(409, dgIdiomaBackend.descricao("Não consegui ler o web.env ({p0}). Nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env (ou rode no servidor: sudo dgclaw senha).", {p0:(e.code || dgIdiomaBackend.campo(e, "message"))}));
         }
         // Confere com o mesmo leitor que o painel usa ao iniciar: o que ele vai ler no reinício é o que vale.
         const efetivo = lerEnvTexto(texto);
         if (!String(efetivo.DGCLAW_PANEL_USER || '').trim() || efetivo.DGCLAW_PANEL_PASSWORD_HASH !== hash) {
           log('erro', `Troca de senha do dono recusada: ${webEnv} não ficaria com um DGCLAW_PANEL_USER válido e com o hash novo; depois de reiniciar, o login ficaria trancado.`);
-          return erro(409, `O web.env não tem o usuário do painel (DGCLAW_PANEL_USER) preenchido, ou tem outra definição que prevaleceria sobre o hash novo. Com a senha gravada nele, o próximo reinício trancaria o login, então nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env (ou rode no servidor: sudo dgclaw senha).`);
+          return erro(409, dgIdiomaBackend.descricao("O web.env não tem o usuário do painel (DGCLAW_PANEL_USER) preenchido, ou tem outra definição que prevaleceria sobre o hash novo. Com a senha gravada nele, o próximo reinício trancaria o login, então nada foi gravado e a senha antiga continua valendo. Peça ao Admin para restaurar o web.env (ou rode no servidor: sudo dgclaw senha)."));
         }
         const sufixo = `${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
         const tmp = `${webEnv}.${sufixo}.tmp`;
@@ -227,7 +228,7 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy, travaEs
         } catch (e) {
           try { fs.unlinkSync(tmp); } catch (_) { /* não existia */ }
           log('erro', `Troca de senha do dono: não consegui preparar o web.env novo (${e.code || e.message}). A senha antiga continua valendo.`);
-          return erro(500, `Não consegui gravar a senha no servidor (${e.code || e.message}). A senha antiga continua valendo e o link de recuperação pendente continua valendo; peça ao Admin para conferir o espaço e a permissão da pasta de configuração.`);
+          return erro(500, dgIdiomaBackend.descricao("Não consegui gravar a senha no servidor ({p0}). A senha antiga continua valendo e o link de recuperação pendente continua valendo; peça ao Admin para conferir o espaço e a permissão da pasta de configuração.", {p0:(e.code || dgIdiomaBackend.campo(e, "message"))}));
         }
         // O link de primeiro acesso pendente deixa de valer junto com a troca (como pelo terminal), mas só depois que o
         // web.env novo entrar: ele é suspenso (renomeado) e só então apagado, para voltar se a gravação falhar.
@@ -240,7 +241,7 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy, travaEs
           if (e.code !== 'ENOENT') {
             try { fs.unlinkSync(tmp); } catch (_) { /* já saiu */ }
             log('erro', `Troca de senha do dono: não consegui invalidar o link de primeiro acesso pendente em ${arquivo} (${e.code || e.message}). A senha antiga continua valendo.`);
-            return erro(500, `Não consegui invalidar o link de recuperação pendente (${e.code || e.message}). A senha antiga continua valendo; peça ao Admin para conferir a permissão da pasta de configuração.`);
+            return erro(500, dgIdiomaBackend.descricao("Não consegui invalidar o link de recuperação pendente ({p0}). A senha antiga continua valendo; peça ao Admin para conferir a permissão da pasta de configuração.", {p0:(e.code || dgIdiomaBackend.campo(e, "message"))}));
           }
         }
         try {
@@ -254,7 +255,7 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy, travaEs
             }
           }
           log('erro', `Troca de senha do dono: não consegui gravar a senha em ${webEnv} (${e.code || e.message}). A senha antiga continua valendo.`);
-          return erro(500, `Não consegui gravar a senha no servidor (${e.code || e.message}). A senha antiga continua valendo${devolvido ? ' e o link de recuperação pendente continua valendo' : ''}; peça ao Admin para conferir a permissão do arquivo de configuração.`);
+          return erro(500, dgIdiomaBackend.descricao("Não consegui gravar a senha no servidor ({p0}). A senha antiga continua valendo{p1}; peça ao Admin para conferir a permissão do arquivo de configuração.", {p0:(e.code || dgIdiomaBackend.campo(e, "message")),p1:(devolvido ? dgIdiomaBackend.descricao(" e o link de recuperação pendente continua valendo") : '')}));
         }
         if (suspendeu) {
           try { fs.rmSync(suspenso, { force: true }); } catch (e) {
@@ -265,7 +266,7 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy, travaEs
       const r = auth.definirHash(hash);
       if (!r.ok) {
         log('erro', `Troca de senha do dono: o hash gerado não foi aceito (${r.erro}).`);
-        return erro(500, `O servidor não aceitou o hash gerado (${r.erro}). Rode no servidor: sudo dgclaw senha`);
+        return erro(500, dgIdiomaBackend.descricao("O servidor não aceitou o hash gerado ({p0}). Rode no servidor: sudo dgclaw senha", {p0:(dgIdiomaBackend.campo(r, "erro"))}));
       }
       // As outras sessões já caíram; os WebSockets do proxy que seguem abertos precisam ser conferidos agora, não em até 30 s.
       if (revalidarProxy) revalidarProxy();
@@ -283,43 +284,43 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy, travaEs
       const espera = limite(ip || '?');
       if (espera) {
         log('aviso', `Primeiro acesso: excesso de tentativas (ip ${ip}).`);
-        return erro(429, `Muitas tentativas. Tente de novo em ${espera} min.`, { retryAfter: espera * 60 });
+        return erro(429, dgIdiomaBackend.descricao("Muitas tentativas. Tente de novo em {p0} min.", {p0: (espera)}), { retryAfter: espera * 60 });
       }
       if (typeof token !== 'string' || !RX_TOKEN.test(token)) {
-        return erro(400, 'Este link está incompleto. Copie o link inteiro que apareceu no fim da instalação.');
+        return erro(400, dgIdiomaBackend.descricao("Este link está incompleto. Copie o link inteiro que apareceu no fim da instalação."));
       }
       let dado;
       try {
         dado = lerArquivo();
       } catch (e) {
         if (e.code === 'ENOENT') {
-          if (!auth.semSenha && !auth.trancado) return erro(410, 'Este link já foi usado. Se não foi você, rode no servidor: sudo dgclaw senha');
-          return erro(404, 'Este link não vale mais. Gere outro com: sudo dgclaw primeiro-acesso');
+          if (!auth.semSenha && !auth.trancado) return erro(410, dgIdiomaBackend.descricao("Este link já foi usado. Se não foi você, rode no servidor: sudo dgclaw senha"));
+          return erro(404, dgIdiomaBackend.descricao("Este link não vale mais. Gere outro com: sudo dgclaw primeiro-acesso"));
         }
         log('erro', `Primeiro acesso: não consegui ler ${arquivo} (${e.code || e.message}). Confira se o JSON está inteiro; gere outro com sudo dgclaw primeiro-acesso.`);
-        return erro(500, `Não consegui ler o arquivo do link de primeiro acesso (${e.code || e.message}). No servidor, rode: sudo dgclaw primeiro-acesso`);
+        return erro(500, dgIdiomaBackend.descricao("Não consegui ler o arquivo do link de primeiro acesso ({p0}). No servidor, rode: sudo dgclaw primeiro-acesso", {p0: (e.code || dgIdiomaBackend.campo(e, "message"))}));
       }
       const esperado = Buffer.from(String(dado && dado.token_sha256 || ''), 'hex');
       if (esperado.length !== 32 || !crypto.timingSafeEqual(sha256buf(token), esperado)) {
         log('aviso', `Primeiro acesso: token que não confere (ip ${ip}).`);
-        return erro(403, 'Este link não vale (ou foi copiado pela metade, ou já foi trocado por um mais novo). Gere outro com: sudo dgclaw primeiro-acesso');
+        return erro(403, dgIdiomaBackend.descricao("Este link não vale (ou foi copiado pela metade, ou já foi trocado por um mais novo). Gere outro com: sudo dgclaw primeiro-acesso"));
       }
-      if (dado.usado_em != null) return erro(410, 'Este link já foi usado. Se não foi você, rode no servidor: sudo dgclaw senha');
-      if (!(Number(dado.expira) > relogio())) return erro(410, 'Este link expirou. Gere outro com: sudo dgclaw primeiro-acesso');
+      if (dado.usado_em != null) return erro(410, dgIdiomaBackend.descricao("Este link já foi usado. Se não foi você, rode no servidor: sudo dgclaw senha"));
+      if (!(Number(dado.expira) > relogio())) return erro(410, dgIdiomaBackend.descricao("Este link expirou. Gere outro com: sudo dgclaw primeiro-acesso"));
 
-      if (typeof senha !== 'string') return erro(400, 'Digite a senha.');
-      if (typeof confirmacao !== 'string' || senha.normalize('NFKC') !== confirmacao.normalize('NFKC')) return erro(400, 'As senhas não conferem.');
+      if (typeof senha !== 'string') return erro(400, dgIdiomaBackend.descricao("Digite a senha."));
+      if (typeof confirmacao !== 'string' || senha.normalize('NFKC') !== confirmacao.normalize('NFKC')) return erro(400, dgIdiomaBackend.descricao("As senhas não conferem."));
       const tamSenha = Math.min([...senha].length, [...senha.normalize('NFKC')].length);
-      if (tamSenha < 12) return erro(400, `A senha precisa ter pelo menos 12 caracteres (a sua tem ${tamSenha}).`);
-      if (senha.toLowerCase() === 'admin') return erro(400, 'Essa senha é fácil demais de adivinhar. Escolha outra.');
+      if (tamSenha < 12) return erro(400, dgIdiomaBackend.descricao("A senha precisa ter pelo menos 12 caracteres (a sua tem {p0}).", {p0: (tamSenha)}));
+      if (senha.toLowerCase() === 'admin') return erro(400, dgIdiomaBackend.descricao("Essa senha é fácil demais de adivinhar. Escolha outra."));
 
       let hash;
       try {
         hash = await auth.gerarHash(senha);
       } catch (e) {
-        if (e.ocupado) return erro(429, e.message, { retryAfter: 2 });
+        if (e.ocupado) return erro(429, dgIdiomaBackend.campo(e, "message"), { retryAfter: 2 });
         log('erro', `Primeiro acesso: falha ao gerar o hash da senha (${e.message}).`);
-        return erro(500, 'Não consegui processar a senha agora. Tente de novo em instantes.');
+        return erro(500, dgIdiomaBackend.descricao("Não consegui processar a senha agora. Tente de novo em instantes."));
       }
 
       // A trava do web.env vem antes de marcar o link como usado: se ela estiver ocupada, o link continua valendo.
@@ -329,28 +330,28 @@ function criarPrimeiroAcesso({ config, auth, log, agora, revalidarProxy, travaEs
       try {
         // depois do await: confere de novo, em sequência síncrona, que ninguém usou o token no meio
         let atual;
-        try { atual = lerArquivo(); } catch (e) { return erro(410, 'Este link já foi usado. Se não foi você, rode no servidor: sudo dgclaw senha'); }
+        try { atual = lerArquivo(); } catch (e) { return erro(410, dgIdiomaBackend.descricao("Este link já foi usado. Se não foi você, rode no servidor: sudo dgclaw senha")); }
         if (atual.token_sha256 !== dado.token_sha256 || atual.usado_em != null) {
-          return erro(410, 'Este link já foi usado. Se não foi você, rode no servidor: sudo dgclaw senha');
+          return erro(410, dgIdiomaBackend.descricao("Este link já foi usado. Se não foi você, rode no servidor: sudo dgclaw senha"));
         }
         usuario = String(atual.usuario || auth.usuario || '').trim();
         try {
-          gravaAtomico(arquivo, JSON.stringify(Object.assign({}, atual, { usado_em: relogio() })) + '\n');
+          gravaAtomico(arquivo, JSON.stringify(dgIdiomaBackend.atribuir({}, atual, { usado_em: relogio() })) + '\n');
         } catch (e) {
           log('erro', `Primeiro acesso: não consegui marcar o link como usado em ${arquivo} (${e.code || e.message}).`);
-          return erro(500, `Não consegui gravar o uso do link (${e.code || e.message}). No servidor, rode: sudo dgclaw primeiro-acesso`);
+          return erro(500, dgIdiomaBackend.descricao("Não consegui gravar o uso do link ({p0}). No servidor, rode: sudo dgclaw primeiro-acesso", {p0: (e.code || dgIdiomaBackend.campo(e, "message"))}));
         }
         try {
           gravaHashNoEnv(hash);
         } catch (e) {
           log('erro', `Primeiro acesso: não consegui gravar a senha em ${webEnv} (${e.code || e.message}). O link já foi marcado como usado.`);
-          return erro(500, `Não consegui gravar a senha no servidor (${e.code || e.message}). O link já foi usado: rode no servidor sudo dgclaw primeiro-acesso e tente de novo.`);
+          return erro(500, dgIdiomaBackend.descricao("Não consegui gravar a senha no servidor ({p0}). O link já foi usado: rode no servidor sudo dgclaw primeiro-acesso e tente de novo.", {p0: (e.code || dgIdiomaBackend.campo(e, "message"))}));
         }
       } finally { trava.liberar(); }
       const r = auth.definirHash(hash);
       if (!r.ok) {
         log('erro', `Primeiro acesso: o hash gerado não foi aceito (${r.erro}).`);
-        return erro(500, `O servidor não aceitou o hash gerado (${r.erro}). Rode: sudo dgclaw primeiro-acesso`);
+        return erro(500, dgIdiomaBackend.descricao("O servidor não aceitou o hash gerado ({p0}). Rode: sudo dgclaw primeiro-acesso", {p0: (dgIdiomaBackend.campo(r, "erro"))}));
       }
       const s = auth.criaSessao(usuario, req);
       log('info', `Primeiro acesso concluído: senha cadastrada para ${usuario} (ip ${ip}).`);
