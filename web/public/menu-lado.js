@@ -431,8 +431,7 @@
      medição (medido_em); erro e "ainda não medido" não criam grupo. Em cada grupo vale a medição mais recente.
      Medição de um agente parado há mais de uma semana (semanal vencida) não abre grupo próprio quando o mesmo
      provedor já tem medição atual: ela é só um número velho da mesma conta.
-     agentes = o objeto de GET /api/v1/uso; nomesPorSlug = { slug: nome } (opcional, só para o title).
-     Cada grupo traz também `slugs`, os ids dos agentes que o compõem (usoHtml usa para achar a conta do agente selecionado). */
+     agentes = o objeto de GET /api/v1/uso; nomesPorSlug = { slug: nome } (opcional, só para o title). */
   function assinaturasDeUso(agentes, nomesPorSlug) {
     const TOL = 10 * 60000;
     const lidos = [];
@@ -455,36 +454,45 @@
     });
     const ordem = Object.keys(agentes || {});
     return grupos.map(g => ({
-      provedor: g.provedor, uso: g.uso, slugs: g.slugs.slice(),
+      provedor: g.provedor, uso: g.uso,
       agentes: g.slugs.sort((a, b) => ordem.indexOf(a) - ordem.indexOf(b)).map(s => (nomesPorSlug && nomesPorSlug[s]) || s),
     }));
   }
 
   /* O HTML de dentro do #mlUso para uma resposta boa de GET /api/v1/uso.
-     O uso reflete a conta do agente selecionado (atualId, o slug dele): o bloco mostra só o cartão do grupo que
-     contém esse agente. Se o agente não tem medição: com um único grupo no total, mostra esse grupo (é a única conta
-     medida); com mais de um, mostra "sem medição ainda" com a causa daquele agente. Sem atualId, ou com um atualId que
-     não existe na resposta, mostra todos os grupos. Com mais de um grupo, o título leva o provedor (e os nomes dos
-     agentes quando há duas contas do mesmo provedor), que diz de qual conta é o número. */
+     Com atualId (o slug do agente selecionado) presente na resposta, o bloco mostra UM cartão com a medição do próprio
+     agente (nunca a de outro agente do grupo). Se ele não tem medição, mostra "sem medição ainda" com a causa dele,
+     mesmo quando outros agentes têm medição. O título leva o provedor do agente quando a resposta tem medição de mais
+     de um provedor. Sem atualId, ou com um atualId que não está na resposta, mostra todas as assinaturas agrupadas. */
   function usoHtml(agentes, nomesPorSlug, agora, atualId) {
-    const todos = assinaturasDeUso(agentes, nomesPorSlug);
+    const rotulo = { claude: 'Claude', codex: 'ChatGPT' };
     const semMedicao = (dica) => cartaoUso({ titulo: 'Uso da assinatura', uso: null,
       rodape: { texto: 'sem medição ainda', dica: dica || '' } }, agora);
+    if (atualId && agentes && Object.prototype.hasOwnProperty.call(agentes, atualId)) {
+      const e = agentes[atualId], u = e && e.uso;
+      if (u && u.medido_em && isFinite(new Date(u.medido_em).getTime())) {
+        const provs = new Set();
+        Object.keys(agentes).forEach(s => {
+          const x = agentes[s] && agentes[s].uso;
+          if (x && x.medido_em) provs.add(x.provedor || '');
+        });
+        const m = tempoMedidoUso(u.medido_em, agora);
+        const sufixo = provs.size > 1 && rotulo[u.provedor] ? ' ' + rotulo[u.provedor] : '';
+        const nome = (nomesPorSlug && nomesPorSlug[atualId]) || atualId;
+        return cartaoUso({
+          titulo: 'Uso da assinatura' + sufixo, uso: u,
+          dica: 'Medido pelo agente: ' + nome,
+          rodape: { texto: m ? m.texto : 'medido', classe: m && m.velho ? 'velho' : '' },
+        }, agora);
+      }
+      return semMedicao(e ? (e.erro || e.motivo) : '');
+    }
+    const todos = assinaturasDeUso(agentes, nomesPorSlug);
     if (!todos.length) {
       const e = Object.values(agentes || {}).find(x => x && (x.erro || x.motivo));
       return semMedicao(e ? (e.erro || e.motivo) : '');
     }
-    let grupos = todos;
-    if (atualId && agentes && Object.prototype.hasOwnProperty.call(agentes, atualId)) {
-      const meu = todos.find(g => g.slugs.includes(atualId));
-      if (meu) grupos = [meu];
-      else if (todos.length > 1) {
-        const e = agentes[atualId];
-        return semMedicao(e ? (e.erro || e.motivo) : '');
-      }
-    }
-    const rotulo = { claude: 'Claude', codex: 'ChatGPT' };
-    return grupos.map(g => {
+    return todos.map(g => {
       const m = tempoMedidoUso(g.uso.medido_em, agora);
       let sufixo = todos.length > 1 && rotulo[g.provedor] ? ' ' + rotulo[g.provedor] : '';
       // duas contas do mesmo provedor: o nome dos agentes diz qual é qual

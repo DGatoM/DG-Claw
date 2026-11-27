@@ -120,7 +120,7 @@ function criarRunner({ log, timeoutMs }) {
     },
     /** GET /api/agents/<id>/uso: o uso da assinatura. Devolve { ok, uso, motivo? } ou { ok:false, erro }. */
     async uso(agente, timeoutMs) {
-      const r = await chamar(agente, 'GET', `/api/agents/${encodeURIComponent(agente.agente_id)}/uso`, null, timeoutMs);
+      const r = await chamar(agente, 'GET', `/api/agents/${encodeURIComponent(agente.agente_id)}/uso`, null, timeoutMs, { maxBytes: 64 * 1024, prazoMs: timeoutMs });
       if (!r.ok && r.erro) return r;
       if (!r.ok) return { ok: false, status: r.status, erro: r.status === 404 && !(r.corpo && r.corpo.code) ? `O runner de ${agente.nome} não tem a rota de uso da assinatura (versão antiga). Atualize o DG Claw.` : motivoDoRunner(agente, r) };
       const c = r.corpo;

@@ -91,7 +91,7 @@ test('GET /api/v1/uso: runner lento estoura o prazo e não segura a resposta dos
     const r = await s.t.c.get('/api/v1/uso');
     assert.ok(Date.now() - antes < 1400, 'não esperou o runner lento até o fim');
     assert.equal(r.json.agentes.ana.uso.sessao_5h.usado_pct, 42.5);
-    assert.match(r.json.agentes.bia.erro, /não respondeu/);
+    assert.match(r.json.agentes.bia.erro, /não (respondeu|terminou de responder)/);
   } finally { await s.fechar(); }
 });
 
@@ -280,36 +280,47 @@ test('bloco: escape de HTML no título, no motivo e no erro; erro da API em verm
   assert.doesNotMatch(e, /<script>/);
 });
 
-test('conta do agente selecionado: duas contas, cada atualId mostra só o cartão certo', () => {
+test('agente selecionado: duas contas Claude com semanais a 6 min, cada atualId mostra a medição do próprio agente', () => {
   const ag = {
-    a: uso('claude', 11, 21, iso(2026, 9, 24, 9, 0), iso(2026, 9, 19, 11, 0)),
-    b: uso('claude', 66, 77, iso(2026, 9, 26, 9, 0), iso(2026, 9, 19, 11, 0)),
+    a: uso('claude', 98, 98, iso(2026, 9, 24, 9, 0), iso(2026, 9, 19, 11, 0)),
+    b: uso('claude', 2, 2, iso(2026, 9, 24, 9, 6), iso(2026, 9, 19, 11, 30)),
   };
   const nomes = { a: 'Ana', b: 'Bia' };
   const ha = M.usoHtml(ag, nomes, AGORA, 'a');
   assert.equal((ha.match(/class="ml-uso-card"/g) || []).length, 1);
-  assert.match(ha, /Claude \(Ana\)/);
-  assert.match(ha, /11%/);
-  assert.doesNotMatch(ha, /66%|Bia/);
+  assert.match(ha, /98%/);
+  assert.doesNotMatch(ha, /2%\b(?<!98%)/);
+  assert.match(ha, /Medido pelo agente: Ana/);
   const hb = M.usoHtml(ag, nomes, AGORA, 'b');
   assert.equal((hb.match(/class="ml-uso-card"/g) || []).length, 1);
-  assert.match(hb, /Claude \(Bia\)/);
-  assert.match(hb, /66%/);
-  assert.doesNotMatch(hb, /11%|Ana/);
+  assert.match(hb, /2%/);
+  assert.doesNotMatch(hb, /98%/);
+  assert.match(hb, /Medido pelo agente: Bia/);
+  assert.doesNotMatch(hb, /\(Bia\)/);
 });
 
-test('conta do agente selecionado: sem medição com 1 grupo mostra o grupo; com 2 grupos mostra sem medição e a dica', () => {
-  const um = { a: uso('claude', 11, 21, iso(2026, 9, 24, 9, 0), iso(2026, 9, 19, 11, 0)), c: { uso: null, erro: 'sem login' } };
-  const h1 = M.usoHtml(um, {}, AGORA, 'c');
-  assert.equal((h1.match(/class="ml-uso-card"/g) || []).length, 1);
-  assert.match(h1, /11%/);
-  assert.doesNotMatch(h1, /sem medição ainda/);
-  const dois = Object.assign({ b: uso('claude', 66, 77, iso(2026, 9, 26, 9, 0), iso(2026, 9, 19, 11, 0)) }, um);
-  const h2 = M.usoHtml(dois, {}, AGORA, 'c');
-  assert.equal((h2.match(/class="ml-uso-card"/g) || []).length, 1);
-  assert.match(h2, /sem medição ainda/);
-  assert.match(h2, /sem login/);
-  assert.doesNotMatch(h2, /11%|66%/);
+test('agente selecionado: Codex sem medição mostra sem medição ainda, não o 11% do Claude', () => {
+  const ag = { a: uso('claude', 11, 21, iso(2026, 9, 24, 9, 0), iso(2026, 9, 19, 11, 0)), c: { uso: null, motivo: 'ainda não respondeu' } };
+  const h = M.usoHtml(ag, {}, AGORA, 'c');
+  assert.equal((h.match(/class="ml-uso-card"/g) || []).length, 1);
+  assert.match(h, /sem medição ainda/);
+  assert.match(h, /ainda não respondeu/);
+  assert.doesNotMatch(h, /11%/);
+});
+
+test('agente selecionado: com dois provedores o título leva o provedor do agente', () => {
+  const ag = { a: uso('claude', 11, 21, iso(2026, 9, 24, 9, 0), iso(2026, 9, 19, 11, 0)), c: uso('codex', 5, 6, iso(2026, 9, 25, 9, 0), iso(2026, 9, 19, 11, 0)) };
+  assert.match(M.usoHtml(ag, {}, AGORA, 'c'), /Uso da assinatura ChatGPT/);
+  assert.match(M.usoHtml(ag, {}, AGORA, 'a'), /Uso da assinatura Claude/);
+});
+
+test('agente selecionado: falhas diferentes em A e B, a dica é a do agente selecionado', () => {
+  const ag = { a: { uso: null, erro: 'sem login da Ana' }, b: { uso: null, erro: 'runner da Bia fora do ar' },
+    c: uso('claude', 11, 21, iso(2026, 9, 24, 9, 0), iso(2026, 9, 19, 11, 0)) };
+  const hb = M.usoHtml(ag, {}, AGORA, 'b');
+  assert.match(hb, /runner da Bia fora do ar/);
+  assert.doesNotMatch(hb, /sem login da Ana|11%/);
+  assert.match(M.usoHtml(ag, {}, AGORA, 'a'), /sem login da Ana/);
 });
 
 test('conta do agente selecionado: sem atualId, ou com id que não existe, mostra todos os cartões', () => {
