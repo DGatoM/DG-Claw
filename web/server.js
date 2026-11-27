@@ -704,7 +704,16 @@ function criarServidor(opcoes) {
     if (p === '/api/v1/uso') {
       if (falhaDoRegistro(req, res, true)) return undefined;
       if (m !== 'GET') return H.erroJson(res, 405, 'Use GET para ver quanto da assinatura de cada agente já foi usado.');
-      try { return H.enviaJson(res, 200, { ok: true, agentes: await uso.consultar(caixa.ehPedidoDaCaixa(req)) }); } catch (e) {
+      // Pedido da caixa: sempre o slug da caixa (a query é ignorada). Senão, `agente=<slug>` mede só aquele agente.
+      let soSlug = caixa.ehPedidoDaCaixa(req);
+      if (!soSlug) {
+        const pedido = new URL(req.url, 'http://x').searchParams.get('agente');
+        if (pedido !== null) {
+          if (!/^[A-Za-z0-9_-]{1,64}$/.test(pedido)) return H.erroJson(res, 400, 'O parâmetro agente é inválido: use só letras, números, hífen e sublinhado, até 64 caracteres.');
+          soSlug = pedido;
+        }
+      }
+      try { return H.enviaJson(res, 200, { ok: true, agentes: await uso.consultar(soSlug) }); } catch (e) {
         return H.erroJson(res, e.status || 500, `Não consegui juntar o uso das assinaturas (${e.message}).`);
       }
     }

@@ -300,3 +300,37 @@ test('agente selecionado sem medição: erro vira "não consegui ler o uso", mot
   assert.match(hb, /sem medição ainda/);
   assert.match(hb, /title="sem login"/);
 });
+
+test('GET /api/v1/uso?agente=: só o agente pedido, sem esperar o runner lento', async () => {
+  const s = await cenario({ uso: USO_ANA, atrasoUsoMs: 4000 }, { uso: USO_ANA });
+  try {
+    const t0 = Date.now();
+    const r = await s.t.c.get('/api/v1/uso?agente=bia');
+    assert.equal(r.status, 200, r.texto);
+    assert.deepEqual(Object.keys(r.json.agentes), ['bia']);
+    assert.ok(Date.now() - t0 < 2000, 'não esperou o runner lento');
+    const x = await s.t.c.get('/api/v1/uso?agente=nao-existe');
+    assert.deepEqual(x.json.agentes, {});
+  } finally { await s.fechar(); }
+});
+
+test('GET /api/v1/uso?agente= inválido: 400 com motivo', async () => {
+  const s = await cenario({ uso: USO_ANA });
+  try {
+    for (const v of ['a%20b', '..%2Fx', 'a'.repeat(65), '']) {
+      const r = await s.t.c.get('/api/v1/uso?agente=' + v);
+      assert.equal(r.status, 400, v);
+      assert.match(r.json.erro, /agente/);
+    }
+  } finally { await s.fechar(); }
+});
+
+test('GET /api/v1/uso pela caixa ignora a query agente', async () => {
+  const s = await cenario({ uso: USO_ANA });
+  try {
+    const cab = { 'x-dgclaw-caixa': s.t.web.caixa.segredo, 'x-dgclaw-agente': 'bia' };
+    const r = await cliente(s.t.porta).pedir('GET', '/api/v1/uso?agente=ana', { headers: cab });
+    assert.equal(r.status, 200, r.texto);
+    assert.deepEqual(Object.keys(r.json.agentes), ['bia']);
+  } finally { await s.fechar(); }
+});

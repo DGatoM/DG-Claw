@@ -623,11 +623,12 @@
   async function carregaUso() {
     const caixa = $('mlUso');
     if (!caixa || buscandoUso) return;
+    if (!(agenteAtual && agenteAtual.id)) { caixa.innerHTML = usoHtml({}, {}, Date.now(), null); return; }
     buscandoUso = true;
     const ctl = new AbortController();
     const prazo = setTimeout(() => ctl.abort(), 15000);
     try {
-      const r = await fetch('/api/v1/uso', { cache: 'no-store', credentials: 'same-origin', signal: ctl.signal });
+      const r = await fetch('/api/v1/uso?agente=' + encodeURIComponent(agenteAtual.id), { cache: 'no-store', credentials: 'same-origin', signal: ctl.signal });
       const d = await r.json().catch(() => null);
       if (!r.ok || !d || d.ok === false) {
         const e = new Error((d && d.erro) || ('a API respondeu ' + r.status));
