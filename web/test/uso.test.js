@@ -279,3 +279,45 @@ test('bloco: escape de HTML no título, no motivo e no erro; erro da API em verm
   assert.match(e, /ml-uso-rodape erro" title="causa &quot;feia&quot; &lt;script&gt;">não consegui ler o uso \(resposta 500\)/);
   assert.doesNotMatch(e, /<script>/);
 });
+
+test('conta do agente selecionado: duas contas, cada atualId mostra só o cartão certo', () => {
+  const ag = {
+    a: uso('claude', 11, 21, iso(2026, 9, 24, 9, 0), iso(2026, 9, 19, 11, 0)),
+    b: uso('claude', 66, 77, iso(2026, 9, 26, 9, 0), iso(2026, 9, 19, 11, 0)),
+  };
+  const nomes = { a: 'Ana', b: 'Bia' };
+  const ha = M.usoHtml(ag, nomes, AGORA, 'a');
+  assert.equal((ha.match(/class="ml-uso-card"/g) || []).length, 1);
+  assert.match(ha, /Claude \(Ana\)/);
+  assert.match(ha, /11%/);
+  assert.doesNotMatch(ha, /66%|Bia/);
+  const hb = M.usoHtml(ag, nomes, AGORA, 'b');
+  assert.equal((hb.match(/class="ml-uso-card"/g) || []).length, 1);
+  assert.match(hb, /Claude \(Bia\)/);
+  assert.match(hb, /66%/);
+  assert.doesNotMatch(hb, /11%|Ana/);
+});
+
+test('conta do agente selecionado: sem medição com 1 grupo mostra o grupo; com 2 grupos mostra sem medição e a dica', () => {
+  const um = { a: uso('claude', 11, 21, iso(2026, 9, 24, 9, 0), iso(2026, 9, 19, 11, 0)), c: { uso: null, erro: 'sem login' } };
+  const h1 = M.usoHtml(um, {}, AGORA, 'c');
+  assert.equal((h1.match(/class="ml-uso-card"/g) || []).length, 1);
+  assert.match(h1, /11%/);
+  assert.doesNotMatch(h1, /sem medição ainda/);
+  const dois = Object.assign({ b: uso('claude', 66, 77, iso(2026, 9, 26, 9, 0), iso(2026, 9, 19, 11, 0)) }, um);
+  const h2 = M.usoHtml(dois, {}, AGORA, 'c');
+  assert.equal((h2.match(/class="ml-uso-card"/g) || []).length, 1);
+  assert.match(h2, /sem medição ainda/);
+  assert.match(h2, /sem login/);
+  assert.doesNotMatch(h2, /11%|66%/);
+});
+
+test('conta do agente selecionado: sem atualId, ou com id que não existe, mostra todos os cartões', () => {
+  const ag = {
+    a: uso('claude', 11, 21, iso(2026, 9, 24, 9, 0), iso(2026, 9, 19, 11, 0)),
+    b: uso('claude', 66, 77, iso(2026, 9, 26, 9, 0), iso(2026, 9, 19, 11, 0)),
+  };
+  for (const id of [undefined, null, 'zzz']) {
+    assert.equal((M.usoHtml(ag, {}, AGORA, id).match(/class="ml-uso-card"/g) || []).length, 2);
+  }
+});

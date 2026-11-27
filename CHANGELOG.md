@@ -12,9 +12,10 @@ ficava numa seção recolhida, com uma lista repetida para cada agente, embora a
 um bloco compacto com o título, a linha "5 horas" com a barra e o percentual, a frase de quando a janela zera ("zera hoje às
 18h40"), a linha "Semana" com a sua barra e a sua frase, e embaixo só "medido há 1 minuto". Os rótulos ficam numa coluna,
 as barras logo depois e os percentuais à direita, sem rolagem lateral no celular. Quando a janela já virou, aparece 0% com
-a frase "zerou às 14h". Os agentes que usam a mesma assinatura viram um bloco só, com a medição mais recente entre eles; um
-agente no ChatGPT, ou numa segunda conta, ganha o próprio bloco, com o nome do provedor no título. O número é atualizado a
-cada minuto enquanto o menu está à mostra. O botão Tutorial do menu virou um "?" pequeno no canto superior esquerdo, para
+a frase "zerou às 14h". O bloco mostra o uso da conta do agente selecionado: agentes na mesma assinatura mostram o mesmo
+número (a medição mais recente entre eles) e, ao trocar para um agente no ChatGPT ou numa segunda conta, o bloco passa a
+mostrar a conta dele, com o provedor (e, se preciso, os agentes daquela conta) no título. O número é atualizado a cada
+minuto enquanto o menu está à mostra. O botão Tutorial do menu virou um "?" pequeno no canto superior esquerdo, para
 não ocupar uma linha inteira.
 
 ### Como atualizar (bloco de uso da assinatura)

@@ -1,7 +1,7 @@
 # Uso da assinatura
 
 Mostra quanto da assinatura de cada agente já foi gasto: a janela de 5 horas e a janela semanal.
-O dono vê no Status do painel do agente e no menu lateral, logo abaixo do seletor de agentes, sempre à mostra, um bloco por assinatura (agentes na mesma conta e no mesmo provedor aparecem juntos). O Admin consulta pela API.
+O dono vê no Status do painel do agente e no menu lateral, logo abaixo do seletor de agentes, sempre à mostra, o bloco da assinatura do agente selecionado (agentes na mesma conta e no mesmo provedor compartilham o mesmo bloco). O Admin consulta pela API.
 
 O número não é calculado pelo Web. Quem mede é o runner de cada agente, com o que o próprio
 Claude Code (linha de status) ou Codex (arquivo da conversa) informa a cada resposta. Sem rede e

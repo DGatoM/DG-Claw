@@ -431,7 +431,8 @@
      medição (medido_em); erro e "ainda não medido" não criam grupo. Em cada grupo vale a medição mais recente.
      Medição de um agente parado há mais de uma semana (semanal vencida) não abre grupo próprio quando o mesmo
      provedor já tem medição atual: ela é só um número velho da mesma conta.
-     agentes = o objeto de GET /api/v1/uso; nomesPorSlug = { slug: nome } (opcional, só para o title). */
+     agentes = o objeto de GET /api/v1/uso; nomesPorSlug = { slug: nome } (opcional, só para o title).
+     Cada grupo traz também `slugs`, os ids dos agentes que o compõem (usoHtml usa para achar a conta do agente selecionado). */
   function assinaturasDeUso(agentes, nomesPorSlug) {
     const TOL = 10 * 60000;
     const lidos = [];
@@ -454,25 +455,40 @@
     });
     const ordem = Object.keys(agentes || {});
     return grupos.map(g => ({
-      provedor: g.provedor, uso: g.uso,
+      provedor: g.provedor, uso: g.uso, slugs: g.slugs.slice(),
       agentes: g.slugs.sort((a, b) => ordem.indexOf(a) - ordem.indexOf(b)).map(s => (nomesPorSlug && nomesPorSlug[s]) || s),
     }));
   }
 
-  /* O HTML de dentro do #mlUso para uma resposta boa de GET /api/v1/uso. */
-  function usoHtml(agentes, nomesPorSlug, agora) {
-    const grupos = assinaturasDeUso(agentes, nomesPorSlug);
-    if (!grupos.length) {
+  /* O HTML de dentro do #mlUso para uma resposta boa de GET /api/v1/uso.
+     O uso reflete a conta do agente selecionado (atualId, o slug dele): o bloco mostra só o cartão do grupo que
+     contém esse agente. Se o agente não tem medição: com um único grupo no total, mostra esse grupo (é a única conta
+     medida); com mais de um, mostra "sem medição ainda" com a causa daquele agente. Sem atualId, ou com um atualId que
+     não existe na resposta, mostra todos os grupos. Com mais de um grupo, o título leva o provedor (e os nomes dos
+     agentes quando há duas contas do mesmo provedor), que diz de qual conta é o número. */
+  function usoHtml(agentes, nomesPorSlug, agora, atualId) {
+    const todos = assinaturasDeUso(agentes, nomesPorSlug);
+    const semMedicao = (dica) => cartaoUso({ titulo: 'Uso da assinatura', uso: null,
+      rodape: { texto: 'sem medição ainda', dica: dica || '' } }, agora);
+    if (!todos.length) {
       const e = Object.values(agentes || {}).find(x => x && (x.erro || x.motivo));
-      return cartaoUso({ titulo: 'Uso da assinatura', uso: null,
-        rodape: { texto: 'sem medição ainda', dica: e ? (e.erro || e.motivo) : '' } }, agora);
+      return semMedicao(e ? (e.erro || e.motivo) : '');
+    }
+    let grupos = todos;
+    if (atualId && agentes && Object.prototype.hasOwnProperty.call(agentes, atualId)) {
+      const meu = todos.find(g => g.slugs.includes(atualId));
+      if (meu) grupos = [meu];
+      else if (todos.length > 1) {
+        const e = agentes[atualId];
+        return semMedicao(e ? (e.erro || e.motivo) : '');
+      }
     }
     const rotulo = { claude: 'Claude', codex: 'ChatGPT' };
     return grupos.map(g => {
       const m = tempoMedidoUso(g.uso.medido_em, agora);
-      let sufixo = grupos.length > 1 && rotulo[g.provedor] ? ' ' + rotulo[g.provedor] : '';
+      let sufixo = todos.length > 1 && rotulo[g.provedor] ? ' ' + rotulo[g.provedor] : '';
       // duas contas do mesmo provedor: o nome dos agentes diz qual é qual
-      if (grupos.filter(o => o.provedor === g.provedor).length > 1) sufixo += ' (' + g.agentes.join(', ') + ')';
+      if (todos.filter(o => o.provedor === g.provedor).length > 1) sufixo += ' (' + g.agentes.join(', ') + ')';
       return cartaoUso({
         titulo: 'Uso da assinatura' + sufixo, uso: g.uso,
         dica: g.agentes.length ? 'Medido pelo agente: ' + g.agentes.join(', ') : '',
@@ -651,7 +667,7 @@
         const e = d.agentes[slug];
         if (e && (e.erro || e.motivo)) console.warn('menu-lado: uso de ' + (nomes[slug] || slug) + ' sem medição: ' + (e.erro || e.motivo));
       });
-      caixa.innerHTML = usoHtml(d.agentes || {}, nomes, Date.now());
+      caixa.innerHTML = usoHtml(d.agentes || {}, nomes, Date.now(), agenteAtual && agenteAtual.id);
     } catch (e) {
       console.warn('menu-lado: não consegui ler o uso da assinatura:', e.message);
       caixa.innerHTML = usoErroHtml(e.curto || 'sem conexão com o servidor', e.message);
