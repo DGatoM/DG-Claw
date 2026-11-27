@@ -52,7 +52,7 @@ function origemPropria(req, confiaveis) {
 }
 
 function enviaJson(res, status, corpo, cabecalhos) {
-  const texto = JSON.stringify(idiomaUI.erro(corpo));
+  const texto = JSON.stringify(corpo, idiomaUI.replacer);
   res.writeHead(status, Object.assign({
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(texto),
@@ -65,7 +65,7 @@ function enviaJson(res, status, corpo, cabecalhos) {
 /** Erro padrão da API: { ok:false, erro:"motivo em português" } com o status certo. */
 function erroJson(res, status, motivo, extra, cabecalhos) {
   // 423 é sempre "tela travada pelo cadeado": a tela reconhece pelo campo travado.
-  enviaJson(res, status, Object.assign({ ok: false, erro: motivo }, status === 423 ? { travado: true } : {}, extra || {}), cabecalhos);
+  enviaJson(res, status, idiomaUI.atribuir(idiomaUI.objeto({ ok: false, erro: motivo }), status === 423 ? { travado: true } : {}, extra || {}), cabecalhos);
 }
 
 function escapaHtml(s) {
@@ -102,7 +102,7 @@ function lerCorpo(req, max) {
       total += c.length;
       if (total > max) {
         acabou = true;
-        const e = new Error(dgIdiomaBackend.mensagem("O corpo do pedido passou de {p0} bytes.", {p0: (max)}));
+        const e = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("O corpo do pedido passou de {p0} bytes.", {p0: (max)})]);
         e.status = 413;
         // esvazia o resto sem guardar, para a resposta de erro conseguir sair
         req.resume();
@@ -119,7 +119,7 @@ function lerCorpo(req, max) {
       if (typeof req.dgRevalidar === 'function') {
         const v = req.dgRevalidar();
         if (v === false) {
-          const e = new Error(dgIdiomaBackend.mensagem("Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente."));
+          const e = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("Seu acesso mudou enquanto o envio estava em andamento (foi revogado ou o convite foi reenviado). Nada foi feito. Entre de novo com o convite mais recente.")]);
           e.status = 401;
           reject(e);
           return;
@@ -144,7 +144,7 @@ async function lerJson(req, max) {
     const v = JSON.parse(buf.toString('utf8'));
     return v && typeof v === 'object' ? v : {};
   } catch (e) {
-    const err = new Error(dgIdiomaBackend.mensagem("O corpo não é um JSON válido. Mande o objeto com Content-Type: application/json."));
+    const err = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("O corpo não é um JSON válido. Mande o objeto com Content-Type: application/json.")]);
     err.status = 400;
     throw err;
   }

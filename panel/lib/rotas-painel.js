@@ -42,26 +42,26 @@ function registrar(router, { CONFIG, pulso, serverDir, diagnostico }) {
       const r = await operacoes.retrato({ forcar: req.query.atualizar === '1' });
       // As rotinas do usuário saem daqui de propósito: esta rota é só do sistema.
       const { rotinasDoUsuario, ...doSistema } = r;
-      res.json({ ...doSistema, rotinasDoUsuario: (rotinasDoUsuario || []).length });
+      res.json(dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(doSistema), rotinasDoUsuario: (rotinasDoUsuario || []).length }));
     } catch (e) {
       console.error('[painel] /api/operacoes quebrou:', e);
-      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui montar as operações: {p0}", {p0: (e.message)}), howToFix: dgIdiomaBackend.texto("Recarregue a página. Se continuar, o registro do painel diz o motivo.") });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui montar as operações: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}), howToFix: dgIdiomaBackend.texto("Recarregue a página. Se continuar, o registro do painel diz o motivo.") }));
     }
   });
 
   router.get('/api/rotinas/usuario', async (req, res) => {
     try {
       const r = await operacoes.retrato({ forcar: req.query.atualizar === '1' });
-      res.json({
+      res.json(dgIdiomaBackend.objeto({
         rotinas: r.rotinasDoUsuario || [],
         inconsistencias: r.inconsistencias || [],
         historico: r.historico,
         erro: r.erroRotinas || null,
         geradoEm: r.geradoEm,
-      });
+      }));
     } catch (e) {
       console.error('[painel] /api/rotinas/usuario quebrou:', e);
-      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui ler as suas rotinas: {p0}", {p0: (e.message)}), howToFix: 'Recarregue a página.' });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui ler as suas rotinas: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}), howToFix: 'Recarregue a página.' }));
     }
   });
 
@@ -70,13 +70,13 @@ function registrar(router, { CONFIG, pulso, serverDir, diagnostico }) {
       res.json(memoria.cerebro());
     } catch (e) {
       console.error('[painel] /api/cerebro quebrou:', e);
-      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui ler a memória dele: {p0}", {p0: (e.message)}), howToFix: dgIdiomaBackend.texto("Recarregue a página. Se continuar, avise quem cuida do sistema.") });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui ler a memória dele: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}), howToFix: dgIdiomaBackend.texto("Recarregue a página. Se continuar, avise quem cuida do sistema.") }));
     }
   });
 
   router.get('/api/memoria/arquivo', (req, res) => {
     const r = memoria.ler(req.query.path);
-    if (r.status !== 200) return res.status(r.status).json({ error: r.erro, howToFix: r.howToFix });
+    if (r.status !== 200) return res.status(r.status).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.campo(r, "erro"), howToFix: dgIdiomaBackend.campo(r, "howToFix") }));
     res.json(r.corpo);
   });
 
@@ -85,7 +85,7 @@ function registrar(router, { CONFIG, pulso, serverDir, diagnostico }) {
     const r = memoria.gravar({ path: corpo.path, conteudo: corpo.conteudo, versaoLida: corpo.versaoLida });
     if (r.status !== 200) {
       const extra = r.versaoAtual ? { versaoAtual: r.versaoAtual, atualizadoEm: r.atualizadoEm } : {};
-      return res.status(r.status).json({ error: r.erro, howToFix: r.howToFix, ...extra });
+      return res.status(r.status).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.campo(r, "erro"), howToFix: dgIdiomaBackend.campo(r, "howToFix"), ...dgIdiomaBackend.espalhar(extra) }));
     }
     res.json(r.corpo);
   });
@@ -115,12 +115,12 @@ function registrar(router, { CONFIG, pulso, serverDir, diagnostico }) {
       }
     }
     // Ausente não é erro de servidor: é um texto que ainda não foi escrito.
-    res.json({
+    res.json(dgIdiomaBackend.objeto({
       ausente: true,
       markdown: null,
       mensagem: 'O texto que explica como ele funciona ainda não foi instalado neste agente. '
         + 'Ele chega com a próxima atualização do plugin; o mapa acima já mostra os números de verdade.',
-    });
+    }));
   });
 
   return { operacoes, memoria };

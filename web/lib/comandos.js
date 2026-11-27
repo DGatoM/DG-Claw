@@ -35,9 +35,9 @@ const MOTIVO_CONTA = 'Gerenciar a conta não funciona pela conversa digitada. Us
 const MOTIVO_MODELO_CODEX = 'Abre um menu de escolha no terminal. Troque o modelo pelo painel do agente.';
 
 const roda = (nome, descricao, argumentos, espera, extra) =>
-  Object.assign({ nome, tipo: 'nativo', descricao, argumentos, roda: true, espera_resposta: espera }, extra || {});
+  dgIdiomaBackend.atribuir({ nome, tipo: 'nativo', descricao, argumentos, roda: true, espera_resposta: espera }, extra || {});
 const naoRoda = (nome, descricao, motivo) =>
-  ({ nome, tipo: 'nativo', descricao, argumentos: null, roda: false, motivo, espera_resposta: false });
+  (dgIdiomaBackend.objeto({ nome, tipo: 'nativo', descricao, argumentos: null, roda: false, motivo, espera_resposta: false }));
 
 const TELA_LOGIN = { nome: '/login', tipo: 'tela', descricao: 'Abre o cartão de login da conta do motor', argumentos: null, roda: true, espera_resposta: false };
 
@@ -160,7 +160,7 @@ function lerSkillsDoDisco(agente, raizRepo) {
   } catch (e) {
     pasta.existe = false;
     if (e.code !== 'ENOENT') {
-      pasta.erro = `não consegui abrir: ${e.code || e.message}`;
+      dgIdiomaBackend.definir(pasta, "erro", `não consegui abrir: ${e.code || e.message}`);
       avisos.push(`Não consegui abrir a pasta de skills ${dir} (${e.code || e.message}). Confira a permissão da pasta; as skills do agente não aparecem na lista.`);
     }
     return { skills, pastas: [pasta], avisos };
@@ -277,17 +277,17 @@ function criarComandos({ runner, log, agora, raizRepo }) {
       const r = await runner.provedor(agente, 1500);
       if (r.ok) {
         const p = provedorNormalizado(r.dados.provedor);
-        if (p) return { provedor: p, aviso: null };
+        if (p) return dgIdiomaBackend.objeto({ provedor: p, aviso: null });
         motivo = `o runner respondeu o provedor ${JSON.stringify(r.dados.provedor == null ? null : String(r.dados.provedor).slice(0, 40))}, que não reconheço`;
       } else motivo = r.erro || 'o runner não respondeu';
     } catch (e) {
       motivo = e.message;
     }
     const doRegistro = provedorNormalizado(agente.provedor);
-    if (doRegistro) return { provedor: doRegistro, aviso: dgIdiomaBackend.mensagem("Não consegui saber o motor pelo runner ({p0}). Usei o do registro do agente ({p1}); se você trocou o motor há pouco, a lista pode estar desatualizada.", {p0: (motivo), p1: (doRegistro)}) };
+    if (doRegistro) return dgIdiomaBackend.objeto({ provedor: doRegistro, aviso: dgIdiomaBackend.descricao("Não consegui saber o motor pelo runner ({p0}). Usei o do registro do agente ({p1}); se você trocou o motor há pouco, a lista pode estar desatualizada.", {p0: (motivo), p1: (doRegistro)}) });
     const aviso = `Não consegui saber o motor do agente ${agente.nome} (${motivo}) e o registro também não diz. Assumi o Claude Code; se o agente usa Codex, a lista pode estar errada.`;
     if (log) log('aviso', `Comandos de ${agente.slug}: ${aviso}`);
-    return { provedor: 'claude', aviso };
+    return dgIdiomaBackend.objeto({ provedor: 'claude', aviso });
   }
 
   /** O catálogo de um agente: { provedor, comandos, pastas_de_skills, avisos }. */
@@ -295,7 +295,7 @@ function criarComandos({ runner, log, agora, raizRepo }) {
     const { provedor, aviso } = await descobreProvedor(agente);
     const avisos = aviso ? [aviso] : [];
     const nativos = provedor === 'codex' ? nativosCodex() : nativosClaude();
-    const comandos = [...nativos, Object.assign({}, TELA_LOGIN)];
+    const comandos = [...nativos, dgIdiomaBackend.atribuir({}, TELA_LOGIN)];
     const usados = new Set(comandos.map((c) => c.nome.toLowerCase()));
     const disco = doDisco(agente);
     avisos.push(...disco.avisos);
@@ -314,7 +314,7 @@ function criarComandos({ runner, log, agora, raizRepo }) {
     return { provedor, comandos, pastas_de_skills: disco.pastas, avisos };
   }
 
-  const erro = (status, codigo, motivo, extra) => ({ erro: { status, codigo, erro: motivo, ...(extra || {}) } });
+  const erro = (status, codigo, motivo, extra) => (dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.objeto({ status, codigo, erro: motivo, ...dgIdiomaBackend.espalhar(extra || {}) }) }));
 
   /**
    * Decide o que fazer com o texto que a pessoa mandou.
@@ -347,7 +347,7 @@ function criarComandos({ runner, log, agora, raizRepo }) {
     if (!item.roda) {
       return erro(422, 'COMANDO_NAO_RODA',
         `${item.nome} não roda pela conversa. ${item.motivo} Nada foi enviado.`,
-        { comando: item.nome, motivo: item.motivo });
+        dgIdiomaBackend.objeto({ comando: item.nome, motivo: dgIdiomaBackend.campo(item, "motivo") }));
     }
     if (item.argumento_obrigatorio && !args) {
       return erro(400, 'COMANDO_PEDE_ARGUMENTO',

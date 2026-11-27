@@ -39,18 +39,18 @@ function b64urlParaBuffer(s) { return Buffer.from(String(s), 'base64url'); }
 
 /** Lê "scrypt$N$r$p$sal$hash". Devolve { N, r, p, sal, hash } ou { erro }. */
 function parseHash(texto) {
-  if (!texto) return { erro: dgIdiomaBackend.mensagem("não há hash de senha configurado") };
+  if (!texto) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("não há hash de senha configurado") });
   const partes = String(texto).trim().split('$');
-  if (partes.length !== 6 || partes[0] !== 'scrypt') return { erro: dgIdiomaBackend.mensagem("o hash não está no formato scrypt$N$r$p$sal$hash") };
+  if (partes.length !== 6 || partes[0] !== 'scrypt') return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("o hash não está no formato scrypt$N$r$p$sal$hash") });
   const N = Number(partes[1]); const r = Number(partes[2]); const p = Number(partes[3]);
-  if (!Number.isInteger(N) || N < 2 || (N & (N - 1)) !== 0) return { erro: dgIdiomaBackend.mensagem("o N do hash precisa ser uma potência de 2") };
-  if (N > MAX_N) return { erro: dgIdiomaBackend.mensagem("o N do hash ({p0}) passa do limite aceito ({p1})", {p0: (N), p1: (MAX_N)}) };
-  if (!Number.isInteger(r) || r < 1 || r > 32) return { erro: dgIdiomaBackend.mensagem("o r do hash precisa estar entre 1 e 32") };
-  if (!Number.isInteger(p) || p < 1 || p > 16) return { erro: dgIdiomaBackend.mensagem("o p do hash precisa estar entre 1 e 16") };
+  if (!Number.isInteger(N) || N < 2 || (N & (N - 1)) !== 0) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("o N do hash precisa ser uma potência de 2") });
+  if (N > MAX_N) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("o N do hash ({p0}) passa do limite aceito ({p1})", {p0: (N), p1: (MAX_N)}) });
+  if (!Number.isInteger(r) || r < 1 || r > 32) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("o r do hash precisa estar entre 1 e 32") });
+  if (!Number.isInteger(p) || p < 1 || p > 16) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("o p do hash precisa estar entre 1 e 16") });
   const sal = b64urlParaBuffer(partes[4]);
   const hash = b64urlParaBuffer(partes[5]);
-  if (sal.length < 8) return { erro: dgIdiomaBackend.mensagem("o sal do hash é curto demais") };
-  if (hash.length < 16 || hash.length > 128) return { erro: dgIdiomaBackend.mensagem("o tamanho do hash esperado é inválido") };
+  if (sal.length < 8) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("o sal do hash é curto demais") });
+  if (hash.length < 16 || hash.length > 128) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("o tamanho do hash esperado é inválido") });
   return { N, r, p, sal, hash };
 }
 
@@ -81,7 +81,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
   let instanciaAtual = null;
   let aoCriar = null; // gancho do cadeado (Face ID): avisa que uma sessão nasceu com senha
   let antesDeCriar = null; // gancho do cadeado: campos que entram no registro da sessão NA MESMA escrita que a cria
-  const motivoInstancia = () => dgIdiomaBackend.mensagem("Este convite era de um agente que foi removido. Peça um convite novo ao dono.");
+  const motivoInstancia = () => dgIdiomaBackend.descricao("Este convite era de um agente que foi removido. Peça um convite novo ao dono.");
   /** O convite guarda a instância do agente; se o agente foi removido e recriado com o mesmo nome, ele não vale. */
   // Sem exceção: convite sem instância, instância atual ilegível ou módulo não ligado também NEGAM.
   const instanciaMudou = (c) => {
@@ -99,13 +99,13 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
   let parsed = parseHash(hashInicial);
   let trancado = !usuario || !!parsed.erro;
   let motivoTrancado = null;
-  function calculaMotivo() {
+  function descricaoMotivoTrancado() {
     if (!trancado) return null;
-    if (!usuario) return dgIdiomaBackend.mensagem("Falta o usuário do painel (DGCLAW_PANEL_USER).");
-    if (semSenha) return dgIdiomaBackend.mensagem("Ainda não há senha cadastrada. Use o link de primeiro acesso.");
-    // Registra de novo o diagnóstico próprio na requisição atual; parsed também existe fora dela.
-    return dgIdiomaBackend.mensagem("O hash da senha não vale: {p0}.", {p0: parseHash(hashAtual).erro});
+    if (!usuario) return dgIdiomaBackend.descricao("Falta o usuário do painel (DGCLAW_PANEL_USER).");
+    if (semSenha) return dgIdiomaBackend.descricao("Ainda não há senha cadastrada. Use o link de primeiro acesso.");
+    return dgIdiomaBackend.descricao("O hash da senha não vale: {p0}.", {p0: dgIdiomaBackend.campo(parseHash(hashAtual), "erro")});
   }
+  function calculaMotivo() { return dgIdiomaBackend.original(descricaoMotivoTrancado()); }
   if (trancado) {
     motivoTrancado = calculaMotivo();
     if (semSenha) {
@@ -206,6 +206,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
   return {
     get trancado() { return trancado; },
     get motivoTrancado() { return calculaMotivo(); },
+    descricaoMotivoTrancado,
     get semSenha() { return semSenha; },
     get usuario() { return usuario; },
     NOME_COOKIE,
@@ -215,7 +216,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
     /** Troca o hash em memória e destranca. Devolve { ok } ou { ok:false, erro }. */
     definirHash(hashTexto) {
       const novo = parseHash(hashTexto);
-      if (novo.erro) return { ok: false, erro: novo.erro };
+      if (novo.erro) return dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.campo(novo, "erro") });
       parsed = novo; hashAtual = String(hashTexto).trim();
       if (sessoes.size) { sessoes.clear(); salva(); }
       trancado = false; motivoTrancado = null; semSenha = false;
@@ -225,8 +226,8 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
 
     /** Gera "scrypt$N$r$p$sal$hash" (mesmo formato e parâmetros do panel/lib/auth.js). Respeita o limite de scrypt simultâneo. */
     async gerarHash(senha) {
-      if (scryptEmCurso >= SCRYPT_SIMULTANEOS) { const e = new Error(dgIdiomaBackend.mensagem("Muitas senhas sendo processadas ao mesmo tempo. Tente de novo em alguns segundos.")); e.ocupado = true; throw e; }
-      const h = Object.assign({}, SCRYPT_NOVO, { sal: crypto.randomBytes(16) });
+      if (scryptEmCurso >= SCRYPT_SIMULTANEOS) { const e = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("Muitas senhas sendo processadas ao mesmo tempo. Tente de novo em alguns segundos.")]); e.ocupado = true; throw e; }
+      const h = dgIdiomaBackend.atribuir({}, SCRYPT_NOVO, { sal: crypto.randomBytes(16) });
       h.hash = { length: 32 };
       scryptEmCurso++;
       try {
@@ -238,12 +239,12 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
     /** Confere usuário e senha. Sempre gasta o scrypt (mesmo com usuário errado). { ok, trancado?, erro? } */
     async verificaSenha(usuarioInformado, senha, ip) {
       if (colaboradores && !mesmoUsuario(usuarioInformado, usuario)) return verificaColaborador(usuarioInformado, senha, ip);
-      if (trancado) return { ok: false, trancado: true, erro: semSenha ? dgIdiomaBackend.mensagem("O login ainda não tem senha. {p0}", {p0: (calculaMotivo())}) : dgIdiomaBackend.mensagem("O login está trancado: {p0} Rode o gerador de hash do instalador.", {p0: (calculaMotivo())}) };
+      if (trancado) return dgIdiomaBackend.objeto({ ok: false, trancado: true, erro: semSenha ? dgIdiomaBackend.descricao("O login ainda não tem senha. {p0}", {p0: descricaoMotivoTrancado()}) : dgIdiomaBackend.descricao("O login está trancado: {p0} Rode o gerador de hash do instalador.", {p0: descricaoMotivoTrancado()}) });
       const b = ip ? bloqueioLogin(IDENT_DONO, ip) : { bloqueado: false };
-      if (b.bloqueado) return { ok: false, limite: true, retryAfter: b.retryAfter, erro: dgIdiomaBackend.mensagem("Muitas tentativas erradas. Tente de novo em {p0} min.", {p0: (Math.ceil(b.retryAfter / 60))}) };
+      if (b.bloqueado) return dgIdiomaBackend.objeto({ ok: false, limite: true, retryAfter: b.retryAfter, erro: dgIdiomaBackend.descricao("Muitas tentativas erradas. Tente de novo em {p0} min.", {p0: (Math.ceil(b.retryAfter / 60))}) });
       if (scryptEmCurso >= SCRYPT_SIMULTANEOS) {
         log('aviso', `Login de ${ip || '(sem IP)'} recusado: já há ${scryptEmCurso} senhas sendo conferidas ao mesmo tempo.`);
-        return { ok: false, limite: true, retryAfter: 2, erro: dgIdiomaBackend.mensagem("Muitas tentativas ao mesmo tempo. Tente de novo em alguns segundos.") };
+        return dgIdiomaBackend.objeto({ ok: false, limite: true, retryAfter: 2, erro: dgIdiomaBackend.descricao("Muitas tentativas ao mesmo tempo. Tente de novo em alguns segundos.") });
       }
       let calculado;
       scryptEmCurso++;
@@ -251,7 +252,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
         calculado = await scrypt(senha == null ? '' : senha, parsed);
       } catch (e) {
         log('erro', `Falha ao calcular o scrypt da senha (${e.message}). Confira N, r e p do hash no web.env.`);
-        return { ok: false, erro: dgIdiomaBackend.mensagem("Não consegui conferir a senha agora. Tente de novo em instantes.") };
+        return dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.descricao("Não consegui conferir a senha agora. Tente de novo em instantes.") });
       } finally {
         scryptEmCurso--;
       }
@@ -263,7 +264,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       }
       if (ip) registraFalhaLogin(IDENT_DONO, ip);
       // `campo` é só para o log do servidor (diz qual dos dois não conferiu); a resposta ao navegador continua genérica.
-      return { ok: false, campo: usuarioOk ? 'senha' : 'usuário', erro: dgIdiomaBackend.mensagem("Usuário ou senha incorretos.") };
+      return dgIdiomaBackend.objeto({ ok: false, campo: usuarioOk ? 'senha' : 'usuário', erro: dgIdiomaBackend.descricao("Usuário ou senha incorretos.") });
     },
 
     /** Cria a sessão e devolve { token, expira, cabecalho(Set-Cookie) } pronta para o cookie. */
@@ -277,9 +278,9 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
         // Conferência síncrona logo antes de emitir: se a senha, o convite ou o acesso mudou depois que a senha foi
         // verificada, a sessão não nasce. Enquanto a senha é a temporária, a sessão morre junto com ela.
         const atual = colaboradores ? colaboradores.obter(colaborador.id) : null;
-        if (instanciaMudou(atual)) { const e = new Error(motivoInstancia()); e.status = 401; throw e; }
+        if (instanciaMudou(atual)) { const e = dgIdiomaBackend.criarErro(Error, [motivoInstancia()]); e.status = 401; throw e; }
         if (!atual || atual.revogado_em || atual.agente !== colaborador.agente || (atual.senha_versao || 1) !== colaborador.senha_versao || (colaborador.hash && atual.hash !== colaborador.hash)) {
-          const e = new Error(dgIdiomaBackend.mensagem("O seu acesso mudou (senha trocada, convite novo ou acesso revogado) enquanto você entrava. Entre de novo."));
+          const e = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("O seu acesso mudou (senha trocada, convite novo ou acesso revogado) enquanto você entrava. Entre de novo.")]);
           e.status = 401;
           throw e;
         }
@@ -288,7 +289,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
         const dele = [...sessoes.entries()].filter(([, v]) => v.colaborador_id === colaborador.id).map(([k]) => k);
         while (dele.length >= MAX_SESSOES_POR_COLABORADOR) sessoes.delete(dele.shift());
         if (sessoes.size >= MAX_SESSOES) {
-          const e = new Error(dgIdiomaBackend.mensagem("O servidor está com o limite de sessões abertas cheio agora. Tente entrar de novo em alguns minutos ou avise o dono do DG Claw."));
+          const e = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("O servidor está com o limite de sessões abertas cheio agora. Tente entrar de novo em alguns minutos ou avise o dono do DG Claw.")]);
           e.status = 503;
           throw e;
         }
@@ -296,9 +297,9 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
         abreVagaParaODono();
       }
       const reg = { usuario: nomeUsuario || usuario, criada, expira: expiraFinal, marca: marcaAtual() };
-      if (colaborador) Object.assign(reg, { papel: 'colaborador', colaborador_id: colaborador.id, agente: colaborador.agente, senha_versao: colaborador.senha_versao });
+      if (colaborador) dgIdiomaBackend.atribuir(reg, { papel: 'colaborador', colaborador_id: colaborador.id, agente: colaborador.agente, senha_versao: colaborador.senha_versao });
       if (antesDeCriar) {
-        try { Object.assign(reg, antesDeCriar({ req, colaborador }) || {}); } catch (e) { log('erro', `O gancho de sessão nova (cadeado) falhou antes de gravar: ${e.message}. A sessão nasce sem a marca do Face ID.`); }
+        try { dgIdiomaBackend.atribuir(reg, antesDeCriar({ req, colaborador }) || {}); } catch (e) { log('erro', `O gancho de sessão nova (cadeado) falhou antes de gravar: ${e.message}. A sessão nasce sem a marca do Face ID.`); }
       }
       sessoes.set(sha256hex(token), reg);
       limpaExpiradas();
@@ -338,7 +339,7 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
     async senhaConfereHash(senha, hashTexto) {
       const h = parseHash(hashTexto);
       if (h.erro) return false;
-      if (scryptEmCurso >= SCRYPT_SIMULTANEOS) { const e = new Error(dgIdiomaBackend.mensagem("Muitas senhas sendo processadas ao mesmo tempo. Tente de novo em alguns segundos.")); e.ocupado = true; throw e; }
+      if (scryptEmCurso >= SCRYPT_SIMULTANEOS) { const e = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("Muitas senhas sendo processadas ao mesmo tempo. Tente de novo em alguns segundos.")]); e.ocupado = true; throw e; }
       scryptEmCurso++;
       try {
         const k = await scrypt(senha, h);
@@ -427,10 +428,10 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
   async function verificaColaborador(emailInformado, senha, ip) {
     const identidade = `colaborador:${String(emailInformado == null ? '' : emailInformado).trim().toLowerCase().slice(0, 200)}`;
     const b = ip ? bloqueioLogin(identidade, ip) : { bloqueado: false };
-    if (b.bloqueado) return { ok: false, limite: true, retryAfter: b.retryAfter, erro: dgIdiomaBackend.mensagem("Muitas tentativas erradas. Tente de novo em {p0} min.", {p0: (Math.ceil(b.retryAfter / 60))}) };
+    if (b.bloqueado) return dgIdiomaBackend.objeto({ ok: false, limite: true, retryAfter: b.retryAfter, erro: dgIdiomaBackend.descricao("Muitas tentativas erradas. Tente de novo em {p0} min.", {p0: (Math.ceil(b.retryAfter / 60))}) });
     if (scryptEmCurso >= SCRYPT_SIMULTANEOS) {
       log('aviso', `Login de ${ip || '(sem IP)'} recusado: já há ${scryptEmCurso} senhas sendo conferidas ao mesmo tempo.`);
-      return { ok: false, limite: true, retryAfter: 2, erro: dgIdiomaBackend.mensagem("Muitas tentativas ao mesmo tempo. Tente de novo em alguns segundos.") };
+      return dgIdiomaBackend.objeto({ ok: false, limite: true, retryAfter: 2, erro: dgIdiomaBackend.descricao("Muitas tentativas ao mesmo tempo. Tente de novo em alguns segundos.") });
     }
     const c = colaboradores.porEmailAtivo(emailInformado);
     // O registro pode mudar DURANTE o scrypt (o dono reenvia o convite, o colaborador troca a senha) e os objetos
@@ -447,28 +448,28 @@ function criarAuth({ config, log, agora, colaboradores: colabsInicial }) {
       calculado = await scrypt(senha == null ? '' : senha, alvo);
     } catch (e) {
       log('erro', `Falha ao calcular o scrypt da senha de colaborador (${e.message}).`);
-      return { ok: false, erro: dgIdiomaBackend.mensagem("Não consegui conferir a senha agora. Tente de novo em instantes.") };
+      return dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.descricao("Não consegui conferir a senha agora. Tente de novo em instantes.") });
     } finally {
       scryptEmCurso--;
     }
     const senhaOk = !!visto && alvo !== hashFicticioCache && calculado.length === alvo.hash.length && crypto.timingSafeEqual(calculado, alvo.hash);
     if (!senhaOk) {
       if (ip) registraFalhaLogin(identidade, ip);
-      return { ok: false, campo: visto ? 'senha' : 'usuário', erro: dgIdiomaBackend.mensagem("Usuário ou senha incorretos.") };
+      return dgIdiomaBackend.objeto({ ok: false, campo: visto ? 'senha' : 'usuário', erro: dgIdiomaBackend.descricao("Usuário ou senha incorretos.") });
     }
     // Recarrega: só vale se o registro ainda é exatamente o que a senha conferiu e o acesso não foi revogado.
     const atual = colaboradores.obter(visto.id);
     if (!atual || atual.revogado_em || atual.hash !== visto.hash || (atual.senha_versao || 1) !== visto.versao || atual.agente !== visto.agente) {
       log('aviso', `Login de ${visto.email} (ip ${ip || '?'}) descartado: o convite, a senha ou o acesso mudou enquanto a senha era conferida.`);
-      return { ok: false, erro: dgIdiomaBackend.mensagem("O seu acesso mudou (senha trocada, convite novo ou acesso revogado) enquanto você entrava. Entre de novo.") };
+      return dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.descricao("O seu acesso mudou (senha trocada, convite novo ou acesso revogado) enquanto você entrava. Entre de novo.") });
     }
     if (instanciaMudou(atual)) {
       log('aviso', `Login de ${visto.email} (ip ${ip || '?'}) recusado: o convite era de uma instância antiga do agente ${atual.agente} (removido e recriado).`);
-      return { ok: false, erro: motivoInstancia() };
+      return dgIdiomaBackend.objeto({ ok: false, erro: motivoInstancia() });
     }
     if (ip) limpaFalhasDe(identidade, ip);
     if (atual.trocar_senha && Number(atual.temporaria_expira) < relogio()) {
-      return { ok: false, vencida: true, erro: dgIdiomaBackend.mensagem("A senha temporária venceu. Peça ao dono do DG Claw um convite novo.") };
+      return dgIdiomaBackend.objeto({ ok: false, vencida: true, erro: dgIdiomaBackend.descricao("A senha temporária venceu. Peça ao dono do DG Claw um convite novo.") });
     }
     colaboradores.registrarLogin(visto.id);
     return { ok: true, usuario: visto.email, papel: 'colaborador', colaborador: { id: visto.id, agente: visto.agente, senha_versao: visto.versao, hash: visto.hash } };

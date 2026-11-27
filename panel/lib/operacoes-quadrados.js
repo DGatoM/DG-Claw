@@ -12,14 +12,14 @@ const { horariosEsperados, intervaloDoTimer, haQuanto, duracaoHumana, RESULTADO,
 
 function executarPadrao(cmd, args, opts) {
   return new Promise((resolve) => {
-    execFile(cmd, args, { timeout: 20000, maxBuffer: 64 * 1024 * 1024, ...opts }, (err, stdout, stderr) => {
-      resolve({
+    execFile(cmd, args, dgIdiomaBackend.objeto({ timeout: 20000, maxBuffer: 64 * 1024 * 1024, ...dgIdiomaBackend.espalhar(opts) }), (err, stdout, stderr) => {
+      resolve(dgIdiomaBackend.objeto({
         ok: !err,
         code: err && typeof err.code === 'number' ? err.code : (err ? -1 : 0),
         erro: err ? (err.code === 'ENOENT' ? 'ENOENT' : String(err.message || err)) : null,
         stdout: stdout || '',
         stderr: stderr || '',
-      });
+      }));
     });
   });
 }
@@ -39,23 +39,23 @@ async function lerDiario(executar, padroes, desdeMs) {
 
   const r = await executar('journalctl', args, {});
   if (r.erro === 'ENOENT') {
-    return { eventos: [], motivo: dgIdiomaBackend.mensagem("esta máquina não tem o journalctl, então não há diário do sistema para ler o histórico") };
+    return dgIdiomaBackend.objeto({ eventos: [], motivo: dgIdiomaBackend.descricao("esta máquina não tem o journalctl, então não há diário do sistema para ler o histórico") });
   }
   const queixa = `${r.stderr}`;
   // Permissão faltando devolve motivo mesmo com linhas na saída: a leitura ficou parcial.
   if (/insufficient permissions|No journal files were opened|not seeing messages from other users/i.test(queixa)) {
-    return {
+    return dgIdiomaBackend.objeto({
       eventos: [],
       motivo: 'o painel não tem permissão para ler o diário do sistema (journal), '
         + 'então o histórico das rotinas não pode ser mostrado. Isso não quer dizer que elas não rodaram. '
         + 'Para resolver, peça ao Admin para reparar este agente (dgclaw agente reparar), '
         + 'o que dá ao painel o grupo "systemd-journal".',
-    };
+    });
   }
   // Sem --quiet o journalctl escreve "-- No entries --" em stdout: não é evento nem erro.
   const linhasJson = r.stdout.split('\n').filter((l) => l.trim() && !l.startsWith('-- '));
   if (!r.ok && !linhasJson.length) {
-    return { eventos: [], motivo: dgIdiomaBackend.mensagem("o journalctl não respondeu ({p0})", {p0: ((queixa || r.erro || 'sem detalhe').trim().slice(0, 200))}) };
+    return dgIdiomaBackend.objeto({ eventos: [], motivo: dgIdiomaBackend.descricao("o journalctl não respondeu ({p0})", {p0: ((queixa || r.erro || 'sem detalhe').trim().slice(0, 200))}) });
   }
   const eventos = [];
   let ruins = 0;
@@ -68,7 +68,7 @@ async function lerDiario(executar, padroes, desdeMs) {
   }
   if (ruins) console.warn(`[operacoes] ${ruins} linha(s) do journalctl nao eram JSON e foram puladas.`);
   eventos.sort((a, b) => a.t - b.t);
-  return { eventos, motivo: null };
+  return dgIdiomaBackend.objeto({ eventos, motivo: null });
 }
 
 // ─── o ledger do pulso ──────────────────────────────────────────────────────
@@ -138,7 +138,7 @@ function quadradosDeRotina({ eventos, ledger, chave, horario, desde, agora, ativ
   const semana = { rodadas: execucoes.length, falhas: 0, avisos: 0, faltas: 0 };
 
   for (const x of execucoes) {
-    const base = RESULTADO[x.resultado] || { cor: 'vermelho', titulo: dgIdiomaBackend.texto("Terminou com um resultado que o sistema não classificou") };
+    const base = RESULTADO[x.resultado] || dgIdiomaBackend.objeto({ cor: 'vermelho', titulo: dgIdiomaBackend.texto("Terminou com um resultado que o sistema não classificou") });
     let cor = base.cor;
     let titulo = base.titulo;
     // A segunda opinião: o que o próprio script anotou enquanto rodava.
@@ -158,13 +158,13 @@ function quadradosDeRotina({ eventos, ledger, chave, horario, desde, agora, ativ
     }
     if (cor === 'vermelho') semana.falhas++;
     if (cor === 'amarelo') semana.avisos++;
-    quadrados.push({
+    quadrados.push(dgIdiomaBackend.objeto({
       em: new Date(x.ini).toISOString(),
       ate: new Date(x.fim).toISOString(),
       // Só resultado estruturado na tela: texto livre do log ou do registro não passa.
       cor, titulo, detalhe: '',
       duracao: x.fim > x.ini ? duracaoHumana(x.fim - x.ini) : '',
-    });
+    }));
   }
 
   // ── os buracos: rodou menos do que devia ──
@@ -176,18 +176,18 @@ function quadradosDeRotina({ eventos, ledger, chave, horario, desde, agora, ativ
     for (let i = 1; i < execucoes.length; i++) {
       const buraco = execucoes[i].ini - execucoes[i - 1].fim;
       if (buraco > folga) {
-        faltas.push({
+        faltas.push(dgIdiomaBackend.objeto({
           t: execucoes[i - 1].fim + intervalo,
-          titulo: dgIdiomaBackend.texto("Não rodou quando devia: ficou {p0} sem rodar, e o combinado é a cada {p1}",{p0:(duracaoHumana(buraco)),p1:(duracaoHumana(intervalo))}),
-        });
+          titulo: dgIdiomaBackend.texto("Não rodou quando devia: ficou {p0} sem rodar, e o combinado é a cada {p1}", {p0:(duracaoHumana(buraco)),p1:(duracaoHumana(intervalo))}),
+        }));
       }
     }
     const ultima = execucoes[execucoes.length - 1].fim;
     if (agora - ultima > folga) {
-      faltas.push({
+      faltas.push(dgIdiomaBackend.objeto({
         t: ultima + intervalo,
-        titulo: dgIdiomaBackend.texto("Está atrasada: a última vez foi {p0}, e o combinado é a cada {p1}",{p0:(haQuanto(ultima, agora)),p1:(duracaoHumana(intervalo))}),
-      });
+        titulo: dgIdiomaBackend.texto("Está atrasada: a última vez foi {p0}, e o combinado é a cada {p1}", {p0:(haQuanto(ultima, agora)),p1:(duracaoHumana(intervalo))}),
+      }));
     }
   } else if (ativo && !intervalo) {
     // Calendário. Só cobro horários DEPOIS da primeira execução que o diário
@@ -203,14 +203,14 @@ function quadradosDeRotina({ eventos, ledger, chave, horario, desde, agora, ativ
         if (agora - e < tolerancia) continue;
         const houve = execucoes.some((x) => x.ini >= e - 120000 && x.ini <= e + tolerancia);
         if (!houve) {
-          faltas.push({ t: e, titulo: dgIdiomaBackend.texto("Não rodou no horário marcado") });
+          faltas.push(dgIdiomaBackend.objeto({ t: e, titulo: dgIdiomaBackend.texto("Não rodou no horário marcado") }));
         }
       }
     }
   }
   for (const f of faltas) {
     semana.faltas++;
-    quadrados.push({ em: new Date(f.t).toISOString(), cor: 'amarelo', titulo: f.titulo, detalhe: '', falta: true });
+    quadrados.push(dgIdiomaBackend.objeto({ em: new Date(f.t).toISOString(), cor: 'amarelo', titulo: dgIdiomaBackend.campo(f, "titulo"), detalhe: '', falta: true }));
   }
 
   quadrados.sort((a, b) => Date.parse(a.em) - Date.parse(b.em));
@@ -264,7 +264,7 @@ function quadradosDeServico({ eventos, agora, ativoAgora, ativoDesde }) {
     }
     if (cor === 'vermelho') semana.falhas++;
     if (cor === 'amarelo') semana.avisos++;
-    quadrados.unshift({ em: new Date(ini).toISOString(), ate: new Date(Math.min(fim, agora)).toISOString(), cor, titulo, detalhe: '', hora: true });
+    quadrados.unshift(dgIdiomaBackend.objeto({ em: new Date(ini).toISOString(), ate: new Date(Math.min(fim, agora)).toISOString(), cor, titulo, detalhe: '', hora: true }));
     // O estado ANTES desta hora é o inverso do primeiro evento dela.
     if (dentro.length) {
       const primeiro = dentro[0];

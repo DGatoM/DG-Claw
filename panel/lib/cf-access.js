@@ -82,7 +82,7 @@ module.exports = function buildCfAccess({ auth }) {
             map.set(jwk.kid, nodeCrypto.createPublicKey({ key: jwk, format: 'jwk' }));
           } catch { /* chave que não abre não entra no mapa */ }
         }
-        if (map.size === 0) throw new Error(dgIdiomaBackend.mensagem("resposta sem nenhuma chave RSA utilizável"));
+        if (map.size === 0) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("resposta sem nenhuma chave RSA utilizável")]);
         _cfKeys = map;
         _cfKeysAt = Date.now();
         return map;

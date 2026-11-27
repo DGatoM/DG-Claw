@@ -22,8 +22,8 @@ function rodar(args, python) {
       let r = null;
       try { r = JSON.parse(String(saida || '').trim().split('\n').pop()); } catch (_) { /* sem JSON */ }
       if (r && r.ok) return resolve(r);
-      if (r && r.erro) return reject(new ErroEntrega(500, r.erro, r.codigo));
-      reject(new ErroEntrega(500, dgIdiomaBackend.mensagem("Não consegui rodar a gravação segura de arquivos ({p0}). Confira se o python3 está instalado no servidor. Nada foi gravado na pasta do agente.", {p0: (e ? (e.code || e.message) : 'sem resposta')}), 'ENTREGA_FALHOU'));
+      if (r && r.erro) return reject(dgIdiomaBackend.criarErro(ErroEntrega, [500, dgIdiomaBackend.campo(r, "erro"), r.codigo]));
+      reject(dgIdiomaBackend.criarErro(ErroEntrega, [500, dgIdiomaBackend.descricao("Não consegui rodar a gravação segura de arquivos ({p0}). Confira se o python3 está instalado no servidor. Nada foi gravado na pasta do agente.", {p0: (e ? (e.code || dgIdiomaBackend.campo(e, "message")) : 'sem resposta')}), 'ENTREGA_FALHOU']));
     });
   });
 }

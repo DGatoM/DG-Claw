@@ -81,7 +81,7 @@ function buildSaude(CONFIG, serverDir) {
       DGCLAW_CLAUDE_BIN: process.env.DGCLAW_CLAUDE_BIN || process.env.CLAUDE_BIN,
     };
     for (const [k, v] of Object.entries(opcionais)) if (v) e[k] = String(v);
-    return Object.assign(e, extra || {});
+    return dgIdiomaBackend.atribuir(e, extra || {});
   }
 
   /**
@@ -201,51 +201,51 @@ function buildSaude(CONFIG, serverDir) {
    */
   async function reiniciar(modo) {
     if (modo !== 'normal' && modo !== 'seguro') {
-      return { status: 400, corpo: {
-        error: dgIdiomaBackend.mensagem("Não sei reiniciar desse jeito."),
+      return { status: 400, corpo: dgIdiomaBackend.objeto({
+        error: dgIdiomaBackend.descricao("Não sei reiniciar desse jeito."),
         howToFix: dgIdiomaBackend.texto("Escolha \"normal\" (volta na mesma conversa) ou \"seguro\" (volta sem carregar a conversa que travou)."),
-      } };
+      }) };
     }
     if (!REINICIO_PY || !fs.existsSync(REINICIO_PY)) {
       console.error(`[saude] reiniciar(${modo}): reinicio.py ausente (procurei em ${candidatos.join(', ')})`);
-      return { status: 500, corpo: {
-        error: dgIdiomaBackend.mensagem("Este painel não tem a parte que sabe reiniciar o agente."),
+      return { status: 500, corpo: dgIdiomaBackend.objeto({
+        error: dgIdiomaBackend.descricao("Este painel não tem a parte que sabe reiniciar o agente."),
         howToFix: dgIdiomaBackend.texto("Quem cuida do sistema precisa atualizar o plugin do agente (.dgclaw/plugin) para a versão deste painel."),
-      } };
+      }) };
     }
     _cache = { em: 0, valor: null }; // o diagnóstico de antes do reinício não vale mais
 
     if (modo === 'normal') {
       const c = comandoReinicio(['normal', '--origem', 'painel', '--json']);
       const r = await rodar(c.bin, c.args, { timeout: 90000, env: ambiente({ DGCLAW_REINICIO_PRAZO_S: '25' }) });
-      if (r.json && r.json.ok) return { status: 200, corpo: { reiniciado: true, ...r.json } };
+      if (r.json && r.json.ok) return { status: 200, corpo: dgIdiomaBackend.objeto({ reiniciado: true, ...dgIdiomaBackend.espalhar(r.json) }) };
       const motivo = (r.json && r.json.motivo) || r.stderr.trim().split('\n').pop() || `saiu com código ${r.code}`;
       console.error(`[saude] reinicio NORMAL falhou (rc ${r.code}): ${motivo}`);
-      return { status: r.json ? 502 : 500, corpo: {
-        error: dgIdiomaBackend.mensagem("Não consegui reiniciar {p0}: {p1}", {p0: (CONFIG.agentName || 'o agente'), p1: (semCaminhos(motivo))}),
+      return { status: r.json ? 502 : 500, corpo: dgIdiomaBackend.objeto({
+        error: dgIdiomaBackend.descricao("Não consegui reiniciar {p0}: {p1}", {p0: (CONFIG.agentName || 'o agente'), p1: (semCaminhos(motivo))}),
         howToFix: semCaminhos((r.json && r.json.comoResolver) || 'Tente de novo em um minuto. Se continuar, avise quem cuida do sistema.'),
-      } };
+      }) };
     }
 
     if (_seguroEmVoo) {
-      return { status: 409, corpo: {
-        error: dgIdiomaBackend.mensagem("Já estou reiniciando em modo de segurança."),
+      return { status: 409, corpo: dgIdiomaBackend.objeto({
+        error: dgIdiomaBackend.descricao("Já estou reiniciando em modo de segurança."),
         howToFix: dgIdiomaBackend.texto("Espere terminar: leva até dois minutos. O selo mostra quando ele voltar."),
-      } };
+      }) };
     }
     const chk = comandoReinicio(['checar', '--json']);
     const pre = await rodar(chk.bin, chk.args, { timeout: 30000 });
     if (!pre.json) {
       console.error(`[saude] reinicio.py checar saiu ${pre.code} sem JSON: ${pre.stderr.trim().slice(0, 300)}`);
-      return { status: 500, corpo: { error: dgIdiomaBackend.mensagem("Não consegui nem conferir se dá para reiniciar daqui."),
-        howToFix: dgIdiomaBackend.texto("Avise quem cuida do sistema: o registro do painel tem o motivo.") } };
+      return { status: 500, corpo: dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui nem conferir se dá para reiniciar daqui."),
+        howToFix: dgIdiomaBackend.texto("Avise quem cuida do sistema: o registro do painel tem o motivo.") }) };
     }
     if (!pre.json.ok) {
       const ocupado = pre.json.emAndamento;
-      return { status: ocupado ? 409 : 503, corpo: {
-        error: dgIdiomaBackend.mensagem("Não dá para reiniciar em modo de segurança agora: {p0}.", {p0: (semCaminhos(pre.json.motivo))}),
+      return { status: ocupado ? 409 : 503, corpo: dgIdiomaBackend.objeto({
+        error: dgIdiomaBackend.descricao("Não dá para reiniciar em modo de segurança agora: {p0}.", {p0: (semCaminhos(pre.json.motivo))}),
         howToFix: semCaminhos(pre.json.comoResolver || 'Tente de novo em um minuto.'),
-      } };
+      }) };
     }
 
     const log = path.join(CONFIG.agentDir, '.dgclaw', 'logs', 'reinicio-painel.log');
@@ -255,8 +255,8 @@ function buildSaude(CONFIG, serverDir) {
       fd = fs.openSync(log, 'a');
     } catch (e) {
       console.error(`[saude] nao consegui abrir o registro ${log}: ${e.message}`);
-      return { status: 500, corpo: { error: dgIdiomaBackend.mensagem("Não consegui preparar o registro do reinício."),
-        howToFix: dgIdiomaBackend.texto("Avise quem cuida do sistema: a pasta .dgclaw/logs do agente não está gravável.") } };
+      return { status: 500, corpo: dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui preparar o registro do reinício."),
+        howToFix: dgIdiomaBackend.texto("Avise quem cuida do sistema: a pasta .dgclaw/logs do agente não está gravável.") }) };
     }
     const c = comandoReinicio(['seguro', '--origem', 'painel', '--json']);
     const filho = spawn(c.bin, c.args, { env: ambiente(), stdio: ['ignore', fd, fd], detached: true });

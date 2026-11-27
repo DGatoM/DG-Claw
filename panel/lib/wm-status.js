@@ -223,7 +223,7 @@ function buildWmStatus(config, opcoes = {}) {
     try { pulsoLegivel = fs.statSync(PULSO_DIR).isDirectory(); } catch { /* sem pulso */ }
     if (pulsoLegivel) {
       fontes.push('registro do pulso');
-      for (const dia of [ontem, hoje]) for (const e of pulsoDoDia(dia) || []) rodadas.push({ ...e, fonte: 'registro do pulso' });
+      for (const dia of [ontem, hoje]) for (const e of pulsoDoDia(dia) || []) rodadas.push(dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(e), fonte: 'registro do pulso' }));
     }
 
     // 2) o systemd
@@ -277,28 +277,28 @@ function buildWmStatus(config, opcoes = {}) {
     const quandoUltima = ultima ? (ultima.soData ? `em ${ddmm(ultima.em, OFF)}` : `${diaLocal(ultima.em, OFF) === hoje ? 'hoje' : (diaLocal(ultima.em, OFF) === ontem ? 'ontem' : `em ${ddmm(ultima.em, OFF)}`)} às ${hhmm(ultima.em, OFF)}`) : null;
 
     if (!fontes.length) {
-      return { ...base, rodouHoje: null, falhou: false, frase: 'Não consigo ver se a remontagem das 7h rodou: este agente não tem registro do pulso, timer nem log da remontagem que eu consiga ler.' };
+      return dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(base), rodouHoje: null, falhou: false, frase: 'Não consigo ver se a remontagem das 7h rodou: este agente não tem registro do pulso, timer nem log da remontagem que eu consiga ler.' });
     }
     if (okHoje) {
       const quando = okHoje.soData ? 'hoje' : `hoje às ${hhmm(okHoje.em, OFF)}`;
-      return { ...base, rodouHoje: true, falhou: false, frase: `Rodou ${quando}.` };
+      return dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(base), rodouHoje: true, falhou: false, frase: `Rodou ${quando}.` });
     }
     const falhaHoje = deHoje.find((r) => !r.ok);
     if (falhaHoje) {
-      return { ...base, rodouHoje: false, falhou: true, frase: `Rodou hoje às ${hhmm(falhaHoje.em, OFF)} e falhou${falhaHoje.detalhe ? ` (${falhaHoje.detalhe})` : ''}.` };
+      return dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(base), rodouHoje: false, falhou: true, frase: `Rodou hoje às ${hhmm(falhaHoje.em, OFF)} e falhou${falhaHoje.detalhe ? ` (${falhaHoje.detalhe})` : ''}.` });
     }
     if (!jaEraHora) {
-      return { ...base, rodouHoje: null, falhou: false, frase: `A de hoje roda às ${String(HORA).padStart(2, '0')}:00.${quandoUltima ? ` A última foi ${quandoUltima}.` : ''}` };
+      return dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(base), rodouHoje: null, falhou: false, frase: `A de hoje roda às ${String(HORA).padStart(2, '0')}:00.${quandoUltima ? ` A última foi ${quandoUltima}.` : ''}` });
     }
     // Timer instalado hoje depois da hora: ainda não teve chance de rodar.
     const inst = timer.instaladoEm ? new Date(timer.instaladoEm) : null;
     if (inst && inst > horaDela && diaLocal(inst, OFF) === hoje) {
-      return { ...base, rodouHoje: null, falhou: false, frase: `O timer foi ligado (ou religado) hoje às ${hhmm(inst, OFF)}, depois das ${HORA}h: a próxima remontagem é amanhã às ${String(HORA).padStart(2, '0')}:00.` };
+      return dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(base), rodouHoje: null, falhou: false, frase: `O timer foi ligado (ou religado) hoje às ${hhmm(inst, OFF)}, depois das ${HORA}h: a próxima remontagem é amanhã às ${String(HORA).padStart(2, '0')}:00.` });
     }
     if (timer.existe === false && !rodadas.length) {
-      return { ...base, rodouHoje: false, falhou: false, semTimer: true, frase: 'Não rodou hoje, e o timer da remontagem não está instalado neste agente.' };
+      return dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(base), rodouHoje: false, falhou: false, semTimer: true, frase: 'Não rodou hoje, e o timer da remontagem não está instalado neste agente.' });
     }
-    return { ...base, rodouHoje: false, falhou: false, frase: `Não rodou hoje.${quandoUltima ? ` A última foi ${quandoUltima}.` : ''}` };
+    return dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(base), rodouHoje: false, falhou: false, frase: `Não rodou hoje.${quandoUltima ? ` A última foi ${quandoUltima}.` : ''}` });
   }
 
   async function status() {
@@ -330,8 +330,8 @@ function buildWmStatus(config, opcoes = {}) {
       texto = fs.readFileSync(arq, 'utf8');
       gravadoEm = fs.statSync(arq).mtime;
     } catch (e) {
-      const err = new Error(dgIdiomaBackend.mensagem("não consegui ler {p0}: {p1}", {p0: (relativo), p1: (e.code || e.message)}));
-      err.howToFix = 'O painel precisa de permissão de leitura na pasta do agente. Avise quem instalou.';
+      const err = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("não consegui ler {p0}: {p1}", {p0: (relativo), p1: (e.code || dgIdiomaBackend.campo(e, "message"))})]);
+      dgIdiomaBackend.definir(err, "howToFix", 'O painel precisa de permissão de leitura na pasta do agente. Avise quem instalou.');
       throw err;
     }
 
@@ -413,10 +413,10 @@ function registrar(router, { CONFIG }) {
       res.json(await wm.status());
     } catch (e) {
       console.error('[painel] /api/working-memory/status quebrou:', e);
-      res.status(500).json({
-        error: dgIdiomaBackend.mensagem("Não consegui ver a memória de trabalho: {p0}", {p0: (e.message)}),
-        howToFix: e.howToFix || 'Recarregue a página. Se continuar, o registro do painel diz o motivo.',
-      });
+      res.status(500).json(dgIdiomaBackend.objeto({
+        error: dgIdiomaBackend.descricao("Não consegui ver a memória de trabalho: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}),
+        howToFix: dgIdiomaBackend.campo(e, "howToFix") || 'Recarregue a página. Se continuar, o registro do painel diz o motivo.',
+      }));
     }
   });
 }

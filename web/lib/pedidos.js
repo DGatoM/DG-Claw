@@ -21,7 +21,7 @@ const MAX_ABERTOS_POR_AGENTE = 100;
 // cota de encerrados POR AGENTE: quem cria e cancela em massa só consome a própria cota, nunca a dos outros
 const MAX_FECHADOS_POR_AGENTE = 500;
 const DIAS_FECHADOS = 180;
-const LIMITES = { texto: 300, motivo: 300 };
+const LIMITES = dgIdiomaBackend.objeto({ texto: 300, motivo: 300 });
 
 const ESTADOS = ['fazendo', 'esperando_dono', 'entregue', 'feito', 'cancelado'];
 const ABERTOS = new Set(['fazendo', 'esperando_dono', 'entregue']);
@@ -95,7 +95,7 @@ function criarPedidos(opcoes) {
     try {
       const d = JSON.parse(texto);
       if (!d || d.versao !== 1 || !Array.isArray(d.pedidos) || !Number.isInteger(d.proximo_id) || d.proximo_id < 1) {
-        throw new Error(dgIdiomaBackend.mensagem("formato inesperado (esperava {\"versao\":1,\"proximo_id\":N,\"pedidos\":[...]})"));
+        throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("formato inesperado (esperava {\"versao\":1,\"proximo_id\":N,\"pedidos\":[...]})")]);
       }
       dados = d; assinatura = atual; falha = null; ultimaFalhaLogada = null;
       return true;
@@ -145,13 +145,13 @@ function criarPedidos(opcoes) {
 
   function leitura(p, comHistorico) {
     const ag = registro.obter(p.agente);
-    const l = {
+    const l = dgIdiomaBackend.objeto({
       id: p.id, agente: p.agente, agente_nome: ag ? ag.nome : p.agente, texto: p.texto, estado: p.estado,
-      aberto: ABERTOS.has(p.estado), motivo: p.motivo, msg_entrega: p.msg_entrega,
+      aberto: ABERTOS.has(p.estado), motivo: dgIdiomaBackend.campo(p, "motivo"), msg_entrega: p.msg_entrega,
       link_conversa: `/a/${encodeURIComponent(p.agente)}${p.msg_entrega ? `?msg=${p.msg_entrega.id}` : ''}`,
       criado_por: p.criado_por, criado_em: p.criado_em, atualizado_em: p.atualizado_em,
       atualizado_em_epoch: p.atualizado_em_epoch, entregue_em: p.entregue_em, fechado_em: p.fechado_em,
-    };
+    });
     if (comHistorico) l.historico = p.historico;
     return l;
   }
@@ -168,14 +168,14 @@ function criarPedidos(opcoes) {
   /** Mensagens da conversa do agente, ou { erro } com a frase pronta. */
   async function mensagensDe(slug) {
     const ag = registro.obter(slug);
-    if (!ag) return { erro: dgIdiomaBackend.mensagem("O agente {p0} não está no registro de agentes deste Web.", {p0: (slug)}) };
+    if (!ag) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O agente {p0} não está no registro de agentes deste Web.", {p0: (slug)}) });
     try {
       const t = await conversa.thread(ag);
-      if (!t.msgs.length && t.avisos && t.avisos.length) return { erro: dgIdiomaBackend.mensagem("Não consegui abrir a conversa de {p0}: {p1}", {p0: (slug), p1: (t.avisos[0])}) };
+      if (!t.msgs.length && t.avisos && t.avisos.length) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui abrir a conversa de {p0}: {p1}", {p0: (slug), p1: (t.avisos[0])}) });
       return { msgs: t.msgs };
     } catch (e) {
       log('aviso', `Pedidos: não consegui ler a conversa de ${slug} (${e.message}). Os pedidos dele não foram conferidos agora; a próxima consulta tenta de novo.`);
-      return { erro: dgIdiomaBackend.mensagem("Não consegui ler a conversa de {p0} ({p1}).", {p0: (slug), p1: (e.message)}) };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui ler a conversa de {p0} ({p1}).", {p0: (slug), p1: (dgIdiomaBackend.campo(e, "message"))}) });
     }
   }
 
@@ -217,14 +217,14 @@ function criarPedidos(opcoes) {
     const t = structuredClone(p);
     const de = t.estado;
     t.estado = estado;
-    if (estado === 'esperando_dono' || estado === 'cancelado') t.motivo = motivo || null;
-    else t.motivo = null;
+    if (estado === 'esperando_dono' || estado === 'cancelado') dgIdiomaBackend.definir(t, "motivo", motivo || null);
+    else dgIdiomaBackend.definir(t, "motivo", null);
     if (estado === 'entregue') { t.msg_entrega = msg || null; t.entregue_em = isoLocal(ms, tz); t.entregue_em_epoch = ms / 1000; t.entrega_n = (t.entrega_n || 0) + 1; }
     if (!ABERTOS.has(estado)) t.fechado_em = isoLocal(ms, tz); else t.fechado_em = null;
     t.atualizado_em = isoLocal(ms, tz);
     t.atualizado_em_epoch = ms / 1000;
     const ev = { em: isoLocal(ms, tz), por, de, para: estado };
-    if (motivo) ev.motivo = motivo;
+    if (motivo) dgIdiomaBackend.definir(ev, "motivo", motivo);
     if (nota) ev.nota = nota;
     t.historico = [...t.historico, ev].slice(-MAX_HISTORICO);
     return t;
@@ -235,28 +235,28 @@ function criarPedidos(opcoes) {
   // ── ações ──────────────────────────────────────────────────────────────
   function criar(corpo, quem, ms) {
     if (quem.tipo !== 'agente') {
-      return { status: 403, erro: dgIdiomaBackend.mensagem("Quem cria o item da fila é o agente, ao receber o pedido (dgclaw-mesa pedido criar). Pela tela, o dono só acompanha, abre, marca como feito ou cancela.") };
+      return dgIdiomaBackend.objeto({ status: 403, erro: dgIdiomaBackend.descricao("Quem cria o item da fila é o agente, ao receber o pedido (dgclaw-mesa pedido criar). Pela tela, o dono só acompanha, abre, marca como feito ou cancela.") });
     }
     const slugs = slugsDoRegistro();
-    if (!slugs) return { status: 503, erro: registro.estado().erro };
-    if (!slugs.includes(quem.slug)) return { status: 403, erro: dgIdiomaBackend.mensagem("O agente {p0} não está no registro de agentes deste Web. Peça ao dono para conferir o registro.", {p0: (quem.slug)}) };
+    if (!slugs) return dgIdiomaBackend.objeto({ status: 503, erro: dgIdiomaBackend.campo(registro.estado(), "erro") });
+    if (!slugs.includes(quem.slug)) return dgIdiomaBackend.objeto({ status: 403, erro: dgIdiomaBackend.descricao("O agente {p0} não está no registro de agentes deste Web. Peça ao dono para conferir o registro.", {p0: (quem.slug)}) });
     if (corpo.agente !== undefined && corpo.agente !== null && corpo.agente !== quem.slug) {
-      return { status: 403, erro: dgIdiomaBackend.mensagem("O agente {p0} só cria pedido para si mesmo (veio agente {p1}). Tire o campo \"agente\".", {p0: (quem.slug), p1: (JSON.stringify(String(corpo.agente).slice(0, 40)))}) };
+      return dgIdiomaBackend.objeto({ status: 403, erro: dgIdiomaBackend.descricao("O agente {p0} só cria pedido para si mesmo (veio agente {p1}). Tire o campo \"agente\".", {p0: (quem.slug), p1: (JSON.stringify(String(corpo.agente).slice(0, 40)))}) });
     }
-    if (!quem.inst) return { status: 503, erro: dgIdiomaBackend.mensagem("Não consegui identificar a instância do agente {p0} (o registro não tem o campo \"instancia\" nem a casa do agente). Nenhum pedido foi criado; peça ao dono para conferir o agente com o dgclaw.", {p0: (quem.slug)}) };
+    if (!quem.inst) return dgIdiomaBackend.objeto({ status: 503, erro: dgIdiomaBackend.descricao("Não consegui identificar a instância do agente {p0} (o registro não tem o campo \"instancia\" nem a casa do agente). Nenhum pedido foi criado; peça ao dono para conferir o agente com o dgclaw.", {p0: (quem.slug)}) });
     const erros = {};
     const texto = textoCampo(corpo.texto, 'texto', LIMITES.texto, { obrigatorio: true }, erros);
     if (Object.keys(erros).length) return { status: 400, erros };
     if (dados.pedidos.filter((p) => doAgente(p, quem) && ABERTOS.has(p.estado)).length >= MAX_ABERTOS_POR_AGENTE) {
-      return { status: 409, erro: dgIdiomaBackend.mensagem("O agente {p0} já tem {p1} pedidos abertos. Entregue ou cancele alguns antes de abrir outro.", {p0: (quem.slug), p1: (MAX_ABERTOS_POR_AGENTE)}) };
+      return dgIdiomaBackend.objeto({ status: 409, erro: dgIdiomaBackend.descricao("O agente {p0} já tem {p1} pedidos abertos. Entregue ou cancele alguns antes de abrir outro.", {p0: (quem.slug), p1: (MAX_ABERTOS_POR_AGENTE)}) });
     }
     const id = dados.proximo_id;
-    const t = {
+    const t = dgIdiomaBackend.objeto({
       id, agente: quem.slug, instancia: quem.inst, texto, estado: 'fazendo', motivo: null, msg_entrega: null,
       criado_por: porDe(quem), criado_em: isoLocal(ms, tz), criado_em_epoch: ms / 1000, atualizado_em: isoLocal(ms, tz), atualizado_em_epoch: ms / 1000,
       entregue_em: null, entregue_em_epoch: null, fechado_em: null,
       historico: [{ em: isoLocal(ms, tz), por: porDe(quem), de: null, para: 'fazendo' }],
-    };
+    });
     gravar({ proximo_id: id + 1, pedidos: [...dados.pedidos, t] }, ms);
     return { status: 201, corpo: { ok: true, pedido: leitura(t, true) } };
   }
@@ -274,18 +274,18 @@ function criarPedidos(opcoes) {
     const novo = corpo.estado;
 
     if (quem.tipo === 'agente') {
-      if (!doAgente(p, quem)) return { status: 403, erro: dgIdiomaBackend.mensagem("O pedido #{p0} não é deste agente ({p1}); o agente só mexe nos próprios.", {p0: (p.id), p1: (quem.slug)}) };
-      if (novo === 'feito') return { status: 403, erro: dgIdiomaBackend.mensagem("O agente não marca o pedido #{p0} como feito: quem faz isso é o dono, ao abrir o item na tela ou ao responder na conversa depois da entrega. Marque como \"entregue\".", {p0: (p.id)}) };
+      if (!doAgente(p, quem)) return dgIdiomaBackend.objeto({ status: 403, erro: dgIdiomaBackend.descricao("O pedido #{p0} não é deste agente ({p1}); o agente só mexe nos próprios.", {p0: (p.id), p1: (quem.slug)}) });
+      if (novo === 'feito') return dgIdiomaBackend.objeto({ status: 403, erro: dgIdiomaBackend.descricao("O agente não marca o pedido #{p0} como feito: quem faz isso é o dono, ao abrir o item na tela ou ao responder na conversa depois da entrega. Marque como \"entregue\".", {p0: (p.id)}) });
     } else if (novo !== 'feito' && novo !== 'cancelado') {
-      return { status: 403, erro: dgIdiomaBackend.mensagem("O dono só marca pedido como \"feito\" ou \"cancelado\". Os outros estados são do agente.") };
+      return dgIdiomaBackend.objeto({ status: 403, erro: dgIdiomaBackend.descricao("O dono só marca pedido como \"feito\" ou \"cancelado\". Os outros estados são do agente.") });
     }
     if (!ABERTOS.has(p.estado)) {
-      return { status: 409, erro: dgIdiomaBackend.mensagem("O pedido #{p0} já está {p1}{p2} e não muda mais. Se há trabalho novo, crie outro pedido.", {p0: (p.id), p1: (p.estado), p2: (p.fechado_em ? ` (desde ${p.fechado_em})` : '')}) };
+      return dgIdiomaBackend.objeto({ status: 409, erro: dgIdiomaBackend.descricao("O pedido #{p0} já está {p1}{p2} e não muda mais. Se há trabalho novo, crie outro pedido.", {p0: (p.id), p1: (p.estado), p2: (p.fechado_em ? ` (desde ${p.fechado_em})` : '')}) });
     }
 
     const motivo = textoCampo(corpo.motivo, 'motivo', LIMITES.motivo, {}, erros);
-    if (novo === 'esperando_dono' && !motivo && !erros.motivo) erros.motivo = 'obrigatório em esperando_dono: diga o que você precisa do dono';
-    if (novo === 'cancelado' && quem.tipo === 'agente' && !motivo && !erros.motivo) erros.motivo = 'obrigatório ao cancelar: diga por que o pedido foi cancelado';
+    if (novo === 'esperando_dono' && !motivo && !erros.motivo) dgIdiomaBackend.definir(erros, "motivo", 'obrigatório em esperando_dono: diga o que você precisa do dono');
+    if (novo === 'cancelado' && quem.tipo === 'agente' && !motivo && !erros.motivo) dgIdiomaBackend.definir(erros, "motivo", 'obrigatório ao cancelar: diga por que o pedido foi cancelado');
     let msg;
     let aviso;
     if (novo === 'entregue') {
@@ -296,7 +296,7 @@ function criarPedidos(opcoes) {
     if (novo === 'entregue') {
       const r = await mensagensDe(p.agente);
       if (corpo.msg) {
-        if (r.erro) return { status: 503, erro: dgIdiomaBackend.mensagem("{p0} Não dá para conferir a mensagem {p1}; tente de novo em instantes.", {p0: (r.erro), p1: (corpo.msg)}) };
+        if (r.erro) return dgIdiomaBackend.objeto({ status: 503, erro: dgIdiomaBackend.descricao("{p0} Não dá para conferir a mensagem {p1}; tente de novo em instantes.", {p0: (dgIdiomaBackend.campo(r, "erro")), p1: (corpo.msg)}) });
         const m = r.msgs.find((x) => x.id === corpo.msg);
         if (!m) return { status: 400, erros: { msg: `não achei a mensagem ${corpo.msg} na conversa de ${p.agente}. Use o id de uma mensagem sua ou tire --msg para usar a última.` } };
         if (p.criado_em_epoch && m.ep < p.criado_em_epoch) return { status: 400, erros: { msg: `a mensagem ${corpo.msg} é anterior à criação do pedido #${p.id}. A entrega tem de ser uma mensagem sua depois que o pedido foi aberto.` } };
@@ -312,9 +312,9 @@ function criarPedidos(opcoes) {
         else aviso = 'Marquei como entregue, mas a conversa ainda não tem mensagem sua posterior à criação do pedido para apontar.';
       }
       // o pedido pode ter mudado durante a leitura da conversa
-      if (!carregar()) return { status: 503, erro: falha };
+      if (!carregar()) return dgIdiomaBackend.objeto({ status: 503, erro: falha });
       const atual = dados.pedidos.find((x) => x.id === p.id);
-      if (!atual || !ABERTOS.has(atual.estado)) return { status: 409, erro: dgIdiomaBackend.mensagem("O pedido #{p0} mudou enquanto eu conferia a conversa. Releia e tente de novo.", {p0: (p.id)}) };
+      if (!atual || !ABERTOS.has(atual.estado)) return dgIdiomaBackend.objeto({ status: 409, erro: dgIdiomaBackend.descricao("O pedido #{p0} mudou enquanto eu conferia a conversa. Releia e tente de novo.", {p0: (p.id)}) });
       p = atual;
     }
 
@@ -322,14 +322,14 @@ function criarPedidos(opcoes) {
       return { status: 200, corpo: { ok: true, pedido: leitura(p, true), ja_estava: true } };
     }
     // o horário é tomado agora, depois das esperas assíncronas e da revalidação do estado
-    const gravado = guarda(p, mover(p, novo, { por: porDe(quem), ms: agoraMs(), motivo, msg }));
+    const gravado = guarda(p, mover(p, novo, dgIdiomaBackend.objeto({ por: porDe(quem), ms: agoraMs(), motivo, msg })));
     const resp = { ok: true, pedido: leitura(gravado, true) };
-    if (aviso) resp.aviso = aviso;
+    if (aviso) dgIdiomaBackend.definir(resp, "aviso", aviso);
     return { status: 200, corpo: resp };
   }
 
   function abrir(p, quem, ms) {
-    if (quem.tipo !== 'dono') return { status: 403, erro: dgIdiomaBackend.mensagem("Abrir o item é um gesto do dono, pela tela. O agente marca o pedido como \"entregue\".") };
+    if (quem.tipo !== 'dono') return dgIdiomaBackend.objeto({ status: 403, erro: dgIdiomaBackend.descricao("Abrir o item é um gesto do dono, pela tela. O agente marca o pedido como \"entregue\".") });
     if (p.estado !== 'entregue') return { status: 200, corpo: { ok: true, pedido: leitura(p, true), mudou: false } };
     const gravado = guarda(p, mover(p, 'feito', { por: porDe(quem) + ' abriu', ms }));
     return { status: 200, corpo: { ok: true, pedido: leitura(gravado, true), mudou: true } };
@@ -340,10 +340,10 @@ function criarPedidos(opcoes) {
     const erros = {};
     let agentes = null;
     const slugs = slugsDoRegistro();
-    if (!slugs) return { status: 503, erro: registro.estado().erro };
+    if (!slugs) return dgIdiomaBackend.objeto({ status: 503, erro: dgIdiomaBackend.campo(registro.estado(), "erro") });
     const bruto = q.get('agente');
     if (quem.tipo === 'agente') {
-      if (bruto !== null && bruto !== quem.slug) return { status: 403, erro: dgIdiomaBackend.mensagem("O agente {p0} só vê os próprios pedidos (veio agente={p1}).", {p0: (quem.slug), p1: (bruto.slice(0, 40))}) };
+      if (bruto !== null && bruto !== quem.slug) return dgIdiomaBackend.objeto({ status: 403, erro: dgIdiomaBackend.descricao("O agente {p0} só vê os próprios pedidos (veio agente={p1}).", {p0: (quem.slug), p1: (bruto.slice(0, 40))}) });
       agentes = [quem.slug];
     } else if (bruto !== null) {
       agentes = bruto.split(',').map((s) => s.trim()).filter(Boolean);
@@ -411,11 +411,11 @@ function criarPedidos(opcoes) {
 
     try {
       if (partes[0] === 'docs.md' && partes.length === 1) {
-        if (m !== 'GET') { H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use GET para ler a documentação da fila de pedidos.")); return true; }
+        if (m !== 'GET') { H.erroJson(res, 405, dgIdiomaBackend.descricao("Use GET para ler a documentação da fila de pedidos.")); return true; }
         let texto;
         try { texto = fs.readFileSync(docsPath); } catch (e) {
           log('erro', `Não achei a documentação da fila de pedidos em ${docsPath} (${e.code || e.message}). Reinstale o DG Claw Web.`);
-          H.erroJson(res, 500, dgIdiomaBackend.mensagem("A documentação da fila de pedidos não está instalada neste servidor. Reinstale o DG Claw Web."));
+          H.erroJson(res, 500, dgIdiomaBackend.descricao("A documentação da fila de pedidos não está instalada neste servidor. Reinstale o DG Claw Web."));
           return true;
         }
         res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Length': texto.length, 'Cache-Control': 'no-store' });
@@ -429,11 +429,11 @@ function criarPedidos(opcoes) {
         id = Number(partes[0]);
       }
       const acao = partes[1] || null;
-      if (partes.length > 2 || (acao && acao !== 'abrir')) { H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe {p0} {p1}. Veja /api/v1/pedidos/docs.md.", {p0: (m), p1: (p.slice(0, 120))})); return true; }
+      if (partes.length > 2 || (acao && acao !== 'abrir')) { H.erroJson(res, 404, dgIdiomaBackend.descricao("Não existe {p0} {p1}. Veja /api/v1/pedidos/docs.md.", {p0: (m), p1: (p.slice(0, 120))})); return true; }
       const permitidos = id === null ? ['GET', 'POST'] : acao === 'abrir' ? ['POST'] : ['GET', 'PATCH', 'DELETE'];
       if (!permitidos.includes(m)) {
-        H.erroJson(res, 405, id === null ? dgIdiomaBackend.mensagem("Use GET para listar ou POST para criar um pedido (só o agente cria).")
-          : acao === 'abrir' ? dgIdiomaBackend.mensagem("Use POST para abrir o item.") : dgIdiomaBackend.mensagem("Use GET para ler, PATCH para mudar o estado ou DELETE para cancelar o pedido."));
+        H.erroJson(res, 405, id === null ? dgIdiomaBackend.descricao("Use GET para listar ou POST para criar um pedido (só o agente cria).")
+          : acao === 'abrir' ? dgIdiomaBackend.descricao("Use POST para abrir o item.") : dgIdiomaBackend.descricao("Use GET para ler, PATCH para mudar o estado ou DELETE para cancelar o pedido."));
         return true;
       }
 
@@ -446,10 +446,10 @@ function criarPedidos(opcoes) {
       if (m === 'POST' || m === 'PATCH' || m === 'DELETE') {
         try { corpo = await H.lerJson(req, MAX_CORPO); } catch (e) {
           if (!e.status) throw e;
-          H.erroJson(res, e.status, e.status === 413 ? dgIdiomaBackend.mensagem("O corpo do pedido passou de {p0} KB. Mande menos texto.", {p0: (MAX_CORPO / 1024)}) : e.message);
+          H.erroJson(res, e.status, e.status === 413 ? dgIdiomaBackend.descricao("O corpo do pedido passou de {p0} KB. Mande menos texto.", {p0: (MAX_CORPO / 1024)}) : dgIdiomaBackend.campo(e, "message"));
           return true;
         }
-        if (Array.isArray(corpo)) { H.erroJson(res, 400, dgIdiomaBackend.mensagem("O corpo precisa ser um objeto JSON ({...}), não uma lista.")); return true; }
+        if (Array.isArray(corpo)) { H.erroJson(res, 400, dgIdiomaBackend.descricao("O corpo precisa ser um objeto JSON ({...}), não uma lista.")); return true; }
         if (!carregar()) { H.erroJson(res, 503, falha); return true; }
       }
 
@@ -460,18 +460,18 @@ function criarPedidos(opcoes) {
       const ped = dados.pedidos.find((x) => x.id === id);
       // Para o agente, o pedido de outro não existe: nem confirma que o número está em uso.
       if (!ped || (quem.tipo === 'agente' && !doAgente(ped, quem))) {
-        H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe o pedido #{p0}{p1}. Veja a lista em GET /api/v1/pedidos (os fechados há muito tempo saem da fila).", {p0: (id), p1: (quem.tipo === 'agente' ? ' entre os seus' : '')}));
+        H.erroJson(res, 404, dgIdiomaBackend.descricao("Não existe o pedido #{p0}{p1}. Veja a lista em GET /api/v1/pedidos (os fechados há muito tempo saem da fila).", {p0: (id), p1: (quem.tipo === 'agente' ? ' entre os seus' : '')}));
         return true;
       }
       if (m === 'GET') { H.enviaJson(res, 200, { ok: true, pedido: leitura(ped, true) }); return true; }
       if (acao === 'abrir') { responde(res, abrir(ped, quem, ms)); return true; }
-      const entrada = m === 'DELETE' ? { estado: 'cancelado', motivo: corpo.motivo } : corpo;
+      const entrada = m === 'DELETE' ? dgIdiomaBackend.objeto({ estado: 'cancelado', motivo: dgIdiomaBackend.campo(corpo, "motivo") }) : corpo;
       responde(res, await mudar(ped, entrada, quem, ms));
       return true;
     } catch (e) {
-      if (e.status === 503) { H.erroJson(res, 503, e.message); return true; }
+      if (e.status === 503) { H.erroJson(res, 503, dgIdiomaBackend.campo(e, "message")); return true; }
       log('erro', `Falha inesperada na fila de pedidos em ${req.method} ${p}: ${e.stack || e.message}. Mande esta linha ao suporte.`);
-      H.erroJson(res, 500, dgIdiomaBackend.mensagem("Erro interno ao tratar o pedido. O erro foi registrado no log do Web; tente de novo."));
+      H.erroJson(res, 500, dgIdiomaBackend.descricao("Erro interno ao tratar o pedido. O erro foi registrado no log do Web; tente de novo."));
       return true;
     }
   }

@@ -113,16 +113,16 @@ function buildCompartilhar(CONFIG) {
     // Fica no bloco "o que ainda não está aqui" só o que realmente não veio: o
     // que não coube no teto e o que deu erro de leitura.
     for (const m of lista) {
-      if (usado + m.bytes > TETO_EMBUTIDO) { fora.push({ ...m, motivo: dgIdiomaBackend.mensagem("não coube no tamanho da página") }); continue; }
+      if (usado + m.bytes > TETO_EMBUTIDO) { fora.push(dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(m), motivo: dgIdiomaBackend.descricao("não coube no tamanho da página") })); continue; }
       let b64;
       try { b64 = fs.readFileSync(m.caminho).toString('base64'); }
-      catch (e) { fora.push({ ...m, motivo: dgIdiomaBackend.mensagem("não consegui ler: {p0}", {p0: (e.message)}) }); continue; }
+      catch (e) { fora.push(dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(m), motivo: dgIdiomaBackend.descricao("não consegui ler: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) })); continue; }
       usado += m.bytes;
-      dentro.push({
-        ...m,
+      dentro.push(dgIdiomaBackend.objeto({
+        ...dgIdiomaBackend.espalhar(m),
         mostravel: MOSTRAVEIS.includes(m.tipo),
         dataUri: `data:${mimeDaExt(m.ext)};base64,${b64}`,
-      });
+      }));
     }
     return { dentro, fora, usado };
   }
@@ -269,25 +269,25 @@ function buildCompartilhar(CONFIG) {
     let pastas;
     try { pastas = fs.readdirSync(RAIZ_PROJETOS); }
     catch (e) {
-      return Promise.resolve({
-        erro: dgIdiomaBackend.mensagem("Não consegui abrir a pasta de projetos do agente: {p0}", {p0: (e.message)}),
+      return Promise.resolve(dgIdiomaBackend.objeto({
+        erro: dgIdiomaBackend.descricao("Não consegui abrir a pasta de projetos do agente: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}),
         status: 500,
-      });
+      }));
     }
     if (!pastas.includes(slug)) {
-      return Promise.resolve({
-        erro: dgIdiomaBackend.mensagem("Não existe um projeto chamado \"{p0}\" na pasta deste agente.", {p0: (slug)}),
+      return Promise.resolve(dgIdiomaBackend.objeto({
+        erro: dgIdiomaBackend.descricao("Não existe um projeto chamado \"{p0}\" na pasta deste agente.", {p0: (slug)}),
         status: 404,
-      });
+      }));
     }
 
     const dirProjeto = path.join(RAIZ_PROJETOS, slug);
     const roteiro = lerTexto(path.join(dirProjeto, opcoes.arquivo || 'roteiro.md'));
     if (!roteiro) {
-      return Promise.resolve({
-        erro: dgIdiomaBackend.mensagem("Este projeto ainda não tem roteiro escrito, então não há o que mandar para o cliente."),
+      return Promise.resolve(dgIdiomaBackend.objeto({
+        erro: dgIdiomaBackend.descricao("Este projeto ainda não tem roteiro escrito, então não há o que mandar para o cliente."),
         status: 409,
-      });
+      }));
     }
     const catalogo = lerTexto(path.join(dirProjeto, 'catalogo-assets.md'));
     const { dentro, fora, usado } = embutir(materiais(dirProjeto, opcoes.pasta || 'assets'));
@@ -296,9 +296,9 @@ function buildCompartilhar(CONFIG) {
     const titulo = (m ? m[4] : slug).replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
     const data = m ? `${m[3]}/${m[2]}/${m[1]}` : null;
 
-    const html = montarHtml({
+    const html = montarHtml(dgIdiomaBackend.objeto({
       titulo, data, roteiro, catalogo, dentro, fora, agente: CONFIG.agentName,
-    });
+    }));
 
     // O nome do arquivo publicado leva um sufixo aleatório porque a URL é o
     // único segredo desta página: sem ele, quem soubesse o nome do projeto
@@ -309,26 +309,26 @@ function buildCompartilhar(CONFIG) {
 
     try { fs.writeFileSync(tmp, html, 'utf8'); }
     catch (e) {
-      return Promise.resolve({ erro: dgIdiomaBackend.mensagem("Não consegui montar a página: {p0}", {p0: (e.message)}), status: 500 });
+      return Promise.resolve(dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui montar a página: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}), status: 500 }));
     }
 
     const comando = comandoDePublicar();
     if (!comando) {
-      return Promise.resolve({
-        erro: dgIdiomaBackend.mensagem("Este painel não tem um comando de publicar configurado, então a página foi montada mas não foi para lugar nenhum."),
+      return Promise.resolve(dgIdiomaBackend.objeto({
+        erro: dgIdiomaBackend.descricao("Este painel não tem um comando de publicar configurado, então a página foi montada mas não foi para lugar nenhum."),
         howToFix: 'Configure `publicarCmd` no config.json do painel, ou DGCLAW_PUBLICAR_CMD no serviço, '
           + 'apontando para um comando que receba o caminho de um arquivo e imprima a URL pública dele.',
         status: 503,
-      });
+      }));
     }
     const { bin, args } = comando;
     if (!fs.existsSync(bin)) {
-      return Promise.resolve({
-        erro: dgIdiomaBackend.mensagem("O comando que publica (\"{p0}\") não existe nesta máquina, então a página foi montada mas não foi para lugar nenhum.", {p0: (bin)}),
+      return Promise.resolve(dgIdiomaBackend.objeto({
+        erro: dgIdiomaBackend.descricao("O comando que publica (\"{p0}\") não existe nesta máquina, então a página foi montada mas não foi para lugar nenhum.", {p0: (bin)}),
         howToFix: 'Configure `publicarCmd` no config.json do painel, ou DGCLAW_PUBLICAR_CMD no serviço, '
           + 'apontando para um comando que receba o caminho de um arquivo e imprima a URL pública dele.',
         status: 503,
-      });
+      }));
     }
 
     return new Promise((resolve) => {
@@ -337,11 +337,11 @@ function buildCompartilhar(CONFIG) {
         const saida = `${stdout || ''}\n${stderr || ''}`;
         const url = (saida.match(/https?:\/\/\S+/) || [])[0];
         if (err || !url) {
-          return resolve({
-            erro: dgIdiomaBackend.mensagem("A página foi montada, mas quem publica não devolveu um endereço."),
+          return resolve(dgIdiomaBackend.objeto({
+            erro: dgIdiomaBackend.descricao("A página foi montada, mas quem publica não devolveu um endereço."),
             detalhe: (saida.trim().split('\n').slice(-3).join(' · ') || String(err && err.message)).slice(0, 400),
             status: 502,
-          });
+          }));
         }
         resolve({
           ok: true,

@@ -37,10 +37,10 @@ const FORMA_DA_CHAVE = {
   OPENAI_API_KEY: { prefixo: 'sk-', como: 'As chaves da OpenAI começam com "sk-".' },
 };
 
-const SEM_RUNNER = {
-  error: dgIdiomaBackend.mensagem("A versão do agente ainda não informa o provedor"),
+const SEM_RUNNER = dgIdiomaBackend.objeto({
+  error: dgIdiomaBackend.descricao("A versão do agente ainda não informa o provedor"),
   howToFix: dgIdiomaBackend.texto("A plataforma que roda o agente é de uma versão antiga, sem a escolha de modelo. Atualize o DG Claw para ver esta parte (peça ao Admin, ou a quem cuida da instalação); enquanto isso o agente segue funcionando como estava."),
-};
+});
 
 /** Tira de um texto qualquer o que parece chave (e a chave exata, se for dada). */
 function limpar(texto, chave) {
@@ -70,7 +70,7 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
   async function catalogo() {
     if (carregado) return carregado;
     if (!arquivoMjs || !arquivoJson) {
-      throw new Error(dgIdiomaBackend.mensagem("o catálogo de provedores não está nesta instalação (providers/catalogo.json)"));
+      throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o catálogo de provedores não está nesta instalação (providers/catalogo.json)")]);
     }
     // import() dinâmico: o catálogo é ESM e o painel é CommonJS.
     const mod = await import(pathToFileURL(arquivoMjs).href);
@@ -90,22 +90,22 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
     const { base, sessao } = alvo();
     const url = new URL(base + caminho);
     if (sessao && metodo !== 'POST') url.searchParams.set('sessao', sessao);
-    const init = { method: metodo, signal: AbortSignal.timeout(TIMEOUT_MS), headers: { ...cabecalhoDoRunner(CONFIG) } };
+    const init = { method: metodo, signal: AbortSignal.timeout(TIMEOUT_MS), headers: dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(cabecalhoDoRunner(CONFIG)) }) };
     if (corpo !== undefined) {
       init.headers['Content-Type'] = 'application/json';
-      init.body = JSON.stringify(sessao ? { sessao, ...corpo } : corpo);
+      init.body = JSON.stringify(sessao ? dgIdiomaBackend.objeto({ sessao, ...dgIdiomaBackend.espalhar(corpo) }) : corpo);
     }
     let r;
     try {
       r = await doFetch(url, init);
     } catch (e) {
-      return { fora: true, motivo: limpar(e.message) };
+      return dgIdiomaBackend.objeto({ fora: true, motivo: limpar(e.message) });
     }
     let json = {};
     try { json = await r.json(); } catch { /* resposta sem json */ }
     // O runner antigo não tem a rota e responde 404 "Not found" cru; o novo, quando recusa com 404 (ex.: sessão que não
     // existe), sempre manda `code`. 404 sem `code` = runner antigo, e a tela recebe a explicação em português.
-    if (r.status === 404 && !(json && json.code)) return { fora: true, motivo: dgIdiomaBackend.mensagem("rota não existe (404{p0})", {p0: (json && (json.error || json.erro) ? ': ' + limpar(json.error || json.erro) : '')}) };
+    if (r.status === 404 && !(json && json.code)) return dgIdiomaBackend.objeto({ fora: true, motivo: dgIdiomaBackend.descricao("rota não existe (404{p0})", {p0: (json && (json.error || json.erro) ? ': ' + limpar(json.error || json.erro) : '')}) });
     return { status: r.status, corpo: json || {} };
   }
 
@@ -116,10 +116,10 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
 
   function falhaGeral(res, quando, entrada, err, chave) {
     console.error(`[provedor] ${quando} quebrou (entrada: ${limpar(JSON.stringify(entrada), chave)}):`, limpar(err && err.stack || err, chave));
-    res.status(500).json({
-      error: dgIdiomaBackend.mensagem("Não consegui {p0}: {p1}", {p0: (quando), p1: (limpar(err && err.message, chave))}),
+    res.status(500).json(dgIdiomaBackend.objeto({
+      error: dgIdiomaBackend.descricao("Não consegui {p0}: {p1}", {p0: (quando), p1: (limpar(err && err.message, chave))}),
       howToFix: dgIdiomaBackend.texto("Tente de novo em um minuto. Se continuar, avise quem cuida do sistema: o registro do painel tem o detalhe."),
-    });
+    }));
   }
 
   /** Repassa a recusa do runner no padrão da casa, sem nunca copiar o corpo cru. */
@@ -127,8 +127,8 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
     const c = r.corpo || {};
     const error = limpar(c.error || c.erro || `o agente recusou (${r.status})`, chave);
     console.error(`[provedor] ${quando}: runner recusou ${r.status}: ${error}`);
-    const out = { error };
-    if (c.howToFix) out.howToFix = limpar(c.howToFix, chave);
+    const out = dgIdiomaBackend.objeto({ error });
+    if (c.howToFix) dgIdiomaBackend.definir(out, "howToFix", limpar(c.howToFix, chave));
     res.status(r.status >= 400 ? r.status : 502).json(out);
   }
 
@@ -166,10 +166,10 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
       } else {
         modelos = mod.modelos(cat, id).map((m) => ({ id: m.id, nome: m.nome }));
       }
-      out[id] = {
-        nome: p.nome, disponivel: !!p.disponivel, motivo: p.motivo || null,
+      out[id] = dgIdiomaBackend.objeto({
+        nome: p.nome, disponivel: !!p.disponivel, motivo: dgIdiomaBackend.campo(p, "motivo") || null,
         auth: modos, modeloPadrao: p.modeloPadrao || '', modelos,
-      };
+      });
     }
     return out;
   }
@@ -212,29 +212,29 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
       const { sessao } = alvo();
       if (!sessao) {
         console.error('[uso] GET /api/uso: o painel não sabe o id do agente (faltam bunkerCard no config.json e DGCLAW_BUNKER_CARD); respondi 503');
-        return res.status(503).json({
-          error: dgIdiomaBackend.mensagem("O painel não sabe qual é o agente para consultar o uso da assinatura."),
+        return res.status(503).json(dgIdiomaBackend.objeto({
+          error: dgIdiomaBackend.descricao("O painel não sabe qual é o agente para consultar o uso da assinatura."),
           howToFix: dgIdiomaBackend.texto("Confira o bunkerCard no config.json do painel (ou DGCLAW_BUNKER_CARD) e reinicie o painel."),
-        });
+        }));
       }
       const r = await runner('GET', `/api/agents/${encodeURIComponent(sessao)}/uso`);
       if (r.fora) {
         console.error(`[uso] GET /api/uso: o runner não respondeu ou é antigo (${limpar(r.motivo)}); respondi 502`);
-        return res.status(502).json({
-          error: dgIdiomaBackend.mensagem("Não consegui perguntar ao agente quanto da assinatura já foi usado."),
+        return res.status(502).json(dgIdiomaBackend.objeto({
+          error: dgIdiomaBackend.descricao("Não consegui perguntar ao agente quanto da assinatura já foi usado."),
           howToFix: dgIdiomaBackend.texto("Se o agente acabou de reiniciar, tente de novo em um minuto. Se a versão do DG Claw é antiga, atualize: o medidor de uso é novo."),
-        });
+        }));
       }
       if (r.status >= 400) {
         const c = r.corpo || {};
         console.error(`[uso] GET /api/uso: o runner recusou ${r.status}: ${limpar(c.error || c.erro || '')}`);
-        return res.status(502).json({
-          error: dgIdiomaBackend.mensagem("O agente recusou a consulta de uso: {p0}",{p0:(limpar(c.error || c.erro || 'sem motivo informado'))}),
+        return res.status(502).json(dgIdiomaBackend.objeto({
+          error: dgIdiomaBackend.descricao("O agente recusou a consulta de uso: {p0}", {p0:(limpar(c.error || c.erro || 'sem motivo informado'))}),
           howToFix: limpar(c.howToFix || 'Tente de novo em um minuto. Se continuar, avise quem cuida do sistema.'),
-        });
+        }));
       }
       const c = r.corpo || {};
-      res.json({ ok: true, uso: c.uso ?? null, ...(c.motivo ? { motivo: limpar(c.motivo) } : {}) });
+      res.json(dgIdiomaBackend.objeto({ ok: true, uso: c.uso ?? null, ...dgIdiomaBackend.espalhar(c.motivo ? dgIdiomaBackend.objeto({ motivo: limpar(c.motivo) }) : {}) }));
     } catch (err) {
       falhaGeral(res, 'ler o uso da assinatura', {}, err);
     }
@@ -248,10 +248,10 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
     const entrada = { provedor: b.provedor, auth: b.auth, modelo: b.modelo, temChave: !!chave };
     try {
       if (!b.provedor || !b.auth) {
-        return res.status(400).json({
-          error: dgIdiomaBackend.mensagem("Faltou escolher o provedor e a forma de pagar."),
+        return res.status(400).json(dgIdiomaBackend.objeto({
+          error: dgIdiomaBackend.descricao("Faltou escolher o provedor e a forma de pagar."),
           howToFix: dgIdiomaBackend.texto("Mande provedor (claude ou codex) e auth (assinatura, token ou api)."),
-        });
+        }));
       }
       const c = await catalogo();
       let escolha;
@@ -259,10 +259,10 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
         escolha = c.mod.validar(c.cat, String(b.provedor), String(b.auth), String(b.modelo || ''));
       } catch (e) {
         if (!(e instanceof c.mod.ErroCatalogo)) throw e;
-        return res.status(400).json({
+        return res.status(400).json(dgIdiomaBackend.objeto({
           error: limpar(e.message, chave),
           howToFix: dgIdiomaBackend.texto("Escolha o provedor, o modelo e a forma de pagar nas listas da tela de troca."),
-        });
+        }));
       }
 
       const modo = c.cat.provedores[escolha.provedor].auth[escolha.auth];
@@ -274,12 +274,12 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
       if (variavel && cofre.modoHost) {
         const h = cofre.recusaDoHost();
         console.error(`[provedor] POST /api/provedor: este agente guarda chave pelo DG Claw Web; recusei com 409 (entrada: ${limpar(JSON.stringify(entrada), chave)})`);
-        return res.status(h.status).json({ error: h.erro, howToFix: h.howToFix });
+        return res.status(h.status).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.campo(h, "erro"), howToFix: dgIdiomaBackend.campo(h, "howToFix") }));
       }
 
       // Modo sem chave (assinatura): o runner grava e reinicia sozinho.
       if (!variavel) {
-        const r = await runner('POST', '/api/provedor', { ...corpoRunner, reiniciar: true });
+        const r = await runner('POST', '/api/provedor', dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(corpoRunner), reiniciar: true }));
         if (r.fora) return semRunner(res, 'POST /api/provedor', r.motivo);
         if (r.status >= 400) return repassarRecusa(res, 'POST /api/provedor', r);
         return res.json({ ok: true, reiniciando: true, rotulo: r.corpo.rotulo || null });
@@ -288,12 +288,12 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
       if (chave) {
         const forma = FORMA_DA_CHAVE[variavel];
         if (forma && !chave.startsWith(forma.prefixo)) {
-          return res.status(400).json({
-            error: dgIdiomaBackend.mensagem("Essa chave não parece ser a certa para {p0} {p1}. {p2}", {p0: (c.cat.provedores[escolha.provedor].nome), p1: (modo.nome), p2: (forma.como)}),
+          return res.status(400).json(dgIdiomaBackend.objeto({
+            error: dgIdiomaBackend.descricao("Essa chave não parece ser a certa para {p0} {p1}. {p2}", {p0: (c.cat.provedores[escolha.provedor].nome), p1: (modo.nome), p2: (forma.como)}),
             howToFix: modo.ondeCriar
-              ? dgIdiomaBackend.texto("Crie uma chave nova em {p0} e cole de novo. Nada foi alterado.",{p0:(modo.ondeCriar)})
+              ? dgIdiomaBackend.texto("Crie uma chave nova em {p0} e cole de novo. Nada foi alterado.", {p0:(modo.ondeCriar)})
               : dgIdiomaBackend.texto("Confira a chave e cole de novo. Nada foi alterado."),
-          });
+          }));
         }
         const g = cofre.guardar({
           envName: variavel, valor: chave, provedor: escolha.provedor === 'codex' ? 'openai' : (escolha.auth === 'token' ? 'claude-assinatura' : 'anthropic'),
@@ -301,29 +301,29 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
         });
         if (g && g.erro) {
           console.error(`[provedor] cofre recusou ${variavel}: ${limpar(g.erro, chave)}`);
-          const out = { error: limpar(g.erro, chave) };
-          if (g.howToFix) out.howToFix = limpar(g.howToFix, chave);
+          const out = dgIdiomaBackend.objeto({ error: limpar(g.erro, chave) });
+          if (g.howToFix) dgIdiomaBackend.definir(out, "howToFix", limpar(g.howToFix, chave));
           return res.status(g.status || 400).json(out);
         }
       } else if (!cofreTem(variavel)) {
-        const out = {
-          error: dgIdiomaBackend.mensagem("Para pagar {p0} falta a chave {p1}, e ela não está no Cofre.", {p0: (modo.nome), p1: (variavel)}),
+        const out = dgIdiomaBackend.objeto({
+          error: dgIdiomaBackend.descricao("Para pagar {p0} falta a chave {p1}, e ela não está no Cofre.", {p0: (modo.nome), p1: (variavel)}),
           howToFix: modo.ondeCriar
-            ? dgIdiomaBackend.texto("Crie uma chave em {p0} e cole no campo da janela de troca. Ela fica guardada no Cofre e não aparece mais.",{p0:(modo.ondeCriar)})
-            : dgIdiomaBackend.texto("Gere o código ({p0}) e cole no campo da janela de troca.",{p0:(modo.logar || 'veja a documentação do provedor')}),
+            ? dgIdiomaBackend.texto("Crie uma chave em {p0} e cole no campo da janela de troca. Ela fica guardada no Cofre e não aparece mais.", {p0:(modo.ondeCriar)})
+            : dgIdiomaBackend.texto("Gere o código ({p0}) e cole no campo da janela de troca.", {p0:(modo.logar || 'veja a documentação do provedor')}),
           precisaChave: variavel,
-        };
+        });
         if (modo.ondeCriar) out.ondeCriar = modo.ondeCriar;
         return res.status(409).json(out);
       }
 
       // A chave já está no Cofre: o runner só grava a escolha, e o cofre reinicia o agente.
-      const r = await runner('POST', '/api/provedor', { ...corpoRunner, reiniciar: false });
+      const r = await runner('POST', '/api/provedor', dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(corpoRunner), reiniciar: false }));
       if (r.fora) return semRunner(res, 'POST /api/provedor', r.motivo);
       if (r.status >= 400) {
-        const out = { error: limpar((r.corpo && (r.corpo.error || r.corpo.erro)) || `o agente recusou (${r.status})`, chave) };
-        out.howToFix = limpar((r.corpo && r.corpo.howToFix) || '', chave)
-          + (chave ? ' A chave já ficou guardada no Cofre; basta tentar a troca de novo.' : '');
+        const out = dgIdiomaBackend.objeto({ error: limpar((r.corpo && (r.corpo.error || r.corpo.erro)) || `o agente recusou (${r.status})`, chave) });
+        dgIdiomaBackend.definir(out, "howToFix", limpar((r.corpo && r.corpo.howToFix) || '', chave)
+          + (chave ? ' A chave já ficou guardada no Cofre; basta tentar a troca de novo.' : ''));
         console.error(`[provedor] POST /api/provedor: runner recusou ${r.status}: ${out.error}`);
         return res.status(r.status).json(out);
       }
@@ -331,8 +331,8 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
       const a = cofre.aplicar();
       if (a && a.erro) {
         console.error(`[provedor] cofre.aplicar() não reiniciou: ${limpar(a.erro, chave)}`);
-        const out = { error: limpar(a.erro, chave), gravado: true };
-        if (a.howToFix) out.howToFix = limpar(a.howToFix, chave);
+        const out = dgIdiomaBackend.objeto({ error: limpar(a.erro, chave), gravado: true });
+        if (a.howToFix) dgIdiomaBackend.definir(out, "howToFix", limpar(a.howToFix, chave));
         return res.status(a.status || 500).json(out);
       }
       res.json({ ok: true, reiniciando: true, rotulo: r.corpo.rotulo || null, feito: a && a.feito ? a.feito : null });
@@ -348,10 +348,10 @@ module.exports = function registrarRotasDeProvedor(router, { CONFIG, cofre, serv
       try {
         const corpoIn = comCorpo ? { codigo: String((req.body && req.body.codigo) || '') } : (metodo === 'POST' ? {} : undefined);
         if (comCorpo && !corpoIn.codigo.trim()) {
-          return res.status(400).json({
-            error: dgIdiomaBackend.mensagem("Faltou o código que apareceu depois do login."),
+          return res.status(400).json(dgIdiomaBackend.objeto({
+            error: dgIdiomaBackend.descricao("Faltou o código que apareceu depois do login."),
             howToFix: dgIdiomaBackend.texto("Cole o código inteiro no campo e envie de novo."),
-          });
+          }));
         }
         const r = await runner(metodo, caminho, corpoIn);
         if (r.fora) return semRunner(res, quando, r.motivo);

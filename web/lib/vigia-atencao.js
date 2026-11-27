@@ -86,24 +86,24 @@ function criarVigiaAtencao({ registro, estados, lerThread, push, prefs, relogio,
       if (mem.trabalhouDesde === null) mem.trabalhouDesde = agora();
     }
     if (base.estado === 'precisa_de_voce' && anterior !== 'precisa_de_voce') {
-      await enviar(agente, 'precisa_de_voce', {
-        titulo: dgIdiomaBackend.mensagem("{p0} precisa de você", {p0: (agente.nome)}),
+      await enviar(agente, 'precisa_de_voce', dgIdiomaBackend.objeto({
+        titulo: dgIdiomaBackend.descricao("{p0} precisa de você", {p0: (agente.nome)}),
         corpo: base.resumo || 'Abra a conversa para ver o que ele pede.',
         tag: `atencao-${agente.slug}`,
         url: `/a/${agente.slug}`,
         exigir_interacao: true,
-      });
+      }));
     } else if (base.estado === 'ocioso' && mem.trabalhouDesde !== null) {
       const desde = mem.trabalhouDesde;
       mem.trabalhouDesde = null;
       const resposta = await respostaNova(agente, desde);
       if (!resposta) return;
-      await enviar(agente, 'terminou', {
+      await enviar(agente, 'terminou', dgIdiomaBackend.objeto({
         titulo: `${agente.nome} terminou`,
         corpo: CORPO_TERMINOU,
         tag: `fim-${agente.slug}`,
         url: `/a/${agente.slug}`,
-      });
+      }));
     }
   }
 

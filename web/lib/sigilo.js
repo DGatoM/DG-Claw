@@ -156,19 +156,19 @@ function criarSigilo({ env, registro, dataDir, log, timeoutMs, dono }) {
     const nome = provedor === 'anthropic' ? 'Claude' : 'OpenAI';
     let r;
     try {
-      r = await fetch(url, Object.assign({ signal: AbortSignal.timeout(limite) }, init));
+      r = await fetch(url, dgIdiomaBackend.atribuir({ signal: AbortSignal.timeout(limite) }, init));
     } catch (e) {
-      throw new Error(dgIdiomaBackend.mensagem("não consegui falar com {p0} ({p1})", {p0: (nome), p1: (e.name === 'TimeoutError' ? 'demorou mais de ' + Math.round(limite / 1000) + ' s' : limpaSegredo(e.message, chave))}));
+      throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("não consegui falar com {p0} ({p1})", {p0: (nome), p1: (e.name === 'TimeoutError' ? 'demorou mais de ' + Math.round(limite / 1000) + ' s' : limpaSegredo(e.message, chave))})]);
     }
     if (!r.ok) {
       let detalhe = '';
       try { detalhe = limpaSegredo((await r.text()).slice(0, 200), chave); } catch (_) { /* sem corpo */ }
       const dica = r.status === 401 || r.status === 403 ? ' A chave do web.env foi recusada: confira se está certa.'
         : (r.status === 429 || r.status === 402 ? ' O limite ou o crédito da conta pode ter acabado.' : '');
-      throw new Error(dgIdiomaBackend.mensagem("{p0} respondeu HTTP {p1}{p2}.{p3}", {p0: (nome), p1: (r.status), p2: (detalhe ? ` (${detalhe})` : ''), p3: (dica)}));
+      throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("{p0} respondeu HTTP {p1}{p2}.{p3}", {p0: (nome), p1: (r.status), p2: (detalhe ? ` (${detalhe})` : ''), p3: (dica)})]);
     }
     let j;
-    try { j = await r.json(); } catch (_) { throw new Error(dgIdiomaBackend.mensagem("{p0} respondeu algo que não é JSON", {p0: (nome)})); }
+    try { j = await r.json(); } catch (_) { throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("{p0} respondeu algo que não é JSON", {p0: (nome)})]); }
     const texto = provedor === 'anthropic'
       ? ((j.content || []).filter((b) => b && b.type === 'text').map((b) => b.text).join(''))
       : (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
@@ -186,9 +186,9 @@ function criarSigilo({ env, registro, dataDir, log, timeoutMs, dono }) {
     try {
       linhas = JSON.parse(ini >= 0 && fim > ini ? conteudo.slice(ini, fim + 1) : conteudo).r;
     } catch (e) {
-      throw new Error(dgIdiomaBackend.mensagem("o modelo não devolveu JSON ({p0}): {p1}", {p0: (e.message), p1: (limpaSegredo(conteudo.slice(0, 120), chave))}));
+      throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o modelo não devolveu JSON ({p0}): {p1}", {p0: (dgIdiomaBackend.campo(e, "message")), p1: (limpaSegredo(conteudo.slice(0, 120), chave))})]);
     }
-    if (!Array.isArray(linhas)) throw new Error(dgIdiomaBackend.mensagem("o modelo devolveu JSON sem a lista \"r\""));
+    if (!Array.isArray(linhas)) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o modelo devolveu JSON sem a lista \"r\"")]);
     const achou = new Map();
     for (const l of linhas) {
       const i = Number(l && l.i);
@@ -198,7 +198,7 @@ function criarSigilo({ env, registro, dataDir, log, timeoutMs, dono }) {
       if (achou.has(i)) continue;
       // o modelo às vezes pula a mensagem sem nada sensível: ela vai de novo sozinha
       // (pular de novo, aí, é falha de verdade e sobe como erro)
-      if (textos.length === 1) throw new Error(dgIdiomaBackend.mensagem("o modelo não devolveu a análise da mensagem"));
+      if (textos.length === 1) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o modelo não devolveu a análise da mensagem")]);
       achou.set(i, (await analisaLote([textos[i]], lib))[0]);
     }
     return textos.map((t, i) => {
@@ -225,18 +225,18 @@ function criarSigilo({ env, registro, dataDir, log, timeoutMs, dono }) {
   /** Valida o corpo do POST. Devolve { textos } ou { erro } (para 400). */
   function validaEntrada(corpo) {
     const t = corpo && corpo.textos;
-    if (t === undefined) return { erro: dgIdiomaBackend.mensagem("Faltou o campo \"textos\". Mande {\"textos\": [\"mensagem 1\", \"mensagem 2\"]}.") };
-    if (!Array.isArray(t)) return { erro: dgIdiomaBackend.mensagem("O campo \"textos\" precisa ser uma lista de textos. Recebi: {p0}.", {p0: (typeof t)}) };
-    if (t.length > MAX_ITENS) return { erro: dgIdiomaBackend.mensagem("Até {p0} textos por chamada (vieram {p1}). Divida em partes.", {p0: (MAX_ITENS), p1: (t.length)}) };
+    if (t === undefined) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Faltou o campo \"textos\". Mande {\"textos\": [\"mensagem 1\", \"mensagem 2\"]}.") });
+    if (!Array.isArray(t)) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O campo \"textos\" precisa ser uma lista de textos. Recebi: {p0}.", {p0: (typeof t)}) });
+    if (t.length > MAX_ITENS) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Até {p0} textos por chamada (vieram {p1}). Divida em partes.", {p0: (MAX_ITENS), p1: (t.length)}) });
     const ruim = t.findIndex((x) => typeof x !== 'string');
-    if (ruim >= 0) return { erro: dgIdiomaBackend.mensagem("Todo item de \"textos\" precisa ser texto. O item {p0} é do tipo {p1}.", {p0: (ruim), p1: (tipoDe(t[ruim]))}) };
+    if (ruim >= 0) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Todo item de \"textos\" precisa ser texto. O item {p0} é do tipo {p1}.", {p0: (ruim), p1: (tipoDe(t[ruim]))}) });
     return { textos: t };
   }
   const tipoDe = (v) => (v === null ? 'null' : Array.isArray(v) ? 'lista' : typeof v);
 
   return {
     modelo, provedor, soRegex: !provedor, semChave, validaEntrada, liberados,
-    estado() { return { modelo, provedor, so_regex: !provedor, aviso: provedor ? null : semChave }; },
+    estado() { return dgIdiomaBackend.objeto({ modelo, provedor, so_regex: !provedor, aviso: provedor ? null : semChave }); },
 
     /** { trechos, avisos, analisados, modelo, so_regex } */
     async analisar(textos) {

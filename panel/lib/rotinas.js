@@ -45,17 +45,17 @@ const PROPS = [
 function systemctl(args, timeout = 8000) {
   return new Promise((resolve) => {
     execFile('systemctl', args, { encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (!err) return resolve({ saida: stdout || '', falhou: false, motivo: null });
+      if (!err) return resolve(dgIdiomaBackend.objeto({ saida: stdout || '', falhou: false, motivo: null }));
       if (err.code === 'ENOENT') {
-        return resolve({ saida: '', falhou: true, motivo: dgIdiomaBackend.mensagem("esta máquina não tem systemctl (o painel não está rodando num sistema com systemd)") });
+        return resolve(dgIdiomaBackend.objeto({ saida: '', falhou: true, motivo: dgIdiomaBackend.descricao("esta máquina não tem systemctl (o painel não está rodando num sistema com systemd)") }));
       }
       // list-unit-files sem nenhum casamento sai com código 1 e stdout vazio: não é erro.
-      if (err.code === 1 && !String(stderr || '').trim()) return resolve({ saida: stdout || '', falhou: false, motivo: null });
-      resolve({
+      if (err.code === 1 && !String(stderr || '').trim()) return resolve(dgIdiomaBackend.objeto({ saida: stdout || '', falhou: false, motivo: null }));
+      resolve(dgIdiomaBackend.objeto({
         saida: stdout || '',
         falhou: !(stdout || '').trim(),
         motivo: `o systemctl ${args[0]} falhou (${String(stderr || err.message || '').trim().slice(0, 200) || 'sem detalhe'})`,
-      });
+      }));
     });
   });
 }
@@ -232,19 +232,19 @@ function listar(slug, workspace) {
   const chave = `${slug}::${workspace}`;
   const c = _cacheListar.get(chave);
   if (c && Date.now() - c.em < CACHE_LISTAR_MS) return c.promessa;
-  const promessa = listarAgora(slug, workspace).catch((e) => ({
+  const promessa = listarAgora(slug, workspace).catch((e) => (dgIdiomaBackend.objeto({
     rotinas: [], inconsistencias: [], total: 0,
-    erro: dgIdiomaBackend.mensagem("nao consegui ler a agenda no systemd: {p0}", {p0: (e.message)}),
-  }));
+    erro: dgIdiomaBackend.descricao("nao consegui ler a agenda no systemd: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}),
+  })));
   _cacheListar.set(chave, { em: Date.now(), promessa });
   return promessa;
 }
 
 async function listarAgora(slug, workspace) {
-  if (!slug) return { rotinas: [], inconsistencias: [], erro: dgIdiomaBackend.mensagem("agente sem slug na config do painel") };
+  if (!slug) return dgIdiomaBackend.objeto({ rotinas: [], inconsistencias: [], erro: dgIdiomaBackend.descricao("agente sem slug na config do painel") });
 
   const lista = await systemctl(['list-unit-files', `dgclaw-${slug}-*.timer`, '--no-legend', '--no-pager']);
-  if (lista.falhou) return { rotinas: [], inconsistencias: [], total: 0, erro: lista.motivo };
+  if (lista.falhou) return dgIdiomaBackend.objeto({ rotinas: [], inconsistencias: [], total: 0, erro: dgIdiomaBackend.campo(lista, "motivo") });
   const units = lista.saida.split('\n')
     .map((l) => l.trim().split(/\s+/)[0])
     .filter((u) => u && u.endsWith('.timer'));
@@ -284,11 +284,11 @@ async function listarAgora(slug, workspace) {
   // Manifesto que promete uma rotina que o systemd nao tem: mostrar, nao esconder.
   const inconsistencias = Object.keys(manifesto)
     .filter((nome) => !vistas.has(nome))
-    .map((nome) => ({
+    .map((nome) => (dgIdiomaBackend.objeto({
       nome,
       motivo: 'está no manifesto do agente, mas não existe timer no systemd. ' +
         'A rotina NÃO vai rodar até ser criada de novo.',
-    }));
+    })));
 
   rotinas.sort((a, b) => {
     if (a.tipo !== b.tipo) return a.tipo === 'marcada' ? -1 : 1;

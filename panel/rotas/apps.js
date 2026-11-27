@@ -12,7 +12,7 @@ module.exports = function registrar(router, ctx) {
   // aba Apps nunca pode virar tela em branco.
 
   function responderApps(res, r) {
-    if (r && r.erro) return res.status(r.status || 500).json({ error: r.erro });
+    if (r && r.erro) return res.status(r.status || 500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.campo(r, "erro") }));
     res.json(r);
   }
 
@@ -20,7 +20,7 @@ module.exports = function registrar(router, ctx) {
     try {
       res.json(apps.listar());
     } catch (e) {
-      res.status(500).json({ error: dgIdiomaBackend.mensagem("Nao consegui ler a lista de apps: {p0}", {p0: (e.message)}) });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Nao consegui ler a lista de apps: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }));
     }
   });
 
@@ -28,7 +28,7 @@ module.exports = function registrar(router, ctx) {
     try {
       responderApps(res, apps.projetos(req.params.app));
     } catch (e) {
-      res.status(500).json({ error: dgIdiomaBackend.mensagem("Nao consegui listar os conteudos: {p0}", {p0: (e.message)}) });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Nao consegui listar os conteudos: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }));
     }
   });
 
@@ -36,7 +36,7 @@ module.exports = function registrar(router, ctx) {
     try {
       responderApps(res, apps.projeto(req.params.app, req.params.slug));
     } catch (e) {
-      res.status(500).json({ error: dgIdiomaBackend.mensagem("Nao consegui abrir o conteudo: {p0}", {p0: (e.message)}) });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Nao consegui abrir o conteudo: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }));
     }
   });
 
@@ -44,7 +44,7 @@ module.exports = function registrar(router, ctx) {
     try {
       responderApps(res, apps.assets(req.params.app, req.params.slug));
     } catch (e) {
-      res.status(500).json({ error: dgIdiomaBackend.mensagem("Nao consegui listar o material: {p0}", {p0: (e.message)}) });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Nao consegui listar o material: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }));
     }
   });
 
@@ -52,7 +52,7 @@ module.exports = function registrar(router, ctx) {
     try {
       responderApps(res, apps.arquivo(req.params.app, req.params.slug, req.params.nome));
     } catch (e) {
-      res.status(500).json({ error: dgIdiomaBackend.mensagem("Nao consegui ler o arquivo: {p0}", {p0: (e.message)}) });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Nao consegui ler o arquivo: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }));
     }
   });
 
@@ -63,7 +63,7 @@ module.exports = function registrar(router, ctx) {
     try {
       servirBinario(res, apps.assetBinario(req.params.app, req.params.slug, req.params.nome), false);
     } catch (e) {
-      res.status(500).type('text/plain; charset=utf-8').send(dgIdiomaBackend.texto("Não consegui abrir o material: {p0}", {p0: (e.message)}));
+      res.status(500).type('text/plain; charset=utf-8').send(dgIdiomaBackend.texto("Não consegui abrir o material: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}));
     }
   });
 
@@ -78,17 +78,17 @@ module.exports = function registrar(router, ctx) {
       const r = await compartilhar.publicar(req.params.slug);
       if (r && r.erro) {
         console.error('[painel] compartilhar falhou:', r.erro, r.detalhe || '');
-        return res.status(r.status || 500).json({
-          error: r.erro,
-          howToFix: r.howToFix,
+        return res.status(r.status || 500).json(dgIdiomaBackend.objeto({
+          error: dgIdiomaBackend.campo(r, "erro"),
+          howToFix: dgIdiomaBackend.campo(r, "howToFix"),
           detalhe: r.detalhe,
-        });
+        }));
       }
       console.log(`[painel] roteiro de ${req.params.slug} publicado em ${r.url}`);
       res.json(r);
     } catch (e) {
       console.error('[painel] erro ao compartilhar:', e);
-      res.status(500).json({ error: dgIdiomaBackend.mensagem("Nao consegui gerar o link: {p0}", {p0: (e.message)}) });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Nao consegui gerar o link: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) }));
     }
   });
 };

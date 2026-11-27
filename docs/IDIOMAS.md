@@ -96,18 +96,43 @@ tradução automática externa, `eval`, escrita de prompt ou alteração de aute
 Os dados da marca são interpolados depois de traduzir o template de fábrica.
 
 No servidor, `web/lib/idioma-contexto.js` isola cada requisição com
-`AsyncLocalStorage`. `mensagem(fonte, parâmetros)` conserva o texto PT para
-comparações e logs e registra a tradução daquela mensagem própria para a resposta
-HTTP. `texto()` destina-se à apresentação imediata de fontes próprias. Mensagens
-externas não são fontes de tradução. Os gravadores isolados não dependem do
-catálogo: seus diagnósticos são devolvidos como dados, no idioma original.
+`AsyncLocalStorage`. A identidade da mensagem própria fica em `WeakMap`, associada
+ao objeto e à propriedade, sem procurar strings iguais em nomes ou dados externos.
+`descricao(fonte, parâmetros)` cria essa descrição privada; `objeto({ erro:
+descricao(...) })` mantém o campo `erro` como string PT primitiva e guarda sua
+identidade separadamente. `criarErro(Tipo, argumentos)` faz o mesmo com erros,
+preservando o tipo, os demais campos e `Error.message` em português.
+
+Somente a saída HTTP usa `replacer`: `H.enviaJson` e o serializador JSON do Express
+traduzem os campos com identidade própria, inclusive objetos aninhados. Um
+`JSON.stringify` normal, usado para persistência ou logs, conserva o conteúdo PT.
+Mensagens externas não ganham identidade por coincidirem com um texto do catálogo.
+
+Ao encaminhar uma mensagem própria, use `campo(objeto, 'erro')` ou
+`campo(excecao, 'message')` apenas na construção da saída de interface. Nas decisões
+internas, continue lendo os campos normais, que são strings. Parâmetros comuns
+ficam literais; somente descrições privadas explicitamente encadeadas são traduzidas.
+Nunca crie uma descrição usando o texto recebido de um provedor ou de uma pessoa
+como fonte. `texto()` destina-se à apresentação imediata de fontes próprias.
+
+Para copiar mensagens próprias, use `atribuir(destino, ...fontes)` ou
+`objeto({ ...espalhar(origem) })`. A última propriedade prevalece: uma sobrescrita
+externa, mesmo com texto idêntico, perde a tradução anterior. Para alterar um campo
+de mensagem existente, use `definir(objeto, chave, valor)`. Isso também remove a
+identidade ao receber um dado comum. `mensagem()` é compatibilidade para diagnósticos
+PT, sem registro ou tradução implícita. Os gravadores isolados continuam sem
+dependência do catálogo e devolvem seus diagnósticos no idioma original.
 
 ### Provas
 
 `web/test/idioma.test.js` cobre configuração, cookie, catálogo, placeholders,
 renderização, tamanho HTTP, assets públicos e ausência de liberação de API.
 `web/test/proxy.test.js` cobre a passagem da preferência sem passar o cookie de
-sessão do Web. `qa/idiomas.cjs` exercita o DOM e o cartão de conta com Claude e Codex,
+sessão do Web. `web/test/idioma-contexto.test.js` cobre identidade, cópias,
+sobrescritas, persistência PT e requisições simultâneas. A regressão
+`web/test/idioma-identidade-http.test.js` reproduz o nome de agente idêntico a um
+aviso do registro e confere que ele permanece literal dentro de um erro do proxy.
+`qa/idiomas.cjs` exercita o DOM e o cartão de conta com Claude e Codex,
 sem conectar uma conta nem iniciar inferência. Ele usa jsdom 26.1.0 como ferramenta
 opcional de QA; não adiciona dependência de produção:
 

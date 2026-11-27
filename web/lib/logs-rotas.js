@@ -27,7 +27,7 @@ function autorizado(sessao) {
 }
 
 function parseData(texto, fimDoDia, nome) {
-  const ruim = () => new ErroEntrada(400, dgIdiomaBackend.mensagem("O parâmetro \"{p0}\" precisa ser uma data AAAA-MM-DD ou um horário ISO (ex.: 2026-11-08 ou 2026-11-08T14:30:00-03:00). Recebi: {p1}.", {p0: (nome), p1: (String(texto).slice(0, 40))}));
+  const ruim = () => dgIdiomaBackend.criarErro(ErroEntrada, [400, dgIdiomaBackend.descricao("O parâmetro \"{p0}\" precisa ser uma data AAAA-MM-DD ou um horário ISO (ex.: 2026-11-08 ou 2026-11-08T14:30:00-03:00). Recebi: {p1}.", {p0: (nome), p1: (String(texto).slice(0, 40))})]);
   const dia = RX_DIA.exec(texto);
   if (dia) {
     const y = Number(dia[1]); const m = Number(dia[2]); const d = Number(dia[3]);
@@ -46,7 +46,7 @@ function numeroEntre(texto, nome, min, max, padrao) {
   if (texto == null || texto === '') return padrao;
   const n = Number(texto);
   if (!RX_NUMERO.test(String(texto)) || n < min || n > max) {
-    throw new ErroEntrada(400, dgIdiomaBackend.mensagem("O parâmetro \"{p0}\" precisa ser um número inteiro entre {p1} e {p2}. Recebi: {p3}.", {p0: (nome), p1: (min), p2: (max), p3: (String(texto).slice(0, 40))}));
+    throw dgIdiomaBackend.criarErro(ErroEntrada, [400, dgIdiomaBackend.descricao("O parâmetro \"{p0}\" precisa ser um número inteiro entre {p1} e {p2}. Recebi: {p3}.", {p0: (nome), p1: (min), p2: (max), p3: (String(texto).slice(0, 40))})]);
   }
   return n;
 }
@@ -57,25 +57,25 @@ function filtrosDe(url) {
   if (sp.get('desde')) f.desde = parseData(sp.get('desde'), false, 'desde');
   if (sp.get('ate')) f.ate = parseData(sp.get('ate'), true, 'ate');
   if (f.desde != null && f.ate != null && f.desde > f.ate) {
-    throw new ErroEntrada(400, dgIdiomaBackend.mensagem("O parâmetro \"desde\" vem depois de \"ate\". Troque a ordem ou ajuste as datas."));
+    throw dgIdiomaBackend.criarErro(ErroEntrada, [400, dgIdiomaBackend.descricao("O parâmetro \"desde\" vem depois de \"ate\". Troque a ordem ou ajuste as datas.")]);
   }
   if (sp.get('tipo')) {
     const lista = sp.get('tipo').split(',').map((x) => x.trim()).filter(Boolean);
     const ruim = lista.find((x) => !TIPOS.includes(x));
     if (ruim !== undefined || !lista.length) {
-      throw new ErroEntrada(400, dgIdiomaBackend.mensagem("O parâmetro \"tipo\" aceita uma lista separada por vírgula com: {p0}. Recebi: {p1}.", {p0: (TIPOS.join(', ')), p1: (sp.get('tipo').slice(0, 60))}));
+      throw dgIdiomaBackend.criarErro(ErroEntrada, [400, dgIdiomaBackend.descricao("O parâmetro \"tipo\" aceita uma lista separada por vírgula com: {p0}. Recebi: {p1}.", {p0: (TIPOS.join(', ')), p1: (sp.get('tipo').slice(0, 60))})]);
     }
     f.tipos = new Set(lista);
   }
   if (sp.get('q')) {
     const q = sp.get('q');
-    if (q.length > 200) throw new ErroEntrada(400, dgIdiomaBackend.mensagem("O parâmetro \"q\" aceita até 200 caracteres. Recebi {p0}.", {p0: (q.length)}));
+    if (q.length > 200) throw dgIdiomaBackend.criarErro(ErroEntrada, [400, dgIdiomaBackend.descricao("O parâmetro \"q\" aceita até 200 caracteres. Recebi {p0}.", {p0: (q.length)})]);
     f.q = q.trim() || null;
   }
   if (sp.get('sessao')) {
     const s = sp.get('sessao');
     if (!RX_ID_CURTO.test(s) && !RX_UUID.test(s)) {
-      throw new ErroEntrada(400, dgIdiomaBackend.mensagem("O parâmetro \"sessao\" precisa ser o id curto (12 caracteres hexadecimais) ou o uuid da sessão. Recebi: {p0}.", {p0: (s.slice(0, 40))}));
+      throw dgIdiomaBackend.criarErro(ErroEntrada, [400, dgIdiomaBackend.descricao("O parâmetro \"sessao\" precisa ser o id curto (12 caracteres hexadecimais) ou o uuid da sessão. Recebi: {p0}.", {p0: (s.slice(0, 40))})]);
     }
     f.sessao = s.toLowerCase();
   }
@@ -93,7 +93,7 @@ function criarLogsRotas({ registro, log, agora, orcamento, arquivoDocs, leitor: 
     let texto;
     try { texto = await fs.promises.readFile(docsPath, 'utf8'); } catch (e) {
       log('erro', `Logs: não li ${docsPath} (${e.code || e.message}).`);
-      return H.erroJson(res, 500, dgIdiomaBackend.mensagem("A documentação dos logs não está instalada neste servidor. Reinstale o DG Claw Web."));
+      return H.erroJson(res, 500, dgIdiomaBackend.descricao("A documentação dos logs não está instalada neste servidor. Reinstale o DG Claw Web."));
     }
     res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
     res.end(texto);
@@ -103,9 +103,9 @@ function criarLogsRotas({ registro, log, agora, orcamento, arquivoDocs, leitor: 
   function agenteOuErro(res, bruto) {
     let slug;
     try { slug = decodeURIComponent(bruto); } catch (_) { slug = ''; }
-    if (!RX_SLUG.test(slug)) { H.erroJson(res, 400, dgIdiomaBackend.mensagem("O id de agente \"{p0}\" não vale. Veja GET {p1}/agentes.", {p0: (String(bruto).slice(0, 40)), p1: (BASE)})); return null; }
+    if (!RX_SLUG.test(slug)) { H.erroJson(res, 400, dgIdiomaBackend.descricao("O id de agente \"{p0}\" não vale. Veja GET {p1}/agentes.", {p0: (String(bruto).slice(0, 40)), p1: (BASE)})); return null; }
     const ag = registro.obter(slug);
-    if (!ag) { H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe agente com o id \"{p0}\". Veja GET {p1}/agentes.", {p0: (slug), p1: (BASE)})); return null; }
+    if (!ag) { H.erroJson(res, 404, dgIdiomaBackend.descricao("Não existe agente com o id \"{p0}\". Veja GET {p1}/agentes.", {p0: (slug), p1: (BASE)})); return null; }
     return ag;
   }
 
@@ -128,7 +128,7 @@ function criarLogsRotas({ registro, log, agora, orcamento, arquivoDocs, leitor: 
   /** No máximo MAX_BUSCAS varreduras de pasta ao mesmo tempo no processo (agentes, sessões e eventos). */
   async function comVaga(res, fn) {
     if (buscasAtivas >= MAX_BUSCAS) {
-      H.erroJson(res, 429, dgIdiomaBackend.mensagem("Já há buscas de logs em andamento. Espere um instante e peça de novo."), { retryAfter: 1 }, { 'Retry-After': '1' });
+      H.erroJson(res, 429, dgIdiomaBackend.descricao("Já há buscas de logs em andamento. Espere um instante e peça de novo."), { retryAfter: 1 }, { 'Retry-After': '1' });
       return;
     }
     buscasAtivas++;
@@ -139,12 +139,12 @@ function criarLogsRotas({ registro, log, agora, orcamento, arquivoDocs, leitor: 
   async function rotas(req, res, url, sessao) {
     const p = semBarraFinal(url.pathname);
     if (p !== BASE && !p.startsWith(`${BASE}/`)) return false;
-    if (!sessao) { H.erroJson(res, 401, dgIdiomaBackend.mensagem("Você precisa entrar para ver os logs. Faça login em /login.")); return true; }
+    if (!sessao) { H.erroJson(res, 401, dgIdiomaBackend.descricao("Você precisa entrar para ver os logs. Faça login em /login.")); return true; }
     if (!autorizado(sessao)) {
-      H.erroJson(res, 403, dgIdiomaBackend.mensagem("Os logs dos agentes são só do dono do DG Claw, pela tela Logs do Admin. Agentes e colaboradores não usam esta rota."));
+      H.erroJson(res, 403, dgIdiomaBackend.descricao("Os logs dos agentes são só do dono do DG Claw, pela tela Logs do Admin. Agentes e colaboradores não usam esta rota."));
       return true;
     }
-    if (req.method !== 'GET') { H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use GET em {p0}. Os logs são só de leitura.", {p0: (p)})); return true; }
+    if (req.method !== 'GET') { H.erroJson(res, 405, dgIdiomaBackend.descricao("Use GET em {p0}. Os logs são só de leitura.", {p0: (p)})); return true; }
     const sub = p.slice(BASE.length);
     try {
       if (sub === '/docs.md') { await docs(res); return true; }
@@ -159,31 +159,31 @@ function criarLogsRotas({ registro, log, agora, orcamento, arquivoDocs, leitor: 
         if (m[2] === 'sessoes') {
           await comVaga(res, async () => {
             const r = await leitor.sessoes(ag, { limite, cursor });
-            H.enviaJson(res, 200, Object.assign({ ok: true, agente: ag.slug }, r));
+            H.enviaJson(res, 200, dgIdiomaBackend.atribuir({ ok: true, agente: ag.slug }, r));
           });
           return true;
         }
         const f = filtrosDe(url);
         await comVaga(res, async () => {
-          const r = await leitor.eventos(ag, Object.assign(f, { limite, cursor }));
-          H.enviaJson(res, 200, Object.assign({ ok: true, agente: ag.slug }, r));
+          const r = await leitor.eventos(ag, dgIdiomaBackend.atribuir(f, { limite, cursor }));
+          H.enviaJson(res, 200, dgIdiomaBackend.atribuir({ ok: true, agente: ag.slug }, r));
         });
         return true;
       }
     } catch (e) {
-      if (e instanceof ErroEntrada) { H.erroJson(res, e.status, e.message); return true; }
+      if (e instanceof ErroEntrada) { H.erroJson(res, e.status, dgIdiomaBackend.campo(e, "message")); return true; }
       log('erro', `Logs: falha inesperada em GET ${p}: ${e.stack || e.message}`);
-      H.erroJson(res, 500, dgIdiomaBackend.mensagem("Não consegui ler os logs. O detalhe está no log do Web (journalctl -u dgclaw-web)."));
+      H.erroJson(res, 500, dgIdiomaBackend.descricao("Não consegui ler os logs. O detalhe está no log do Web (journalctl -u dgclaw-web)."));
       return true;
     }
-    H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe GET {p0}. As rotas estão em GET {p1}/docs.md.", {p0: (p), p1: (BASE)}));
+    H.erroJson(res, 404, dgIdiomaBackend.descricao("Não existe GET {p0}. As rotas estão em GET {p1}/docs.md.", {p0: (p), p1: (BASE)}));
     return true;
   }
 
   function falhaRegistro(res) {
     const est = registro.estado();
     if (est.ok) return false;
-    H.erroJson(res, 503, est.erro);
+    H.erroJson(res, 503, dgIdiomaBackend.campo(est, "erro"));
     return true;
   }
 

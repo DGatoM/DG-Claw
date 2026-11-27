@@ -110,18 +110,18 @@ function lerSenhaConfigurada(env) {
   const texto = String((env && env.DGCLAW_PANEL_PASSWORD) || '');
   if (hash) {
     if (!lerHash(hash)) {
-      return {
+      return dgIdiomaBackend.objeto({
         modo: 'trancado',
-        motivo: dgIdiomaBackend.mensagem("DGCLAW_PANEL_PASSWORD_HASH está definida, mas não tem o formato scrypt$N$r$p$sal$hash."),
-      };
+        motivo: dgIdiomaBackend.descricao("DGCLAW_PANEL_PASSWORD_HASH está definida, mas não tem o formato scrypt$N$r$p$sal$hash."),
+      });
     }
     return { modo: 'hash', hash };
   }
   if (!texto.trim()) {
-    return { modo: 'trancado', motivo: dgIdiomaBackend.mensagem("Este painel não tem senha configurada.") };
+    return dgIdiomaBackend.objeto({ modo: 'trancado', motivo: dgIdiomaBackend.descricao("Este painel não tem senha configurada.") });
   }
   if (texto === 'admin') {
-    return { modo: 'trancado', motivo: dgIdiomaBackend.mensagem("A senha configurada é \"admin\", que qualquer pessoa tenta primeiro.") };
+    return dgIdiomaBackend.objeto({ modo: 'trancado', motivo: dgIdiomaBackend.descricao("A senha configurada é \"admin\", que qualquer pessoa tenta primeiro.") });
   }
   return { modo: 'texto', texto, curta: texto.length < MIN_SENHA };
 }
@@ -255,19 +255,19 @@ function buildAuth(o) {
     const ip = req.ip || 'desconhecido';
     if (trancado) {
       if (querJson(req)) {
-        return res.status(503).json({ error: dgIdiomaBackend.mensagem("O painel está trancado: {p0}", {p0: (config.motivo)}), howToFix: COMO_RESOLVER });
+        return res.status(503).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("O painel está trancado: {p0}", {p0: (dgIdiomaBackend.campo(config, "motivo"))}), howToFix: COMO_RESOLVER }));
       }
       return o.renderLogin(req, res, { status: 503 });
     }
     const min = minutosBloqueado(ip);
     if (min) {
       if (querJson(req)) {
-        return res.status(429).json({
-          error: dgIdiomaBackend.mensagem("Muitas tentativas erradas. Espere {p0} minuto{p1}.",{p0:(min),p1:(min === 1 ? '' : 's')}),
+        return res.status(429).json(dgIdiomaBackend.objeto({
+          error: dgIdiomaBackend.descricao("Muitas tentativas erradas. Espere {p0} minuto{p1}.", {p0:(min),p1:(min === 1 ? '' : 's')}),
           howToFix: dgIdiomaBackend.texto("Aguarde o tempo indicado e tente de novo com a senha certa."),
-        });
+        }));
       }
-      return o.renderLogin(req, res, { status: 429, erro: 'bloqueado', min });
+      return o.renderLogin(req, res, dgIdiomaBackend.objeto({ status: 429, erro: 'bloqueado', min }));
     }
 
     const b = req.body || {};
@@ -332,18 +332,18 @@ function buildAuth(o) {
       // Nenhuma chave gerencia chaves: se uma chave vazar, ela não consegue criar
       // outra para continuar entrando depois de revogada.
       if (req.path.startsWith('/api/chaves-api')) {
-        return res.status(403).json({
-          error: dgIdiomaBackend.mensagem("Uma chave de API não pode criar, listar nem revogar chaves de API."),
+        return res.status(403).json(dgIdiomaBackend.objeto({
+          error: dgIdiomaBackend.descricao("Uma chave de API não pode criar, listar nem revogar chaves de API."),
           howToFix: dgIdiomaBackend.texto("Faça isto pela aba Cofre do painel (entrando com a senha) ou, na máquina, com \"node panel/bin/chave-api.js\"."),
-        });
+        }));
       }
       const m = BEARER.exec(cab);
       const achada = m && o.chavesApi ? o.chavesApi.conferir(m[1]) : null;
       if (!achada) {
-        return res.status(401).json({
-          error: dgIdiomaBackend.mensagem("A chave de API não foi aceita: ela está errada, foi revogada ou não é deste painel."),
+        return res.status(401).json(dgIdiomaBackend.objeto({
+          error: dgIdiomaBackend.descricao("A chave de API não foi aceita: ela está errada, foi revogada ou não é deste painel."),
           howToFix: dgIdiomaBackend.texto("Confira se a chave é a deste agente (cada agente tem as suas). Se foi revogada, crie outra na aba Cofre."),
-        });
+        }));
       }
       req.dgclawAuth = { tipo: 'chave-api', nome: achada.nome, id: achada.id };
       return next();
@@ -356,12 +356,12 @@ function buildAuth(o) {
 
     if (trancado) {
       if (ehApi) {
-        return res.status(503).json({ error: dgIdiomaBackend.mensagem("O painel está trancado: {p0}", {p0: (config.motivo)}), howToFix: COMO_RESOLVER });
+        return res.status(503).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("O painel está trancado: {p0}", {p0: (dgIdiomaBackend.campo(config, "motivo"))}), howToFix: COMO_RESOLVER }));
       }
       return res.redirect(`${base}/login.html`);
     }
 
-    if (ehApi) return res.status(401).json({ error: 'unauthorized' });
+    if (ehApi) return res.status(401).json(dgIdiomaBackend.objeto({ error: 'unauthorized' }));
     return res.redirect(`${base}/login.html`);
   }
 
@@ -398,20 +398,20 @@ function buildAuth(o) {
     // Navegador atual diz de onde veio o pedido mesmo quando omite a Origin.
     if (String(req.get('sec-fetch-site') || '').toLowerCase() === 'cross-site') {
       log(`[painel] CSRF: ${req.method} ${req.originalUrl} recusado, o navegador disse que veio de outro site (Sec-Fetch-Site).`);
-      return res.status(403).json({
-        error: dgIdiomaBackend.mensagem("Este pedido veio de outro site, e não da tela do painel. Recusei por segurança."),
+      return res.status(403).json(dgIdiomaBackend.objeto({
+        error: dgIdiomaBackend.descricao("Este pedido veio de outro site, e não da tela do painel. Recusei por segurança."),
         howToFix: dgIdiomaBackend.texto("Abra o painel pelo endereço dele e refaça a ação por lá."),
-      });
+      }));
     }
     const dif = origemDiferente(req);
     if (!dif) return next();
     const { origem, meu } = dif;
     log(`[painel] CSRF: ${req.method} ${req.originalUrl} recusado, Origin ${origem} não é o endereço deste painel (${meu}).`);
-    return res.status(403).json({
-      error: dgIdiomaBackend.mensagem("Este pedido veio de outro site, e não da tela do painel. Recusei por segurança."),
+    return res.status(403).json(dgIdiomaBackend.objeto({
+      error: dgIdiomaBackend.descricao("Este pedido veio de outro site, e não da tela do painel. Recusei por segurança."),
       howToFix: 'Abra o painel pelo endereço dele e refaça a ação por lá. Se o endereço mudou por causa de um proxy, ' +
         'quem administra a máquina informa o endereço em DGCLAW_PANEL_ORIGINS.',
-    });
+    }));
   }
 
   // ─── WebSocket (upgrade) ───────────────────────────────────────────────────
@@ -429,23 +429,23 @@ function buildAuth(o) {
       .find((p) => p.startsWith('dash_token='));
     const token = cookie ? cookie.slice('dash_token='.length) : '';
     if (!conferirToken(token)) {
-      return { ok: false, status: 401, motivo: dgIdiomaBackend.mensagem("Você precisa entrar no painel antes de abrir a tela. Recarregue a página e entre com a senha.") };
+      return dgIdiomaBackend.objeto({ ok: false, status: 401, motivo: dgIdiomaBackend.descricao("Você precisa entrar no painel antes de abrir a tela. Recarregue a página e entre com a senha.") });
     }
     if (String(req.headers['sec-fetch-site'] || '').toLowerCase() === 'cross-site') {
-      return { ok: false, status: 403, motivo: dgIdiomaBackend.mensagem("Este pedido veio de outro site, e não da tela do painel. Recusei por segurança.") };
+      return dgIdiomaBackend.objeto({ ok: false, status: 403, motivo: dgIdiomaBackend.descricao("Este pedido veio de outro site, e não da tela do painel. Recusei por segurança.") });
     }
     const dif = origemDiferente(req);
     if (dif) {
-      return { ok: false, status: 403, motivo: dgIdiomaBackend.mensagem("Este pedido veio de {p0}, e não do endereço deste painel ({p1}). Abra a tela pelo painel.", {p0: (String(dif.origem).slice(0, 80)), p1: (dif.meu)}), origemErrada: dif };
+      return dgIdiomaBackend.objeto({ ok: false, status: 403, motivo: dgIdiomaBackend.descricao("Este pedido veio de {p0}, e não do endereço deste painel ({p1}). Abra a tela pelo painel.", {p0: (String(dif.origem).slice(0, 80)), p1: (dif.meu)}), origemErrada: dif });
     }
     return { ok: true, via: 'cookie' };
   }
 
-  return {
-    trancado, motivo: config.motivo || null, modo: config.modo, usuarioObrigatorio: !!usuario,
+  return dgIdiomaBackend.objeto({
+    trancado, motivo: dgIdiomaBackend.campo(config, "motivo") || null, modo: config.modo, usuarioObrigatorio: !!usuario,
     emitirToken, conferirToken, senhaConfere, minutosBloqueado,
     login, cabecalhos, requireAuth, csrf, autenticarUpgrade, origemDiferente,
-  };
+  });
 }
 
 module.exports = {

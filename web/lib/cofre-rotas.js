@@ -25,10 +25,10 @@ const { FORMA_DA_CHAVE, limpar } = require('../../panel/lib/provedores');
 const LIMITE_CORPO = 64 * 1024;
 const RAIZ_REPO = path.join(__dirname, '..', '..');
 
-const SEM_RUNNER = {
-  error: dgIdiomaBackend.mensagem("O agente ainda não sabe informar o modelo"),
+const SEM_RUNNER = dgIdiomaBackend.objeto({
+  error: dgIdiomaBackend.descricao("O agente ainda não sabe informar o modelo"),
   howToFix: 'A plataforma que roda o agente é de uma versão antiga, sem a escolha de modelo, ou o agente está fora do ar. Peça a quem cuida da instalação para conferir; enquanto isso o agente segue funcionando como estava.',
-};
+});
 
 const LIMITE_AUDIO = 25 * 1024 * 1024;
 
@@ -67,15 +67,15 @@ function criarCofreRotas({ config, runner, cofre, voz, log, entregar, esperaAvis
   }
 
   function recusar(res, r) {
-    const corpo = { error: r.erro };
-    if (r.howToFix) corpo.howToFix = r.howToFix;
+    const corpo = dgIdiomaBackend.objeto({ error: dgIdiomaBackend.campo(r, "erro") });
+    if (r.howToFix) dgIdiomaBackend.definir(corpo, "howToFix", dgIdiomaBackend.campo(r, "howToFix"));
     enviaJson(res, r.status || 500, corpo);
   }
 
   function falhaGeral(res, slug, oQue, e) {
     // A mensagem da exceção não leva o corpo do pedido junto: o valor da chave está lá.
     log('erro', `Cofre /p/${slug}: ${oQue} quebrou (${e && e.stack ? limpar(e.stack) : limpar(e && e.message)}).`);
-    enviaJson(res, 500, { error: dgIdiomaBackend.mensagem("Não consegui {p0}: {p1}", {p0: (oQue), p1: (limpar(e && e.message))}), howToFix: 'Tente de novo. Se continuar, o registro do DG Claw Web tem o detalhe.' });
+    enviaJson(res, 500, dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui {p0}: {p1}", {p0: (oQue), p1: (limpar(e && e.message))}), howToFix: 'Tente de novo. Se continuar, o registro do DG Claw Web tem o detalhe.' }));
   }
 
   /** Lê o corpo (até 64 KB). Devolve { buf, json } ou null depois de ter respondido o erro. */
@@ -83,10 +83,10 @@ function criarCofreRotas({ config, runner, cofre, voz, log, entregar, esperaAvis
     let buf;
     try { buf = await lerCorpo(req, LIMITE_CORPO); } catch (e) {
       if (e.status === 413) {
-        enviaJson(res, 413, { error: dgIdiomaBackend.mensagem("O pedido passou de {p0} KB, que é muito mais do que uma chave precisa.", {p0: (LIMITE_CORPO / 1024)}), howToFix: 'Mande só o nome e o valor da chave.' });
+        enviaJson(res, 413, dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("O pedido passou de {p0} KB, que é muito mais do que uma chave precisa.", {p0: (LIMITE_CORPO / 1024)}), howToFix: 'Mande só o nome e o valor da chave.' }));
       } else {
         log('erro', `Cofre /p/${slug}: não consegui ler o corpo do pedido (${e.code || e.message}).`);
-        enviaJson(res, 400, { error: dgIdiomaBackend.mensagem("Não consegui ler o corpo do pedido."), howToFix: 'Tente de novo.' });
+        enviaJson(res, 400, dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui ler o corpo do pedido."), howToFix: 'Tente de novo.' }));
       }
       return null;
     }
@@ -95,7 +95,7 @@ function criarCofreRotas({ config, runner, cofre, voz, log, entregar, esperaAvis
       const j = JSON.parse(buf.toString('utf8'));
       return { buf, json: j && typeof j === 'object' && !Array.isArray(j) ? j : {} };
     } catch (_) {
-      enviaJson(res, 400, { error: dgIdiomaBackend.mensagem("O corpo do pedido não é um JSON válido."), howToFix: 'Mande o objeto com Content-Type: application/json.' });
+      enviaJson(res, 400, dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("O corpo do pedido não é um JSON válido."), howToFix: 'Mande o objeto com Content-Type: application/json.' }));
       return null;
     }
   }
@@ -137,20 +137,20 @@ function criarCofreRotas({ config, runner, cofre, voz, log, entregar, esperaAvis
       if (!avisar) return {};
       const texto = textoAviso(g.envName, g.ultimos4, naoAplicou);
       agendarAviso(agente, texto);
-      return { aviso: texto, aviso_agendado: true };
+      return dgIdiomaBackend.objeto({ aviso: texto, aviso_agendado: true });
     };
-    if (b.aplicar !== true) return enviaJson(res, 200, Object.assign({}, g, aviso(false)));
+    if (b.aplicar !== true) return enviaJson(res, 200, dgIdiomaBackend.atribuir({}, g, aviso(false)));
     const a = await cofre.aplicar(agente);
     if (a.erro) {
       // A chave CONTINUA guardada; a resposta diz as duas coisas, com status de erro.
-      return enviaJson(res, a.status || 500, Object.assign({
-        error: dgIdiomaBackend.mensagem("A chave foi guardada. {p0}", {p0: (a.erro)}),
-        howToFix: a.howToFix || 'Guardar já foi feito; falta só reiniciar o agente (aba Cofre, "aplicar e reiniciar").',
+      return enviaJson(res, a.status || 500, dgIdiomaBackend.atribuir(dgIdiomaBackend.objeto({
+        error: dgIdiomaBackend.descricao("A chave foi guardada. {p0}", {p0: (dgIdiomaBackend.campo(a, "erro"))}),
+        howToFix: dgIdiomaBackend.campo(a, "howToFix") || 'Guardar já foi feito; falta só reiniciar o agente (aba Cofre, "aplicar e reiniciar").',
         guardado: g,
-        aplicado: { ok: false, erro: a.erro },
-      }, aviso(true)));
+        aplicado: dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.campo(a, "erro") }),
+      }), aviso(true)));
     }
-    enviaJson(res, 200, Object.assign({}, g, { aplicado: a }, aviso(false)));
+    enviaJson(res, 200, dgIdiomaBackend.atribuir({}, g, { aplicado: a }, aviso(false)));
   }
 
   function recusarOuJson(res, r) { if (r && r.erro) return recusar(res, r); return enviaJson(res, 200, r); }
@@ -169,8 +169,8 @@ function criarCofreRotas({ config, runner, cofre, voz, log, entregar, esperaAvis
     req.resume();
     const r = await cofre.aplicar(agente);
     if (r.erro) {
-      const corpo = { error: r.erro };
-      if (r.howToFix) corpo.howToFix = r.howToFix;
+      const corpo = dgIdiomaBackend.objeto({ error: dgIdiomaBackend.campo(r, "erro") });
+      if (r.howToFix) dgIdiomaBackend.definir(corpo, "howToFix", dgIdiomaBackend.campo(r, "howToFix"));
       return enviaJson(res, r.status || 500, corpo);
     }
     enviaJson(res, 200, r);
@@ -190,13 +190,13 @@ function criarCofreRotas({ config, runner, cofre, voz, log, entregar, esperaAvis
     const repassarComoChegou = () => ({ corpo: p.buf });
     const repassarSemChave = () => {
       if (!('chave' in b)) return repassarComoChegou();
-      const resto = Object.assign({}, b); delete resto.chave;
+      const resto = dgIdiomaBackend.atribuir({}, b); delete resto.chave;
       return { corpo: Buffer.from(JSON.stringify(resto)) };
     };
 
     if (!b.provedor || !b.auth) {
       if (!chave) return repassarComoChegou();
-      enviaJson(res, 400, { error: dgIdiomaBackend.mensagem("Faltou escolher o provedor e a forma de pagar."), howToFix: 'Mande provedor (claude ou codex) e auth (assinatura, token ou api).' });
+      enviaJson(res, 400, dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Faltou escolher o provedor e a forma de pagar."), howToFix: 'Mande provedor (claude ou codex) e auth (assinatura, token ou api).' }));
       return undefined;
     }
 
@@ -204,7 +204,7 @@ function criarCofreRotas({ config, runner, cofre, voz, log, entregar, esperaAvis
     try { c = await catalogo(); } catch (e) {
       if (!chave) return repassarComoChegou();
       log('erro', `Cofre /p/${agente.slug}: não carreguei o catálogo de provedores (${limpar(e.message)}).`);
-      enviaJson(res, 500, { error: dgIdiomaBackend.mensagem("Não consegui ler o catálogo de provedores, então não guardei a chave."), howToFix: 'Quem cuida da instalação precisa conferir providers/catalogo.json no servidor. Nada foi alterado.' });
+      enviaJson(res, 500, dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui ler o catálogo de provedores, então não guardei a chave."), howToFix: 'Quem cuida da instalação precisa conferir providers/catalogo.json no servidor. Nada foi alterado.' }));
       return undefined;
     }
     let escolha;
@@ -213,7 +213,7 @@ function criarCofreRotas({ config, runner, cofre, voz, log, entregar, esperaAvis
     } catch (e) {
       if (!(e instanceof c.mod.ErroCatalogo)) throw e;
       if (!chave) return repassarComoChegou();
-      enviaJson(res, 400, { error: limpar(e.message, chave), howToFix: 'Escolha o provedor, o modelo e a forma de pagar nas listas da tela de troca.' });
+      enviaJson(res, 400, dgIdiomaBackend.objeto({ error: limpar(e.message, chave), howToFix: 'Escolha o provedor, o modelo e a forma de pagar nas listas da tela de troca.' }));
       return undefined;
     }
 
@@ -224,10 +224,10 @@ function criarCofreRotas({ config, runner, cofre, voz, log, entregar, esperaAvis
     if (chave) {
       const forma = FORMA_DA_CHAVE[variavel];
       if (forma && !chave.startsWith(forma.prefixo)) {
-        enviaJson(res, 400, {
-          error: dgIdiomaBackend.mensagem("Essa chave não parece ser a certa para {p0} {p1}. {p2}", {p0: (c.cat.provedores[escolha.provedor].nome), p1: (modo.nome), p2: (forma.como)}),
+        enviaJson(res, 400, dgIdiomaBackend.objeto({
+          error: dgIdiomaBackend.descricao("Essa chave não parece ser a certa para {p0} {p1}. {p2}", {p0: (c.cat.provedores[escolha.provedor].nome), p1: (modo.nome), p2: (forma.como)}),
           howToFix: modo.ondeCriar ? `Crie uma chave nova em ${modo.ondeCriar} e cole de novo. Nada foi alterado.` : 'Confira a chave e cole de novo. Nada foi alterado.',
-        });
+        }));
         return undefined;
       }
       const g = cofre.guardar(agente, {
@@ -237,8 +237,8 @@ function criarCofreRotas({ config, runner, cofre, voz, log, entregar, esperaAvis
       });
       if (g.erro) {
         log('aviso', `Cofre /p/${agente.slug}: recusei a chave de ${variavel}: ${limpar(g.erro, chave)}`);
-        const out = { error: limpar(g.erro, chave) };
-        if (g.howToFix) out.howToFix = limpar(g.howToFix, chave);
+        const out = dgIdiomaBackend.objeto({ error: limpar(g.erro, chave) });
+        if (g.howToFix) dgIdiomaBackend.definir(out, "howToFix", limpar(g.howToFix, chave));
         enviaJson(res, g.status || 400, out);
         return undefined;
       }
@@ -246,13 +246,13 @@ function criarCofreRotas({ config, runner, cofre, voz, log, entregar, esperaAvis
       const est = cofre.estado(agente);
       if (est.erro) { recusar(res, est); return undefined; }
       if (!est.chaves.some((k) => k.envName === variavel && !k.revogadaEm)) {
-        const out = {
-          error: dgIdiomaBackend.mensagem("Para pagar {p0} falta a chave {p1}, e ela não está no Cofre.", {p0: (modo.nome), p1: (variavel)}),
+        const out = dgIdiomaBackend.objeto({
+          error: dgIdiomaBackend.descricao("Para pagar {p0} falta a chave {p1}, e ela não está no Cofre.", {p0: (modo.nome), p1: (variavel)}),
           howToFix: modo.ondeCriar
             ? `Crie uma chave em ${modo.ondeCriar} e cole no campo da janela de troca. Ela fica guardada no Cofre e não aparece mais.`
             : `Gere o código (${modo.logar || 'veja a documentação do provedor'}) e cole no campo da janela de troca.`,
           precisaChave: variavel,
-        };
+        });
         if (modo.ondeCriar) out.ondeCriar = modo.ondeCriar;
         enviaJson(res, 409, out);
         return undefined;
@@ -265,14 +265,14 @@ function criarCofreRotas({ config, runner, cofre, voz, log, entregar, esperaAvis
     }, 8000);
     if (!r.ok && r.erro) {
       log('erro', `Cofre /p/${agente.slug}: o runner não respondeu à troca de modelo: ${limpar(r.erro, chave)}`);
-      enviaJson(res, 503, Object.assign({}, SEM_RUNNER, chave ? { howToFix: `${SEM_RUNNER.howToFix} A chave já ficou guardada no Cofre; basta tentar a troca de novo.` } : {}));
+      enviaJson(res, 503, dgIdiomaBackend.atribuir({}, SEM_RUNNER, chave ? dgIdiomaBackend.objeto({ howToFix: `${SEM_RUNNER.howToFix} A chave já ficou guardada no Cofre; basta tentar a troca de novo.` }) : {}));
       return undefined;
     }
     if (!r.ok) {
       const cr = r.corpo || {};
       if (r.status === 404 && !(cr.error || cr.erro)) { enviaJson(res, 503, SEM_RUNNER); return undefined; }
-      const out = { error: limpar(cr.error || cr.erro || `o agente recusou (${r.status})`, chave) };
-      out.howToFix = limpar(cr.howToFix || '', chave) + (chave ? ' A chave já ficou guardada no Cofre; basta tentar a troca de novo.' : '');
+      const out = dgIdiomaBackend.objeto({ error: limpar(cr.error || cr.erro || `o agente recusou (${r.status})`, chave) });
+      dgIdiomaBackend.definir(out, "howToFix", limpar(cr.howToFix || '', chave) + (chave ? ' A chave já ficou guardada no Cofre; basta tentar a troca de novo.' : ''));
       log('erro', `Cofre /p/${agente.slug}: o runner recusou a troca de modelo (${r.status}): ${out.error}`);
       enviaJson(res, r.status >= 400 ? r.status : 502, out);
       return undefined;
@@ -282,8 +282,8 @@ function criarCofreRotas({ config, runner, cofre, voz, log, entregar, esperaAvis
     const a = await cofre.aplicar(agente);
     if (a.erro) {
       log('erro', `Cofre /p/${agente.slug}: a escolha foi gravada mas o reinício falhou: ${limpar(a.erro, chave)}`);
-      const out = { error: limpar(a.erro, chave), gravado: true };
-      if (a.howToFix) out.howToFix = limpar(a.howToFix, chave);
+      const out = dgIdiomaBackend.objeto({ error: limpar(a.erro, chave), gravado: true });
+      if (a.howToFix) dgIdiomaBackend.definir(out, "howToFix", limpar(a.howToFix, chave));
       enviaJson(res, a.status || 500, out);
       return undefined;
     }
@@ -300,28 +300,28 @@ function criarCofreRotas({ config, runner, cofre, voz, log, entregar, esperaAvis
   async function transcreverRota(req, res, agente) {
     if (!voz.microfone) {
       req.resume();
-      return enviaJson(res, 503, {
-        error: dgIdiomaBackend.mensagem("O microfone do painel está desligado: a transcrição usa a chave de voz da plataforma e ela ainda não foi configurada."),
+      return enviaJson(res, 503, dgIdiomaBackend.objeto({
+        error: dgIdiomaBackend.descricao("O microfone do painel está desligado: a transcrição usa a chave de voz da plataforma e ela ainda não foi configurada."),
         howToFix: 'Peça ao Admin: "ativa o microfone". Ele copia a GROQ_API_KEY (grátis), a OPENAI_API_KEY ou a ELEVENLABS_API_KEY do cofre para a configuração da plataforma.',
-      });
+      }));
     }
     let buf;
     try { buf = await lerCorpo(req, LIMITE_AUDIO); } catch (e) {
       if (e.status === 413) {
-        return enviaJson(res, 413, { error: dgIdiomaBackend.mensagem("O áudio passou de {p0} MB.", {p0: (LIMITE_AUDIO / 1024 / 1024)}), howToFix: 'Grave um trecho mais curto e envie de novo.' });
+        return enviaJson(res, 413, dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("O áudio passou de {p0} MB.", {p0: (LIMITE_AUDIO / 1024 / 1024)}), howToFix: 'Grave um trecho mais curto e envie de novo.' }));
       }
       log('erro', `Transcrição /p/${agente.slug}: não consegui ler o áudio do pedido (${e.code || e.message}).`);
-      return enviaJson(res, 400, { error: dgIdiomaBackend.mensagem("Não consegui ler o áudio do pedido."), howToFix: 'Grave de novo e envie.' });
+      return enviaJson(res, 400, dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui ler o áudio do pedido."), howToFix: 'Grave de novo e envie.' }));
     }
     if (buf.length < 1024) {
-      return enviaJson(res, 400, { error: dgIdiomaBackend.mensagem("O áudio chegou com {p0} bytes, que é menos de 1 KB: a gravação veio vazia.", {p0: (buf.length)}), howToFix: 'Toque para falar, diga algo e toque de novo.' });
+      return enviaJson(res, 400, dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("O áudio chegou com {p0} bytes, que é menos de 1 KB: a gravação veio vazia.", {p0: (buf.length)}), howToFix: 'Toque para falar, diga algo e toque de novo.' }));
     }
     const mime = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase() || 'audio/webm';
     const ext = (/^audio\/(?:x-)?([a-z0-9]+)/.exec(mime) || [])[1] || 'webm';
     const r = await voz.transcrever(buf, `audio.${ext === 'mpeg' ? 'mp3' : ext}`, mime);
     if (r.erro) {
       log('erro', `Transcrição /p/${agente.slug}: ${r.erro}`);
-      return enviaJson(res, r.status || 502, { error: r.erro, howToFix: 'Tente gravar de novo. Se continuar, avise o Admin.' });
+      return enviaJson(res, r.status || 502, dgIdiomaBackend.objeto({ error: dgIdiomaBackend.campo(r, "erro"), howToFix: 'Tente gravar de novo. Se continuar, avise o Admin.' }));
     }
     return enviaJson(res, 200, { texto: r.texto });
   }

@@ -143,7 +143,7 @@ function buildCofre(config) {
     // `nome` já passou pela `NOME_FORMA_OK` antes de chegar aqui, então não tem
     // barra nem ponto. A conferência abaixo é a segunda tranca, para o caso de
     // alguém chamar esta função de um caminho novo sem validar antes.
-    if (!NOME_FORMA_OK.test(nome)) throw new Error(dgIdiomaBackend.mensagem("nome de variável inválido"));
+    if (!NOME_FORMA_OK.test(nome)) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("nome de variável inválido")]);
     return path.join(SEGREDOS, `${nome}.enc`);
   }
 
@@ -183,7 +183,7 @@ function buildCofre(config) {
           ? 'Na hora de usar, o segredo é escrito num arquivo que vive na memória da máquina e some quando ela desliga.'
           : 'Esta máquina não tem a pasta de memória do sistema, então o arquivo de uso fica no disco, dentro da pasta do agente.',
       },
-      aplicar: u.erro ? { pode: false, motivo: u.erro, howToFix: u.howToFix } : { pode: true, unidade: u.unidade, forma: u.forma },
+      aplicar: u.erro ? dgIdiomaBackend.objeto({ pode: false, motivo: dgIdiomaBackend.campo(u, "erro"), howToFix: dgIdiomaBackend.campo(u, "howToFix") }) : { pode: true, unidade: u.unidade, forma: u.forma },
       arquivoDeAmbiente: ENV_DO_AGENTE,
     };
   }
@@ -248,7 +248,7 @@ function buildCofre(config) {
       revogadaEm: null,
       motor: cifrado.motor,
     };
-    if (anterior) Object.assign(anterior, registro);
+    if (anterior) dgIdiomaBackend.atribuir(anterior, registro);
     else dados.chaves.push(registro);
 
     try {
@@ -258,16 +258,16 @@ function buildCofre(config) {
       return recusa(`Não consegui anotar a chave na lista: ${err.message}`, 500);
     }
 
-    return {
+    return dgIdiomaBackend.objeto({
       ok: true,
       envName: nome,
       ultimos4: registro.ultimos4,
       trocada: !!anterior,
       // A regra 7 mora nesta frase: guardado não é valendo.
       aviso: anterior
-        ? dgIdiomaBackend.mensagem("A chave foi trocada, mas o agente ainda está usando a antiga: ele só lê o cofre quando inicia.")
-        : dgIdiomaBackend.mensagem("A chave foi guardada, mas o agente ainda não a tem: ele só lê o cofre quando inicia."),
-    };
+        ? dgIdiomaBackend.descricao("A chave foi trocada, mas o agente ainda está usando a antiga: ele só lê o cofre quando inicia.")
+        : dgIdiomaBackend.descricao("A chave foi guardada, mas o agente ainda não a tem: ele só lê o cofre quando inicia."),
+    });
   }
 
   /**
@@ -308,13 +308,13 @@ function buildCofre(config) {
       return recusa(`Não consegui anotar a revogação: ${err.message}`, 500);
     }
 
-    return {
+    return dgIdiomaBackend.objeto({
       ok: true,
       envName: nome,
       aviso:
         'A chave saiu do cofre, mas o agente ainda tem a antiga em uso: ela some do ambiente dele quando ele reiniciar. ' +
         'Se a chave vazou, revogue também no painel do serviço, que é o único lugar onde ela deixa de funcionar de verdade.',
-    };
+    });
   }
 
   // ─── Materializar ──────────────────────────────────────────────────────────
@@ -392,15 +392,15 @@ function buildCofre(config) {
 
     const u = unidadeDoAgente();
     if (u.erro) {
-      return {
+      return dgIdiomaBackend.objeto({
         ok: false,
         materializou: true,
         chaves: m.chaves,
         falhas: m.falhas,
-        erro: u.erro,
-        howToFix: u.howToFix,
+        erro: dgIdiomaBackend.campo(u, "erro"),
+        howToFix: dgIdiomaBackend.campo(u, "howToFix"),
         status: 409,
-      };
+      });
     }
 
     // O painel roda como o usuário do agente, e `systemctl restart` pede root. Dentro

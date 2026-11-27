@@ -29,7 +29,7 @@ function criarManual({ dir, log }) {
     try { return fs.realpathSync(dir); } catch (e) {
       const msg = `O manual não está instalado: não achei a pasta ${dir} (${e.code || e.message}).`;
       aviso('erro', msg);
-      throw new ErroManual(503, dgIdiomaBackend.mensagem("{p0} Atualize o DG Claw (peça ao Admin: \"atualiza o DG Claw\") para trazer a pasta docs/manual.", {p0: (msg)}));
+      throw dgIdiomaBackend.criarErro(ErroManual, [503, dgIdiomaBackend.descricao("{p0} Atualize o DG Claw (peça ao Admin: \"atualiza o DG Claw\") para trazer a pasta docs/manual.", {p0: (msg)})]);
     }
   }
 
@@ -58,7 +58,7 @@ function criarManual({ dir, log }) {
     const raiz = raizReal();
     let nomes;
     try { nomes = fs.readdirSync(dir); } catch (e) {
-      throw new ErroManual(503, dgIdiomaBackend.mensagem("Não consegui ler a pasta do manual {p0} ({p1}). Confira as permissões ou atualize o DG Claw.", {p0: (dir), p1: (e.code || e.message)}));
+      throw dgIdiomaBackend.criarErro(ErroManual, [503, dgIdiomaBackend.descricao("Não consegui ler a pasta do manual {p0} ({p1}). Confira as permissões ou atualize o DG Claw.", {p0: (dir), p1: (e.code || dgIdiomaBackend.campo(e, "message"))})]);
     }
     const paginas = [];
     for (const arq of nomes.sort()) {
@@ -67,10 +67,10 @@ function criarManual({ dir, log }) {
       if (!RX_NOME.test(nome)) continue;
       const texto = lerArquivo(raiz, arq, idioma);
       if (texto === null) continue;
-      paginas.push({ nome, titulo: tituloDe(texto, nome) });
+      paginas.push(dgIdiomaBackend.objeto({ nome, titulo: tituloDe(texto, nome) }));
     }
     const indice = lerArquivo(raiz, 'README.md', idioma);
-    return { indice: indice === null ? null : { titulo: tituloDe(indice, 'Manual do DG Claw') }, paginas };
+    return { indice: indice === null ? null : dgIdiomaBackend.objeto({ titulo: tituloDe(indice, 'Manual do DG Claw') }), paginas };
   }
 
   /** Texto de uma página; nome 'README' é o índice. Lança ErroManual 404 com a explicação quando não existe. */
@@ -78,10 +78,10 @@ function criarManual({ dir, log }) {
     const raiz = raizReal();
     if (nome === 'README') {
       const t = lerArquivo(raiz, 'README.md', idioma);
-      if (t === null) throw new ErroManual(404, dgIdiomaBackend.mensagem("O índice do manual (README.md) não está na pasta {p0}. Atualize o DG Claw para trazê-lo.", {p0: (dir)}));
+      if (t === null) throw dgIdiomaBackend.criarErro(ErroManual, [404, dgIdiomaBackend.descricao("O índice do manual (README.md) não está na pasta {p0}. Atualize o DG Claw para trazê-lo.", {p0: (dir)})]);
       return t;
     }
-    const naoAchou = () => new ErroManual(404, dgIdiomaBackend.mensagem("Não existe a página {p0} no manual. Veja a lista de páginas em /api/v1/manual.", {p0: (mostraNome(nome))}));
+    const naoAchou = () => dgIdiomaBackend.criarErro(ErroManual, [404, dgIdiomaBackend.descricao("Não existe a página {p0} no manual. Veja a lista de páginas em /api/v1/manual.", {p0: (mostraNome(nome))})]);
     if (typeof nome !== 'string' || !RX_NOME.test(nome)) throw naoAchou();
     if (!listar().paginas.some((p) => p.nome === nome)) throw naoAchou();
     const t = lerArquivo(raiz, `${nome}.md`, idioma);

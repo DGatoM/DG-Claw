@@ -6,7 +6,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const RX_ID = /^[a-f0-9]{32}$/;
-function erro(texto, status = 400) { return Object.assign(new Error(texto), { status }); }
+function erro(texto, status = 400) { return dgIdiomaBackend.atribuir(dgIdiomaBackend.criarErro(Error, [texto]), { status }); }
 function campo(v, nome, max) {
   if (typeof v !== 'string' || !v.trim() || v.length > max || /[\x00-\x1f<>]/.test(v)) throw erro(`Preencha ${nome} com até ${max} caracteres, sem quebras de linha.`);
   return v.trim();
@@ -102,7 +102,7 @@ function lerCriacao(linhas) {
     const m = /^Nao deu certo:\s*(.*)$/.exec(linhas[i]);
     if (!m) continue;
     const fazer = linhas.slice(i + 1, i + 4).map(l => /^O que fazer:\s*(.*)$/.exec(l)).find(Boolean);
-    falha = { motivo: limpar(m[1]), oQueFazer: fazer ? limpar(fazer[1]) : null };
+    falha = dgIdiomaBackend.objeto({ motivo: limpar(m[1]), oQueFazer: fazer ? limpar(fazer[1]) : null });
     break;
   }
   return { idx, falha };
@@ -201,7 +201,7 @@ function criarOnboarding({ config, registro, conversa, midia, log = () => {}, im
       } else if (falhou && fase === 'solicitado') {
         const im = lerImagem(lerFim(logImagem, log));
         [pct, etapa] = FIXOS.solicitado;
-        erroImg = { motivo: 'A construção da imagem dos agentes falhou.' + (im.uteis.length ? ' Últimas linhas do registro: ' + im.uteis.join(' | ') : ''), oQueFazer: 'Peça ao Admin para rodar dgclaw imagem construir de novo.' };
+        erroImg = dgIdiomaBackend.objeto({ motivo: 'A construção da imagem dos agentes falhou.' + (im.uteis.length ? ' Últimas linhas do registro: ' + im.uteis.join(' | ') : ''), oQueFazer: 'Peça ao Admin para rodar dgclaw imagem construir de novo.' });
       } else [pct, etapa] = FIXOS.solicitado;
     } else [pct, etapa] = FIXOS[fase] || FIXOS.solicitado;
     pct = Math.max(pct, maximos.get(p.id) || 0);
@@ -211,11 +211,11 @@ function criarOnboarding({ config, registro, conversa, midia, log = () => {}, im
     proximo = Math.max(pct, Math.min(100, proximo));
     let erro = erroImg;
     if (emErro) {
-      erro = { motivo: limpar((fase === 'criando' && criacao.falha && criacao.falha.motivo) || p.motivo || p.mensagem) || 'A preparação parou sem detalhes.',
-        oQueFazer: (fase === 'criando' && criacao.falha && criacao.falha.oQueFazer) || null };
+      erro = dgIdiomaBackend.objeto({ motivo: limpar((fase === 'criando' && criacao.falha && criacao.falha.motivo) || p.motivo || p.mensagem) || 'A preparação parou sem detalhes.',
+        oQueFazer: (fase === 'criando' && criacao.falha && criacao.falha.oQueFazer) || null });
     }
     if (erro) proximo = pct;
-    return { pct, etapa, passo, total, erro, proximo };
+    return dgIdiomaBackend.objeto({ pct, etapa, passo, total, erro, proximo });
   }
   // Cartão estático do histórico: um por criação cuja animação já foi exibida (em qualquer aparelho).
   function cartoes() {
@@ -233,7 +233,7 @@ function criarOnboarding({ config, registro, conversa, midia, log = () => {}, im
     if (!p) throw erro('Não achei esse pedido de criação. Recarregue a conversa com o Admin.', 404);
     if (p.fase !== 'pronto') throw erro('O agente ainda não chegou, então a animação não pode ser marcada como vista. Aguarde o "pronto".', 409);
     // Pedidos antigos não tinham concluidoEp: fixa agora a hora real, antes de esta gravação mexer em `atualizado`.
-    if (!p.animacaoVista) db.gravar({ ...p, concluidoEp: p.concluidoEp || Math.floor(Date.parse(p.atualizado) / 1000), animacaoVista: new Date().toISOString() });
+    if (!p.animacaoVista) db.gravar(dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(p), concluidoEp: p.concluidoEp || Math.floor(Date.parse(p.atualizado) / 1000), animacaoVista: new Date().toISOString() }));
     return { id: p.id, animacaoVista: true };
   }
   // O X do cartão: dispensa de vez, guardado no servidor para valer em qualquer aparelho. Idempotente.
@@ -241,7 +241,7 @@ function criarOnboarding({ config, registro, conversa, midia, log = () => {}, im
     const p = RX_ID.test(id || '') ? db.ler(id) : null;
     if (!p) throw erro('Não achei esse pedido de criação. Recarregue a conversa com o Admin.', 404);
     if (p.fase !== 'pronto') throw erro('O agente ainda não chegou, então o cartão não pode ser dispensado. Aguarde o "pronto".', 409);
-    if (!p.cartaoDispensado) db.gravar({ ...p, concluidoEp: p.concluidoEp || Math.floor(Date.parse(p.atualizado) / 1000), cartaoDispensado: new Date().toISOString() });
+    if (!p.cartaoDispensado) db.gravar(dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(p), concluidoEp: p.concluidoEp || Math.floor(Date.parse(p.atualizado) / 1000), cartaoDispensado: new Date().toISOString() }));
     return { id: p.id, cartaoDispensado: true };
   }
   function publico(p) {
@@ -251,12 +251,12 @@ function criarOnboarding({ config, registro, conversa, midia, log = () => {}, im
       const admin = registro.estado().agentes.find(a => a.tipo === 'admin');
       if (admin) midia.registrar(admin.slug, p.fotoPath);
     }
-    return { id: p.id, nome: p.nome, papel: p.papel, jeito: p.jeito, fase: p.fase, mensagem: p.mensagem || '', atualizado: p.atualizado,
+    return dgIdiomaBackend.objeto({ id: p.id, nome: p.nome, papel: p.papel, jeito: p.jeito, fase: p.fase, mensagem: dgIdiomaBackend.campo(p, "mensagem") || '', atualizado: p.atualizado,
       animacaoVista: !!p.animacaoVista, cartaoDispensado: !!p.cartaoDispensado, concluido: p.concluidoEp || Math.floor(Date.parse(p.atualizado) / 1000),
       foto: p.foto ? '/api/v1/media/' + p.foto : null,
       conversa: agente && p.fase === 'pronto' ? '/a/' + agente.slug : null,
       login: agente && agente.porta_painel ? '/p/' + agente.slug + '/?aba=status' : null,
-      progresso: progresso(p) };
+      progresso: progresso(p) });
   }
   async function solicitar(body, usuario) {
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw erro('Preencha o formulário para criar seu agente.');
@@ -282,27 +282,27 @@ function criarOnboarding({ config, registro, conversa, midia, log = () => {}, im
     const p = anterior || { id: body.id, criado: new Date().toISOString(), nome, papel, jeito, dono, slug, foto, fotoPath, provedor: admin.provedor === 'codex' ? 'codex' : 'claude' };
     ocupado = true;
     try {
-      db.gravar({ ...p, fase: 'enviando', mensagem: dgIdiomaBackend.mensagem("Enviando suas escolhas ao Admin.") });
+      db.gravar(dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(p), fase: 'enviando', mensagem: dgIdiomaBackend.descricao("Enviando suas escolhas ao Admin.") }));
       // As escolhas ficam no JSON do pedido e nunca viram código de shell.
       const texto = '[do visual Criar meu agente] Quero criar meu agente com estas escolhas: ' +
         'Pode me chamar de ' + p.dono + '. Nome: ' + p.nome + '. Função: ' + p.papel + '. Tom: ' + p.jeito + '. ' +
         (p.foto ? 'Escolhi a foto em anexo.' : 'Pode usar o avatar neutro.') + ' Confirmo a criação pelo formulário do painel.';
       const r = await conversa.enviar(admin, { text: texto, anexos: p.foto ? [p.foto] : [] });
       if (r.status >= 300) {
-        db.gravar({ ...p, fase: 'erro-envio', mensagem: dgIdiomaBackend.mensagem("O pedido não chegou ao Admin. Confira a conexão e tente enviar novamente.") });
-        throw erro(r.corpo.erro || 'O Admin não recebeu o pedido. Tente novamente.', r.status);
+        db.gravar(dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(p), fase: 'erro-envio', mensagem: dgIdiomaBackend.descricao("O pedido não chegou ao Admin. Confira a conexão e tente enviar novamente.") }));
+        throw erro(dgIdiomaBackend.campo(r.corpo,"erro") || 'O Admin não recebeu o pedido. Tente novamente.', r.status);
       }
       const atual = db.ler(p.id);
       // O Admin pode ter iniciado antes de o POST terminar.
-      if (atual.fase === 'enviando') db.gravar({ ...atual, fase: 'solicitado', mensagem: dgIdiomaBackend.mensagem("O Admin recebeu suas escolhas e vai preparar seu agente.") });
+      if (atual.fase === 'enviando') db.gravar(dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(atual), fase: 'solicitado', mensagem: dgIdiomaBackend.descricao("O Admin recebeu suas escolhas e vai preparar seu agente.") }));
       return publico(db.ler(p.id));
     } catch (e) {
       const atual = db.ler(p.id);
-      if (atual && atual.fase === 'enviando') db.gravar({ ...atual, fase: 'erro-envio', mensagem: dgIdiomaBackend.mensagem("Não consegui confirmar a entrega. Confira a conversa com o Admin antes de tentar novamente.") });
+      if (atual && atual.fase === 'enviando') db.gravar(dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(atual), fase: 'erro-envio', mensagem: dgIdiomaBackend.descricao("Não consegui confirmar a entrega. Confira a conversa com o Admin antes de tentar novamente.") }));
       throw e;
     } finally { ocupado = false; }
   }
-  return { estado: async () => { const p = db.ultimo(); await atualizarImagem(p); return { ...publico(p), cartoes: cartoes() }; }, solicitar, animacaoVista, dispensarCartao, db, foto: slug => {
+  return { estado: async () => { const p = db.ultimo(); await atualizarImagem(p); return dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(publico(p)), cartoes: cartoes() }); }, solicitar, animacaoVista, dispensarCartao, db, foto: slug => {
     try { const p = db.todos().find(p => p.slug === slug && p.foto); return p ? publico(p).foto : null; }
     catch (e) { log('aviso', 'Não consegui ler a foto do onboarding (' + (e.code || e.name) + '). A conversa continua com o avatar do registro.'); return null; }
   } };
@@ -322,8 +322,8 @@ function registrarPedido({ config, registro, dados }) {
   const id = crypto.randomBytes(16).toString('hex');
   let slug = slugNome(nome);
   if (registro.obter(slug)) slug = slug.slice(0, 22) + '-' + id.slice(0, 6);
-  return db.gravar({ id, criado: new Date().toISOString(), nome, papel, jeito, dono, slug, foto: null, fotoPath: null,
+  return db.gravar(dgIdiomaBackend.objeto({ id, criado: new Date().toISOString(), nome, papel, jeito, dono, slug, foto: null, fotoPath: null,
     provedor: admin.provedor === 'codex' ? 'codex' : 'claude', fase: 'solicitado', origem: 'conversa',
-    mensagem: dgIdiomaBackend.mensagem("O Admin recebeu suas escolhas pela conversa e vai preparar seu agente.") });
+    mensagem: dgIdiomaBackend.descricao("O Admin recebeu suas escolhas pela conversa e vai preparar seu agente.") }));
 }
 module.exports = { criarOnboarding, registrarPedido, loja, slugNome, RX_ID, limpar };

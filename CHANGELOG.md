@@ -14,6 +14,11 @@ aberta. Nomes, mensagens, arquivos, comandos e diagnósticos externos continuam
 como foram recebidos. Tradução do manual desatualizada mostra um aviso e a fonte
 portuguesa atual. O [guia de idiomas](docs/IDIOMAS.md) explica a manutenção.
 
+A tradução de erros distingue mensagens do produto de dados externos por identidade.
+Um nome igual a outro aviso permanece como foi cadastrado. Logs, arquivos gravados
+e decisões internas conservam seus textos em português; a tradução ocorre na saída
+para a interface.
+
 ### Como atualizar
 
 Português continua sendo o padrão. Para iniciar uma instalação em inglês, acrescente

@@ -88,8 +88,8 @@ function criarCofreAgente({ config, log, reiniciar }) {
     } catch (e) {
       if (e.code === 'ENOENT') return { itens: [] };
       log('erro', `Cofre de ${agente.slug}: não consegui ler ${cofre} (${e.code || e.name}).`);
-      return { erro: recusa(`Não consegui ler o arquivo do cofre de ${agente.nome} (${e.code || e.name}).`, 500,
-        'Confira se o arquivo existe e se o DG Claw Web roda como root.') };
+      return dgIdiomaBackend.objeto({ erro: recusa(`Não consegui ler o arquivo do cofre de ${agente.nome} (${e.code || e.name}).`, 500,
+        'Confira se o arquivo existe e se o DG Claw Web roda como root.') });
     }
     const itens = [];
     let desconhecidas = 0;
@@ -132,7 +132,7 @@ function criarCofreAgente({ config, log, reiniciar }) {
       gravaArquivoSeguro(nomes, lista, { raiz: casa, modo: 0o644 });
     } catch (e) {
       const r = recusaDeGravacao(e, 'atualizar a lista de nomes das chaves (config/cofre-nomes)', agente);
-      r.howToFix = 'O cofre do agente JÁ foi alterado. Só a lista de nomes que o painel de dentro mostra ficou desatualizada: confira a pasta config da casa do agente e repita a operação.';
+      dgIdiomaBackend.definir(r, "howToFix", 'O cofre do agente JÁ foi alterado. Só a lista de nomes que o painel de dentro mostra ficou desatualizada: confira a pasta config da casa do agente e repita a operação.');
       return r;
     }
     return null;
@@ -147,14 +147,14 @@ function criarCofreAgente({ config, log, reiniciar }) {
     try { texto = fs.readFileSync(arq, 'utf8'); } catch (e) {
       if (e.code === 'ENOENT') return { chaves: [] };
       log('erro', `Cofre de ${agente.slug}: não consegui ler os metadados ${arq} (${e.code || e.name}).`);
-      return { erro: recusa(`Não consegui ler os registros das chaves de ${agente.nome} (${e.code || e.name}).`, 500, 'Confira a pasta de dados do DG Claw Web.') };
+      return dgIdiomaBackend.objeto({ erro: recusa(`Não consegui ler os registros das chaves de ${agente.nome} (${e.code || e.name}).`, 500, 'Confira a pasta de dados do DG Claw Web.') });
     }
     try {
       const j = JSON.parse(texto);
       if (j && Array.isArray(j.chaves)) return { chaves: j.chaves };
     } catch (_) { /* cai no erro abaixo */ }
     log('erro', `Cofre de ${agente.slug}: ${arq} não é um JSON no formato esperado. Não o sobrescrevo para não perder o histórico.`);
-    return { erro: recusa(`O registro das chaves de ${agente.nome} (${arq}) está corrompido.`, 500, 'Corrija ou renomeie esse arquivo; as chaves em si continuam no cofre do agente.') };
+    return dgIdiomaBackend.objeto({ erro: recusa(`O registro das chaves de ${agente.nome} (${arq}) está corrompido.`, 500, 'Corrija ou renomeie esse arquivo; as chaves em si continuam no cofre do agente.') });
   }
 
   function preparaPastaMeta() {
@@ -172,7 +172,7 @@ function criarCofreAgente({ config, log, reiniciar }) {
       return null;
     } catch (e) {
       const r = recusaDeGravacao(e, 'anotar o registro da chave', agente);
-      r.howToFix = 'A alteração no cofre do agente JÁ foi feita; só o registro de quem cadastrou e quando não foi anotado. Corrija a pasta de dados do DG Claw Web e repita.';
+      dgIdiomaBackend.definir(r, "howToFix", 'A alteração no cofre do agente JÁ foi feita; só o registro de quem cadastrou e quando não foi anotado. Corrija a pasta de dados do DG Claw Web e repita.');
       return r;
     }
   }
@@ -237,7 +237,7 @@ function criarCofreAgente({ config, log, reiniciar }) {
     const meta = lerMeta(agente); if (meta.erro) return meta.erro;
     return {
       agente: { slug: agente.slug, nome: agente.nome, dono: agente.dono || 'Dono' },
-      chaves: juntar(env.itens, meta.chaves).map((c) => Object.assign({ provedorNome: nomeDoProvedor(c.provedor), motor: 'host' }, c)),
+      chaves: juntar(env.itens, meta.chaves).map((c) => dgIdiomaBackend.atribuir({ provedorNome: nomeDoProvedor(c.provedor), motor: 'host' }, c)),
       provedores: PROVEDORES,
       guarda: {
         motor: 'host',
@@ -282,15 +282,15 @@ function criarCofreAgente({ config, log, reiniciar }) {
 
       log('info', `Cofre de ${agente.slug}: chave ${nome} ${existente >= 0 ? 'trocada' : 'guardada'} por ${quem} (origem ${origem}).`);
       const trocada = existente >= 0;
-      return {
+      return dgIdiomaBackend.objeto({
         ok: true,
         envName: nome,
         ultimos4: registro.ultimos4,
         trocada,
         aviso: trocada
-          ? dgIdiomaBackend.mensagem("A chave foi trocada, mas o agente ainda está usando a antiga: ele só lê o cofre quando inicia.")
-          : dgIdiomaBackend.mensagem("A chave foi guardada, mas o agente ainda não a tem: ele só lê o cofre quando inicia."),
-      };
+          ? dgIdiomaBackend.descricao("A chave foi trocada, mas o agente ainda está usando a antiga: ele só lê o cofre quando inicia.")
+          : dgIdiomaBackend.descricao("A chave foi guardada, mas o agente ainda não a tem: ele só lê o cofre quando inicia."),
+      });
     });
   }
 
@@ -320,13 +320,13 @@ function criarCofreAgente({ config, log, reiniciar }) {
       const falhaMeta = gravaMeta(agente, meta.chaves);
       if (falhaMeta) return falhaMeta;
       log('info', `Cofre de ${agente.slug}: chave ${nome} revogada por ${por}.`);
-      return {
+      return dgIdiomaBackend.objeto({
         ok: true,
         envName: nome,
         aviso:
           'A chave saiu do cofre, mas o agente ainda tem a antiga em uso: ela some do ambiente dele quando ele reiniciar. ' +
           'Se a chave vazou, revogue também no painel do serviço, que é o único lugar onde ela deixa de funcionar de verdade.',
-      };
+      });
     });
   }
 

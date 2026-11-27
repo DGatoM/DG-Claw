@@ -52,29 +52,29 @@ function criarProxy({ config, registro, log, cofreRotas }) {
 
   function lerSegredo(agente) {
     const arq = agente.proxy_segredo_arquivo;
-    if (!arq) return { erro: dgIdiomaBackend.mensagem("O agente {p0} não tem proxy_segredo_arquivo no registro; sem o segredo o painel não confia no Web. Rode o instalador para configurar o painel.", {p0: (agente.nome)}) };
+    if (!arq) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O agente {p0} não tem proxy_segredo_arquivo no registro; sem o segredo o painel não confia no Web. Rode o instalador para configurar o painel.", {p0: (agente.nome)}) });
     try {
       const st = fs.statSync(arq);
       const c = cacheSegredo.get(arq);
       if (c && c.mtimeMs === st.mtimeMs) return { segredo: c.valor };
       const valor = fs.readFileSync(arq, 'utf8').trim();
-      if (!valor) return { erro: dgIdiomaBackend.mensagem("O arquivo do segredo do painel de {p0} ({p1}) está vazio.", {p0: (agente.nome), p1: (arq)}) };
+      if (!valor) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O arquivo do segredo do painel de {p0} ({p1}) está vazio.", {p0: (agente.nome), p1: (arq)}) });
       cacheSegredo.set(arq, { mtimeMs: st.mtimeMs, valor });
       return { segredo: valor };
     } catch (e) {
-      return { erro: dgIdiomaBackend.mensagem("Não consegui ler o segredo do painel de {p0} ({p1}): {p2}. Confira se o arquivo existe e se este serviço roda como root.", {p0: (agente.nome), p1: (arq), p2: (e.code || e.name)}) };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui ler o segredo do painel de {p0} ({p1}): {p2}. Confira se o arquivo existe e se este serviço roda como root.", {p0: (agente.nome), p1: (arq), p2: (e.code || e.name)}) });
     }
   }
 
   /** Resolve o destino. Devolve { agente, segredo } ou { status, motivo }. */
   function destino(slug) {
     const est = registro.estado();
-    if (!est.ok) return { status: 503, motivo: est.erro };
+    if (!est.ok) return dgIdiomaBackend.objeto({ status: 503, motivo: dgIdiomaBackend.campo(est, "erro") });
     const agente = est.agentes.find((a) => a.slug === slug);
-    if (!agente) return { status: 404, motivo: dgIdiomaBackend.mensagem("Não existe agente com o nome \"{p0}\".", {p0: (slug)}) };
-    if (!agente.porta_painel) return { status: 404, motivo: dgIdiomaBackend.mensagem("{p0} não tem painel (porta_painel vazia no registro). A conversa fica em /a/{p1}.", {p0: (agente.nome), p1: (agente.slug)}) };
+    if (!agente) return dgIdiomaBackend.objeto({ status: 404, motivo: dgIdiomaBackend.descricao("Não existe agente com o nome \"{p0}\".", {p0: (slug)}) });
+    if (!agente.porta_painel) return dgIdiomaBackend.objeto({ status: 404, motivo: dgIdiomaBackend.descricao("{p0} não tem painel (porta_painel vazia no registro). A conversa fica em /a/{p1}.", {p0: (agente.nome), p1: (agente.slug)}) });
     const s = lerSegredo(agente);
-    if (s.erro) { log('erro', s.erro); return { status: 500, motivo: s.erro }; }
+    if (s.erro) { log('erro', s.erro); return dgIdiomaBackend.objeto({ status: 500, motivo: dgIdiomaBackend.campo(s, "erro") }); }
     return { agente, segredo: s.segredo };
   }
 
@@ -124,7 +124,7 @@ function criarProxy({ config, registro, log, cofreRotas }) {
       }).catch((e) => {
         if (e && e.status === 413) return erroJson(res, 413, `O envio passou do limite de ${Math.round(config.maxUploadBytes / 1048576)} MB. Mande um arquivo menor.`);
         if (e && e.status === 401 && quem && quem.colaborador_id) return recusaSessaoVelha(res, slug, quem);
-        if (e && (e.status === 423 || e.status === 401)) return erroJson(res, e.status, e.message);
+        if (e && (e.status === 423 || e.status === 401)) return erroJson(res, e.status, dgIdiomaBackend.campo(e,"message"));
         log('erro', `Proxy /p/${slug}: não consegui ler o corpo do pedido (${(e && (e.code || e.message)) || 'erro'}).`);
         return erroJson(res, 400, 'Não consegui ler o corpo do pedido. Tente de novo.');
       });
@@ -164,8 +164,8 @@ function criarProxy({ config, registro, log, cofreRotas }) {
     if (!corpoJaConferido && corpoLido && quem && quem.colaborador_id && typeof quem.valeAinda === 'function' && !quem.valeAinda()) return recusaSessaoVelha(res, slug, quem);
     const d = destino(slug);
     if (d.status) {
-      if (/\btext\/html\b/.test(String(req.headers.accept || ''))) paginaErro(res, d.status, 'Painel indisponível', d.motivo);
-      else erroJson(res, d.status, d.motivo);
+      if (/\btext\/html\b/.test(String(req.headers.accept || ''))) paginaErro(res, d.status, 'Painel indisponível', dgIdiomaBackend.campo(d,"motivo"));
+      else erroJson(res, d.status, dgIdiomaBackend.campo(d,"motivo"));
       return;
     }
     const { agente, segredo } = d;

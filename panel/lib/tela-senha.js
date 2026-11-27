@@ -150,24 +150,24 @@ function inverterBits(byte) {
  */
 function validarSenha(senha) {
   if (typeof senha !== 'string' || senha === '') {
-    return { ok: false, erro: dgIdiomaBackend.mensagem("Faltou a senha da tela."), howToFix: dgIdiomaBackend.texto("Digite uma senha de {p0} a {p1} caracteres.",{p0:(MIN_SENHA),p1:(MAX_SENHA)}) };
+    return dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.descricao("Faltou a senha da tela."), howToFix: dgIdiomaBackend.texto("Digite uma senha de {p0} a {p1} caracteres.", {p0:(MIN_SENHA),p1:(MAX_SENHA)}) });
   }
   if (!/^[\x20-\x7e]+$/.test(senha)) {
-    return {
+    return dgIdiomaBackend.objeto({
       ok: false,
-      erro: dgIdiomaBackend.mensagem("A senha da tela só pode ter letras sem acento, números, espaço e os símbolos do teclado (como ! @ # $ %)."),
+      erro: dgIdiomaBackend.descricao("A senha da tela só pode ter letras sem acento, números, espaço e os símbolos do teclado (como ! @ # $ %)."),
       howToFix: dgIdiomaBackend.texto("Troque as letras acentuadas e os caracteres especiais por letras e números comuns."),
-    };
+    });
   }
   if (senha.length < MIN_SENHA) {
-    return { ok: false, erro: dgIdiomaBackend.mensagem("A senha da tela precisa de pelo menos {p0} caracteres (a sua tem {p1}).", {p0: (MIN_SENHA), p1: (senha.length)}), howToFix: dgIdiomaBackend.texto("Digite de {p0} a {p1} caracteres.",{p0:(MIN_SENHA),p1:(MAX_SENHA)}) };
+    return dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.descricao("A senha da tela precisa de pelo menos {p0} caracteres (a sua tem {p1}).", {p0: (MIN_SENHA), p1: (senha.length)}), howToFix: dgIdiomaBackend.texto("Digite de {p0} a {p1} caracteres.", {p0:(MIN_SENHA),p1:(MAX_SENHA)}) });
   }
   if (senha.length > MAX_SENHA) {
-    return {
+    return dgIdiomaBackend.objeto({
       ok: false,
-      erro: dgIdiomaBackend.mensagem("A senha da tela tem no máximo {p0} caracteres (a sua tem {p1}). O VNC, que é o programa que mostra a tela, só olha os {p2} primeiros e ignoraria o resto; por isso eu não aceito, para você não achar que a senha é maior do que é.", {p0: (MAX_SENHA), p1: (senha.length), p2: (MAX_SENHA)}),
-      howToFix: dgIdiomaBackend.texto("Escolha uma senha de {p0} a {p1} caracteres.",{p0:(MIN_SENHA),p1:(MAX_SENHA)}),
-    };
+      erro: dgIdiomaBackend.descricao("A senha da tela tem no máximo {p0} caracteres (a sua tem {p1}). O VNC, que é o programa que mostra a tela, só olha os {p2} primeiros e ignoraria o resto; por isso eu não aceito, para você não achar que a senha é maior do que é.", {p0: (MAX_SENHA), p1: (senha.length), p2: (MAX_SENHA)}),
+      howToFix: dgIdiomaBackend.texto("Escolha uma senha de {p0} a {p1} caracteres.", {p0:(MIN_SENHA),p1:(MAX_SENHA)}),
+    });
   }
   return { ok: true };
 }

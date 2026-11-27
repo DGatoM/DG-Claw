@@ -54,7 +54,7 @@ function criarUnidade({ slug, config }) {
    */
   function unidadeDoAgente() {
     if (!SLUG_OK.test(slug)) {
-      return { erro: dgIdiomaBackend.mensagem("O slug deste agente (\"{p0}\") tem caractere que eu não aceito em nome de unidade.", {p0: (slug)}) };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O slug deste agente (\"{p0}\") tem caractere que eu não aceito em nome de unidade.", {p0: (slug)}) });
     }
 
     // 1. O que estiver escrito no config.json manda, e nem confere nada: quem
@@ -81,7 +81,7 @@ function criarUnidade({ slug, config }) {
         // no disco, parado, e o agente vive em outro lugar. Dizer isso é muito
         // melhor do que "não achei", porque é a frase que faz a pessoa procurar
         // no lugar certo.
-        return {
+        return dgIdiomaBackend.objeto({
           erro:
             `Existe uma unidade "${nome}" nesta máquina, mas ela está ${u.habilitada === 'disabled' ? 'desabilitada' : u.habilitada} e ${u.ativa || 'parada'}, ` +
             'ou seja, não é ela que mantém este agente de pé. Reiniciá-la subiria uma segunda cópia do agente, no lugar errado, ' +
@@ -90,11 +90,11 @@ function criarUnidade({ slug, config }) {
             'A chave FOI guardada e continua guardada. Isso costuma acontecer quando o agente mudou de casa (foi para um contêiner, por exemplo) ' +
             'e a unidade antiga ficou no disco. Quem administra a máquina resolve escrevendo o nome da unidade certa em "cofreUnidade", ' +
             'no config.json deste painel.',
-        };
+        });
       }
     }
 
-    return {
+    return dgIdiomaBackend.objeto({
       erro:
         `Não achei nesta máquina nenhuma unidade do agente "${slug}" para reiniciar. ` +
         'Isso costuma querer dizer que ele roda em outro lugar (dentro de um contêiner, por exemplo), ' +
@@ -102,7 +102,7 @@ function criarUnidade({ slug, config }) {
       howToFix:
         'A chave FOI guardada e continua guardada. Peça a quem cuida da máquina do agente para reiniciá-lo, ' +
         'e a partir daí ela passa a valer.',
-    };
+    });
   }
 
   return { unidadeDoAgente };

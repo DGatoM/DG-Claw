@@ -27,41 +27,41 @@ const HORAS_DE_SERVICO = 48;
  * força num grupo que diz outra coisa.
  */
 const GRUPOS = [
-  {
+  dgIdiomaBackend.objeto({
     id: 'de-pe',
     titulo: dgIdiomaBackend.texto("Mantém ele de pé"),
     explica: 'As peças que fazem ele estar ligado e respondendo: o processo onde ele pensa, '
       + 'o vigia que o religa quando trava, o batimento que confere se ele responde e o '
       + 'recibo dos recados automáticos.',
     membros: ['canal (runtime)', 'watchdog', 'channel-watchdog', 'heartbeat', 'poke-verify', 'painel'],
-  },
-  {
+  }),
+  dgIdiomaBackend.objeto({
     id: 'memoria',
     titulo: 'Memória',
     explica: 'O que faz ele lembrar de vocês: a reflexão da noite, o conferente dela, a '
       + 'remontagem da memória de trabalho de manhã, o fichário das conversas e a arrumação '
       + 'da conversa quando ela fica comprida demais.',
     membros: ['reflection', 'audit', 'build-wm', 'auto-compact', 'consolidate', 'conversas-fts'],
-  },
-  {
+  }),
+  dgIdiomaBackend.objeto({
     id: 'vigilancia',
     titulo: 'Vigilância e custos',
     explica: 'O que fica de olho no resto: quanto ele gasta, se as rotinas continuam '
       + 'instaladas, e o resumo do dia que chega para você no seu canal.',
     membros: ['cost-alerts', 'channels-tokens-logger', 'cron-audit', 'security-audit',
       'openrouter-credit-alert', 'pulso-report-1', 'pulso-report-2', 'pulso-report-3'],
-  },
+  }),
 ];
-const GRUPO_PODERES = {
+const GRUPO_PODERES = dgIdiomaBackend.objeto({
   id: 'poderes',
   titulo: dgIdiomaBackend.texto("Poderes instalados"),
   explica: 'As rotinas que vêm junto com cada poder que você ligou (por exemplo, publicar no Instagram).',
-};
-const GRUPO_OUTRAS = {
+});
+const GRUPO_OUTRAS = dgIdiomaBackend.objeto({
   id: 'outras',
   titulo: dgIdiomaBackend.texto("Outras rotinas do sistema"),
   explica: 'Rotinas do sistema que esta tela ainda não sabe agrupar. Elas são medidas igual às outras.',
-};
+});
 
 // ─── utilidades de tempo ────────────────────────────────────────────────────
 

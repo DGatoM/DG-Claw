@@ -83,16 +83,16 @@ module.exports = function registrarRotasDaSaude(router, { CONFIG, conversa, serv
 
     // 500 quando a medição do processo quebrou, como sempre foi: a tela trata qualquer
     // resposta que não é 200 como "não consegui ver", e o corpo vai junto do mesmo jeito.
-    res.status(estadoFalhou ? 500 : 200).json({
+    res.status(estadoFalhou ? 500 : 200).json(dgIdiomaBackend.objeto({
       viva: e.viva === null ? null : !!e.viva,
       chave: e.chave || null,
       frase: e.frase || null,
       cardStatus: e.cardStatus || null,
-      motivo: e.motivo || null,
+      motivo: dgIdiomaBackend.campo(e, "motivo") || null,
       podeReativar: !!e.podeReativar,
       diagnostico,
       modoSeguro,
-    });
+    }));
   });
 
   router.post('/api/saude/reiniciar', async (req, res) => {
@@ -103,10 +103,10 @@ module.exports = function registrarRotasDaSaude(router, { CONFIG, conversa, serv
       res.status(r.status).json(r.corpo);
     } catch (err) {
       console.error(`[saude] reiniciar(${modo}) quebrou:`, err);
-      res.status(500).json({
-        error: dgIdiomaBackend.mensagem("Não consegui reiniciar: {p0}", {p0: (err.message)}),
+      res.status(500).json(dgIdiomaBackend.objeto({
+        error: dgIdiomaBackend.descricao("Não consegui reiniciar: {p0}", {p0: (dgIdiomaBackend.campo(err, "message"))}),
         howToFix: dgIdiomaBackend.texto("Tente de novo em um minuto. Se continuar, avise quem cuida do sistema: o registro do painel tem o detalhe."),
-      });
+      }));
     }
   });
 
@@ -117,7 +117,7 @@ module.exports = function registrarRotasDaSaude(router, { CONFIG, conversa, serv
       res.json(socorro.estado(req.query.desde));
     } catch (err) {
       console.error('[socorro] estado falhou:', err);
-      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui ler a sessão de socorro: {p0}", {p0: (err.message)}) });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui ler a sessão de socorro: {p0}", {p0: (dgIdiomaBackend.campo(err, "message"))}) }));
     }
   });
 
@@ -127,7 +127,7 @@ module.exports = function registrarRotasDaSaude(router, { CONFIG, conversa, serv
       res.status(r.status).json(r.corpo);
     } catch (err) {
       console.error('[socorro] mensagem falhou:', err);
-      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui mandar a mensagem ao socorro: {p0}", {p0: (err.message)}) });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui mandar a mensagem ao socorro: {p0}", {p0: (dgIdiomaBackend.campo(err, "message"))}) }));
     }
   });
 
@@ -136,7 +136,7 @@ module.exports = function registrarRotasDaSaude(router, { CONFIG, conversa, serv
       res.json(socorro.encerrar());
     } catch (err) {
       console.error('[socorro] encerrar falhou:', err);
-      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui encerrar a sessão de socorro: {p0}", {p0: (err.message)}) });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui encerrar a sessão de socorro: {p0}", {p0: (dgIdiomaBackend.campo(err, "message"))}) }));
     }
   });
 

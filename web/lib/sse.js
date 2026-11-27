@@ -9,7 +9,7 @@ const DURACAO_MS = 50 * 60 * 1000;
 function sse(res, evento, dados, id) {
   let s = `event: ${evento}\n`;
   if (id != null) s += `id: ${id}\n`;
-  s += `data: ${JSON.stringify(dados)}\n\n`;
+  s += `data: ${JSON.stringify(dados, dgIdiomaBackend.replacer)}\n\n`;
   res.write(s);
 }
 
@@ -59,13 +59,13 @@ function abrirStream({ req, res, agente, since, fontes, log, tickMs, valeAinda, 
   const sessaoCaiu = () => {
     if (valeAinda && !valeAinda()) {
       log('aviso', `Stream de ${agente.slug} fechado: a sessão de quem ouvia deixou de valer (expirou, saiu ou perdeu o acesso).`);
-      try { sse(res, 'sessao_encerrada', { motivo: dgIdiomaBackend.mensagem("Sua sessão não vale mais. Entre de novo.") }); } catch (_) { /* conexão já caiu */ }
+      try { sse(res, 'sessao_encerrada', dgIdiomaBackend.objeto({ motivo: dgIdiomaBackend.descricao("Sua sessão não vale mais. Entre de novo.") })); } catch (_) { /* conexão já caiu */ }
       encerra();
       return true;
     }
     // Cadeado (Face ID): a sessão travou por falta de uso. Avisa a tela e para de entregar a conversa.
     if (travadoAgora && travadoAgora()) {
-      try { sse(res, 'travado', { erro: dgIdiomaBackend.mensagem("A tela travou por falta de uso. Destrave com o Face ID ou entre com a senha."), travado: true }); } catch (_) { /* conexão já caiu */ }
+      try { sse(res, 'travado', dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("A tela travou por falta de uso. Destrave com o Face ID ou entre com a senha."), travado: true })); } catch (_) { /* conexão já caiu */ }
       encerra();
       return true;
     }
@@ -118,7 +118,7 @@ function abrirStream({ req, res, agente, since, fontes, log, tickMs, valeAinda, 
           if (e.message !== erroFoco) {
             erroFoco = e.message; versaoFoco = null;
             log('aviso', `Stream de ${agente.slug}: não consegui ler a lista de foco (${e.message}).`);
-            sse(res, 'foco', { agente: agente.slug, lista: null, erro: e.message });
+            sse(res, 'foco', dgIdiomaBackend.objeto({ agente: agente.slug, lista: null, erro: dgIdiomaBackend.campo(e, "message") }));
             ultimoEnvio = Date.now();
           }
         }

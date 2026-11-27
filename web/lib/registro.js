@@ -10,18 +10,18 @@ function textoOuNull(v) { return typeof v === 'string' && v.trim() ? v.trim() : 
 
 /** Valida e normaliza um agente. Devolve { agente } ou { erro }. */
 function normaliza(bruto, indice, avisa) {
-  if (!bruto || typeof bruto !== 'object') return { erro: dgIdiomaBackend.mensagem("o item {p0} da lista não é um objeto", {p0: (indice)}) };
+  if (!bruto || typeof bruto !== 'object') return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("o item {p0} da lista não é um objeto", {p0: (indice)}) });
   const slug = typeof bruto.slug === 'string' ? bruto.slug : '';
   if (!RX_SLUG.test(slug)) {
-    return { erro: dgIdiomaBackend.mensagem("o item {p0} tem slug {p1}, que não vale (use minúsculas, números e hífen, até 32 caracteres, começando por letra ou número)", {p0: (indice), p1: (JSON.stringify(bruto.slug))}) };
+    return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("o item {p0} tem slug {p1}, que não vale (use minúsculas, números e hífen, até 32 caracteres, começando por letra ou número)", {p0: (indice), p1: (JSON.stringify(bruto.slug))}) });
   }
   const runner = textoOuNull(bruto.runner);
-  if (!runner || !/^https?:\/\//i.test(runner)) return { erro: dgIdiomaBackend.mensagem("o agente {p0} precisa de \"runner\" com a URL do runner (ex.: http://127.0.0.1:4300)", {p0: (slug)}) };
+  if (!runner || !/^https?:\/\//i.test(runner)) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("o agente {p0} precisa de \"runner\" com a URL do runner (ex.: http://127.0.0.1:4300)", {p0: (slug)}) });
   const agenteId = textoOuNull(bruto.agente_id);
-  if (!agenteId) return { erro: dgIdiomaBackend.mensagem("o agente {p0} precisa de \"agente_id\" (o id que o runner conhece)", {p0: (slug)}) };
+  if (!agenteId) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("o agente {p0} precisa de \"agente_id\" (o id que o runner conhece)", {p0: (slug)}) });
   const porta = bruto.porta_painel == null ? null : Number(bruto.porta_painel);
   if (porta !== null && !(Number.isInteger(porta) && porta > 0 && porta < 65536)) {
-    return { erro: dgIdiomaBackend.mensagem("o agente {p0} tem porta_painel {p1}, que não é uma porta válida (ou deixe null)", {p0: (slug), p1: (JSON.stringify(bruto.porta_painel))}) };
+    return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("o agente {p0} tem porta_painel {p1}, que não é uma porta válida (ou deixe null)", {p0: (slug), p1: (JSON.stringify(bruto.porta_painel))}) });
   }
   const tipo = textoOuNull(bruto.tipo) || (slug === 'admin' ? 'admin' : 'agente');
   // codex_home_host: onde o Codex do Admin (que roda como root) grava os rollouts, fora da casa dele.
@@ -65,11 +65,11 @@ function normaliza(bruto, indice, avisa) {
 
 function criarRegistro({ caminho, log }) {
   let assinatura = null;       // "mtimeMs:size" ou "ausente"
-  let estado = { ok: false, erro: dgIdiomaBackend.mensagem("o registro ainda não foi lido"), agentes: [] };
+  let estado = dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.descricao("o registro ainda não foi lido"), agentes: [] });
   let ultimoErroLogado = null;
 
   function falha(motivo) {
-    estado = { ok: false, erro: motivo, agentes: [] };
+    estado = dgIdiomaBackend.objeto({ ok: false, erro: motivo, agentes: [] });
     if (ultimoErroLogado !== motivo) {
       ultimoErroLogado = motivo;
       log('erro', motivo);
@@ -114,7 +114,7 @@ function criarRegistro({ caminho, log }) {
     }
     // Admin primeiro; o resto na ordem do arquivo.
     agentes.sort((a, b) => (b.tipo === 'admin') - (a.tipo === 'admin'));
-    estado = { ok: true, erro: null, agentes };
+    estado = dgIdiomaBackend.objeto({ ok: true, erro: null, agentes });
     ultimoErroLogado = null;
     log('info', `Registro de agentes carregado de ${caminho}: ${agentes.map((a) => a.slug).join(', ')}.`);
   }

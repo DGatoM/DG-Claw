@@ -113,9 +113,8 @@ const { readPowers, requirePower } = require('./lib/poderes')(CONFIG);
 
 const app = express();
 const idiomaContexto = require('../web/lib/idioma-contexto');
+app.set('json replacer', idiomaContexto.replacer);
 app.use((req, res, next) => idiomaContexto.executar(req, process.env.DGCLAW_WEB_IDIOMA, () => {
-  const json = res.json;
-  res.json = function (corpo) { return json.call(this, idiomaContexto.erro(corpo)); };
   next();
 }));
 // O Caddy local fala com o painel por loopback e diz o esquema real em X-Forwarded-Proto
@@ -262,20 +261,20 @@ app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   const tipo = err && err.type;
   if (tipo === 'entity.too.large') {
-    return res.status(413).json({
-      error: dgIdiomaBackend.mensagem("O arquivo (ou o texto) passou do limite de tamanho deste painel."),
+    return res.status(413).json(dgIdiomaBackend.objeto({
+      error: dgIdiomaBackend.descricao("O arquivo (ou o texto) passou do limite de tamanho deste painel."),
       howToFix: 'O teto é 25 MB para subir arquivo e 2 MB para editar texto na tela. ' +
         'Arquivo maior que isso o agente busca sozinho: peça a ele na aba Conversa.',
-    });
+    }));
   }
   if (tipo === 'entity.parse.failed') {
-    return res.status(400).json({
-      error: dgIdiomaBackend.mensagem("O pedido chegou quebrado no meio do caminho, então nada foi alterado."),
+    return res.status(400).json(dgIdiomaBackend.objeto({
+      error: dgIdiomaBackend.descricao("O pedido chegou quebrado no meio do caminho, então nada foi alterado."),
       howToFix: dgIdiomaBackend.texto("Recarregue a página e tente de novo."),
-    });
+    }));
   }
   console.error('[painel] erro não tratado:', req.method, req.originalUrl, err && err.message);
-  res.status(500).json({ error: dgIdiomaBackend.mensagem("Deu erro no painel: {p0}", {p0: (err && err.message ? err.message : 'causa desconhecida')}) });
+  res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Deu erro no painel: {p0}", {p0: (err && err.message ? dgIdiomaBackend.campo(err, "message") : 'causa desconhecida')}) }));
 });
 
 // ─── Start ────────────────────────────────────────────────────
@@ -297,7 +296,7 @@ async function autenticarUpgrade(req) {
     return r;
   }
   const dif = auth.origemDiferente(req);
-  if (dif) return { ok: false, status: 403, motivo: dgIdiomaBackend.mensagem("Este pedido veio de {p0}, e não do endereço deste painel ({p1}). Abra a tela pelo painel.", {p0: (String(dif.origem).slice(0, 80)), p1: (dif.meu)}) };
+  if (dif) return dgIdiomaBackend.objeto({ ok: false, status: 403, motivo: dgIdiomaBackend.descricao("Este pedido veio de {p0}, e não do endereço deste painel ({p1}). Abra a tela pelo painel.", {p0: (String(dif.origem).slice(0, 80)), p1: (dif.meu)}) });
   return { ok: true, via: 'cf-access' };
 }
 servidor.on('upgrade', (req, socket, head) => {

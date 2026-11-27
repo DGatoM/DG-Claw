@@ -73,7 +73,7 @@ function criarFoco({ dir, tz, log, registro, gravaRetrato, push, quemChamou, ago
     : { tipo: 'dono', usuario: sessao && sessao.usuario }));
 
   const arquivoDe = (slug) => path.join(dir, `${slug}.json`);
-  const vazio = () => ({ versao_arquivo: 1, titulo: TITULO_PADRAO, itens: [], proximo_item_id: 1, versao: 0, atualizada_em: null, eventos: [], proximo_evento_id: 1 });
+  const vazio = () => (dgIdiomaBackend.objeto({ versao_arquivo: 1, titulo: TITULO_PADRAO, itens: [], proximo_item_id: 1, versao: 0, atualizada_em: null, eventos: [], proximo_evento_id: 1 }));
 
   function ler(slug) {
     const arq = arquivoDe(slug);
@@ -86,7 +86,7 @@ function criarFoco({ dir, tz, log, registro, gravaRetrato, push, quemChamou, ago
       const d = JSON.parse(bruto);
       if (!ehObjeto(d) || !Array.isArray(d.itens) || !Array.isArray(d.eventos)
         || !Number.isInteger(d.proximo_item_id) || !Number.isInteger(d.proximo_evento_id) || !Number.isInteger(d.versao)) {
-        throw new Error(dgIdiomaBackend.mensagem("formato inesperado"));
+        throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("formato inesperado")]);
       }
       return d;
     } catch (e) {
@@ -111,11 +111,11 @@ function criarFoco({ dir, tz, log, registro, gravaRetrato, push, quemChamou, ago
     const itens = d.itens.map((it, i) => ({
       id: it.id, texto: it.texto, feito: !!it.feito, feito_em: it.feito_em ?? null, feito_por: it.feito_por ?? null, ordem: i + 1,
     }));
-    return {
-      agente: slug, titulo: d.titulo || TITULO_PADRAO, itens,
+    return dgIdiomaBackend.objeto({
+      agente: slug, titulo: dgIdiomaBackend.campo(d, "titulo") || TITULO_PADRAO, itens,
       feitos: itens.filter(i => i.feito).length, total: itens.length,
       versao: d.versao, atualizada_em: d.atualizada_em ?? null,
-    };
+    });
   }
 
   const lista = (slug) => paraLista(slug, ler(slug));
@@ -147,7 +147,7 @@ function criarFoco({ dir, tz, log, registro, gravaRetrato, push, quemChamou, ago
       if (x.feito !== undefined && typeof x.feito !== 'boolean') throw falta(400, `${onde}.feito precisa ser true ou false.`);
       itens.push(novoItem(d, normalizaTexto(x.texto, `${onde}.texto`), x.feito === true, por, em));
     });
-    d.titulo = titulo; d.itens = itens; d.versao += 1; d.atualizada_em = em;
+    dgIdiomaBackend.definir(d, "titulo", titulo); d.itens = itens; d.versao += 1; d.atualizada_em = em;
     evento(d, slug, null, 'substituiu', `${itens.length} ${itens.length === 1 ? 'item' : 'itens'}`, por, em);
     salvar(slug, d);
     return { mudou: true, d };
@@ -209,7 +209,7 @@ function criarFoco({ dir, tz, log, registro, gravaRetrato, push, quemChamou, ago
     const d = ler(slug);
     if (!d.itens.length && (d.titulo || TITULO_PADRAO) === TITULO_PADRAO) return { mudou: false, d };
     const em = isoNoFuso(relogio(), fuso);
-    d.itens = []; d.titulo = TITULO_PADRAO; d.versao += 1; d.atualizada_em = em;
+    d.itens = []; dgIdiomaBackend.definir(d, "titulo", TITULO_PADRAO); d.versao += 1; d.atualizada_em = em;
     evento(d, slug, null, 'limpou', '', por, em);
     salvar(slug, d);
     return { mudou: true, d };
@@ -239,7 +239,7 @@ function criarFoco({ dir, tz, log, registro, gravaRetrato, push, quemChamou, ago
     const nome = (registro && registro.obter(slug) && registro.obter(slug).nome) || slug;
     const n = d.itens.length;
     Promise.resolve()
-      .then(() => push.enviar({ titulo: dgIdiomaBackend.mensagem("🎯 {p0} montou seu foco", {p0: (nome)}), corpo: `${n} ${n === 1 ? 'item' : 'itens'}`, tag: `foco-${slug}`, url: `/a/${slug}` }))
+      .then(() => push.enviar(dgIdiomaBackend.objeto({ titulo: dgIdiomaBackend.descricao("🎯 {p0} montou seu foco", {p0: (nome)}), corpo: `${n} ${n === 1 ? 'item' : 'itens'}`, tag: `foco-${slug}`, url: `/a/${slug}` })))
       .then((r) => { if (r && r.falhas && r.falhas.length) avisa(`Foco de ${slug}: aviso no celular com ${r.falhas.length} falha(s): ${r.falhas.map(f => `${f.servico || '?'} ${f.status || ''} ${f.motivo || ''}`.trim()).join('; ')}.`); })
       .catch((e) => avisa(`Foco de ${slug}: não consegui mandar o aviso no celular (${e.message}). A lista foi gravada normalmente.`));
   }
@@ -322,7 +322,7 @@ function criarFoco({ dir, tz, log, registro, gravaRetrato, push, quemChamou, ago
           if (bruto !== null) {
             if (!/^\d+$/.test(bruto)) throw falta(400, `O parâmetro "versao" precisa ser um inteiro maior ou igual a zero. Recebi: ${bruto.slice(0, 40)}. Use o campo "versao" de GET /api/v1/foco/${slug}.`);
             if (Number(bruto) !== versao(slug)) {
-              H.erroJson(res, 409, dgIdiomaBackend.mensagem("A lista de {p0} mudou desde a versão {p1} (agora está na {p2}). Nada foi apagado: confira os itens atuais e peça de novo com a versão nova.", {p0: (slug), p1: (bruto), p2: (versao(slug))}), { lista: lista(slug) });
+              H.erroJson(res, 409, dgIdiomaBackend.descricao("A lista de {p0} mudou desde a versão {p1} (agora está na {p2}). Nada foi apagado: confira os itens atuais e peça de novo com a versão nova.", {p0: (slug), p1: (bruto), p2: (versao(slug))}), { lista: lista(slug) });
               return true;
             }
           }
@@ -331,7 +331,7 @@ function criarFoco({ dir, tz, log, registro, gravaRetrato, push, quemChamou, ago
       } else if (sub === 'eventos') {
         const bruto = url.searchParams.get('desde_id');
         if (bruto !== null && !/^\d+$/.test(bruto)) throw falta(400, `O parâmetro "desde_id" precisa ser um inteiro maior ou igual a zero. Recebi: ${bruto.slice(0, 40)}.`);
-        H.enviaJson(res, 200, { ok: true, ...opEventos(slug, bruto === null ? 0 : Number(bruto)) });
+        H.enviaJson(res, 200, dgIdiomaBackend.objeto({ ok: true, ...dgIdiomaBackend.espalhar(opEventos(slug, bruto === null ? 0 : Number(bruto))) }));
         return true;
       } else if (m === 'POST') {
         saida = opAcrescentar(slug, await lerCorpoObjeto(req, true), por);
@@ -352,10 +352,10 @@ function criarFoco({ dir, tz, log, registro, gravaRetrato, push, quemChamou, ago
     } catch (e) {
       if (e instanceof ErroFoco) {
         if (e.status >= 500) (log || H.logPadrao)('erro', `Foco ${req.method} ${p}: ${e.message}`);
-        H.erroJson(res, e.status, e.message);
+        H.erroJson(res, e.status, dgIdiomaBackend.campo(e, "message"));
       } else {
         (log || H.logPadrao)('erro', `Foco ${req.method} ${p}: falha inesperada (${e.stack || e.message})`);
-        H.erroJson(res, 500, dgIdiomaBackend.mensagem("Falha inesperada no modo foco: {p0}. Tente de novo; se repetir, veja o log do Web.", {p0: (e.message)}));
+        H.erroJson(res, 500, dgIdiomaBackend.descricao("Falha inesperada no modo foco: {p0}. Tente de novo; se repetir, veja o log do Web.", {p0: (dgIdiomaBackend.campo(e, "message"))}));
       }
       return true;
     }

@@ -308,7 +308,7 @@ function criarMontagem({ tz, midia, log }) {
    * então este aviso não notifica nem conta como mensagem nova do dono (origin nunca é 'dono').
    */
   function empurraAviso(estado, agente, { ep, text, sistema }) {
-    estado.eventos.push({ ...monta(estado, agente, { ep, origin: 'agente', text, kind: 'text', media: null, via: 'plataforma', quem: 'agente' }), sistema });
+    estado.eventos.push(dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(monta(estado, agente, { ep, origin: 'agente', text, kind: 'text', media: null, via: 'plataforma', quem: 'agente' })), sistema }));
   }
 
   return { epDe, monta, empurra, empurraDono, empurraAgente, empurraDonoWhatsapp, empurraAgenteWhatsapp, empurraComando, empurraAviso };
@@ -323,7 +323,7 @@ function lerIncremental({ estados, caminho, agente, novoEstado, processaLinha, a
   const chave = `${agente.slug}|${caminho}`;
   let st;
   try { st = fs.statSync(caminho); } catch (e) {
-    throw new Error(dgIdiomaBackend.mensagem("Não consegui abrir o registro da conversa {p0} ({p1}).", {p0: (caminho), p1: (e.code || e.message)}));
+    throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("Não consegui abrir o registro da conversa {p0} ({p1}).", {p0: (caminho), p1: (e.code || dgIdiomaBackend.campo(e, "message"))})]);
   }
   let estado = estados.get(chave);
   if (!estado || estado.ino !== st.ino || st.size < estado.offset) {
@@ -666,7 +666,7 @@ function criarLeitor({ log, tz, canalTelegram, midia }) {
     if (!estado || !estado.trilhaPend.size) return null;
     let ultimo = null;
     for (const p of estado.trilhaPend.values()) if (p.uso && (!ultimo || p.ep >= ultimo.ep)) ultimo = p;
-    return ultimo ? { id: ultimo.id || null, ferramenta: ultimo.uso.ferramenta, titulo: ultimo.uso.titulo, comando: ultimo.uso.comando } : null;
+    return ultimo ? dgIdiomaBackend.objeto({ id: ultimo.id || null, ferramenta: ultimo.uso.ferramenta, titulo: dgIdiomaBackend.campo(ultimo.uso, "titulo"), comando: ultimo.uso.comando }) : null;
   }
 
   /**

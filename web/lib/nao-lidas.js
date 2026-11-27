@@ -32,14 +32,14 @@ function criarNaoLidas({ arquivo, conversa, registro, log, relogio, lerThread })
 
   /** Valida todos os níveis e devolve uma cópia sem protótipo. Lança Error com o motivo se algo destoa. */
   function normaliza(j) {
-    if (!ehObjeto(j) || !ehObjeto(j.usuarios)) throw new Error(dgIdiomaBackend.mensagem("o conteúdo não tem o campo \"usuarios\" como objeto"));
+    if (!ehObjeto(j) || !ehObjeto(j.usuarios)) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o conteúdo não tem o campo \"usuarios\" como objeto")]);
     const saida = vazio();
     for (const u of Object.keys(j.usuarios)) {
-      if (!ehObjeto(j.usuarios[u])) throw new Error(dgIdiomaBackend.mensagem("o usuário \"{p0}\" não é um objeto de marcos", {p0: (u)}));
+      if (!ehObjeto(j.usuarios[u])) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o usuário \"{p0}\" não é um objeto de marcos", {p0: (u)})]);
       saida[u] = vazio();
       for (const slug of Object.keys(j.usuarios[u])) {
         const v = j.usuarios[u][slug];
-        if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) throw new Error(dgIdiomaBackend.mensagem("o marco de \"{p0}\"/\"{p1}\" não é um número maior ou igual a zero", {p0: (u), p1: (slug)}));
+        if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o marco de \"{p0}\"/\"{p1}\" não é um número maior ou igual a zero", {p0: (u), p1: (slug)})]);
         saida[u][slug] = v;
       }
     }
@@ -50,12 +50,12 @@ function criarNaoLidas({ arquivo, conversa, registro, log, relogio, lerThread })
   function normalizaMarcadas(j) {
     const saida = vazio();
     if (j === undefined) return saida;
-    if (!ehObjeto(j)) throw new Error(dgIdiomaBackend.mensagem("o campo \"marcadas\" não é um objeto"));
+    if (!ehObjeto(j)) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o campo \"marcadas\" não é um objeto")]);
     for (const u of Object.keys(j)) {
-      if (!ehObjeto(j[u])) throw new Error(dgIdiomaBackend.mensagem("as marcas de \"{p0}\" não são um objeto", {p0: (u)}));
+      if (!ehObjeto(j[u])) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("as marcas de \"{p0}\" não são um objeto", {p0: (u)})]);
       saida[u] = vazio();
       for (const slug of Object.keys(j[u])) {
-        if (j[u][slug] !== true) throw new Error(dgIdiomaBackend.mensagem("a marca de \"{p0}\"/\"{p1}\" não é true", {p0: (u), p1: (slug)}));
+        if (j[u][slug] !== true) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("a marca de \"{p0}\"/\"{p1}\" não é true", {p0: (u), p1: (slug)})]);
         saida[u][slug] = true;
       }
     }
@@ -132,16 +132,16 @@ function criarNaoLidas({ arquivo, conversa, registro, log, relogio, lerThread })
     const espera = new Promise((resolve) => { timer = setTimeout(() => resolve('tempo'), ESPERA_THREAD_MS); });
     try {
       const t = await Promise.race([leituraCompartilhada(agente), espera]);
-      if (t === 'tempo') return { erro: dgIdiomaBackend.mensagem("A conversa de {p0} não respondeu em 1,5 s, então não sei quantas mensagens novas ela tem.", {p0: (agente.nome)}) };
-      if (!t || !Array.isArray(t.msgs)) return { erro: dgIdiomaBackend.mensagem("Não consegui ler a conversa de {p0}, então não sei quantas mensagens novas ela tem.", {p0: (agente.nome)}) };
+      if (t === 'tempo') return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("A conversa de {p0} não respondeu em 1,5 s, então não sei quantas mensagens novas ela tem.", {p0: (agente.nome)}) });
+      if (!t || !Array.isArray(t.msgs)) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui ler a conversa de {p0}, então não sei quantas mensagens novas ela tem.", {p0: (agente.nome)}) });
       // thread() não rejeita: falha de leitura vem como vazio COM aviso. Vazio sem aviso é agente que nunca conversou.
       const avisos = Array.isArray(t.avisos) ? t.avisos : [];
       if (t.incompleta === true || (!t.msgs.length && avisos.length)) {
-        return { erro: dgIdiomaBackend.mensagem("Não consegui abrir a conversa de {p0} ({p1}), então não sei quantas mensagens novas ela tem.", {p0: (agente.nome), p1: (avisos[0] || 'sem detalhe')}) };
+        return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui abrir a conversa de {p0} ({p1}), então não sei quantas mensagens novas ela tem.", {p0: (agente.nome), p1: (avisos[0] || 'sem detalhe')}) });
       }
       return { msgs: t.msgs };
     } catch (e) {
-      return { erro: dgIdiomaBackend.mensagem("Não consegui ler a conversa de {p0} ({p1}), então não sei quantas mensagens novas ela tem.", {p0: (agente.nome), p1: (e.message)}) };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui ler a conversa de {p0} ({p1}), então não sei quantas mensagens novas ela tem.", {p0: (agente.nome), p1: (dgIdiomaBackend.campo(e, "message"))}) });
     } finally { clearTimeout(timer); }
   }
 
@@ -160,7 +160,7 @@ function criarNaoLidas({ arquivo, conversa, registro, log, relogio, lerThread })
       const visto = Object.hasOwn(meus, a.slug) ? meus[a.slug] : null;
       if (r.erro) {
         log('aviso', `Bolinha de não lidas de ${a.nome}: ${r.erro} A lista segue sem a contagem dele.`);
-        saida[a.slug] = { nao_lidas: null, visto_ep: visto, ultima_ep: null, erro: r.erro };
+        saida[a.slug] = dgIdiomaBackend.objeto({ nao_lidas: null, visto_ep: visto, ultima_ep: null, erro: dgIdiomaBackend.campo(r, "erro") });
         continue;
       }
       let ultima = null; // laço, não Math.max(...): com ~150 mil mensagens o spread estoura a pilha
@@ -211,7 +211,7 @@ function criarNaoLidas({ arquivo, conversa, registro, log, relogio, lerThread })
     }
     const limite = agora() / 1000 + 300;
     if (ep > limite) {
-      const e = new Error(dgIdiomaBackend.mensagem("O \"ep\" {p0} está no futuro. Ele é em SEGUNDOS desde 1970 (não milissegundos): mande o ep da última mensagem que apareceu na tela.", {p0: (ep)}));
+      const e = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("O \"ep\" {p0} está no futuro. Ele é em SEGUNDOS desde 1970 (não milissegundos): mande o ep da última mensagem que apareceu na tela.", {p0: (ep)})]);
       e.status = 400; throw e;
     }
     carrega();

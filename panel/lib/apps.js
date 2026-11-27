@@ -186,21 +186,21 @@ function buildApps(config) {
    */
   function listar() {
     if (!existe(APPS_FILE)) {
-      return {
+      return dgIdiomaBackend.objeto({
         apps: [],
         motivo:
           'Este agente ainda não tem nenhum aplicativo instalado. ' +
           'Quem instala é ele mesmo, escrevendo o arquivo .dgclaw/apps.json no espaço dele.',
-      };
+      });
     }
     const cru = lerJSON(APPS_FILE);
     if (!cru) {
-      return {
+      return dgIdiomaBackend.objeto({
         apps: [],
         motivo:
           `Achei o ${APPS_FILE}, mas não consegui ler o JSON dele. ` +
           'Enquanto ele estiver inválido eu prefiro não mostrar app nenhum a mostrar uma lista pela metade.',
-      };
+      });
     }
     const lista = Array.isArray(cru.apps) ? cru.apps : [];
     const apps = lista
@@ -214,14 +214,14 @@ function buildApps(config) {
         suportado: a.tipo === 'conteudo',
       }));
     const descartados = lista.length - apps.length;
-    return {
+    return dgIdiomaBackend.objeto({
       apps,
       motivo: apps.length
         ? null
         : 'O arquivo .dgclaw/apps.json existe, mas nenhuma entrada dele é um app válido ' +
           '(cada app precisa de "key" e "tipo").',
       descartados: descartados > 0 ? descartados : undefined,
-    };
+    });
   }
 
   /** A config de um app declarado, já com os defaults do tipo aplicados. */
@@ -235,11 +235,11 @@ function buildApps(config) {
     const etapas = Array.isArray(cfg.etapas) && cfg.etapas.length
       ? cfg.etapas.filter((e) => e && nomeSeguro(e.key))
       : ETAPAS_PADRAO;
-    return {
-      ...achado,
+    return dgIdiomaBackend.objeto({
+      ...dgIdiomaBackend.espalhar(achado),
       pasta: typeof cfg.pasta === 'string' && cfg.pasta ? cfg.pasta : 'arquivos/projetos',
       etapas,
-    };
+    });
   }
 
   /** A pasta onde moram os projetos daquele app, já conferida. */
@@ -381,7 +381,7 @@ function buildApps(config) {
     // A data vem do nome da pasta (AAAA-MM-DD-slug), que é a convenção do agente.
     const m = nome.match(/^(\d{4})-(\d{2})-(\d{2})-(.+)$/);
 
-    return {
+    return dgIdiomaBackend.objeto({
       slug: nome,
       titulo:
         (estado && typeof estado.titulo === 'string' && estado.titulo.trim()) ||
@@ -391,7 +391,7 @@ function buildApps(config) {
       etapas,
       progresso: { concluidas, total: contam },
       atualizadoEm: mtime(dir),
-    };
+    });
   }
 
   /**
@@ -403,20 +403,20 @@ function buildApps(config) {
    */
   function projetos(appKey) {
     const app = acharApp(appKey);
-    if (!app) return { erro: dgIdiomaBackend.mensagem("Não achei o app \"{p0}\" na lista deste agente.", {p0: (appKey)}), status: 404 };
+    if (!app) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não achei o app \"{p0}\" na lista deste agente.", {p0: (appKey)}), status: 404 });
     if (app.tipo !== 'conteudo') {
-      return { erro: dgIdiomaBackend.mensagem("O app \"{p0}\" é do tipo \"{p1}\", que este painel ainda não sabe mostrar.", {p0: (app.nome), p1: (app.tipo)}), status: 501 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O app \"{p0}\" é do tipo \"{p1}\", que este painel ainda não sabe mostrar.", {p0: (app.nome), p1: (app.tipo)}), status: 501 });
     }
     const raiz = raizDosProjetos(app);
-    if (!raiz) return { erro: dgIdiomaBackend.mensagem("A pasta configurada para o app \"{p0}\" cai fora do espaço do agente.", {p0: (app.nome)}), status: 500 };
+    if (!raiz) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("A pasta configurada para o app \"{p0}\" cai fora do espaço do agente.", {p0: (app.nome)}), status: 500 });
     if (!existe(raiz)) {
-      return {
+      return dgIdiomaBackend.objeto({
         app,
         projetos: [],
         motivo:
           `A pasta ${app.pasta} ainda não existe no espaço do agente. ` +
           'Ela nasce sozinha no primeiro conteúdo que ele começar.',
-      };
+      });
     }
 
     let nomes;
@@ -425,29 +425,29 @@ function buildApps(config) {
         .filter((d) => d.isDirectory() && !d.name.startsWith('.') && nomeSeguro(d.name))
         .map((d) => d.name);
     } catch (err) {
-      return { erro: dgIdiomaBackend.mensagem("Não consegui ler a pasta {p0}: {p1}", {p0: (app.pasta), p1: (err.message)}), status: 500 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui ler a pasta {p0}: {p1}", {p0: (app.pasta), p1: (dgIdiomaBackend.campo(err, "message"))}), status: 500 });
     }
 
     const lista = nomes.map((n) => montarProjeto(app, raiz, n));
     lista.sort((a, b) => (b.data || '').localeCompare(a.data || '') || b.slug.localeCompare(a.slug));
 
-    return {
+    return dgIdiomaBackend.objeto({
       app,
       projetos: lista,
-      motivo: lista.length ? null : dgIdiomaBackend.mensagem("A pasta {p0} existe, mas ainda não tem nenhum conteúdo dentro.",{p0:(app.pasta)}),
-    };
+      motivo: lista.length ? null : dgIdiomaBackend.descricao("A pasta {p0} existe, mas ainda não tem nenhum conteúdo dentro.", {p0:(app.pasta)}),
+    });
   }
 
   /** Um projeto só, com as etapas. */
   function projeto(appKey, slug) {
-    if (!nomeSeguro(slug)) return { erro: dgIdiomaBackend.mensagem("Nome de conteúdo inválido."), status: 400 };
+    if (!nomeSeguro(slug)) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Nome de conteúdo inválido."), status: 400 });
     const app = acharApp(appKey);
-    if (!app) return { erro: dgIdiomaBackend.mensagem("Não achei o app \"{p0}\" na lista deste agente.", {p0: (appKey)}), status: 404 };
+    if (!app) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não achei o app \"{p0}\" na lista deste agente.", {p0: (appKey)}), status: 404 });
     const raiz = raizDosProjetos(app);
-    if (!raiz) return { erro: dgIdiomaBackend.mensagem("A pasta configurada cai fora do espaço do agente."), status: 500 };
+    if (!raiz) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("A pasta configurada cai fora do espaço do agente."), status: 500 });
     const dir = path.join(raiz, slug);
     if (!dentroDe(raiz, dir) || !existe(dir)) {
-      return { erro: dgIdiomaBackend.mensagem("Não achei o conteúdo \"{p0}\".", {p0: (slug)}), status: 404 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não achei o conteúdo \"{p0}\".", {p0: (slug)}), status: 404 });
     }
     return { app, projeto: montarProjeto(app, raiz, slug) };
   }
@@ -460,7 +460,7 @@ function buildApps(config) {
    * já tinha resolvido, senão a aba viraria uma porta para o workspace inteiro.
    */
   function arquivo(appKey, slug, nome) {
-    if (!nomeSeguro(slug) || !nomeSeguro(nome)) return { erro: dgIdiomaBackend.mensagem("Pedido inválido."), status: 400 };
+    if (!nomeSeguro(slug) || !nomeSeguro(nome)) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Pedido inválido."), status: 400 });
     const r = projeto(appKey, slug);
     if (r.erro) return r;
 
@@ -470,19 +470,19 @@ function buildApps(config) {
       for (const x of e.extras) permitidos.add(x.arquivo);
     }
     if (!permitidos.has(nome)) {
-      return {
-        erro: dgIdiomaBackend.mensagem("O arquivo \"{p0}\" não é de nenhuma etapa deste conteúdo, então eu não abro.", {p0: (nome)}),
+      return dgIdiomaBackend.objeto({
+        erro: dgIdiomaBackend.descricao("O arquivo \"{p0}\" não é de nenhuma etapa deste conteúdo, então eu não abro.", {p0: (nome)}),
         status: 404,
-      };
+      });
     }
 
     const raiz = raizDosProjetos(r.app);
     const alvo = path.join(raiz, slug, nome);
-    if (!dentroDe(path.join(raiz, slug), alvo)) return { erro: dgIdiomaBackend.mensagem("Pedido inválido."), status: 400 };
+    if (!dentroDe(path.join(raiz, slug), alvo)) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Pedido inválido."), status: 400 });
     try {
       return { nome, texto: fs.readFileSync(alvo, 'utf-8'), bytes: tamanho(alvo), em: mtime(alvo) };
     } catch (err) {
-      return { erro: dgIdiomaBackend.mensagem("Não consegui ler {p0}: {p1}", {p0: (nome), p1: (err.message)}), status: 500 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui ler {p0}: {p1}", {p0: (nome), p1: (dgIdiomaBackend.campo(err, "message"))}), status: 500 });
     }
   }
 
@@ -491,30 +491,30 @@ function buildApps(config) {
     const r = projeto(appKey, slug);
     if (r.erro) return r;
     const etapa = r.projeto.etapas.find((e) => e.pasta);
-    if (!etapa) return { assets: [], motivo: dgIdiomaBackend.mensagem("Este conteúdo não tem etapa com pasta de material.") };
+    if (!etapa) return dgIdiomaBackend.objeto({ assets: [], motivo: dgIdiomaBackend.descricao("Este conteúdo não tem etapa com pasta de material.") });
 
     const raiz = raizDosProjetos(r.app);
     const dir = path.join(raiz, slug, etapa.pasta);
     if (!dentroDe(path.join(raiz, slug), dir) || !existe(dir)) {
-      return { assets: [], motivo: dgIdiomaBackend.mensagem("A pasta {p0} ainda não existe neste conteúdo.", {p0: (etapa.pasta)}) };
+      return dgIdiomaBackend.objeto({ assets: [], motivo: dgIdiomaBackend.descricao("A pasta {p0} ainda não existe neste conteúdo.", {p0: (etapa.pasta)}) });
     }
     let nomes;
     try {
       nomes = fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isFile() && !d.name.startsWith('.'));
     } catch (err) {
-      return { erro: dgIdiomaBackend.mensagem("Não consegui ler a pasta {p0}: {p1}", {p0: (etapa.pasta), p1: (err.message)}), status: 500 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui ler a pasta {p0}: {p1}", {p0: (etapa.pasta), p1: (dgIdiomaBackend.campo(err, "message"))}), status: 500 });
     }
     const assets = nomes.map((d) => {
       const ext = extDe(d.name);
       return { nome: d.name, tipo: tipoDaExt(ext), ext, bytes: tamanho(path.join(dir, d.name)) };
     });
-    return {
+    return dgIdiomaBackend.objeto({
       assets,
       pasta: etapa.pasta,
       motivo: assets.length
         ? null
-        : dgIdiomaBackend.mensagem("A pasta {p0} existe, mas está vazia: o catálogo foi escrito e o material ainda não foi baixado.",{p0:(etapa.pasta)}),
-    };
+        : dgIdiomaBackend.descricao("A pasta {p0} existe, mas está vazia: o catálogo foi escrito e o material ainda não foi baixado.", {p0:(etapa.pasta)}),
+    });
   }
 
   /**
@@ -538,37 +538,37 @@ function buildApps(config) {
    */
   function assetBinario(appKey, slug, nome) {
     if (!nomeSeguro(slug) || !nomeSeguro(nome)) {
-      return { erro: dgIdiomaBackend.mensagem("Pedido inválido: nome de conteúdo ou de arquivo fora do formato aceito."), status: 400 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Pedido inválido: nome de conteúdo ou de arquivo fora do formato aceito."), status: 400 });
     }
     const r = projeto(appKey, slug);
     if (r.erro) return r;
 
     const etapa = r.projeto.etapas.find((e) => e.pasta);
     if (!etapa) {
-      return { erro: dgIdiomaBackend.mensagem("O conteúdo \"{p0}\" não tem etapa com pasta de material.", {p0: (slug)}), status: 404 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O conteúdo \"{p0}\" não tem etapa com pasta de material.", {p0: (slug)}), status: 404 });
     }
     const raiz = raizDosProjetos(r.app);
-    if (!raiz) return { erro: dgIdiomaBackend.mensagem("A pasta configurada cai fora do espaço do agente."), status: 500 };
+    if (!raiz) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("A pasta configurada cai fora do espaço do agente."), status: 500 });
 
     const dirEtapa = path.join(raiz, slug, etapa.pasta);
     const alvo = path.join(dirEtapa, nome);
     if (!dentroDe(dirEtapa, alvo)) {
-      return { erro: dgIdiomaBackend.mensagem("Pedido inválido: o arquivo pedido cai fora da pasta de material deste conteúdo."), status: 400 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Pedido inválido: o arquivo pedido cai fora da pasta de material deste conteúdo."), status: 400 });
     }
 
     let st;
     try {
       st = fs.lstatSync(alvo);
     } catch {
-      return { erro: dgIdiomaBackend.mensagem("Não achei o arquivo \"{p0}\" na pasta {p1} deste conteúdo.", {p0: (nome), p1: (etapa.pasta)}), status: 404 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não achei o arquivo \"{p0}\" na pasta {p1} deste conteúdo.", {p0: (nome), p1: (etapa.pasta)}), status: 404 });
     }
     // `lstat` e não `stat`: aqui o `isFile()` já dá falso para link simbólico, que
     // é justamente o caso que a gente não quer seguir sem olhar.
     if (!st.isFile()) {
-      return {
-        erro: dgIdiomaBackend.mensagem("\"{p0}\" não é um arquivo comum (pode ser uma pasta ou um atalho), então eu não sirvo.", {p0: (nome)}),
+      return dgIdiomaBackend.objeto({
+        erro: dgIdiomaBackend.descricao("\"{p0}\" não é um arquivo comum (pode ser uma pasta ou um atalho), então eu não sirvo.", {p0: (nome)}),
         status: 400,
-      };
+      });
     }
 
     const ext = extDe(nome);

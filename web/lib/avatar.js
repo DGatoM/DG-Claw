@@ -34,12 +34,12 @@ function criarAvatar({ dataDir, log, buscar }) {
     if (emCurso.has(base)) return emCurso.get(base);
     const p = (async () => {
       const r = await baixar(urlExterna);
-      if (!r.ok) throw new Error(dgIdiomaBackend.mensagem("o servidor da foto respondeu {p0}", {p0: (r.status)}));
+      if (!r.ok) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("o servidor da foto respondeu {p0}", {p0: (r.status)})]);
       const tipo = String(r.headers.get('content-type') || '').split(';')[0].trim();
-      if (!RX_TIPO.test(tipo)) throw new Error(dgIdiomaBackend.mensagem("a resposta não é uma foto aceita (Content-Type \"{p0}\"; aceito PNG, JPEG, WebP, GIF ou AVIF)", {p0: (tipo || 'vazio')}));
+      if (!RX_TIPO.test(tipo)) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("a resposta não é uma foto aceita (Content-Type \"{p0}\"; aceito PNG, JPEG, WebP, GIF ou AVIF)", {p0: (tipo || 'vazio')})]);
       const buf = Buffer.from(await r.arrayBuffer());
-      if (!buf.length) throw new Error(dgIdiomaBackend.mensagem("a foto veio vazia"));
-      if (buf.length > MAX_BYTES) throw new Error(dgIdiomaBackend.mensagem("a foto tem {p0} bytes e o limite é {p1}", {p0: (buf.length), p1: (MAX_BYTES)}));
+      if (!buf.length) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("a foto veio vazia")]);
+      if (buf.length > MAX_BYTES) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("a foto tem {p0} bytes e o limite é {p1}", {p0: (buf.length), p1: (MAX_BYTES)})]);
       fs.mkdirSync(pasta, { recursive: true, mode: 0o700 });
       // temporário + rename: um pedido que chegue no meio nunca lê foto pela metade; o .tipo vai por último
       fs.writeFileSync(base + '.tmp', buf, { mode: 0o600 });
@@ -54,11 +54,11 @@ function criarAvatar({ dataDir, log, buscar }) {
   /** Entrega a foto de `agente` (precisa ter `avatar` https). Devolve {status,erro} se falhar. */
   async function servir(req, res, agente) {
     const url = agente.avatar;
-    if (!ehUrlDeFoto(url)) return { status: 404, erro: dgIdiomaBackend.mensagem("O agente \"{p0}\" não tem foto por endereço cadastrada. Veja GET /api/v1/agents.", {p0: (agente.slug)}) };
+    if (!ehUrlDeFoto(url)) return dgIdiomaBackend.objeto({ status: 404, erro: dgIdiomaBackend.descricao("O agente \"{p0}\" não tem foto por endereço cadastrada. Veja GET /api/v1/agents.", {p0: (agente.slug)}) });
     let base;
     try { base = await garantir(agente.slug, url); } catch (e) {
       log('erro', `Avatar de ${agente.slug}: não consegui baixar ${url}: ${e.message}. Confira o endereço da foto no cadastro e a saída do servidor para a internet.`);
-      return { status: 502, erro: dgIdiomaBackend.mensagem("Não consegui baixar a foto de {p0}: {p1}.", {p0: (agente.slug), p1: (e.message)}) };
+      return dgIdiomaBackend.objeto({ status: 502, erro: dgIdiomaBackend.descricao("Não consegui baixar a foto de {p0}: {p1}.", {p0: (agente.slug), p1: (dgIdiomaBackend.campo(e, "message"))}) });
     }
     const tipo = fs.readFileSync(base + '.tipo', 'utf8').trim();
     const total = fs.statSync(base).size;
@@ -69,7 +69,7 @@ function criarAvatar({ dataDir, log, buscar }) {
       if (faixa[1]) { inicio = Number(faixa[1]); if (faixa[2]) fim = Math.min(Number(faixa[2]), total - 1); }
       else { inicio = Math.max(0, total - Number(faixa[2])); }
       if (inicio > fim || inicio >= total) {
-        res.writeHead(416, Object.assign({ 'Content-Range': `bytes */${total}` }, cab, { 'Content-Length': 0 }));
+        res.writeHead(416, dgIdiomaBackend.atribuir({ 'Content-Range': `bytes */${total}` }, cab, { 'Content-Length': 0 }));
         res.end();
         return null;
       }

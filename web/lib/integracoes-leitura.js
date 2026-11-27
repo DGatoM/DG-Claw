@@ -30,7 +30,7 @@ const FLAGS_BASE = C.O_RDONLY | C.O_NOFOLLOW | C.O_NONBLOCK;
 const FLAGS_PASTA = FLAGS_BASE | C.O_DIRECTORY;
 
 class Recusa extends Error {
-  constructor(motivo, ausente) { super(motivo); this.motivo = motivo; this.ausente = !!ausente; }
+  constructor(motivo, ausente) { super(motivo); dgIntegracoesIdioma.definir(this, "motivo", motivo); this.ausente = !!ausente; }
 }
 
 const ehIsoOuNulo = (v) => v === null || (typeof v === 'string' && ISO_RE.test(v));
@@ -38,9 +38,9 @@ const ehIsoOuNulo = (v) => v === null || (typeof v === 'string' && ISO_RE.test(v
 /** Mesmo esquema de validarEstado (panel/lib/integracoes.js), mais ultimaTentativaReal. Devolve { itens } ou { erro }. */
 function validarEstado(j) {
   if (!j || typeof j !== 'object' || Array.isArray(j) || j.versao !== 1 || !Array.isArray(j.integracoes)) {
-    return { erro: 'o estado.json não tem o formato esperado' };
+    return dgIntegracoesIdioma.objeto({ erro: 'o estado.json não tem o formato esperado' });
   }
-  if (j.integracoes.length > MAX_ITENS) return { erro: 'o estado.json lista integrações demais' };
+  if (j.integracoes.length > MAX_ITENS) return dgIntegracoesIdioma.objeto({ erro: 'o estado.json lista integrações demais' });
   const itens = [];
   const vistos = new Set();
   for (const it of j.integracoes) {
@@ -48,7 +48,7 @@ function validarEstado(j) {
         || !RESULTADOS.includes(it.ultimoResultado) || typeof it.ultimoEvento !== 'string' || !ISO_RE.test(it.ultimoEvento)
         || !ehIsoOuNulo(it.ultimoOk ?? null) || !ehIsoOuNulo(it.ultimaFalha ?? null) || !ehIsoOuNulo(it.ultimaTentativaReal ?? null)
         || !(it.ultimaFalhaResultado == null || RESULTADOS.includes(it.ultimaFalhaResultado))) {
-      return { erro: 'o estado.json tem uma integração fora do formato (ou com id repetido)' };
+      return dgIntegracoesIdioma.objeto({ erro: 'o estado.json tem uma integração fora do formato (ou com id repetido)' });
     }
     vistos.add(it.id);
     itens.push({
@@ -133,18 +133,18 @@ function lerTexto(agente, nomeArquivo) {
 /** Estado das integrações de um agente: { medido:true, itens } ou { medido:false, motivo }. */
 function lerEstado(agente) {
   if (!agente || agente.tipo === 'admin' || typeof agente.home_host !== 'string' || !agente.home_host) {
-    return { medido: false, motivo: 'este agente não é medido (sem casa registrada, ou é o Admin)' };
+    return dgIntegracoesIdioma.objeto({ medido: false, motivo: 'este agente não é medido (sem casa registrada, ou é o Admin)' });
   }
   try {
     const r = lerTexto(agente, 'estado.json');
     if (r.ausente) return { medido: true, itens: [] };
     let j;
-    try { j = JSON.parse(r.texto); } catch (_) { return { medido: false, motivo: 'o estado.json está com o JSON quebrado' }; }
+    try { j = JSON.parse(r.texto); } catch (_) { return dgIntegracoesIdioma.objeto({ medido: false, motivo: 'o estado.json está com o JSON quebrado' }); }
     const v = validarEstado(j);
-    if (v.erro) return { medido: false, motivo: v.erro };
+    if (v.erro) return dgIntegracoesIdioma.objeto({ medido: false, motivo: dgIntegracoesIdioma.campo(v, "erro") });
     return { medido: true, itens: v.itens };
   } catch (e) {
-    return { medido: false, motivo: e.motivo || 'falha ao ler o estado das integrações' };
+    return dgIntegracoesIdioma.objeto({ medido: false, motivo: dgIntegracoesIdioma.campo(e, "motivo") || 'falha ao ler o estado das integrações' });
   }
 }
 

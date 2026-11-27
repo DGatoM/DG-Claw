@@ -130,9 +130,9 @@ function buildOperacoes(config, deps = {}) {
     const agora = relogio();
     const desde = agora - DIAS * 86400000;
 
-    let rot = { rotinas: [], erro: null };
+    let rot = dgIdiomaBackend.objeto({ rotinas: [], erro: null });
     try { rot = (await listarRotinas()) || rot; } catch (e) {
-      rot = { rotinas: [], erro: dgIdiomaBackend.mensagem("não consegui ler as rotinas no systemd: {p0}", {p0: (e.message)}) };
+      rot = dgIdiomaBackend.objeto({ rotinas: [], erro: dgIdiomaBackend.descricao("não consegui ler as rotinas no systemd: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}) });
     }
     let pul = null;
     try { pul = await pulsoStatus(); } catch (e) {
@@ -181,7 +181,7 @@ function buildOperacoes(config, deps = {}) {
     for (const r of doUsuario) servicos.add(r.unit.replace(/\.timer$/, '.service'));
     const diario = servicos.size
       ? await lerDiario(executar, [`${PREFIXO}*.service`, ...[...servicos].filter((u) => !u.startsWith(PREFIXO))], desde)
-      : { eventos: [], motivo: null };
+      : dgIdiomaBackend.objeto({ eventos: [], motivo: null });
     const porServico = new Map();
     for (const e of diario.eventos) {
       if (!porServico.has(e.unit)) porServico.set(e.unit, []);
@@ -243,8 +243,8 @@ function buildOperacoes(config, deps = {}) {
           estado = 'sem-dado';
           frase = 'não consegui perguntar ao sistema como ele está';
         }
-        resultado.push({ ...base, cadencia: 'fica de pé o tempo todo', ativoDesde: st.desde ? new Date(st.desde).toISOString() : null,
-          proxima: null, ultima: null, estado, frase, quadrados: q.quadrados, semana: q.semana, porHora: true });
+        resultado.push(dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(base), cadencia: 'fica de pé o tempo todo', ativoDesde: st.desde ? new Date(st.desde).toISOString() : null,
+          proxima: null, ultima: null, estado, frase, quadrados: q.quadrados, semana: q.semana, porHora: true }));
         continue;
       }
       const r = o.rotina;
@@ -254,9 +254,9 @@ function buildOperacoes(config, deps = {}) {
       if (!r) {
         const st = await estadoDoServico(o.unit);
         if (st.existe === false) {
-          resultado.push({ ...base, cadencia: (proc && proc.cadencia) || '', proxima: null, ultima: null,
+          resultado.push(dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(base), cadencia: (proc && proc.cadencia) || '', proxima: null, ultima: null,
             estado: 'atencao', frase: `o sistema não conhece a rotina "${o.unit}": ela não foi instalada, então não roda`,
-            quadrados: [], semana: { rodadas: null, falhas: 0, avisos: 0, faltas: 0 } });
+            quadrados: [], semana: { rodadas: null, falhas: 0, avisos: 0, faltas: 0 } }));
           continue;
         }
         if (!oQueE && st.descricao) base.nome = nomeAmigavel('', st.descricao, o.chave);
@@ -294,19 +294,19 @@ function buildOperacoes(config, deps = {}) {
         const quando = q.ultimaExecucao ? haQuanto(q.ultimaExecucao.fim, agora) : '';
         frase = estado === 'ok' ? `rodou ${quando} e deu certo` : ult.titulo;
       }
-      resultado.push({
-        ...base,
+      resultado.push(dgIdiomaBackend.objeto({
+        ...dgIdiomaBackend.espalhar(base),
         cadencia,
         proxima: r ? r.proxima : (proc && proc.proxima) || null,
         ultima: q.ultimaExecucao ? new Date(q.ultimaExecucao.fim).toISOString() : (r ? r.ultima : null),
         estado, frase, quadrados: q.quadrados, semana: q.semana,
-      });
+      }));
     }
 
     // ── os grupos, na ordem da tela ──
     const ordem = [...GRUPOS, GRUPO_PODERES, GRUPO_OUTRAS];
     const grupos = ordem
-      .map((g) => ({ id: g.id, titulo: g.titulo, explica: g.explica, operacoes: resultado.filter((o) => o.grupo === g.id) }))
+      .map((g) => (dgIdiomaBackend.objeto({ id: g.id, titulo: dgIdiomaBackend.campo(g, "titulo"), explica: g.explica, operacoes: resultado.filter((o) => o.grupo === g.id) })))
       .filter((g) => g.operacoes.length);
 
     // ── o resumo do topo ──
@@ -314,7 +314,7 @@ function buildOperacoes(config, deps = {}) {
     const medidas = resultado.filter((o) => o.estado !== 'sem-dado');
     let resumo;
     if (diario.motivo) {
-      resumo = { estado: 'indisponivel', frase: 'Não consegui ler o histórico das operações', motivo: diario.motivo };
+      resumo = dgIdiomaBackend.objeto({ estado: 'indisponivel', frase: 'Não consegui ler o histórico das operações', motivo: dgIdiomaBackend.campo(diario, "motivo") });
     } else if (atencao.length) {
       const nomes = atencao.map((o) => o.nome);
       resumo = {
@@ -328,7 +328,7 @@ function buildOperacoes(config, deps = {}) {
     } else {
       resumo = { estado: 'ok', frase: 'Tudo funcionando' };
     }
-    Object.assign(resumo, {
+    dgIdiomaBackend.atribuir(resumo, {
       total: resultado.length,
       verdes: resultado.filter((o) => o.estado === 'ok').length,
       atencao: atencao.map((o) => o.id),
@@ -361,7 +361,7 @@ function buildOperacoes(config, deps = {}) {
     return {
       geradoEm: new Date(agora).toISOString(),
       janela: { desde: new Date(desde).toISOString(), ate: new Date(agora).toISOString(), dias: DIAS },
-      historico: { disponivel: !diario.motivo, motivo: diario.motivo },
+      historico: dgIdiomaBackend.objeto({ disponivel: !diario.motivo, motivo: dgIdiomaBackend.campo(diario, "motivo") }),
       resumo,
       grupos,
       rotinasDoUsuario: usuario,
@@ -390,32 +390,32 @@ function buildOperacoes(config, deps = {}) {
     if (!d || d.estado !== 'inativo') return r;
     const canal = servicoDoCanal() || `dgclaw-${SLUG}.service`;
     let achou = false;
-    const grupos = r.grupos.map((g) => ({
-      ...g,
+    const grupos = r.grupos.map((g) => (dgIdiomaBackend.objeto({
+      ...dgIdiomaBackend.espalhar(g),
       operacoes: g.operacoes.map((o) => {
         if (o.tipo !== 'servico' || (o.unit !== canal && o.chave !== 'canal (runtime)')) return o;
         achou = true;
         const frase = `o processo está de pé, mas ele não consegue responder: ${d.frase || 'o diagnóstico de saúde diz que ele está inativo'}`;
         const qs = (o.quadrados || []).slice();
-        if (qs.length) qs[qs.length - 1] = { ...qs[qs.length - 1], cor: 'vermelho', titulo: dgIdiomaBackend.texto("De pé, mas sem conseguir responder"), detalhe: d.frase || '' };
-        return { ...o, estado: 'falha', frase, cadencia: 'o processo está de pé', quadrados: qs, diagnostico: { estado: d.estado, tipo: d.tipo || null } };
+        if (qs.length) qs[qs.length - 1] = dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(qs[qs.length - 1]), cor: 'vermelho', titulo: dgIdiomaBackend.texto("De pé, mas sem conseguir responder"), detalhe: d.frase || '' });
+        return dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(o), estado: 'falha', frase, cadencia: 'o processo está de pé', quadrados: qs, diagnostico: { estado: d.estado, tipo: d.tipo || null } });
       }),
-    }));
+    })));
     if (!achou) return r;
     // Sem diário, o resumo já diz que não leu o histórico: esse aviso é mais grave e fica.
-    if (r.resumo && r.resumo.estado === 'indisponivel') return { ...r, grupos };
+    if (r.resumo && r.resumo.estado === 'indisponivel') return dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(r), grupos });
     const todas = grupos.flatMap((g) => g.operacoes);
     const atencao = todas.filter((o) => o.estado === 'falha' || o.estado === 'atencao');
     const nomes = atencao.map((o) => o.nome);
-    const resumo = {
-      ...r.resumo,
+    const resumo = dgIdiomaBackend.objeto({
+      ...dgIdiomaBackend.espalhar(r.resumo),
       estado: 'atencao',
       frase: atencao.length === 1 ? `1 operação pede atenção: ${nomes[0]}` : `${atencao.length} operações pedem atenção: ${listaHumana(nomes)}`,
       verdes: todas.filter((o) => o.estado === 'ok').length,
       atencao: atencao.map((o) => o.id),
-    };
+    });
     delete resumo.motivo;
-    return { ...r, grupos, resumo };
+    return dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(r), grupos, resumo });
   }
 
   /** O retrato, com cache curto. `forcar` pula o cache mas nunca abaixo de 5 s. */
@@ -430,8 +430,8 @@ function buildOperacoes(config, deps = {}) {
       console.error('[operacoes] falha ao montar a aba Operacoes:', e);
       return {
         geradoEm: new Date().toISOString(),
-        historico: { disponivel: false, motivo: dgIdiomaBackend.mensagem("o painel quebrou ao montar esta tela: {p0}",{p0:(e.message)}) },
-        resumo: { estado: 'indisponivel', frase: 'Não consegui montar as operações', motivo: e.message, total: 0, verdes: 0, atencao: [], semDado: 0 },
+        historico: dgIdiomaBackend.objeto({ disponivel: false, motivo: dgIdiomaBackend.descricao("o painel quebrou ao montar esta tela: {p0}", {p0:(dgIdiomaBackend.campo(e, "message"))}) }),
+        resumo: dgIdiomaBackend.objeto({ estado: 'indisponivel', frase: 'Não consegui montar as operações', motivo: dgIdiomaBackend.campo(e, "message"), total: 0, verdes: 0, atencao: [], semDado: 0 }),
         grupos: [], rotinasDoUsuario: [], inconsistencias: [],
       };
     });

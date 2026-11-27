@@ -32,34 +32,34 @@ function resumoDaPermissao(ferramenta) {
 function estadoBase(agente, r) {
   if (!r || !r.ok) {
     const erro = (r && r.erro) || `Não consegui falar com o runner de ${agente.nome}.`;
-    return { estado: 'sem_sinal', motivo: null, resumo: null, erro };
+    return dgIdiomaBackend.objeto({ estado: 'sem_sinal', motivo: null, resumo: null, erro });
   }
   const e = r.estado;
   switch (e.status) {
     case 'working':
     case 'spawning':
-      return { estado: 'trabalhando', motivo: null, resumo: null, erro: null };
+      return dgIdiomaBackend.objeto({ estado: 'trabalhando', motivo: null, resumo: null, erro: null });
     case 'waiting_input': {
       // Runner antigo não manda `motivo`: o único waiting_input que ele conhecia era o de permissão.
       // Codex nunca informa motivo nem pede permissão pelo Web: fica sem motivo, com frase genérica.
       const codex = /codex/i.test(String(agente.provedor || ''));
       const motivo = e.motivo === 'pergunta' || e.motivo === 'permissao' ? e.motivo : (codex ? null : 'permissao');
       const resumo = motivo === 'pergunta' ? 'fez uma pergunta' : motivo === 'permissao' ? resumoDaPermissao(e.currentTool) : 'está esperando você';
-      return { estado: 'precisa_de_voce', motivo, resumo, erro: null };
+      return dgIdiomaBackend.objeto({ estado: 'precisa_de_voce', motivo, resumo, erro: null });
     }
     case 'idle':
     case 'completed':
-      return { estado: 'ocioso', motivo: null, resumo: null, erro: null };
+      return dgIdiomaBackend.objeto({ estado: 'ocioso', motivo: null, resumo: null, erro: null });
     case 'errored':
       if (e.statusReason === 'runner:login-expirado' || e.motivo === 'login') {
-        return { estado: 'precisa_de_voce', motivo: 'login', resumo: 'o login da conta expirou', erro: null };
+        return dgIdiomaBackend.objeto({ estado: 'precisa_de_voce', motivo: 'login', resumo: 'o login da conta expirou', erro: null });
       }
       if (e.statusReason === 'runner:sem-login') {
-        return { estado: 'precisa_de_voce', motivo: 'login', resumo: 'falta conectar a conta', erro: null };
+        return dgIdiomaBackend.objeto({ estado: 'precisa_de_voce', motivo: 'login', resumo: 'falta conectar a conta', erro: null });
       }
-      return { estado: 'sem_sinal', motivo: null, resumo: null, erro: dgIdiomaBackend.mensagem("O runner informa erro para {p0}{p1}. Veja o log do agente.", {p0: (agente.nome), p1: (e.error ? `: ${resumoSeguro(e.error)}` : '')}) };
+      return dgIdiomaBackend.objeto({ estado: 'sem_sinal', motivo: null, resumo: null, erro: dgIdiomaBackend.descricao("O runner informa erro para {p0}{p1}. Veja o log do agente.", {p0: (agente.nome), p1: (e.error ? `: ${resumoSeguro(e.error)}` : '')}) });
     default:
-      return { estado: 'sem_sinal', motivo: null, resumo: null, erro: dgIdiomaBackend.mensagem("O runner informa o status \"{p0}\" para {p1}, então não sei se ele está trabalhando.", {p0: (resumoSeguro(e.status)), p1: (agente.nome)}) };
+      return dgIdiomaBackend.objeto({ estado: 'sem_sinal', motivo: null, resumo: null, erro: dgIdiomaBackend.descricao("O runner informa o status \"{p0}\" para {p1}, então não sei se ele está trabalhando.", {p0: (resumoSeguro(e.status)), p1: (agente.nome)}) });
   }
 }
 
@@ -70,7 +70,7 @@ function criarEstados({ conversa, naoLidas, registro, log }) {
       return estadoBase(agente, await conversa.estado(agente));
     } catch (e) {
       log('erro', `Estado de ${agente.nome}: falha inesperada ao ler o runner (${e.message}). Marquei o agente como sem sinal.`);
-      return { estado: 'sem_sinal', motivo: null, resumo: null, erro: dgIdiomaBackend.mensagem("Falha inesperada ao ler o estado de {p0} ({p1}).", {p0: (agente.nome), p1: (e.message)}) };
+      return dgIdiomaBackend.objeto({ estado: 'sem_sinal', motivo: null, resumo: null, erro: dgIdiomaBackend.descricao("Falha inesperada ao ler o estado de {p0} ({p1}).", {p0: (agente.nome), p1: (dgIdiomaBackend.campo(e, "message"))}) });
     }
   }
 
@@ -89,15 +89,15 @@ function criarEstados({ conversa, naoLidas, registro, log }) {
       const marcada = nl.marcada_nao_lida === true;
       let estado = base.estado;
       if (estado === 'ocioso' && ((typeof nl.nao_lidas === 'number' && nl.nao_lidas > 0) || marcada)) estado = 'terminou';
-      const item = {
-        estado, motivo: base.motivo, resumo: base.resumo,
+      const item = dgIdiomaBackend.objeto({
+        estado, motivo: dgIdiomaBackend.campo(base, "motivo"), resumo: base.resumo,
         nao_lidas: nl.nao_lidas, marcada_nao_lida: marcada,
         visto_ep: nl.visto_ep === undefined ? null : nl.visto_ep, ultima_ep: nl.ultima_ep === undefined ? null : nl.ultima_ep,
-      };
+      });
       if (nl.mais) item.mais = true;
       if (nl.marco_novo) item.marco_novo = true;
       const erros = [base.erro, nl.erro].filter(Boolean);
-      if (erros.length) item.erro = erros.join(' ');
+      if (erros.length) dgIdiomaBackend.definir(item, "erro", erros.join(' '));
       saida[a.slug] = item;
     }
     return saida;

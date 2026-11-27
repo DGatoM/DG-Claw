@@ -69,10 +69,10 @@ function criarVoz({ env, log }) {
   async function chama(nome, url, init) {
     let r;
     try {
-      r = await fetch(url, Object.assign({ signal: AbortSignal.timeout(60000) }, init));
+      r = await fetch(url, dgIdiomaBackend.atribuir({ signal: AbortSignal.timeout(60000) }, init));
     } catch (e) {
       log('erro', `${nome}: não consegui falar com o serviço (${e.name}: ${e.message}).`);
-      return { erro: dgIdiomaBackend.mensagem("Não consegui falar com o serviço de {p0} ({p1}). Tente de novo em instantes.", {p0: (nome), p1: (e.name === 'TimeoutError' ? 'demorou demais' : e.message)}), status: 502 };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não consegui falar com o serviço de {p0} ({p1}). Tente de novo em instantes.", {p0: (nome), p1: (e.name === 'TimeoutError' ? 'demorou demais' : dgIdiomaBackend.campo(e, "message"))}), status: 502 });
     }
     if (!r.ok) {
       let detalhe = '';
@@ -80,7 +80,7 @@ function criarVoz({ env, log }) {
       log('erro', `${nome}: o serviço respondeu HTTP ${r.status}${detalhe ? ` (${detalhe})` : ''}.`);
       const status = r.status === 401 || r.status === 403 ? 502 : (r.status === 402 || r.status === 429 ? 429 : 502);
       const dica = r.status === 401 || r.status === 403 ? ' A chave do web.env foi recusada: confira se está certa.' : (r.status === 402 || r.status === 429 ? ' Talvez o limite ou o crédito da conta tenha acabado.' : '');
-      return { erro: dgIdiomaBackend.mensagem("O serviço de {p0} recusou o pedido (HTTP {p1}).{p2}", {p0: (nome), p1: (r.status), p2: (dica)}), status };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O serviço de {p0} recusou o pedido (HTTP {p1}).{p2}", {p0: (nome), p1: (r.status), p2: (dica)}), status });
     }
     return { resposta: r };
   }
@@ -92,7 +92,7 @@ function criarVoz({ env, log }) {
 
     /** { texto } ou { erro, status } */
     async transcrever(dados, nomeArquivo, mime) {
-      if (!(temEleven || temGroq || temOpenai)) return { erro: semChaveMic, status: 503 };
+      if (!(temEleven || temGroq || temOpenai)) return dgIdiomaBackend.objeto({ erro: semChaveMic, status: 503 });
       const fd = new FormData();
       fd.append('file', new Blob([dados], { type: mime || 'audio/mp4' }), nomeArquivo || 'audio.m4a');
       let r;
@@ -111,25 +111,25 @@ function criarVoz({ env, log }) {
       }
       if (r.erro) return r;
       let j;
-      try { j = await r.resposta.json(); } catch (_) { return { erro: dgIdiomaBackend.mensagem("O serviço de transcrição respondeu algo que não é JSON."), status: 502 }; }
+      try { j = await r.resposta.json(); } catch (_) { return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O serviço de transcrição respondeu algo que não é JSON."), status: 502 }); }
       const texto = typeof j.text === 'string' ? j.text.trim() : '';
-      if (!texto) return { erro: dgIdiomaBackend.mensagem("Não ouvi nenhuma fala nesse áudio. Grave de novo, mais perto do microfone."), status: 422 };
+      if (!texto) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Não ouvi nenhuma fala nesse áudio. Grave de novo, mais perto do microfone."), status: 422 });
       return { texto };
     },
 
     /** { audio:Buffer, chars, partes, parte } ou { erro, status }. `parte` (0 a partes-1) é o pedaço pedido. */
     async falar(agente, texto, vozPedida, parte = 0) {
-      if (!this.vozDoAgente(agente) && !(temEleven && vozPedida)) return { erro: semChaveFala, status: 503 };
+      if (!this.vozDoAgente(agente) && !(temEleven && vozPedida)) return dgIdiomaBackend.objeto({ erro: semChaveFala, status: 503 });
       const voz = vozPedida || agente.voz || env.ELEVENLABS_VOICE_ID;
-      if (!/^[A-Za-z0-9]{10,40}$/.test(voz)) return { erro: dgIdiomaBackend.mensagem("O id de voz {p0} não vale (letras e números, 10 a 40 caracteres).", {p0: (JSON.stringify(String(voz).slice(0, 40)))}), status: 400 };
+      if (!/^[A-Za-z0-9]{10,40}$/.test(voz)) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O id de voz {p0} não vale (letras e números, 10 a 40 caracteres).", {p0: (JSON.stringify(String(voz).slice(0, 40)))}), status: 400 });
       const limpo = limparParaTts(texto);
-      if (!limpo) return { erro: dgIdiomaBackend.mensagem("Depois de tirar formatação, tabelas e links não sobrou nada para falar."), status: 400 };
+      if (!limpo) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Depois de tirar formatação, tabelas e links não sobrou nada para falar."), status: 400 });
       const pedacos = fatiarParaTts(limpo);
       if (pedacos.length > TTS_MAX_PARTES) {
-        return { erro: dgIdiomaBackend.mensagem("O texto rende {p0} pedaços de voz e o limite é {p1} (para não estourar a cota da ElevenLabs). Mande um trecho menor.", {p0: (pedacos.length), p1: (TTS_MAX_PARTES)}), status: 413 };
+        return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O texto rende {p0} pedaços de voz e o limite é {p1} (para não estourar a cota da ElevenLabs). Mande um trecho menor.", {p0: (pedacos.length), p1: (TTS_MAX_PARTES)}), status: 413 });
       }
       if (!Number.isInteger(parte) || parte < 0 || parte >= pedacos.length) {
-        return { erro: dgIdiomaBackend.mensagem("O texto tem {p0} pedaço(s) de voz, numerados de 0 a {p1}. Pediu o {p2}.", {p0: (pedacos.length), p1: (pedacos.length - 1), p2: (JSON.stringify(parte))}), status: 400 };
+        return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O texto tem {p0} pedaço(s) de voz, numerados de 0 a {p1}. Pediu o {p2}.", {p0: (pedacos.length), p1: (pedacos.length - 1), p2: (JSON.stringify(parte))}), status: 400 });
       }
       const pedaco = pedacos[parte];
       const r = await chama('voz (ElevenLabs)', `${ELEVEN}/v1/text-to-speech/${voz}?output_format=mp3_44100_128`, {
@@ -142,13 +142,13 @@ function criarVoz({ env, log }) {
     },
 
     async cota() {
-      if (!temEleven) return { erro: semChaveFala, status: 503 };
+      if (!temEleven) return dgIdiomaBackend.objeto({ erro: semChaveFala, status: 503 });
       const r = await chama('cota de voz (ElevenLabs)', `${ELEVEN}/v1/user/subscription`, { headers: { 'xi-api-key': env.ELEVENLABS_API_KEY } });
       if (r.erro) return r;
       let j;
-      try { j = await r.resposta.json(); } catch (_) { return { erro: dgIdiomaBackend.mensagem("O serviço de voz respondeu a cota num formato inesperado."), status: 502 }; }
+      try { j = await r.resposta.json(); } catch (_) { return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O serviço de voz respondeu a cota num formato inesperado."), status: 502 }); }
       const usado = Number(j.character_count); const limite = Number(j.character_limit);
-      if (!Number.isFinite(usado) || !Number.isFinite(limite) || limite <= 0) return { erro: dgIdiomaBackend.mensagem("O serviço de voz não informou a cota (campos character_count e character_limit ausentes)."), status: 502 };
+      if (!Number.isFinite(usado) || !Number.isFinite(limite) || limite <= 0) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("O serviço de voz não informou a cota (campos character_count e character_limit ausentes)."), status: 502 });
       return { usado, limite, pct: Math.round((usado / limite) * 1000) / 10 };
     },
   };

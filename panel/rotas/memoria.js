@@ -25,12 +25,12 @@ module.exports = function registrar(router, ctx) {
 
   router.get('/api/memory/file', (req, res) => {
     const requestedPath = req.query.path;
-    if (!requestedPath) return res.status(400).json({ error: 'path required' });
+    if (!requestedPath) return res.status(400).json(dgIdiomaBackend.objeto({ error: 'path required' }));
 
     if (!isPathAllowed(requestedPath)) {
       // O motivo vai junto (sem caminho de servidor): "access denied" sozinho não
       // diz à pessoa se o arquivo é secreto ou se ela digitou errado.
-      return res.status(403).json({ error: 'access denied', motivo: explicarRecusa(requestedPath) });
+      return res.status(403).json(dgIdiomaBackend.objeto({ error: 'access denied', motivo: explicarRecusa(requestedPath) }));
     }
 
     const fullPath = path.resolve(P.AGENT_DIR, requestedPath);
@@ -38,11 +38,11 @@ module.exports = function registrar(router, ctx) {
     // e lê-lo inteiro para mandar ao navegador só gasta a RAM do painel.
     try {
       if (fs.statSync(fullPath).size > TETO_LEITURA_BYTES) {
-        return res.status(413).json({ error: dgIdiomaBackend.mensagem("arquivo grande demais para abrir aqui"), motivo: dgIdiomaBackend.mensagem("passa de 2 MB") });
+        return res.status(413).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("arquivo grande demais para abrir aqui"), motivo: dgIdiomaBackend.descricao("passa de 2 MB") }));
       }
     } catch { /* ausente: o readFile abaixo devolve null e a rota responde 404 */ }
     const content = readFile(fullPath);
-    if (content === null) return res.status(404).json({ error: 'not found' });
+    if (content === null) return res.status(404).json(dgIdiomaBackend.objeto({ error: 'not found' }));
 
     if (fullPath.endsWith('.json')) {
       try {

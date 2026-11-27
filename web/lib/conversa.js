@@ -58,7 +58,7 @@ function validaControle(valor, rotulo, { normalizarCR } = {}) {
   const cod = m[0].charCodeAt(0);
   const u = 'U+' + cod.toString(16).toUpperCase().padStart(4, '0');
   const nome = NOME_CONTROLE[cod] ? ` (${NOME_CONTROLE[cod]})` : '';
-  return { erro: dgIdiomaBackend.mensagem("{p0} tem o caractere de controle {p1}{p2} na posição {p3}, que o terminal do agente entenderia como tecla apertada. Apague esse caractere (só a quebra de linha e o tab valem) e envie de novo. Nada foi enviado.", {p0: (rotulo), p1: (u), p2: (nome), p3: (m.index + 1)}) };
+  return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("{p0} tem o caractere de controle {p1}{p2} na posição {p3}, que o terminal do agente entenderia como tecla apertada. Apague esse caractere (só a quebra de linha e o tab valem) e envie de novo. Nada foi enviado.", {p0: (rotulo), p1: (u), p2: (nome), p3: (m.index + 1)}) });
 }
 
 /**
@@ -300,14 +300,14 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       let c;
       if (eRollout) {
         const raizes = raizesDeRollout(agente);
-        if (!raizes.length) c = { erro: dgIdiomaBackend.mensagem("Recusei ler {p0}: o registro de {p1} não tem home_host para conferir. Nada foi lido.", {p0: (arquivo), p1: (agente.nome)}) };
+        if (!raizes.length) c = dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Recusei ler {p0}: o registro de {p1} não tem home_host para conferir. Nada foi lido.", {p0: (arquivo), p1: (agente.nome)}) });
         else {
           const tent = raizes.map((r) => confinar(arquivo, r, 'o registro Codex'));
           c = tent.find((t) => !t.erro) || tent[0];
         }
       } else {
         const raiz = agente.transcripts_dir;
-        c = raiz ? confinar(arquivo, raiz, 'o transcript do Claude') : { erro: dgIdiomaBackend.mensagem("Recusei ler {p0}: o registro de {p1} não tem transcripts_dir para conferir. Nada foi lido.", {p0: (arquivo), p1: (agente.nome)}) };
+        c = raiz ? confinar(arquivo, raiz, 'o transcript do Claude') : dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("Recusei ler {p0}: o registro de {p1} não tem transcripts_dir para conferir. Nada foi lido.", {p0: (arquivo), p1: (agente.nome)}) });
       }
       if (c.erro) {
         avisos.push(c.erro);
@@ -407,36 +407,36 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     const agoraMs = relogio();
     let est;
     if (!r.ok) {
-      est = { estado: 'sem_sinal', acao: null, detalhe: null, ultimo_sinal: null, alerta: null, motivo: r.erro };
+      est = dgIdiomaBackend.objeto({ estado: 'sem_sinal', acao: null, detalhe: null, ultimo_sinal: null, alerta: null, motivo: dgIdiomaBackend.campo(r, "erro") });
     } else {
       const e = r.estado;
       const ultimo = typeof e.updatedAt === 'number' ? iso(e.updatedAt) : null;
       if (e.status === 'working') {
-        est = { estado: 'trabalhando', acao: e.currentTool || 'pensando', detalhe: null, ultimo_sinal: ultimo, alerta: null, motivo: null };
+        est = dgIdiomaBackend.objeto({ estado: 'trabalhando', acao: e.currentTool || 'pensando', detalhe: null, ultimo_sinal: ultimo, alerta: null, motivo: null });
       } else if (e.status === 'waiting_input' && e.motivo === 'pergunta') {
         // Pergunta de escolha (AskUserQuestion): a tela mostra o cartão de escolhas (POST /pergunta); sem a pergunta
         // lida do transcript (`pergunta: null`), manda a pessoa para o terminal.
         const perg = await perguntaDe(agente);
-        est = { estado: 'trabalhando', acao: 'esperando a sua resposta', detalhe: null, ultimo_sinal: ultimo, alerta: 'pergunta', motivo: null, pergunta: perg };
+        est = dgIdiomaBackend.objeto({ estado: 'trabalhando', acao: 'esperando a sua resposta', detalhe: null, ultimo_sinal: ultimo, alerta: 'pergunta', motivo: null, pergunta: perg });
       } else if (e.status === 'waiting_input') {
         // O que ele quer fazer é o último comando do transcript que ainda não tem resultado.
         const pend = await pendenteDe(agente);
-        est = { estado: 'trabalhando', acao: 'esperando permissão', detalhe: pend ? `${pend.ferramenta}: ${pend.titulo}` : null,
-                ultimo_sinal: ultimo, alerta: 'permissao', motivo: null, permissao: pend };
+        est = dgIdiomaBackend.objeto({ estado: 'trabalhando', acao: 'esperando permissão', detalhe: pend ? `${pend.ferramenta}: ${pend.titulo}` : null,
+                ultimo_sinal: ultimo, alerta: 'permissao', motivo: null, permissao: pend });
       } else if (e.status === 'idle') {
-        est = { estado: 'ocioso', acao: null, detalhe: null, ultimo_sinal: ultimo, alerta: null, motivo: null };
+        est = dgIdiomaBackend.objeto({ estado: 'ocioso', acao: null, detalhe: null, ultimo_sinal: ultimo, alerta: null, motivo: null });
       } else if (e.status === 'errored' && e.statusReason === 'runner:login-expirado') {
         // A conta ESTAVA conectada e a credencial morreu: a sessão tem conversa e volta por retomada.
         // Alerta próprio (não 'sem_login') para a tela dizer o que aconteceu e desde quando.
-        est = { estado: 'sem_sinal', acao: null, detalhe: null, ultimo_sinal: ultimo, alerta: 'login_expirado',
-                motivo: e.error ? String(e.error) : dgIdiomaBackend.mensagem("O login da conta de {p0} expirou.", {p0: (agente.nome)}),
+        est = dgIdiomaBackend.objeto({ estado: 'sem_sinal', acao: null, detalhe: null, ultimo_sinal: ultimo, alerta: 'login_expirado',
+                motivo: e.error ? String(e.error) : dgIdiomaBackend.descricao("O login da conta de {p0} expirou.", {p0: (agente.nome)}),
                 expirou_em: typeof e.loginExpiradoEm === 'string' ? e.loginExpiradoEm : null,
-                provedor: /codex/i.test(String(agente.provedor || '')) ? 'codex' : 'claude' };
+                provedor: /codex/i.test(String(agente.provedor || '')) ? 'codex' : 'claude' });
       } else if (e.status === 'errored' && e.statusReason === 'runner:sem-login') {
         // O motor não tem conta conectada: a tela oferece o cartão de login.
-        est = { estado: 'sem_sinal', acao: null, detalhe: null, ultimo_sinal: ultimo, alerta: 'sem_login', motivo: e.error ? String(e.error) : dgIdiomaBackend.mensagem("{p0} não está logado no Claude/Codex.", {p0: (agente.nome)}) };
+        est = dgIdiomaBackend.objeto({ estado: 'sem_sinal', acao: null, detalhe: null, ultimo_sinal: ultimo, alerta: 'sem_login', motivo: e.error ? String(e.error) : dgIdiomaBackend.descricao("{p0} não está logado no Claude/Codex.", {p0: (agente.nome)}) });
       } else {
-        est = { estado: 'sem_sinal', acao: null, detalhe: null, ultimo_sinal: ultimo, alerta: null, motivo: dgIdiomaBackend.mensagem("O runner informa o status \"{p0}\" para {p1}, então não sei se ele está trabalhando.", {p0: (e.status), p1: (agente.nome)}) };
+        est = dgIdiomaBackend.objeto({ estado: 'sem_sinal', acao: null, detalhe: null, ultimo_sinal: ultimo, alerta: null, motivo: dgIdiomaBackend.descricao("O runner informa o status \"{p0}\" para {p1}, então não sei se ele está trabalhando.", {p0: (e.status), p1: (agente.nome)}) });
       }
     }
     const chave = `${est.estado}|${est.acao}|${est.alerta}`;
@@ -465,12 +465,12 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     const em = rotulosEmAndamento.get(agente.slug);
     if (em) return em;
     const promessa = (async () => {
-      const espera = new Promise((resolve) => { setTimeout(() => resolve({ ok: false, erro: dgIdiomaBackend.mensagem("demorou mais de 1,5 s") }), 1500).unref(); });
+      const espera = new Promise((resolve) => { setTimeout(() => resolve(dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.descricao("demorou mais de 1,5 s") })), 1500).unref(); });
       let r;
       try {
         r = await Promise.race([runner.provedor(agente, 1500), espera]);
       } catch (e) {
-        r = { ok: false, erro: e.message };
+        r = dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.campo(e, "message") });
       }
       let valor;
       if (r.ok && typeof r.dados.rotulo === 'string' && r.dados.rotulo.trim()) {
@@ -561,11 +561,11 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       const r = await Promise.race([existente.promessa, limite]);
       clearTimeout(espera);
       if (r === 'tempo') {
-        return { status: 409, corpo: { ok: false, erro: dgIdiomaBackend.mensagem("Já existe um envio com o cliente_id {p0} em andamento há mais de 30 s e ele ainda não respondeu. Não mandei de novo para não duplicar: confira a conversa antes de tentar outra vez.", {p0: (clienteId)}), cliente_id: clienteId } };
+        return { status: 409, corpo: dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.descricao("Já existe um envio com o cliente_id {p0} em andamento há mais de 30 s e ele ainda não respondeu. Não mandei de novo para não duplicar: confira a conversa antes de tentar outra vez.", {p0: (clienteId)}), cliente_id: clienteId }) };
       }
       if (r && r.status < 300) {
         log('info', `${rota} repetido para ${agente.slug} (cliente_id ${clienteId}): devolvi a resposta do envio que já tinha saído.`);
-        return { status: r.status, corpo: Object.assign({}, r.corpo, { repetido: true }) };
+        return { status: r.status, corpo: dgIdiomaBackend.atribuir({}, r.corpo, { repetido: true }) };
       }
       // o original falhou: segue e tenta de novo
     }
@@ -623,7 +623,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       return item;
     });
   }
-  const erro = (status, motivo, extra) => ({ status, corpo: Object.assign({ ok: false, erro: motivo }, extra || {}) });
+  const erro = (status, motivo, extra) => ({ status, corpo: dgIdiomaBackend.atribuir(dgIdiomaBackend.objeto({ ok: false, erro: motivo }), extra || {}) });
 
   /** Entrega o texto (já com marcadores de anexo) ao agente. Devolve { status, corpo }. */
   async function entregar(agente, textoFinal, { cru, voz, from, colaboradorId }) {
@@ -639,11 +639,11 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       // O agente só fica ocioso depois de a pergunta ser respondida: enfileirar aqui prenderia a mensagem em silêncio.
       log('aviso', `Envio para ${agente.slug} barrado: ele espera a resposta de uma pergunta de escolha (${cru ? 'comando cru' : `${textoFinal.length} caracteres`}).`);
       return erro(409, `${agente.nome} está esperando você responder uma pergunta de escolha; a mensagem não foi enviada.`,
-        { howToFix: 'Responda no cartão da pergunta, acima da caixa de mensagem, ou cancele a pergunta ali; depois reenvie.', codigo: 'PERGUNTA_PENDENTE' });
+        dgIdiomaBackend.objeto({ howToFix: 'Responda no cartão da pergunta, acima da caixa de mensagem, ou cancele a pergunta ali; depois reenvie.', codigo: 'PERGUNTA_PENDENTE' }));
     }
     const motivoFila = antes.ok && antes.estado.status === 'waiting_input' ? (antes.estado.motivo === 'pergunta' ? 'pergunta' : 'permissao')
       : antes.ok && antes.estado.status === 'working' ? 'resposta' : null;
-    const r = await runner.input(agente, { text: payload, submit: true, injectWhenIdle: true, ...(motivoFila ? { esperou: true } : {}) });
+    const r = await runner.input(agente, dgIdiomaBackend.objeto({ text: payload, submit: true, injectWhenIdle: true, ...dgIdiomaBackend.espalhar(motivoFila ? { esperou: true } : {}) }));
     if (!r.ok) {
       log('erro', `Envio para ${agente.slug} não entregue (${cru ? 'comando cru' : `${textoFinal.length} caracteres`}): ${r.erro}`);
       // O código do runner (LOGIN_EXPIRADO) segue até a tela, que abre o pop-up de reconectar em vez de só dar erro.
@@ -654,14 +654,14 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     if (r.entregaIncerta) {
       log('aviso', `Entrega incerta para ${agente.slug}: ${r.aviso}`);
       corpo.entrega_incerta = true;
-      corpo.aviso = `${r.aviso} Confira a conversa antes de reenviar.`;
+      dgIdiomaBackend.definir(corpo, "aviso", `${r.aviso} Confira a conversa antes de reenviar.`);
     }
     // O texto é guardado sempre (não só quando o painel viu o agente ocupado): outro aparelho pode ter enviado
     // com o agente ocioso, e a mensagem mesmo assim ficar atrás de outra no runner.
     if (msgId) guardaTextoNaFila(agente.slug, msgId, textoFinal, colaboradorId);
     if (msgId) corpo.msg = msgId;   // a tela usa o id para casar a resposta HTTP com a lista da fila, em qualquer ordem
     if (motivoFila) {
-      corpo.fila = { motivo: motivoFila };
+      corpo.fila = dgIdiomaBackend.objeto({ motivo: motivoFila });
       if (msgId) corpo.fila.msg = msgId;
     }
     return { status: 200, corpo };
@@ -685,7 +685,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     }
     if (e.estado.status === 'waiting_input' && e.estado.motivo === 'pergunta') {
       // O "1" que aprova um comando escolheria a primeira opção da pergunta: o runner também recusa, mas aqui nem chamamos.
-      return erro(409, `${agente.nome} está esperando a resposta de uma pergunta de escolha, não uma permissão. Responda no cartão da pergunta. Nada foi enviado.`, { estado: e.estado.status, motivo: 'pergunta' });
+      return erro(409, `${agente.nome} está esperando a resposta de uma pergunta de escolha, não uma permissão. Responda no cartão da pergunta. Nada foi enviado.`, dgIdiomaBackend.objeto({ estado: e.estado.status, motivo: 'pergunta' }));
     }
     if (e.estado.status !== 'waiting_input') {
       return erro(409, `${agente.nome} não está esperando permissão agora (estado: ${e.estado.status}). Provavelmente o pedido já foi resolvido. Atualize a conversa.`, { estado: e.estado.status });
@@ -705,7 +705,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       log('erro', `Permissão de ${agente.slug} (${decisao}) recusada pelo runner (HTTP ${r.status}): ${motivo}`);
       if (r.status === 409 && r.corpo && r.corpo.code === 'PERGUNTA_JA_RESPONDIDA') {
         return erro(409, `A resposta desta pergunta de ${agente.nome} já foi enviada (por esta ou outra aba). Nada foi digitado agora.`,
-          { howToFix: 'Atualize a conversa. Se o terminal ficou no meio da resposta, termine pela aba Sessões.', codigo: 'PERGUNTA_JA_RESPONDIDA' });
+          dgIdiomaBackend.objeto({ howToFix: 'Atualize a conversa. Se o terminal ficou no meio da resposta, termine pela aba Sessões.', codigo: 'PERGUNTA_JA_RESPONDIDA' }));
       }
       if (r.status === 429 && r.corpo && r.corpo.code === 'MUITO_RAPIDO') {
         const espere = typeof r.corpo.espereS === 'number' ? r.corpo.espereS : null;
@@ -775,7 +775,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       log('erro', `Pergunta de ${agente.slug} recusada pelo runner (HTTP ${r.status}, ${(r.corpo && r.corpo.code) || 'sem código'}): ${motivo}`);
       if (r.status === 409 && r.corpo && r.corpo.code === 'PERGUNTA_JA_MEXIDA') {
         return erro(409, `A pergunta de ${agente.nome} já recebeu teclas pelo terminal desde que abriu; a resposta pelo chat poderia cair na etapa errada. Nada foi enviado.`,
-          { howToFix: 'Termine a resposta pelo terminal, na aba Sessões.', codigo: 'PERGUNTA_JA_MEXIDA' });
+          dgIdiomaBackend.objeto({ howToFix: 'Termine a resposta pelo terminal, na aba Sessões.', codigo: 'PERGUNTA_JA_MEXIDA' }));
       }
       if (r.status === 429 && r.corpo && r.corpo.code === 'MUITO_RAPIDO') {
         const espere = typeof r.corpo.espereS === 'number' ? r.corpo.espereS : null;
@@ -890,14 +890,14 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     const statusAntes = STATUS_CONHECIDOS.has(d.statusAntes) ? d.statusAntes : '?';
     log('info', `Parar ${agente.slug}: Esc enviado por ${quem} em ${enviadoEm} (estado antes: ${statusAntes}).`);
     const mensagem = `Mandei um Esc para ${agente.nome} (o mesmo que apertar Esc no terminal). Se ele estava no meio de um turno, o turno costuma parar em instantes; um comando que estava rodando pode continuar executando (no Codex, até o que estava em primeiro plano). Confira antes de mexer nos mesmos arquivos.`;
-    return { status: 200, corpo: { ok: true, agente: agente.slug, enviado_em: enviadoEm, trabalhando: true, mensagem } };
+    return { status: 200, corpo: dgIdiomaBackend.objeto({ ok: true, agente: agente.slug, enviado_em: enviadoEm, trabalhando: true, mensagem }) };
   }
 
   /** `ator` (opcional) é quem fala: { from } para o envelope e { colaborador:true } para travar o que é do dono. */
   async function enviar(agente, req, ator) {
     const ehColab = !!(ator && ator.colaborador);
     const limpo = validaControle(typeof req.text === 'string' ? req.text.trim() : '', 'O texto', { normalizarCR: !ehColab });
-    if (limpo.erro) return erro(400, limpo.erro, { codigo: 'CONTROLE_NO_TEXTO' });
+    if (limpo.erro) return erro(400, dgIdiomaBackend.campo(limpo,"erro"), { codigo: 'CONTROLE_NO_TEXTO' });
     const texto = limpo.texto;
     const ids = req.anexos == null ? [] : req.anexos;
     if (!Array.isArray(ids) || !ids.every((i) => typeof i === 'string' && i)) {
@@ -917,7 +917,7 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       const r = await entregar(agente, g.marca, { cru: false });
       if (r.status >= 300) return r;
       log('info', `Token do Telegram de ${agente.slug} guardado no .env do agente (${g.mascarado}).`);
-      return { status: 200, corpo: Object.assign({}, r.corpo, { token_guardado: true, mascarado: g.mascarado, marca: g.marca }) };
+      return { status: 200, corpo: dgIdiomaBackend.atribuir({}, r.corpo, { token_guardado: true, mascarado: g.mascarado, marca: g.marca }) };
     }
     if (texto.length > config.maxTexto) return erro(413, `O texto tem ${texto.length} caracteres e o limite é ${config.maxTexto} por mensagem. Divida em partes.`);
     const marcadores = []; const faltam = [];
@@ -938,8 +938,9 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     const d = await comandos.decidir(agente, texto, { temAnexos: ids.length > 0 });
     if (d.erro) {
       log('aviso', `Comando recusado para ${agente.slug} (${d.erro.codigo}): ${String(texto).slice(0, 80)}`);
-      const { status, ...corpo } = d.erro;
-      return erro(status, corpo.erro, { codigo: corpo.codigo, ...omite(corpo, ['erro', 'codigo']) });
+      const status = d.erro.status, corpo = dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(d.erro) });
+      delete corpo.status;
+      return erro(status, dgIdiomaBackend.campo(corpo, "erro"), dgIdiomaBackend.objeto({ codigo: corpo.codigo, ...dgIdiomaBackend.espalhar(omite(corpo, ['erro', 'codigo'])) }));
     }
     if (d.tipo === 'comando') return entregaComando(agente, d, ator);
     const base = d.texto !== undefined ? d.texto : texto;
@@ -949,14 +950,14 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
     return entregar(agente, [base, ...marcadores, ...nota].filter(Boolean).join('\n'), { cru: false, voz: req.voz === true, from: ator && ator.from });
   }
 
-  const omite = (o, chaves) => Object.fromEntries(Object.entries(o).filter(([k]) => !chaves.includes(k)));
+  const omite = (o, chaves) => dgIdiomaBackend.objeto(Object.fromEntries(Object.entries(dgIdiomaBackend.espalhar(o)).filter(([k]) => !chaves.includes(k))));
 
   /** Entrega uma decisão do tipo 'comando' e anexa o objeto `comando` ao corpo 200. */
   async function entregaComando(agente, d, ator) {
     const r = await entregar(agente, d.textoParaRunner, { cru: d.entregue_como === 'cru', from: ator && ator.from });
     if (r.status >= 300) return r;
-    const comando = Object.assign({}, d.comando, { entregue_como: d.entregue_como });
-    return { status: r.status, corpo: Object.assign({}, r.corpo, { comando }) };
+    const comando = dgIdiomaBackend.atribuir({}, d.comando, { entregue_como: d.entregue_como });
+    return { status: r.status, corpo: dgIdiomaBackend.atribuir({}, r.corpo, { comando }) };
   }
 
   /**
@@ -978,13 +979,14 @@ function criarConversa({ config, runner, leitor, leitorRollout, midia, log, agor
       return erro(400, 'Mande o comando em "comando" (ex.: "/compact") ou o texto inteiro em "text" (ex.: "/compact foque nas decisões"). Recebi vazio. Nada foi enviado.', { codigo: 'COMANDO_MALFORMADO' });
     }
     const limpoCmd = validaControle(texto, 'O comando', { normalizarCR: !(ator && ator.colaborador) });
-    if (limpoCmd.erro) return erro(400, limpoCmd.erro, { codigo: 'CONTROLE_NO_TEXTO' });
+    if (limpoCmd.erro) return erro(400, dgIdiomaBackend.campo(limpoCmd,"erro"), { codigo: 'CONTROLE_NO_TEXTO' });
     texto = limpoCmd.texto;
     if (texto.length > config.maxTexto) return erro(413, `O comando tem ${texto.length} caracteres e o limite é ${config.maxTexto}. Encurte os argumentos.`);
     const d = await comandos.decidir(agente, texto, { temAnexos: false });
     if (d.erro) {
-      const { status, ...corpo } = d.erro;
-      return erro(status, corpo.erro, { codigo: corpo.codigo, ...omite(corpo, ['erro', 'codigo']) });
+      const status = d.erro.status, corpo = dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(d.erro) });
+      delete corpo.status;
+      return erro(status, dgIdiomaBackend.campo(corpo, "erro"), dgIdiomaBackend.objeto({ codigo: corpo.codigo, ...dgIdiomaBackend.espalhar(omite(corpo, ['erro', 'codigo'])) }));
     }
     if (d.tipo !== 'comando') {
       return erro(400, `"${texto.slice(0, 80)}" não é um comando: o comando começa com uma barra e o nome vai colado nela, sem espaço (ex.: "/compact"). Para mandar texto comum ao agente, use o /send. Nada foi enviado.`, { codigo: 'COMANDO_MALFORMADO' });

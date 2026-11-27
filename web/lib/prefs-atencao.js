@@ -31,11 +31,11 @@ function criarPrefsAtencao({ arquivo, log }) {
     let novo;
     try {
       const j = JSON.parse(bruto);
-      if (!j || typeof j !== 'object' || Array.isArray(j) || !j.usuarios || typeof j.usuarios !== 'object' || Array.isArray(j.usuarios)) throw new Error(dgIdiomaBackend.mensagem("falta o campo \"usuarios\""));
+      if (!j || typeof j !== 'object' || Array.isArray(j) || !j.usuarios || typeof j.usuarios !== 'object' || Array.isArray(j.usuarios)) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("falta o campo \"usuarios\"")]);
       novo = {};
       for (const u of Object.keys(j.usuarios)) {
         const prefs = j.usuarios[u];
-        if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) throw new Error(dgIdiomaBackend.mensagem("as preferências de \"{p0}\" não são um objeto", {p0: (u)}));
+        if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("as preferências de \"{p0}\" não são um objeto", {p0: (u)})]);
         novo[u] = {};
         for (const t of TIPOS) if (typeof prefs[t] === 'boolean') novo[u][t] = prefs[t];
       }
@@ -55,18 +55,18 @@ function criarPrefsAtencao({ arquivo, log }) {
   /** `parcial` só com as chaves booleanas conhecidas; qualquer outra coisa lança 400 dizendo o que mandar. */
   function grava(usuario, parcial) {
     if (!parcial || typeof parcial !== 'object' || Array.isArray(parcial)) {
-      const e = new Error(dgIdiomaBackend.mensagem("Mande um objeto como {\"precisa_de_voce\": true, \"terminou\": false}.")); e.status = 400; throw e;
+      const e = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("Mande um objeto como {\"precisa_de_voce\": true, \"terminou\": false}.")]); e.status = 400; throw e;
     }
     const novas = {};
     for (const k of Object.keys(parcial)) {
-      if (!TIPOS.includes(k)) { const e = new Error(dgIdiomaBackend.mensagem("A preferência \"{p0}\" não existe. As que existem: {p1}.", {p0: (k), p1: (TIPOS.join(', '))})); e.status = 400; throw e; }
-      if (typeof parcial[k] !== 'boolean') { const e = new Error(dgIdiomaBackend.mensagem("\"{p0}\" precisa ser true ou false. Recebi: {p1}.", {p0: (k), p1: (JSON.stringify(parcial[k]))})); e.status = 400; throw e; }
+      if (!TIPOS.includes(k)) { const e = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("A preferência \"{p0}\" não existe. As que existem: {p1}.", {p0: (k), p1: (TIPOS.join(', '))})]); e.status = 400; throw e; }
+      if (typeof parcial[k] !== 'boolean') { const e = dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("\"{p0}\" precisa ser true ou false. Recebi: {p1}.", {p0: (k), p1: (JSON.stringify(parcial[k]))})]); e.status = 400; throw e; }
       novas[k] = parcial[k];
     }
     const d = carrega();
     const copia = {};
-    for (const u of Object.keys(d)) copia[u] = { ...d[u] };
-    copia[usuario] = { ...(copia[usuario] || {}), ...novas };
+    for (const u of Object.keys(d)) copia[u] = dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(d[u]) });
+    copia[usuario] = dgIdiomaBackend.objeto({ ...dgIdiomaBackend.espalhar(copia[usuario] || {}), ...dgIdiomaBackend.espalhar(novas) });
     try {
       fs.mkdirSync(pasta, { recursive: true, mode: 0o700 });
       gravaArquivoSeguro(arquivo, `${JSON.stringify({ versao: 1, usuarios: copia }, null, 2)}\n`, { raiz: pasta, modo: 0o600 });

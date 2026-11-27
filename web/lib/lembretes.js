@@ -77,7 +77,7 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
       return `${st.mtimeMs}:${st.size}`;
     } catch (e) {
       if (e.code === 'ENOENT') return 'ausente';
-      throw new ErroLoja(dgIdiomaBackend.mensagem("Não consegui ler {p0} ({p1}). Confira se o Web roda como root e se a pasta de dados existe. Os lembretes ficam parados até isso ser resolvido; nada foi gravado por cima.", {p0: (arqLoja), p1: (e.code || e.message)}));
+      throw dgIdiomaBackend.criarErro(ErroLoja, [dgIdiomaBackend.descricao("Não consegui ler {p0} ({p1}). Confira se o Web roda como root e se a pasta de dados existe. Os lembretes ficam parados até isso ser resolvido; nada foi gravado por cima.", {p0: (arqLoja), p1: (e.code || dgIdiomaBackend.campo(e, "message"))})]);
     }
   }
 
@@ -89,7 +89,7 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
     if (sig === 'ausente') return;
     try {
       const d = JSON.parse(fs.readFileSync(arqLoja, 'utf8'));
-      if (!d || !Array.isArray(d.lembretes) || !Array.isArray(d.ocorrencias)) throw new Error(dgIdiomaBackend.mensagem("faltam as listas \"lembretes\" e \"ocorrencias\""));
+      if (!d || !Array.isArray(d.lembretes) || !Array.isArray(d.ocorrencias)) throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("faltam as listas \"lembretes\" e \"ocorrencias\"")]);
       for (const l of d.lembretes) lembretes.set(l.id, l);
       for (const o of d.ocorrencias) ocorrencias.set(o.id, o);
     } catch (e) {
@@ -138,27 +138,27 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
   }
 
   function ocPublica(o) {
-    return {
+    return dgIdiomaBackend.objeto({
       id: o.id, lembrete_id: o.lembrete_id, agente: o.agente, agente_nome: nomeDoAgente(o.agente), texto: o.texto,
-      titulo: o.titulo, agendada_para: iso(o.agendada_ep), estado: o.estado, atrasado: !!o.atrasado,
+      titulo: dgIdiomaBackend.campo(o, "titulo"), agendada_para: iso(o.agendada_ep), estado: o.estado, atrasado: !!o.atrasado,
       envios: o.envios.map((e) => ({ n: e.n, em: e.em, push: e.push, agente: e.agente })),
       total_envios: o.total_envios, teto: o.teto, envio: o.ciclo_envios,
       proximo_envio_em: iso(proximoEnvioEp(o)), adiada_ate: iso(o.adiada_ate_ep), adiamentos: o.adiamentos,
       feito_em: iso(o.feito_ep), feito_por: o.feito_por, feito_origem: o.feito_origem, tarde: !!o.tarde,
-      encerrada_em: iso(o.encerrada_ep), motivo: o.motivo,
-    };
+      encerrada_em: iso(o.encerrada_ep), motivo: dgIdiomaBackend.campo(o, "motivo"),
+    });
   }
 
   const ocsDe = (lid) => [...ocorrencias.values()].filter((o) => o.lembrete_id === lid).sort((a, b) => b.agendada_ep - a.agendada_ep);
 
   function lemPublico(l, ultimas) {
-    return {
+    return dgIdiomaBackend.objeto({
       id: l.id, agente: l.agente, agente_nome: nomeDoAgente(l.agente), texto: l.texto, regra: l.regra,
       regra_texto: F.regraEmPortugues(l.regra, l.fim), fim: l.fim, intervalo_min: l.intervalo_min,
-      teto_envios: l.teto_envios, pelo_agente: l.pelo_agente, titulo: l.titulo, estado: estadoDe(l),
+      teto_envios: l.teto_envios, pelo_agente: l.pelo_agente, titulo: dgIdiomaBackend.campo(l, "titulo"), estado: estadoDe(l),
       proxima: iso(l.proxima_ep), criado_por: l.criado_por, criado_em: l.criado_em, atualizado_em: l.atualizado_em,
       ultimas_ocorrencias: ocsDe(l.id).slice(0, ultimas).map(ocPublica),
-    };
+    });
   }
 
   // ── envio ──────────────────────────────────────────────────────────────────
@@ -175,17 +175,17 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
   }
 
   async function enviarPush(o, n) {
-    const aviso = {
-      titulo: o.titulo,
+    const aviso = dgIdiomaBackend.objeto({
+      titulo: dgIdiomaBackend.campo(o, "titulo"),
       corpo: o.texto + (n > 1 ? ` (aviso ${n} de ${o.teto})` : ''),
       tag: 'lembrete-' + o.id,
       url: '/a/' + o.agente + '#lembretes',
       exigir_interacao: true,
       acoes: [
-        { acao: 'feito', titulo: '✅ Feito', post: `${BASE}/ocorrencias/${o.id}/feito` },
-        { acao: 'adiar', titulo: '⏰ Adiar 10 min', post: `${BASE}/ocorrencias/${o.id}/adiar` },
+        dgIdiomaBackend.objeto({ acao: 'feito', titulo: '✅ Feito', post: `${BASE}/ocorrencias/${o.id}/feito` }),
+        dgIdiomaBackend.objeto({ acao: 'adiar', titulo: '⏰ Adiar 10 min', post: `${BASE}/ocorrencias/${o.id}/adiar` }),
       ],
-    };
+    });
     try {
       const r = await push.enviar(aviso);
       if (!r.inscricoes && n === 1) log('info', `Lembrete ${o.id} (${o.agente}): nenhum aparelho com avisos ativados; só a faixa${o.pelo_agente ? ' e o agente' : ''} avisam. O dono ativa em /lembretes.`);
@@ -193,7 +193,7 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
       return r;
     } catch (e) {
       log('erro', `Lembrete ${o.id} (${o.agente}): o aviso no aparelho não saiu (${e.message}). A faixa e o agente seguem avisando.`);
-      return { inscricoes: 0, ok: 0, removidas: 0, falhas: [{ id: null, servico: null, status: null, motivo: e.message }] };
+      return { inscricoes: 0, ok: 0, removidas: 0, falhas: [dgIdiomaBackend.objeto({ id: null, servico: null, status: null, motivo: dgIdiomaBackend.campo(e, "message") })] };
     }
   }
 
@@ -203,22 +203,22 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
     if (!ag) {
       const erro = `O agente "${o.agente}" não está no registro de agentes; o recado não foi entregue. Confira GET /api/v1/agents.`;
       log('aviso', `Lembrete ${o.id}: ${erro}`);
-      return { ok: false, erro };
+      return dgIdiomaBackend.objeto({ ok: false, erro });
     }
     try {
       let recado;
-      try { recado = recadoAoAgente(Object.assign({}, o, { texto: filtra(ag.slug, o.texto) }), n); } catch (e) {
+      try { recado = recadoAoAgente(dgIdiomaBackend.atribuir({}, o, { texto: filtra(ag.slug, o.texto) }), n); } catch (e) {
         log('erro', `Lembrete ${o.id} (${o.agente}): o recado ao agente não saiu: ${e.message}`);
-        return { ok: false, erro: e.message };
+        return dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.campo(e, "message") });
       }
       const r = await runner.input(ag, { text: recado, submit: true, injectWhenIdle: true });
       if (r.ok && r.entregaIncerta) log('aviso', `Lembrete ${o.id} (${o.agente}): entrega incerta do recado ao agente: ${r.aviso} Confira a conversa antes de reenviar.`);
       if (r.ok) return { ok: true };
       log('aviso', `Lembrete ${o.id} (${o.agente}): o recado ao agente não foi entregue: ${r.erro}`);
-      return { ok: false, erro: r.erro };
+      return dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.campo(r, "erro") });
     } catch (e) {
       log('erro', `Lembrete ${o.id} (${o.agente}): falha inesperada ao entregar o recado ao agente (${e.message}).`);
-      return { ok: false, erro: e.message };
+      return dgIdiomaBackend.objeto({ ok: false, erro: dgIdiomaBackend.campo(e, "message") });
     }
   }
 
@@ -247,21 +247,21 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
   const ocId = (l, agEp) => `oc_${l.id.slice(4)}_${F.dataLocal(agEp, tz).replace(/-/g, '')}${F.horaLocal(agEp, tz).replace(':', '')}`;
 
   function novaOcorrencia(l, agEp, atraso, estado, extra) {
-    return Object.assign({
-      id: ocId(l, agEp), lembrete_id: l.id, agente: l.agente, texto: l.texto, titulo: l.titulo,
+    return dgIdiomaBackend.atribuir(dgIdiomaBackend.objeto({
+      id: ocId(l, agEp), lembrete_id: l.id, agente: l.agente, texto: l.texto, titulo: dgIdiomaBackend.campo(l, "titulo"),
       pelo_agente: l.pelo_agente, intervalo_min: l.intervalo_min, teto: l.teto_envios,
       agendada_ep: agEp, atraso_s: Math.round(atraso / 1000), atrasado: atraso > ATRASADO_MS, estado,
       envios: [], total_envios: 0, ciclo_envios: 0, ciclo_inicio_ep: null,
       adiada_ate_ep: null, adiamentos: 0, feito_ep: null, feito_por: null, feito_origem: null, tarde: false,
       encerrada_ep: null, motivo: null,
-    }, extra || {});
+    }), extra || {});
   }
 
   function cancelaInsistencia(lid, motivo, tAgora) {
     for (const o of ocorrencias.values()) {
       if (o.lembrete_id === lid && (o.estado === 'insistindo' || o.estado === 'adiada')) {
         o.estado = 'cancelada';
-        o.motivo = motivo;
+        dgIdiomaBackend.definir(o, "motivo", motivo);
         o.encerrada_ep = tAgora;
         o.adiada_ate_ep = null;
       }
@@ -302,10 +302,10 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
           if (atraso > ATRASO_MAX_MS) {
             perdidas += 1;
             if (perdidas <= MAX_PERDIDAS) {
-              ocorrencias.set(id, novaOcorrencia(l, agEp, atraso, 'perdida', {
+              ocorrencias.set(id, novaOcorrencia(l, agEp, atraso, 'perdida', dgIdiomaBackend.objeto({
                 encerrada_ep: tAgora,
-                motivo: dgIdiomaBackend.mensagem("o Web estava fora do ar na hora marcada e só voltou {p0} min depois", {p0: (Math.floor(atraso / 60000))}),
-              }));
+                motivo: dgIdiomaBackend.descricao("o Web estava fora do ar na hora marcada e só voltou {p0} min depois", {p0: (Math.floor(atraso / 60000))}),
+              })));
             }
           } else {
             ocorrencias.set(id, novaOcorrencia(l, agEp, atraso, 'insistindo'));
@@ -338,7 +338,7 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
       if (tAgora >= o.ciclo_inicio_ep + o.teto * passoMs(o)) {
         o.estado = 'sem_resposta';
         o.encerrada_ep = tAgora;
-        o.motivo = `${o.ciclo_envios} aviso(s) sem confirmação`;
+        dgIdiomaBackend.definir(o, "motivo", `${o.ciclo_envios} aviso(s) sem confirmação`);
         mudou = true;
         log('info', `Lembrete ${o.id} (${o.agente}): chegou ao teto de ${o.teto} aviso(s) sem confirmação.`);
       } else if (o.ciclo_envios < o.teto && tAgora >= proximoEnvioEp(o)) {
@@ -421,7 +421,7 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
     }
     if ('regra' in corpo && modo !== 'disparar') {
       const r = F.validaRegra(corpo.regra);
-      Object.assign(erros, r.erros);
+      dgIdiomaBackend.atribuir(erros, r.erros);
       if (r.regra) limpo.regra = r.regra;
     }
     if ('daqui_min' in corpo && modo === 'criar' && !('regra' in corpo)) {
@@ -446,10 +446,10 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
     }
     if ('titulo' in corpo) {
       const t = corpo.titulo;
-      if (t === null) limpo.titulo = null;
-      else if (typeof t !== 'string' || !t.trim()) erros.titulo = `veio ${F.veio(t)}, mande um texto de até ${MAX_TITULO} caracteres (padrão "${TITULO_PADRAO}")`;
-      else if (t.trim().length > MAX_TITULO) erros.titulo = `tem ${t.trim().length} caracteres; o máximo é ${MAX_TITULO}`;
-      else limpo.titulo = t.trim();
+      if (t === null) dgIdiomaBackend.definir(limpo, "titulo", null);
+      else if (typeof t !== 'string' || !t.trim()) dgIdiomaBackend.definir(erros, "titulo", `veio ${F.veio(t)}, mande um texto de até ${MAX_TITULO} caracteres (padrão "${TITULO_PADRAO}")`);
+      else if (t.trim().length > MAX_TITULO) dgIdiomaBackend.definir(erros, "titulo", `tem ${t.trim().length} caracteres; o máximo é ${MAX_TITULO}`);
+      else dgIdiomaBackend.definir(limpo, "titulo", t.trim());
     }
     return { limpo, erros };
   }
@@ -473,15 +473,15 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
     const slug = bruto === undefined ? null : bruto.trim();
     if (quem.tipo === 'agente') {
       if (slug && slug !== quem.slug) {
-        H.erroJson(res, 403, dgIdiomaBackend.mensagem("Um agente só cria e mexe em lembretes dele mesmo: você é \"{p0}\" e o pedido era para \"{p1}\". Tire o campo \"agente\" ou use o seu.", {p0: (quem.slug), p1: (slug)}));
+        H.erroJson(res, 403, dgIdiomaBackend.descricao("Um agente só cria e mexe em lembretes dele mesmo: você é \"{p0}\" e o pedido era para \"{p1}\". Tire o campo \"agente\" ou use o seu.", {p0: (quem.slug), p1: (slug)}));
         return null;
       }
       return quem.slug;
     }
     const est = registro.estado();
-    if (!est.ok) { H.erroJson(res, 503, est.erro); return null; }
+    if (!est.ok) { H.erroJson(res, 503, dgIdiomaBackend.campo(est, "erro")); return null; }
     if (slug) {
-      if (!registro.obter(slug)) { H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe agente \"{p0}\". Veja os ids em GET /api/v1/agents.", {p0: (slug)})); return null; }
+      if (!registro.obter(slug)) { H.erroJson(res, 404, dgIdiomaBackend.descricao("Não existe agente \"{p0}\". Veja os ids em GET /api/v1/agents.", {p0: (slug)})); return null; }
       return slug;
     }
     if (!exigir) return undefined;
@@ -504,7 +504,7 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
   function achaLembrete(res, quem, id) {
     const l = RX_LEMBRETE.test(id) ? lembretes.get(id) : null;
     if (!l || !visivel(quem, l)) {
-      H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe o lembrete \"{p0}\". Veja os existentes em GET {p1}.", {p0: (id.slice(0, 40)), p1: (BASE)}));
+      H.erroJson(res, 404, dgIdiomaBackend.descricao("Não existe o lembrete \"{p0}\". Veja os existentes em GET {p1}.", {p0: (id.slice(0, 40)), p1: (BASE)}));
       return null;
     }
     return l;
@@ -521,27 +521,27 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
 
   function novoId() {
     for (let i = 0; i < 20; i += 1) { const id = 'lem_' + crypto.randomBytes(4).toString('hex'); if (!lembretes.has(id)) return id; }
-    throw new ErroLoja(dgIdiomaBackend.mensagem("Não consegui gerar um id livre para o lembrete. Tente de novo."));
+    throw dgIdiomaBackend.criarErro(ErroLoja, [dgIdiomaBackend.descricao("Não consegui gerar um id livre para o lembrete. Tente de novo.")]);
   }
 
   function montaLembrete(campos, agente, quem, tAgora) {
-    return {
+    return dgIdiomaBackend.objeto({
       id: novoId(), agente, texto: campos.texto, regra: campos.regra, fim: campos.fim || null,
       intervalo_min: campos.intervalo_min == null ? INTERVALO_PADRAO_MIN : campos.intervalo_min,
       teto_envios: campos.teto_envios == null ? TETO_PADRAO : campos.teto_envios,
       pelo_agente: campos.pelo_agente == null ? true : campos.pelo_agente,
-      titulo: campos.titulo || TITULO_PADRAO, ativo: true, proxima_ep: null,
+      titulo: dgIdiomaBackend.campo(campos, "titulo") || TITULO_PADRAO, ativo: true, proxima_ep: null,
       criado_por: quemTexto(quem), criado_em: iso(tAgora), criado_ep: tAgora, atualizado_em: iso(tAgora),
-    };
+    });
   }
 
   /** Mensagem de por que uma regra não tem horário no futuro. */
   function semFuturo(regra, fim, tAgora) {
-    if (fim && fim < F.dataLocal(tAgora, tz)) return { erro: dgIdiomaBackend.mensagem("fim: veio \"{p0}\", que já passou (hoje é {p1} no fuso {p2}). Mande uma data de hoje em diante", {p0: (fim), p1: (F.dataLocal(tAgora, tz)), p2: (tz)}), campo: 'fim' };
+    if (fim && fim < F.dataLocal(tAgora, tz)) return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("fim: veio \"{p0}\", que já passou (hoje é {p1} no fuso {p2}). Mande uma data de hoje em diante", {p0: (fim), p1: (F.dataLocal(tAgora, tz)), p2: (tz)}), campo: 'fim' });
     if (regra.tipo === 'unico' && !(fim && regra.data > fim)) {
-      return { erro: dgIdiomaBackend.mensagem("regra: {p0} às {p1} já passou (agora são {p2} {p3}, fuso {p4}). Mande uma data e hora no futuro", {p0: (F.dataBr(regra.data)), p1: (regra.hora), p2: (F.dataBr(F.dataLocal(tAgora, tz))), p3: (F.horaLocal(tAgora, tz)), p4: (tz)}), campo: 'regra' };
+      return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("regra: {p0} às {p1} já passou (agora são {p2} {p3}, fuso {p4}). Mande uma data e hora no futuro", {p0: (F.dataBr(regra.data)), p1: (regra.hora), p2: (F.dataBr(F.dataLocal(tAgora, tz))), p3: (F.horaLocal(tAgora, tz)), p4: (tz)}), campo: 'regra' });
     }
-    return { erro: dgIdiomaBackend.mensagem("fim: com fim em {p0} a regra não tem nenhum horário no futuro. Mude o fim ou a regra", {p0: (fim || 'nenhuma data')}), campo: 'fim' };
+    return dgIdiomaBackend.objeto({ erro: dgIdiomaBackend.descricao("fim: com fim em {p0} a regra não tem nenhum horário no futuro. Mude o fim ou a regra", {p0: (fim || 'nenhuma data')}), campo: 'fim' });
   }
 
   async function criar(req, res, quem) {
@@ -560,7 +560,7 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
       if (limpo.fim && regra.data > limpo.fim) return erroDeCampos(res, 'Não criei o lembrete.', { fim: `veio "${limpo.fim}", mas daqui_min ${limpo.daqui_min} cai em ${F.dataBr(regra.data)}, depois do fim` });
     }
     if (limiteDoAgente(res, agente)) return;
-    const l = montaLembrete(Object.assign({}, limpo, { regra }), agente, quem, tAgora);
+    const l = montaLembrete(dgIdiomaBackend.atribuir({}, limpo, { regra }), agente, quem, tAgora);
     let prox = proximaFixa;
     if (prox == null) {
       const c = F.proximaDepois(regra, tAgora, l.fim, tz);
@@ -583,7 +583,7 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
     garante();
     const tAgora = relogio();
     const regra = { tipo: 'unico', data: F.dataLocal(tAgora, tz), hora: F.horaLocal(tAgora, tz) };
-    const l = montaLembrete(Object.assign({}, limpo, { regra }), agente, quem, tAgora);
+    const l = montaLembrete(dgIdiomaBackend.atribuir({}, limpo, { regra }), agente, quem, tAgora);
     l.avulso = true;
     lembretes.set(l.id, l);
     const o = novaOcorrencia(l, tAgora, 0, 'insistindo');
@@ -600,10 +600,10 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
     const filtroAgente = q.get('agente');
     const filtroEstado = q.get('estado');
     if (filtroEstado && !['ativo', 'pausado', 'encerrado'].includes(filtroEstado)) {
-      return H.erroJson(res, 400, dgIdiomaBackend.mensagem("O filtro \"estado\" aceita ativo, pausado ou encerrado; recebi \"{p0}\".", {p0: (filtroEstado.slice(0, 40))}));
+      return H.erroJson(res, 400, dgIdiomaBackend.descricao("O filtro \"estado\" aceita ativo, pausado ou encerrado; recebi \"{p0}\".", {p0: (filtroEstado.slice(0, 40))}));
     }
     if (filtroAgente && quem.tipo === 'agente' && filtroAgente !== quem.slug) {
-      return H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe agente \"{p0}\" para você: um agente só vê os lembretes dele.", {p0: (filtroAgente.slice(0, 40))}));
+      return H.erroJson(res, 404, dgIdiomaBackend.descricao("Não existe agente \"{p0}\" para você: um agente só vê os lembretes dele.", {p0: (filtroAgente.slice(0, 40))}));
     }
     const itens = [...lembretes.values()]
       .filter((l) => visivel(quem, l) && (!filtroAgente || l.agente === filtroAgente) && (!filtroEstado || estadoDe(l) === filtroEstado))
@@ -611,15 +611,15 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
     const insistindo = [...ocorrencias.values()]
       .filter((o) => o.estado === 'insistindo' && visivel(quem, o))
       .sort((a, b) => a.agendada_ep - b.agendada_ep)
-      .map((o) => ({
-        id: o.id, lembrete_id: o.lembrete_id, agente: o.agente, agente_nome: nomeDoAgente(o.agente), texto: o.texto, titulo: o.titulo,
+      .map((o) => (dgIdiomaBackend.objeto({
+        id: o.id, lembrete_id: o.lembrete_id, agente: o.agente, agente_nome: nomeDoAgente(o.agente), texto: o.texto, titulo: dgIdiomaBackend.campo(o, "titulo"),
         envio: o.ciclo_envios, teto: o.teto, proximo_envio_em: iso(proximoEnvioEp(o)), agendada_para: iso(o.agendada_ep),
-      }));
+      })));
     H.enviaJson(res, 200, {
       ok: true,
       lembretes: itens.map((l) => lemPublico(l, 3)),
       insistindo,
-      agendador: { ultimo_tique_em: iso(ultimoTique), intervalo_s: INTERVALO_TIQUE_MS / 1000, fuso: tz, erro: erroAgendador },
+      agendador: dgIdiomaBackend.objeto({ ultimo_tique_em: iso(ultimoTique), intervalo_s: INTERVALO_TIQUE_MS / 1000, fuso: tz, erro: erroAgendador }),
     });
   }
 
@@ -632,13 +632,13 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
     if (Object.keys(erros).length) return erroDeCampos(res, 'Não mudei o lembrete.', erros);
     garante();
     const tAgora = relogio();
-    const novo = Object.assign({}, l);
+    const novo = dgIdiomaBackend.atribuir({}, l);
     for (const k of ['texto', 'regra', 'fim']) if (k in limpo) novo[k] = limpo[k];
     if (novoAgente && novoAgente !== l.agente) {
       if (limiteDoAgente(res, novoAgente)) return;
       novo.agente = novoAgente;
     }
-    const padroes = { intervalo_min: INTERVALO_PADRAO_MIN, teto_envios: TETO_PADRAO, pelo_agente: true, titulo: TITULO_PADRAO };
+    const padroes = dgIdiomaBackend.objeto({ intervalo_min: INTERVALO_PADRAO_MIN, teto_envios: TETO_PADRAO, pelo_agente: true, titulo: TITULO_PADRAO });
     for (const k of Object.keys(padroes)) if (k in limpo) novo[k] = limpo[k] === null ? padroes[k] : limpo[k];
     if ('regra' in limpo || 'fim' in limpo) {
       const c = F.proximaDepois(novo.regra, tAgora, novo.fim, tz);
@@ -676,7 +676,7 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
     salvar();
     log('info', `Lembrete ${l.id} retomado por ${quemTexto(quem)}${c ? `, próxima ${iso(c.ep)}` : ' (a regra já acabou)'}.`);
     const corpo = { ok: true, ja_estava: false, lembrete: lemPublico(l, 3) };
-    if (!c) corpo.aviso = 'A regra já acabou (único que já tocou, ou depois do fim): não há próxima vez. Mude a regra ou o fim com PATCH para o lembrete voltar a tocar.';
+    if (!c) dgIdiomaBackend.definir(corpo, "aviso", 'A regra já acabou (único que já tocou, ou depois do fim): não há próxima vez. Mude a regra ou o fim com PATCH para o lembrete voltar a tocar.');
     return H.enviaJson(res, 200, corpo);
   }
 
@@ -700,7 +700,7 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
     garante();
     if (o.estado === 'feito') return H.enviaJson(res, 200, { ok: true, ja_estava: true, ocorrencia: ocPublica(o) });
     if (o.estado === 'perdida' || o.estado === 'cancelada') {
-      return H.erroJson(res, 409, dgIdiomaBackend.mensagem("Esta ocorrência está \"{p0}\" ({p1}), então não tem o que confirmar. As próximas vezes do lembrete seguem normalmente.", {p0: (o.estado), p1: (o.motivo || 'sem aviso enviado')}));
+      return H.erroJson(res, 409, dgIdiomaBackend.descricao("Esta ocorrência está \"{p0}\" ({p1}), então não tem o que confirmar. As próximas vezes do lembrete seguem normalmente.", {p0: (o.estado), p1: (dgIdiomaBackend.campo(o, "motivo") || 'sem aviso enviado')}));
     }
     const tAgora = relogio();
     o.tarde = o.estado === 'sem_resposta';
@@ -726,17 +726,17 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
     if (Object.keys(erros).length) return erroDeCampos(res, 'Não adiei.', erros);
     garante();
     if (o.estado === 'feito' || o.estado === 'perdida' || o.estado === 'cancelada') {
-      return H.erroJson(res, 409, dgIdiomaBackend.mensagem("Esta ocorrência está \"{p0}\"{p1}, então não dá para adiar.", {p0: (o.estado), p1: (o.motivo ? ` (${o.motivo})` : '')}));
+      return H.erroJson(res, 409, dgIdiomaBackend.descricao("Esta ocorrência está \"{p0}\"{p1}, então não dá para adiar.", {p0: (o.estado), p1: (o.motivo ? ` (${o.motivo})` : '')}));
     }
     if (o.adiamentos >= MAX_ADIAMENTOS) {
-      return H.erroJson(res, 409, dgIdiomaBackend.mensagem("Esta ocorrência já foi adiada {p0} vezes, que é o máximo. Confirme com Feito ou apague o lembrete em DELETE {p1}/{p2}.", {p0: (MAX_ADIAMENTOS), p1: (BASE), p2: (o.lembrete_id)}));
+      return H.erroJson(res, 409, dgIdiomaBackend.descricao("Esta ocorrência já foi adiada {p0} vezes, que é o máximo. Confirme com Feito ou apague o lembrete em DELETE {p1}/{p2}.", {p0: (MAX_ADIAMENTOS), p1: (BASE), p2: (o.lembrete_id)}));
     }
     const tAgora = relogio();
     o.estado = 'adiada';
     o.adiamentos += 1;
     o.adiada_ate_ep = tAgora + minutos * 60000;
     o.encerrada_ep = null;
-    o.motivo = null;
+    dgIdiomaBackend.definir(o, "motivo", null);
     o.tarde = false;
     salvar();
     log('info', `Lembrete ${o.id} (${o.agente}) adiado por ${minutos} min por ${quemTexto(quem)} (adiamento ${o.adiamentos} de ${MAX_ADIAMENTOS}); volta às ${iso(o.adiada_ate_ep)}.`);
@@ -750,7 +750,7 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
       res.end(texto);
     } catch (e) {
       log('erro', `Lembretes: não consegui ler docs/LEMBRETES.md (${e.code || e.message}).`);
-      H.erroJson(res, 500, dgIdiomaBackend.mensagem("O documento dos lembretes não foi encontrado no servidor. Reinstale o DG Claw Web."));
+      H.erroJson(res, 500, dgIdiomaBackend.descricao("O documento dos lembretes não foi encontrado no servidor. Reinstale o DG Claw Web."));
     }
   }
 
@@ -758,7 +758,7 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
     const p = url.pathname;
     const m = req.method;
     const sub = p.slice(BASE.length).replace(/\/+$/, '');
-    const metodoErrado = (usar) => H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use {p0} em {p1}.", {p0: (usar), p1: (p)}));
+    const metodoErrado = (usar) => H.erroJson(res, 405, dgIdiomaBackend.descricao("Use {p0} em {p1}.", {p0: (usar), p1: (p)}));
 
     if (sub === '/docs.md') return m === 'GET' ? docs(res) : metodoErrado('GET');
     if (sub === '') {
@@ -796,7 +796,7 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
         if (bruto != null && bruto !== '') {
           limite = Number(bruto);
           if (!Number.isInteger(limite) || limite < 1 || limite > MAX_OC_POR_LEMBRETE) {
-            return H.erroJson(res, 400, dgIdiomaBackend.mensagem("O parâmetro \"limit\" precisa ser um inteiro de 1 a {p0}; recebi \"{p1}\".", {p0: (MAX_OC_POR_LEMBRETE), p1: (String(bruto).slice(0, 40))}));
+            return H.erroJson(res, 400, dgIdiomaBackend.descricao("O parâmetro \"limit\" precisa ser um inteiro de 1 a {p0}; recebi \"{p1}\".", {p0: (MAX_OC_POR_LEMBRETE), p1: (String(bruto).slice(0, 40))}));
           }
         }
         return H.enviaJson(res, 200, { ok: true, lembrete_id: l.id, ocorrencias: ocsDe(l.id).slice(0, limite).map(ocPublica) });
@@ -804,7 +804,7 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
       if (m !== 'POST') return metodoErrado('POST');
       return acao === 'pausar' ? pausar(res, quem, l) : retomar(res, quem, l);
     }
-    return H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe {p0} {p1}. As rotas estão em GET {p2}/docs.md.", {p0: (m), p1: (p), p2: (BASE)}));
+    return H.erroJson(res, 404, dgIdiomaBackend.descricao("Não existe {p0} {p1}. As rotas estão em GET {p2}/docs.md.", {p0: (m), p1: (p), p2: (BASE)}));
   }
 
   /** Trata /api/v1/lembretes/*. Devolve true se respondeu. */
@@ -814,8 +814,8 @@ function criarLembretes({ config, registro, runner, push, log, agora, filtro }) 
     try {
       await despachar(req, res, url, quemChamou(sessao));
     } catch (e) {
-      if (e instanceof ErroLoja) H.erroJson(res, 503, e.message);
-      else if (e.status) H.erroJson(res, e.status, e.message);
+      if (e instanceof ErroLoja) H.erroJson(res, 503, dgIdiomaBackend.campo(e, "message"));
+      else if (e.status) H.erroJson(res, e.status, dgIdiomaBackend.campo(e, "message"));
       else throw e;
     }
     return true;

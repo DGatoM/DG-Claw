@@ -16,7 +16,7 @@ const MAX_FECHADAS = 5000;
 const DIAS_FECHADAS = 90;
 const MAX_PASSOS = 30;
 const MAX_ANEXOS = 20;
-const LIMITES = { titulo: 120, origem: 300, motivo: 300, nota: 200, passo: 120, rotulo: 120, url: 2000 };
+const LIMITES = dgIdiomaBackend.objeto({ titulo: 120, origem: 300, motivo: 300, nota: 200, passo: 120, rotulo: 120, url: 2000 });
 
 const TIPOS = ['conteudo', 'desenvolvimento', 'projeto', 'outro'];
 const ESTADOS = ['fazendo', 'travada', 'esperando_dono', 'concluida', 'cancelada'];
@@ -121,7 +121,7 @@ function normalizaEntrada(corpo, modo) {
   const v = {};
   const tem = (k) => corpo[k] !== undefined;
 
-  if (tem('titulo') || modo === 'criar') { const t = textoCampo(corpo.titulo, 'titulo', LIMITES.titulo, { obrigatorio: true }, erros); if (t !== undefined) v.titulo = t; }
+  if (tem('titulo') || modo === 'criar') { const t = textoCampo(corpo.titulo, 'titulo', LIMITES.titulo, { obrigatorio: true }, erros); if (t !== undefined) dgIdiomaBackend.definir(v, "titulo", t); }
   if (tem('origem') || modo === 'criar') { const t = textoCampo(corpo.origem, 'origem', LIMITES.origem, { obrigatorio: true }, erros); if (t !== undefined) v.origem = t; }
   for (const [k, max] of [['motivo', LIMITES.motivo], ['nota', LIMITES.nota]]) {
     if (tem(k)) { const t = textoCampo(corpo[k], k, max, { anulavel: true }, erros); if (t !== undefined) v[k] = t; }
@@ -184,16 +184,16 @@ function calculaProgresso(t) {
 function calculaLeitura(t, agoraMs, comEventos) {
   const decorrido = Math.max(0, agoraMs - t.atualizada_em_epoch * 1000);
   const aberta = ABERTOS.has(t.estado);
-  const saida = {
-    id: t.id, agente: t.agente, titulo: t.titulo, origem: t.origem, tipo: t.tipo, estado: t.estado,
+  const saida = dgIdiomaBackend.objeto({
+    id: t.id, agente: t.agente, titulo: dgIdiomaBackend.campo(t, "titulo"), origem: t.origem, tipo: t.tipo, estado: t.estado,
     aberta, parada: t.estado === 'fazendo' && decorrido > PARADA_MIN * 60000,
-    ...calculaProgresso(t),
-    motivo: t.motivo, nota: t.nota, passos: t.passos, link: t.link, anexos: t.anexos,
+    ...dgIdiomaBackend.espalhar(calculaProgresso(t)),
+    motivo: dgIdiomaBackend.campo(t, "motivo"), nota: t.nota, passos: t.passos, link: t.link, anexos: t.anexos,
     versao: String(t.versao), criada_por: t.criada_por, criada_em: t.criada_em,
     atualizada_em: t.atualizada_em, atualizada_em_epoch: t.atualizada_em_epoch,
     concluida_em: t.concluida_em, fechada_em: t.fechada_em,
     atualizada_ha_min: Math.floor(decorrido / 60000),
-  };
+  });
   if (comEventos) saida.eventos = t.eventos;
   return saida;
 }
@@ -261,7 +261,7 @@ function criarMesa(opcoes) {
     try {
       const d = JSON.parse(texto);
       if (!d || d.versao !== 1 || !Array.isArray(d.tarefas) || !Number.isInteger(d.proximo_id) || d.proximo_id < 1) {
-        throw new Error(dgIdiomaBackend.mensagem("formato inesperado (esperava {\"versao\":1,\"proximo_id\":N,\"tarefas\":[...]})"));
+        throw dgIdiomaBackend.criarErro(Error, [dgIdiomaBackend.descricao("formato inesperado (esperava {\"versao\":1,\"proximo_id\":N,\"tarefas\":[...]})")]);
       }
       dados = d; assinatura = atual; falha = null; ultimaFalhaLogada = null;
       return true;
@@ -341,7 +341,7 @@ function criarMesa(opcoes) {
     if (!avisarDono) return;
     const ag = registro.obter(agenteSlug);
     const nome = ag ? ag.nome : agenteSlug;
-    const aviso = { titulo: t.estado === 'travada' ? `${nome} travou` : dgIdiomaBackend.mensagem("{p0} precisa de você", {p0: (nome)}), corpo: motivo, tag: `mesa-${t.id}`, url: `/mesa#t${t.id}` };
+    const aviso = dgIdiomaBackend.objeto({ titulo: t.estado === 'travada' ? `${nome} travou` : dgIdiomaBackend.descricao("{p0} precisa de você", {p0: (nome)}), corpo: motivo, tag: `mesa-${t.id}`, url: `/mesa#t${t.id}` });
     Promise.resolve().then(() => avisarDono(aviso)).catch((e) => log('aviso', `Não consegui avisar o dono da tarefa #${t.id} (${e.message}). A tarefa continua no topo da mesa em /mesa.`));
   }
 
@@ -377,7 +377,7 @@ function criarMesa(opcoes) {
   function aplicar(atual, v, ms, motivoCancel) {
     const erros = {};
     const t = structuredClone(atual);
-    if (v.titulo !== undefined) t.titulo = v.titulo;
+    if (v.titulo !== undefined) dgIdiomaBackend.definir(t, "titulo", dgIdiomaBackend.campo(v, "titulo"));
     if (v.origem !== undefined) t.origem = v.origem;
     if (v.tipo !== undefined) t.tipo = v.tipo;
     if (v.progresso !== undefined) t.progresso = v.progresso;
@@ -407,10 +407,10 @@ function criarMesa(opcoes) {
     const estadoAntes = atual.estado;
     if (v.estado !== undefined) t.estado = v.estado;
     if (PEDEM_MOTIVO.has(t.estado)) {
-      if (v.motivo !== undefined) t.motivo = v.motivo;
-      if (!t.motivo) erros.motivo = `obrigatório quando o estado é ${t.estado}`;
+      if (v.motivo !== undefined) dgIdiomaBackend.definir(t, "motivo", dgIdiomaBackend.campo(v, "motivo"));
+      if (!t.motivo) dgIdiomaBackend.definir(erros, "motivo", `obrigatório quando o estado é ${t.estado}`);
     } else {
-      t.motivo = null;
+      dgIdiomaBackend.definir(t, "motivo", null);
     }
     if (t.estado === 'cancelada' && motivoCancel && v.nota === undefined) t.nota = curto(`Cancelada: ${motivoCancel}`, LIMITES.nota);
 
@@ -452,13 +452,13 @@ function criarMesa(opcoes) {
   function criar(corpo, quem, ms) {
     const { erros, v } = normalizaEntrada(corpo, 'criar');
     const slugs = listaDeSlugs();
-    if (!slugs) return { status: 503, erro: registro.estado().erro };
+    if (!slugs) return dgIdiomaBackend.objeto({ status: 503, erro: dgIdiomaBackend.campo(registro.estado(), "erro") });
     let agente;
     if (quem.tipo === 'agente') {
       if (corpo.agente !== undefined && corpo.agente !== null && corpo.agente !== quem.slug) {
-        return { status: 403, erro: dgIdiomaBackend.mensagem("O agente {p0} só pode criar tarefa para si mesmo (o pedido veio com agente {p1}). Tire o campo \"agente\" ou use o seu.", {p0: (quem.slug), p1: (JSON.stringify(String(corpo.agente).slice(0, 40)))}) };
+        return dgIdiomaBackend.objeto({ status: 403, erro: dgIdiomaBackend.descricao("O agente {p0} só pode criar tarefa para si mesmo (o pedido veio com agente {p1}). Tire o campo \"agente\" ou use o seu.", {p0: (quem.slug), p1: (JSON.stringify(String(corpo.agente).slice(0, 40)))}) });
       }
-      if (!slugs.includes(quem.slug)) return { status: 403, erro: dgIdiomaBackend.mensagem("O agente {p0} não está no registro de agentes deste Web. Peça ao dono para conferir o registro.", {p0: (quem.slug)}) };
+      if (!slugs.includes(quem.slug)) return dgIdiomaBackend.objeto({ status: 403, erro: dgIdiomaBackend.descricao("O agente {p0} não está no registro de agentes deste Web. Peça ao dono para conferir o registro.", {p0: (quem.slug)}) });
       agente = quem.slug;
     } else if (!ehTexto(corpo.agente) || !corpo.agente) {
       erros.agente = `obrigatório: diga para qual agente é a tarefa (${slugs.join(', ')})`;
@@ -471,17 +471,17 @@ function criarMesa(opcoes) {
     if (Object.keys(erros).length) return { status: 400, erros };
 
     const estado = v.estado || 'fazendo';
-    if (PEDEM_MOTIVO.has(estado) && !v.motivo) return { status: 400, erros: { motivo: dgIdiomaBackend.mensagem("obrigatório quando o estado é {p0}", {p0: (estado)}) } };
+    if (PEDEM_MOTIVO.has(estado) && !v.motivo) return { status: 400, erros: dgIdiomaBackend.objeto({ motivo: dgIdiomaBackend.descricao("obrigatório quando o estado é {p0}", {p0: (estado)}) }) };
     const id = dados.proximo_id;
-    const t = {
-      id, agente, titulo: v.titulo, origem: v.origem, tipo: v.tipo || 'outro', estado,
-      motivo: PEDEM_MOTIVO.has(estado) ? v.motivo : null,
+    const t = dgIdiomaBackend.objeto({
+      id, agente, titulo: dgIdiomaBackend.campo(v, "titulo"), origem: v.origem, tipo: v.tipo || 'outro', estado,
+      motivo: PEDEM_MOTIVO.has(estado) ? dgIdiomaBackend.campo(v, "motivo") : null,
       progresso: v.progresso === undefined ? null : v.progresso,
       nota: v.nota === undefined ? null : v.nota,
       passos: v.passos || [], link: v.link === undefined ? null : v.link, anexos: v.anexos || [],
       versao: 0, criada_por: por(quem), criada_em: isoLocal(ms, tz), atualizada_em: null, atualizada_em_epoch: 0,
       concluida_em: null, fechada_em: null, eventos: [],
-    };
+    });
     const depois = {};
     for (const k of CAMPOS_COMPARADOS) depois[k] = { antes: null, depois: t[k] };
     persistir(t, { em: isoLocal(ms, tz), por: por(quem), acao: 'criou', mudancas: depois }, ms, true);
@@ -502,10 +502,10 @@ function criarMesa(opcoes) {
 
   function editar(req, t, corpo, quem, ms, comoDelete) {
     if (quem.tipo === 'agente' && t.agente !== quem.slug) {
-      return { status: 403, erro: dgIdiomaBackend.mensagem("A tarefa #{p0} é do agente {p1}; o agente {p2} só mexe nas próprias. Peça ao dono ou ao {p3}.", {p0: (t.id), p1: (t.agente), p2: (quem.slug), p3: (t.agente)}) };
+      return dgIdiomaBackend.objeto({ status: 403, erro: dgIdiomaBackend.descricao("A tarefa #{p0} é do agente {p1}; o agente {p2} só mexe nas próprias. Peça ao dono ou ao {p3}.", {p0: (t.id), p1: (t.agente), p2: (quem.slug), p3: (t.agente)}) });
     }
     if (!concordaVersao(req, t, corpo)) {
-      return { status: 412, erro: dgIdiomaBackend.mensagem("A tarefa #{p0} mudou desde a versão {p1} (agora é a {p2}). Releia a tarefa e refaça a mudança.", {p0: (t.id), p1: (JSON.stringify(String(req.headers['if-match'] !== undefined ? req.headers['if-match'] : corpo.se_versao).replace(/"/g, ''))), p2: (t.versao)}), extra: { tarefa: calculaLeitura(t, ms, true) } };
+      return dgIdiomaBackend.objeto({ status: 412, erro: dgIdiomaBackend.descricao("A tarefa #{p0} mudou desde a versão {p1} (agora é a {p2}). Releia a tarefa e refaça a mudança.", {p0: (t.id), p1: (JSON.stringify(String(req.headers['if-match'] !== undefined ? req.headers['if-match'] : corpo.se_versao).replace(/"/g, ''))), p2: (t.versao)}), extra: { tarefa: calculaLeitura(t, ms, true) } });
     }
     let entrada;
     let motivoCancel = null;
@@ -514,18 +514,18 @@ function criarMesa(opcoes) {
       const m = textoCampo(corpo.motivo, 'motivo', LIMITES.motivo, { anulavel: true }, {});
       motivoCancel = m || null;
       entrada = { erros: {}, v: { estado: 'cancelada' } };
-      if (corpo.motivo !== undefined && corpo.motivo !== null && !ehTexto(corpo.motivo)) return { status: 400, erros: { motivo: dgIdiomaBackend.mensagem("precisa ser texto") } };
-      if (ehTexto(corpo.motivo) && umaLinha(corpo.motivo).length > LIMITES.motivo) return { status: 400, erros: { motivo: dgIdiomaBackend.mensagem("passou de {p0} caracteres", {p0: (LIMITES.motivo)}) } };
+      if (corpo.motivo !== undefined && corpo.motivo !== null && !ehTexto(corpo.motivo)) return { status: 400, erros: dgIdiomaBackend.objeto({ motivo: dgIdiomaBackend.descricao("precisa ser texto") }) };
+      if (ehTexto(corpo.motivo) && umaLinha(corpo.motivo).length > LIMITES.motivo) return { status: 400, erros: dgIdiomaBackend.objeto({ motivo: dgIdiomaBackend.descricao("passou de {p0} caracteres", {p0: (dgIdiomaBackend.campo(LIMITES, "motivo"))}) }) };
     } else {
       entrada = normalizaEntrada(corpo, 'editar');
       if (corpo.agente !== undefined && corpo.agente !== t.agente) entrada.erros.agente = `o agente de uma tarefa não muda (é ${t.agente}). Crie outra tarefa para ${ehTexto(corpo.agente) ? corpo.agente.slice(0, 40) : 'o outro agente'}`;
       if (entrada.v.estado === 'cancelada' && entrada.v.motivo) motivoCancel = entrada.v.motivo;
     }
     const r = aplicar(t, entrada.v, ms, motivoCancel);
-    const erros = Object.assign({}, entrada.erros, r.erros);
+    const erros = dgIdiomaBackend.atribuir({}, entrada.erros, r.erros);
     if (Object.keys(erros).length) return { status: 400, erros };
 
-    persistir(r.t, { em: isoLocal(ms, tz), por: por(quem), acao: r.acao, mudancas: r.mudancas, ...(motivoCancel ? { motivo: motivoCancel } : {}) }, ms, false);
+    persistir(r.t, dgIdiomaBackend.objeto({ em: isoLocal(ms, tz), por: por(quem), acao: r.acao, mudancas: r.mudancas, ...dgIdiomaBackend.espalhar(motivoCancel ? dgIdiomaBackend.objeto({ motivo: motivoCancel }) : {}) }), ms, false);
     const corpoResp = { ok: true, tarefa: calculaLeitura(r.t, ms, true), acao: r.acao };
     if (comoDelete) corpoResp.ja_estava = false;
     const mexeu = r.acao !== 'sinal de vida' && (Object.keys(r.mudancas).length > 0 || r.acao !== 'atualizou');
@@ -544,7 +544,7 @@ function criarMesa(opcoes) {
     const bruto = q.get('agente');
     if (bruto !== null) {
       const slugs = listaDeSlugs();
-      if (!slugs) return { status: 503, erro: registro.estado().erro };
+      if (!slugs) return dgIdiomaBackend.objeto({ status: 503, erro: dgIdiomaBackend.campo(registro.estado(), "erro") });
       agentes = bruto.split(',').map((s) => s.trim()).filter(Boolean);
       const falsos = agentes.filter((s) => !slugs.includes(s));
       if (!agentes.length || falsos.length) erros.agente = `${falsos.length ? `não existe: ${falsos.join(', ')}. ` : 'veio vazio. '}Agentes que existem: ${slugs.join(', ')}`;
@@ -589,7 +589,7 @@ function criarMesa(opcoes) {
     if (r.status === 304) { res.writeHead(304, r.cab); res.end(); return; }
     if (r.erro || r.erros) {
       const frase = r.erro || `Pedido recusado: ${Object.entries(r.erros).map(([k, m]) => `${k} ${m}`).join('; ')}.`;
-      H.erroJson(res, r.status, frase, Object.assign(r.erros ? { erros: r.erros } : {}, r.extra || {}));
+      H.erroJson(res, r.status, frase, dgIdiomaBackend.atribuir(r.erros ? { erros: r.erros } : {}, r.extra || {}));
       return;
     }
     H.enviaJson(res, r.status, r.corpo, r.cab);
@@ -603,11 +603,11 @@ function criarMesa(opcoes) {
 
     try {
       if (resto === 'docs.md') {
-        if (m !== 'GET') { H.erroJson(res, 405, dgIdiomaBackend.mensagem("Use GET para ler a documentação da Mesa.")); return true; }
+        if (m !== 'GET') { H.erroJson(res, 405, dgIdiomaBackend.descricao("Use GET para ler a documentação da Mesa.")); return true; }
         let texto;
         try { texto = fs.readFileSync(docsPath); } catch (e) {
           log('erro', `Não achei a documentação da Mesa em ${docsPath} (${e.code || e.message}). Reinstale o DG Claw Web.`);
-          H.erroJson(res, 500, dgIdiomaBackend.mensagem("A documentação da Mesa não está instalada neste servidor. Reinstale o DG Claw Web."));
+          H.erroJson(res, 500, dgIdiomaBackend.descricao("A documentação da Mesa não está instalada neste servidor. Reinstale o DG Claw Web."));
           return true;
         }
         res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Length': texto.length, 'Cache-Control': 'no-store' });
@@ -622,7 +622,7 @@ function criarMesa(opcoes) {
       }
       const permitidos = id === null ? ['GET', 'POST'] : ['GET', 'PATCH', 'DELETE'];
       if (!permitidos.includes(m)) {
-        H.erroJson(res, 405, id === null ? dgIdiomaBackend.mensagem("Use GET para listar a mesa ou POST para criar uma tarefa.") : dgIdiomaBackend.mensagem("Use GET para ler, PATCH para mudar ou DELETE para cancelar a tarefa."));
+        H.erroJson(res, 405, id === null ? dgIdiomaBackend.descricao("Use GET para listar a mesa ou POST para criar uma tarefa.") : dgIdiomaBackend.descricao("Use GET para ler, PATCH para mudar ou DELETE para cancelar a tarefa."));
         return true;
       }
 
@@ -634,10 +634,10 @@ function criarMesa(opcoes) {
       if (m === 'POST' || m === 'PATCH' || m === 'DELETE') {
         try { corpo = await H.lerJson(req, MAX_CORPO); } catch (e) {
           if (!e.status) throw e;
-          H.erroJson(res, e.status, e.status === 413 ? dgIdiomaBackend.mensagem("O corpo do pedido passou de {p0} KB. Mande menos texto, passos ou links por vez.", {p0: (MAX_CORPO / 1024)}) : e.message);
+          H.erroJson(res, e.status, e.status === 413 ? dgIdiomaBackend.descricao("O corpo do pedido passou de {p0} KB. Mande menos texto, passos ou links por vez.", {p0: (MAX_CORPO / 1024)}) : dgIdiomaBackend.campo(e, "message"));
           return true;
         }
-        if (Array.isArray(corpo)) { H.erroJson(res, 400, dgIdiomaBackend.mensagem("O corpo precisa ser um objeto JSON ({...}), não uma lista.")); return true; }
+        if (Array.isArray(corpo)) { H.erroJson(res, 400, dgIdiomaBackend.descricao("O corpo precisa ser um objeto JSON ({...}), não uma lista.")); return true; }
         // lerJson foi assíncrono: outro pedido pode ter mexido na mesa nesse meio tempo
         if (!carregar()) { H.erroJson(res, 503, falha); return true; }
       }
@@ -647,14 +647,14 @@ function criarMesa(opcoes) {
         return true;
       }
       const t = dados.tarefas.find((x) => x.id === id);
-      if (!t) { H.erroJson(res, 404, dgIdiomaBackend.mensagem("Não existe a tarefa #{p0}. Veja as tarefas em GET /api/v1/tarefas (as fechadas há muito tempo saem da mesa).", {p0: (id)})); return true; }
+      if (!t) { H.erroJson(res, 404, dgIdiomaBackend.descricao("Não existe a tarefa #{p0}. Veja as tarefas em GET /api/v1/tarefas (as fechadas há muito tempo saem da mesa).", {p0: (id)})); return true; }
       if (m === 'GET') { H.enviaJson(res, 200, { ok: true, tarefa: calculaLeitura(t, ms, true) }); return true; }
       responde(res, editar(req, t, corpo, quem, ms, m === 'DELETE'));
       return true;
     } catch (e) {
-      if (e.status === 503) { H.erroJson(res, 503, e.message); return true; }
+      if (e.status === 503) { H.erroJson(res, 503, dgIdiomaBackend.campo(e, "message")); return true; }
       log('erro', `Falha inesperada na Mesa em ${req.method} ${p}: ${e.stack || e.message}. Mande esta linha ao suporte.`);
-      H.erroJson(res, 500, dgIdiomaBackend.mensagem("Erro interno ao tratar a tarefa. O erro foi registrado no log do Web; tente de novo."));
+      H.erroJson(res, 500, dgIdiomaBackend.descricao("Erro interno ao tratar a tarefa. O erro foi registrado no log do Web; tente de novo."));
       return true;
     }
   }

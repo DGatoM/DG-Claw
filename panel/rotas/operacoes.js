@@ -25,10 +25,10 @@ module.exports = function registrar(router, ctx) {
       // inteiro parava enquanto o systemd respondia. Ver lib/rotinas.js.
       res.json(await rotinas.listar(CONFIG.agentSlug, CONFIG.agentDir));
     } catch (e) {
-      res.status(500).json({
+      res.status(500).json(dgIdiomaBackend.objeto({
         rotinas: [], inconsistencias: [],
-        erro: dgIdiomaBackend.mensagem("nao consegui ler a agenda no systemd: {p0}", {p0: (e.message)}),
-      });
+        erro: dgIdiomaBackend.descricao("nao consegui ler a agenda no systemd: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}),
+      }));
     }
   });
 
@@ -37,7 +37,7 @@ module.exports = function registrar(router, ctx) {
     try {
       res.json(skillsLib.listar(CONFIG.agentDir, process.env.DGCLAW_PANEL_SKILLS_DIR));
     } catch (e) {
-      res.status(500).json({ error: dgIdiomaBackend.mensagem("Não consegui listar as skills: {p0}", {p0: (e.message)}), howToFix: dgIdiomaBackend.texto("Confira se a pasta do agente existe e se o painel pode lê-la."), skills: [], pastas: [] });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: dgIdiomaBackend.descricao("Não consegui listar as skills: {p0}", {p0: (dgIdiomaBackend.campo(e, "message"))}), howToFix: dgIdiomaBackend.texto("Confira se a pasta do agente existe e se o painel pode lê-la."), skills: [], pastas: [] }));
     }
   });
 
@@ -56,9 +56,9 @@ module.exports = function registrar(router, ctx) {
 
     // Tipo dinâmico: qualquer <prefix>-<type>.log dentro do logDir.
     if (!logMap[type]) {
-      if (!/^[a-z0-9-]+$/i.test(type)) return res.status(400).json({ error: 'invalid log type' });
+      if (!/^[a-z0-9-]+$/i.test(type)) return res.status(400).json(dgIdiomaBackend.objeto({ error: 'invalid log type' }));
       const candidate = type === 'heartbeat' ? P.LOG_HEARTBEAT : P.logFile(type);
-      if (!candidate.startsWith(P.LOG_DIR)) return res.status(400).json({ error: 'invalid log type' });
+      if (!candidate.startsWith(P.LOG_DIR)) return res.status(400).json(dgIdiomaBackend.objeto({ error: 'invalid log type' }));
       return res.json({ type, content: readFileTail(candidate, lines) });
     }
 
@@ -83,7 +83,7 @@ module.exports = function registrar(router, ctx) {
       res.json(data);
     } catch (e) {
       // getStatus nunca rejeita, mas por garantia:
-      res.status(500).json({ error: String(e.message || e) });
+      res.status(500).json(dgIdiomaBackend.objeto({ error: String(e.message || e) }));
     }
   });
 };
