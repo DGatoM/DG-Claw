@@ -323,12 +323,31 @@ test('agente selecionado: falhas diferentes em A e B, a dica é a do agente sele
   assert.match(M.usoHtml(ag, {}, AGORA, 'a'), /sem login da Ana/);
 });
 
-test('conta do agente selecionado: sem atualId, ou com id que não existe, mostra todos os cartões', () => {
+test('conta do agente selecionado: sem atualId mostra todos os cartões', () => {
   const ag = {
     a: uso('claude', 11, 21, iso(2026, 9, 24, 9, 0), iso(2026, 9, 19, 11, 0)),
     b: uso('claude', 66, 77, iso(2026, 9, 26, 9, 0), iso(2026, 9, 19, 11, 0)),
   };
-  for (const id of [undefined, null, 'zzz']) {
+  for (const id of [undefined, null, '']) {
     assert.equal((M.usoHtml(ag, {}, AGORA, id).match(/class="ml-uso-card"/g) || []).length, 2);
   }
+});
+
+test('atualId ausente da resposta: cartão sem números, agente indisponível', () => {
+  const ag = { a: uso('claude', 11, 21, iso(2026, 9, 24, 9, 0), iso(2026, 9, 19, 11, 0)) };
+  const h = M.usoHtml(ag, {}, AGORA, 'zzz');
+  assert.equal((h.match(/class="ml-uso-card"/g) || []).length, 1);
+  assert.match(h, /agente indisponível/);
+  assert.match(h, /Este agente não está no registro; recarregue a página\./);
+  assert.doesNotMatch(h, /11%/);
+});
+
+test('agente selecionado sem medição: erro vira "não consegui ler o uso", motivo fica "sem medição ainda"', () => {
+  const ag = { a: { uso: null, erro: 'falhou X' }, b: { uso: null, motivo: 'sem login' } };
+  const ha = M.usoHtml(ag, {}, AGORA, 'a');
+  assert.match(ha, /ml-uso-rodape erro"[^>]*title="falhou X">não consegui ler o uso/);
+  assert.doesNotMatch(ha, /sem medição ainda/);
+  const hb = M.usoHtml(ag, {}, AGORA, 'b');
+  assert.match(hb, /sem medição ainda/);
+  assert.match(hb, /title="sem login"/);
 });

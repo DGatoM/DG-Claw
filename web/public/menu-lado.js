@@ -463,11 +463,17 @@
      Com atualId (o slug do agente selecionado) presente na resposta, o bloco mostra UM cartão com a medição do próprio
      agente (nunca a de outro agente do grupo). Se ele não tem medição, mostra "sem medição ainda" com a causa dele,
      mesmo quando outros agentes têm medição. O título leva o provedor do agente quando a resposta tem medição de mais
-     de um provedor. Sem atualId, ou com um atualId que não está na resposta, mostra todas as assinaturas agrupadas. */
+     de um provedor. Se o agente tem erro, o rodapé diz "não consegui ler o uso" e a dica é o erro; se só tem motivo,
+     "sem medição ainda" com o motivo. Com atualId que não está na resposta, mostra "agente indisponível". A visão
+     agrupada (todas as assinaturas) só aparece quando atualId não vem. */
   function usoHtml(agentes, nomesPorSlug, agora, atualId) {
     const rotulo = { claude: 'Claude', codex: 'ChatGPT' };
     const semMedicao = (dica) => cartaoUso({ titulo: 'Uso da assinatura', uso: null,
       rodape: { texto: 'sem medição ainda', dica: dica || '' } }, agora);
+    if (atualId && !(agentes && Object.prototype.hasOwnProperty.call(agentes, atualId))) {
+      return cartaoUso({ titulo: 'Uso da assinatura', uso: null,
+        rodape: { texto: 'agente indisponível', dica: 'Este agente não está no registro; recarregue a página.' } }, agora);
+    }
     if (atualId && agentes && Object.prototype.hasOwnProperty.call(agentes, atualId)) {
       const e = agentes[atualId], u = e && e.uso;
       if (u && u.medido_em && isFinite(new Date(u.medido_em).getTime())) {
@@ -485,7 +491,11 @@
           rodape: { texto: m ? m.texto : 'medido', classe: m && m.velho ? 'velho' : '' },
         }, agora);
       }
-      return semMedicao(e ? (e.erro || e.motivo) : '');
+      if (e && e.erro) {
+        return cartaoUso({ titulo: 'Uso da assinatura', uso: null,
+          rodape: { texto: 'não consegui ler o uso', classe: 'erro', dica: e.erro } }, agora);
+      }
+      return semMedicao(e ? e.motivo : '');
     }
     const todos = assinaturasDeUso(agentes, nomesPorSlug);
     if (!todos.length) {
@@ -671,10 +681,9 @@
       }
       const nomes = {};
       (ultimaLista ? ultimaLista.lista : []).forEach(a => { nomes[a.id] = a.nome || a.id; });
-      Object.keys(d.agentes || {}).forEach(slug => {
-        const e = d.agentes[slug];
-        if (e && (e.erro || e.motivo)) console.warn('menu-lado: uso de ' + (nomes[slug] || slug) + ' sem medição: ' + (e.erro || e.motivo));
-      });
+      const slugAtual = agenteAtual && agenteAtual.id;
+      const ea = slugAtual && d.agentes ? d.agentes[slugAtual] : null;
+      if (ea && (ea.erro || ea.motivo)) console.warn('menu-lado: uso de ' + (nomes[slugAtual] || slugAtual) + ' sem medição: ' + (ea.erro || ea.motivo));
       caixa.innerHTML = usoHtml(d.agentes || {}, nomes, Date.now(), agenteAtual && agenteAtual.id);
     } catch (e) {
       console.warn('menu-lado: não consegui ler o uso da assinatura:', e.message);
